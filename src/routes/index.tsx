@@ -6,6 +6,14 @@ import Hero from "~/components/starter/hero/hero";
 import Infobox from "~/components/starter/infobox/infobox";
 import Starter from "~/components/starter/next-steps/next-steps";
 
+import flexsearch from "flexsearch";
+const { Index } = flexsearch;
+
+const options = {};
+const index = new Index(options);
+index.add(0, "Jonn Doe");
+index.add(1, "figa");
+
 export default component$(() => {
   return (
     <>
