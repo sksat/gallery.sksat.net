@@ -6,6 +6,8 @@ import Hero from "~/components/starter/hero/hero";
 import Infobox from "~/components/starter/infobox/infobox";
 import Starter from "~/components/starter/next-steps/next-steps";
 
+import Gallery from "~/components/gallery/gallery";
+
 import flexsearch from "flexsearch";
 const { Index } = flexsearch;
 
@@ -22,6 +24,8 @@ export default component$(() => {
 
       <div role="presentation" class="ellipsis"></div>
       <div role="presentation" class="ellipsis ellipsis-purple"></div>
+
+      <Gallery />
 
       <div class="container container-center container-spacing-xl">
         <h3>
