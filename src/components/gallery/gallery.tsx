@@ -9,16 +9,6 @@ function image(src: string) {
   );
 }
 
-function all_images(index: JSON){
-  let imgs = "";
-  for (const i in index) {
-    console.log(image(index[i].file));
-    imgs += image(index[i].file);
-  }
-
-  return imgs;
-}
-
 export default component$(() => {
   const indexResource = useResource$(() => {
     return fetch('http://127.0.0.1:5173/media/media.json')
