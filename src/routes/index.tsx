@@ -18,7 +18,7 @@ export default component$(() => {
     <>
       <Gallery />
 
-      <div class="container container-flex">
+      <div class="container-flex container">
         <Infobox>
           <div q:slot="title" class="icon icon-cli">
             CLI Commands

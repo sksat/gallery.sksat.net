@@ -2,9 +2,9 @@ import { component$, useResource$, Resource } from "@builder.io/qwik";
 
 // media.json type
 type MediaInfo = {
-  number: number
-  file: string
-}
+  number: number;
+  file: string;
+};
 
 type MediaIndex = MediaInfo[];
 
@@ -13,15 +13,16 @@ function image(src: string) {
     <img
       alt="gallery"
       class="block h-full w-full rounded-lg object-cover object-center"
-      src={src} />
+      src={src}
+    />
   );
 }
 
 export default component$(() => {
   const indexResource = useResource$(() => {
-    return fetch('http://127.0.0.1:5173/media/media.json')
-      .then(res => res.json())
-      .then(data => data);
+    return fetch("http://127.0.0.1:5173/media/media.json")
+      .then((res) => res.json())
+      .then((data) => data);
   });
 
   return (
@@ -29,13 +30,15 @@ export default component$(() => {
       <Resource
         value={indexResource}
         onResolved={(index: MediaIndex) => {
-          return <div class="-m-1 flex flex-wrap md:-m-2">
-            {index.map(item => (
-              <div class="flex w-1/3 flex-wrap">
-                <div class="w-full p-1 md:p-2">{image(item.file)}</div>
-              </div>
-            ))}
-          </div>;
+          return (
+            <div class="-m-1 flex flex-wrap md:-m-2">
+              {index.map((item) => (
+                <div class="flex w-1/3 flex-wrap">
+                  <div class="w-full p-1 md:p-2">{image(item.file)}</div>
+                </div>
+              ))}
+            </div>
+          );
         }}
       />
     </div>
