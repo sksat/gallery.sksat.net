@@ -30,7 +30,7 @@ export default component$(() => {
       .then((data) => data);
   });
 
-  const selectedImage = useSignal<string|null>(null);
+  const selectedImage = useSignal<string | null>(null);
 
   return (
     <div class="container mx-auto px-5 py-2 lg:px-32 lg:pt-12">
@@ -40,8 +40,14 @@ export default component$(() => {
           return (
             <div class="-m-1 flex flex-wrap md:-m-2">
               {selectedImage.value && (
-                <div onClick$={() => (selectedImage.value = null)}>
-                  {image(selectedImage.value)}
+                <div
+                  onClick$={() => (selectedImage.value = null)}
+                  class="fixed inset-0 flex items-center justify-center bg-black"
+                >
+                  <img
+                    src={selectedImage.value}
+                    class="max-w-90% max-h-90%"
+                  ></img>
                 </div>
               )}
               {index.map((item) => (
