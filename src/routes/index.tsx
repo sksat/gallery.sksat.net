@@ -19,21 +19,7 @@ index.add(1, "figa");
 export default component$(() => {
   return (
     <>
-      <Hero />
-      <Starter />
-
-      <div role="presentation" class="ellipsis"></div>
-      <div role="presentation" class="ellipsis ellipsis-purple"></div>
-
       <Gallery />
-
-      <div class="container container-center container-spacing-xl">
-        <h3>
-          You can <span class="highlight">count</span>
-          <br /> on me
-        </h3>
-        <Counter />
-      </div>
 
       <div class="container container-flex">
         <Infobox>
