@@ -30,7 +30,7 @@ export default component$(() => {
       .then((data) => data);
   });
 
-  const selectedImage = useSignal(null);
+  const selectedImage = useSignal<string|null>(null);
 
   return (
     <div class="container mx-auto px-5 py-2 lg:px-32 lg:pt-12">
