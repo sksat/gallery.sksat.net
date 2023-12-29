@@ -20,7 +20,7 @@ function image(src: string) {
 
 export default component$(() => {
   const indexResource = useResource$(() => {
-    return fetch("http://127.0.0.1:5173/media/media.json")
+    return fetch(import.meta.env.VITE_S3_BASE_URL + "/media/media.json")
       .then((res) => res.json())
       .then((data) => data);
   });
