@@ -15,16 +15,6 @@ type MediaInfo = {
 
 type MediaIndex = MediaInfo[];
 
-function image(src: string) {
-  return (
-    <img
-      alt="gallery"
-      class="block h-full w-full rounded-lg object-cover object-center"
-      src={src}
-    />
-  );
-}
-
 export default component$(() => {
   const indexResource = useResource$(() => {
     return fetch(import.meta.env.VITE_S3_BASE_URL + "/media/media.json")
@@ -75,7 +65,10 @@ export default component$(() => {
                       class="w-full p-1 md:p-2"
                       onClick$={() => (selectedImage.value = i)}
                     >
-                      {image(item.file)}
+                      <img
+                        class="block h-full w-full rounded-lg object-cover object-center"
+                        src={item.file}
+                      />
                     </div>
                   </div>
                 ))
