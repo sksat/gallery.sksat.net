@@ -87,7 +87,7 @@ export default component$(() => {
                   selectedImage.value >= 0 && (
                     <div
                       onClick$={() => (selectedImage.value = -1)}
-                      class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
+                      class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-10"
                     >
                       <img
                         src={media[selectedImage.value].file}
