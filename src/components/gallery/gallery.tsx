@@ -42,7 +42,7 @@ export default component$(() => {
         value={indexResource}
         onResolved={(media: MediaIndex) => {
           return (
-            <div class="-m-1 flex flex-wrap md:-m-2">
+            <div class="flex flex-wrap gap-4">
               {
                 // 選択した画像をオーバーレイ表示
                 selectedImage.value >= 0 && (
@@ -60,17 +60,11 @@ export default component$(() => {
               {
                 // 画像の一覧表示
                 media.map((item, i) => (
-                  <div class="flex w-1/3 flex-wrap">
-                    <div
-                      class="w-full p-1 md:p-2"
-                      onClick$={() => (selectedImage.value = i)}
-                    >
-                      <img
-                        class="block h-full w-full rounded-lg object-cover object-center"
-                        src={item.file}
-                      />
-                    </div>
-                  </div>
+                  <img
+                    class="max-h-60"
+                    onClick$={() => (selectedImage.value = i)}
+                    src={item.file}
+                  />
                 ))
               }
             </div>
