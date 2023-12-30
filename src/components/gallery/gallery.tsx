@@ -8,15 +8,6 @@ import {
   useStore,
 } from "@builder.io/qwik";
 
-import {
-  SelectRoot,
-  SelectTrigger,
-  SelectValue,
-  SelectOption,
-  SelectListBox,
-  SelectMarker,
-} from "@qwik-ui/headless";
-
 // media.json type
 type MediaWorld = "VRChat" | "Real";
 type MediaCamera = {
@@ -59,7 +50,7 @@ export default component$(() => {
 
   const store = useStore({ selectedWorld: "Real" });
 
-  const selectOption = $((event) => {
+  const selectOption = $((event: any) => {
     store.selectedWorld = event.target.value;
   });
 
