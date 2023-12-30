@@ -99,11 +99,12 @@ export default component$(() => {
                 {
                   // 画像の一覧表示
                   media
+                    .map((item, index) => ({ ...item, index }))
                     .filter((item) => item.world === store.selectedWorld)
-                    .map((item, i) => (
+                    .map(({ index, ...item }) => (
                       <img
                         class="max-h-60"
-                        onClick$={() => (selectedImage.value = i)}
+                        onClick$={() => (selectedImage.value = index)}
                         src={item.file}
                       />
                     ))
