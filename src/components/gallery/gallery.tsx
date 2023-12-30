@@ -8,9 +8,18 @@ import {
 } from "@builder.io/qwik";
 
 // media.json type
+type MediaWorld = "VRChat" | "Real";
+type MediaCamera = {
+  make: string;
+  model: string;
+}
+
 type MediaInfo = {
-  number: number;
   file: string;
+  world: MediaWorld;
+  timestamp: null | Date;
+  camera: null | MediaCamera;
+  tags: [string];
 };
 
 type MediaIndex = MediaInfo[];
