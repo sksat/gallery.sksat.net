@@ -56,8 +56,10 @@ export default component$(() => {
 
   const store = useStore({ selectedWorld: "Real" });
 
-  const selectOption = $((event: any) => {
+  const selectOption = $((event: Event) => {
+    if (event.target instanceof HTMLInputElement) {
     store.selectedWorld = event.target.value;
+    }
   });
 
   return (
