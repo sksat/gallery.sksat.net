@@ -1,8 +1,6 @@
 import { component$ } from "@builder.io/qwik";
 import type { DocumentHead } from "@builder.io/qwik-city";
 
-import Infobox from "~/components/starter/infobox/infobox";
-
 import Gallery from "~/components/gallery/gallery";
 
 import flexsearch from "flexsearch";
