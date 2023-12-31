@@ -1,0 +1,20 @@
+.image-container {
+  position: relative;
+  /* その他のスタイリング */
+}
+
+.metadata {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: rgba(0, 0, 0, 0.5); /* 半透明の背景 */
+  color: white;
+  padding: 10px;
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+
+.image-container:hover .metadata {
+  opacity: 1;
+}

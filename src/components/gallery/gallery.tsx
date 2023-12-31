@@ -8,6 +8,8 @@ import {
   useStore,
 } from "@builder.io/qwik";
 
+import styles from "./gallery.module.css";
+
 // media.json type
 type MediaWorld = "VRChat" | "Real";
 type MediaCamera = {
@@ -39,7 +41,10 @@ export default component$(() => {
     $((event: KeyboardEvent) => {
       if (selectedImage.value < 0) return; // 選択されていない
       if (event.key === "ArrowRight") {
+        console.log(event);
+        console.log(selectedImage.value);
         selectedImage.value++;
+        console.log(selectedImage.value);
       } else if (event.key === "ArrowLeft") {
         selectedImage.value--;
       }
@@ -80,6 +85,10 @@ export default component$(() => {
         <Resource
           value={indexResource}
           onResolved={(media: MediaIndex) => {
+            const filterdMedia = media.filter(
+              (m) => m.world === store.selectedWorld,
+            );
+            console.log(selectedImage.value);
             return (
               <div class="flex flex-wrap gap-4">
                 {
@@ -87,10 +96,10 @@ export default component$(() => {
                   selectedImage.value >= 0 && (
                     <div
                       onClick$={() => (selectedImage.value = -1)}
-                      class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-10"
+                      class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
                     >
                       <img
-                        src={media[selectedImage.value].file}
+                        src={filterdMedia[selectedImage.value].file}
                         class="max-w-90% max-h-90%"
                       ></img>
                     </div>
@@ -98,16 +107,16 @@ export default component$(() => {
                 }
                 {
                   // 画像の一覧表示
-                  media
-                    .map((item, index) => ({ ...item, index }))
-                    .filter((item) => item.world === store.selectedWorld)
-                    .map(({ index, ...item }) => (
+                  filterdMedia.map((item, index) => (
+                    <div class={styles["image-container"]}>
                       <img
                         class="max-h-60"
                         onClick$={() => (selectedImage.value = index)}
                         src={item.file}
                       />
-                    ))
+                      <div class={styles["metadata"]}>{item.timestamp}</div>
+                    </div>
+                  ))
                 }
               </div>
             );
