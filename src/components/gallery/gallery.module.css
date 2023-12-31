@@ -13,6 +13,7 @@
   padding: 10px;
   opacity: 0;
   transition: opacity 0.5s;
+  text-align: left;
 }
 
 .image-container:hover .metadata {

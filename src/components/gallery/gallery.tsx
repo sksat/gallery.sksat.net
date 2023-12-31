@@ -114,7 +114,15 @@ export default component$(() => {
                         onClick$={() => (selectedImage.value = index)}
                         src={item.file}
                       />
-                      <div class={styles["metadata"]}>{item.timestamp}</div>
+                      <div class={styles["metadata"]}>
+                        <div>{item.timestamp?.toLocaleString("ja-JP")}</div>
+                        {item.camera && <div>{item.camera.model}</div>}
+                        <div class="flex gap-2">
+                          {item.tags.map((tag) => (
+                            <div>{tag}</div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   ))
                 }
