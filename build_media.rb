@@ -30,7 +30,7 @@ Find.find('./media/VRChat') {|f|
 
   camera = {make: "logilabo", model: "VirtualLens2"}
 
-  json << {file: f.delete_prefix("."), world: world, camera: camera, timestamp: date, tags: tags}
+  json << {file: f.delete_prefix("./media"), world: world, camera: camera, timestamp: date, tags: tags}
 }
 
 Find.find('./media') {|f|
@@ -45,7 +45,7 @@ Find.find('./media') {|f|
   date = nil
   tags = ['film']
 
-  json << {file: f.delete_prefix("."), world: "Real", camera: camera, timestamp: date, tags: tags}
+  json << {file: f.delete_prefix("./media"), world: "Real", camera: camera, timestamp: date, tags: tags}
 }
 
 json = JSON.pretty_generate(json)
