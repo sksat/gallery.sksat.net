@@ -116,7 +116,11 @@ export default component$(() => {
                       />
                       <div class={styles["metadata"]}>
                         <div>{item.timestamp?.toLocaleString("ja-JP")}</div>
-                        {item.camera && <div>{item.camera.model}</div>}
+                        {item.camera && (
+                          <div>
+                            {item.camera.make} {item.camera.model}
+                          </div>
+                        )}
                         <div class="flex gap-2">
                           {item.tags.map((tag) => (
                             <div>{tag}</div>
