@@ -29,7 +29,8 @@ type MediaIndex = MediaInfo[];
 
 export default component$(() => {
   const indexResource = useResource$(() => {
-    return fetch(import.meta.env.VITE_S3_BASE_URL + "/media/media.json")
+    console.log(import.meta.env.VITE_S3_BASE_URL)
+    return fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json")
       .then((res) => res.json())
       .then((data) => data);
   });
@@ -99,7 +100,7 @@ export default component$(() => {
                       class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
                     >
                       <img
-                        src={filterdMedia[selectedImage.value].file}
+                        src={import.meta.env.VITE_S3_BASE_URL + filterdMedia[selectedImage.value].file}
                         class="max-w-90% max-h-90%"
                       ></img>
                     </div>
@@ -112,7 +113,7 @@ export default component$(() => {
                       <img
                         class="max-h-60"
                         onClick$={() => (selectedImage.value = index)}
-                        src={item.file}
+                        src={import.meta.env.VITE_S3_BASE_URL + item.file}
                       />
                       <div class={styles["metadata"]}>
                         <div>{item.timestamp?.toLocaleString("ja-JP")}</div>
