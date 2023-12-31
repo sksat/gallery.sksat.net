@@ -29,7 +29,7 @@ type MediaIndex = MediaInfo[];
 
 export default component$(() => {
   const indexResource = useResource$(() => {
-    console.log(import.meta.env.VITE_S3_BASE_URL);
+    console.log(import.meta.env.VITE_S3_BASE_URL)
     return fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json")
       .then((res) => res.json())
       .then((data) => data);
@@ -42,9 +42,12 @@ export default component$(() => {
     $((event: KeyboardEvent) => {
       if (selectedImage.value < 0) return; // 選択されていない
       if (event.key === "ArrowRight") {
-        selectedImage.value += 0.5; // workaround for duplicated event
+        console.log(event);
+        console.log(selectedImage.value);
+        selectedImage.value++;
+        console.log(selectedImage.value);
       } else if (event.key === "ArrowLeft") {
-        selectedImage.value -= 0.5;
+        selectedImage.value--;
       }
     }),
   );
@@ -55,7 +58,7 @@ export default component$(() => {
 
   const selectOption = $((event: Event) => {
     if (event.target instanceof HTMLInputElement) {
-      store.selectedWorld = event.target.value;
+    store.selectedWorld = event.target.value;
     }
   });
 
@@ -99,10 +102,7 @@ export default component$(() => {
                       class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
                     >
                       <img
-                        src={
-                          import.meta.env.VITE_S3_BASE_URL +
-                          filterdMedia[Math.floor(selectedImage.value)].file
-                        }
+                        src={import.meta.env.VITE_S3_BASE_URL + filterdMedia[selectedImage.value].file}
                         class="max-w-90% max-h-90%"
                       ></img>
                     </div>
