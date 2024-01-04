@@ -3,14 +3,12 @@ import {
   useResource$,
   useTask$,
   Resource,
-  useSignal,
   useOnDocument,
   $,
   useStore,
 } from "@builder.io/qwik";
 
 import styles from "./gallery.module.css";
-import { useLocation } from "@builder.io/qwik-city";
 
 // media.json type
 type MediaWorld = "VRChat" | "Real";
@@ -42,7 +40,6 @@ export default component$((props: GallerySatate) => {
       .then((data) => data);
   });
 
-  const location = useLocation();
   const state = useStore<GallerySatate>({
     selectedImageId: props.selectedImageId ?? null,
     selectedWorld: "Real",
@@ -122,8 +119,8 @@ export default component$((props: GallerySatate) => {
             const filterdMedia = media
               .map((value, index) => ({ index, value }))
               .filter(
-                ({ value, index }) =>
-                  value.world === (state.selectedWorld as string),
+                (value) =>
+                  value.value.world === (state.selectedWorld as string),
               );
             return (
               <div class="flex flex-wrap gap-4">
