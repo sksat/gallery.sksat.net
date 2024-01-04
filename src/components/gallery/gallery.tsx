@@ -1,8 +1,8 @@
 import {
   component$,
   useResource$,
+  useTask$,
   Resource,
-  useSignal,
   useOnDocument,
   $,
   useStore,
@@ -27,38 +27,66 @@ type MediaInfo = {
 
 type MediaIndex = MediaInfo[];
 
-export default component$(() => {
+interface GallerySatate {
+  selectedImageId: null | number;
+  selectedWorld: null | "Real" | "VRChat";
+}
+
+export default component$((props: GallerySatate) => {
   const indexResource = useResource$(() => {
-    console.log(import.meta.env.VITE_S3_BASE_URL)
+    console.log(import.meta.env.VITE_S3_BASE_URL);
     return fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json")
       .then((res) => res.json())
       .then((data) => data);
   });
 
-  const selectedImage = useSignal<number>(-1);
+  const state = useStore<GallerySatate>({
+    selectedImageId: props.selectedImageId ?? null,
+    selectedWorld: "Real",
+  });
+
+  const worldArray = ["Real", "VRChat"];
+
+  const selectOption = $((event: Event) => {
+    if (event.target instanceof HTMLInputElement) {
+      state.selectedWorld = "VRChat"; // event.target.value;
+    }
+  });
+
+  const selectImage = $((imageId: null | number) => {
+    state.selectedImageId = imageId;
+    if (imageId !== null) {
+      window.history.pushState(null, "", `/photo/${imageId}`);
+    } else {
+      window.history.pushState(null, "", "/");
+    }
+  });
 
   useOnDocument(
     "keydown",
     $((event: KeyboardEvent) => {
-      if (selectedImage.value < 0) return; // 選択されていない
+      if (state.selectedImageId === null) return; // 選択されていない
       if (event.key === "ArrowRight") {
         console.log(event);
-        console.log(selectedImage.value);
-        selectedImage.value++;
-        console.log(selectedImage.value);
+        console.log(state.selectedImageId);
+        state.selectedImageId++;
+        console.log(state.selectedImageId);
       } else if (event.key === "ArrowLeft") {
-        selectedImage.value--;
+        state.selectedImageId--;
       }
+
+      selectImage(state.selectedImageId);
     }),
   );
 
-  const worldArray = ["Real", "VRChat"];
+  useTask$(() => {
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      const imageId = url.searchParams.get("imageId");
 
-  const store = useStore({ selectedWorld: "Real" });
-
-  const selectOption = $((event: Event) => {
-    if (event.target instanceof HTMLInputElement) {
-    store.selectedWorld = event.target.value;
+      if (imageId) {
+        state.selectedImageId = parseInt(imageId, 10);
+      }
     }
   });
 
@@ -75,7 +103,7 @@ export default component$(() => {
                 name="options"
                 value={worldOption}
                 onClick$={selectOption}
-                checked={store.selectedWorld === worldOption}
+                checked={state.selectedWorld === worldOption}
               />
               <label for={worldOption} class="ml-2 text-lg">
                 {worldOption}
@@ -88,21 +116,26 @@ export default component$(() => {
         <Resource
           value={indexResource}
           onResolved={(media: MediaIndex) => {
-            const filterdMedia = media.filter(
-              (m) => m.world === store.selectedWorld,
-            );
-            console.log(selectedImage.value);
+            const filterdMedia = media
+              .map((value, index) => ({ index, value }))
+              .filter(
+                (value) =>
+                  value.value.world === (state.selectedWorld as string),
+              );
             return (
               <div class="flex flex-wrap gap-4">
                 {
                   // 選択した画像をオーバーレイ表示
-                  selectedImage.value >= 0 && (
+                  state.selectedImageId !== null && (
                     <div
-                      onClick$={() => (selectedImage.value = -1)}
+                      onClick$={() => selectImage(null)}
                       class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
                     >
                       <img
-                        src={import.meta.env.VITE_S3_BASE_URL + filterdMedia[selectedImage.value].file}
+                        src={
+                          import.meta.env.VITE_S3_BASE_URL +
+                          media[state.selectedImageId].file
+                        }
                         class="max-w-90% max-h-90%"
                       ></img>
                     </div>
@@ -110,22 +143,22 @@ export default component$(() => {
                 }
                 {
                   // 画像の一覧表示
-                  filterdMedia.map((item, index) => (
+                  filterdMedia.map((m) => (
                     <div class={styles["image-container"]}>
                       <img
                         class="max-h-60"
-                        onClick$={() => (selectedImage.value = index)}
-                        src={import.meta.env.VITE_S3_BASE_URL + item.file}
+                        onClick$={() => selectImage(m.index)}
+                        src={import.meta.env.VITE_S3_BASE_URL + m.value.file}
                       />
                       <div class={styles["metadata"]}>
-                        <div>{item.timestamp?.toLocaleString("ja-JP")}</div>
-                        {item.camera && (
+                        <div>{m.value.timestamp?.toLocaleString("ja-JP")}</div>
+                        {m.value.camera && (
                           <div>
-                            {item.camera.make} {item.camera.model}
+                            {m.value.camera.make} {m.value.camera.model}
                           </div>
                         )}
                         <div class="flex gap-2">
-                          {item.tags.map((tag) => (
+                          {m.value.tags.map((tag) => (
                             <div>{tag}</div>
                           ))}
                         </div>
