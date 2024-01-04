@@ -14,7 +14,7 @@ index.add(1, "figa");
 export default component$(() => {
   return (
     <>
-      <Gallery />
+      <Gallery selectedWorld={null} selectedImageId={null} />
     </>
   );
 });
