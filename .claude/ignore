@@ -2,4 +2,4 @@
 # Files and directories listed here will not be read by Claude Code
 
 # Project-specific sensitive data
-.bs-passwd
+.b2-passwd
