@@ -17,39 +17,71 @@ type MediaCamera = {
   model: string;
 };
 
+type MediaInfoJSON = {
+  file: string;
+  world: MediaWorld;
+  timestamp: null | string;
+  camera: null | MediaCamera;
+  tags: string[];
+};
+
 type MediaInfo = {
   file: string;
   world: MediaWorld;
   timestamp: null | Date;
   camera: null | MediaCamera;
-  tags: [string];
+  tags: string[];
 };
 
 type MediaIndex = MediaInfo[];
 
-interface GallerySatate {
+interface GalleryProps {
   selectedImageId: null | number;
   selectedWorld: null | "Real" | "VRChat";
 }
 
-export default component$((props: GallerySatate) => {
+interface GalleryState extends GalleryProps {
+  mediaCount: number;
+  filteredIndices: number[];
+}
+
+export default component$((props: GalleryProps) => {
   const indexResource = useResource$(() => {
-    console.log(import.meta.env.VITE_S3_BASE_URL);
     return fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json")
-      .then((res) => res.json())
-      .then((data) => data);
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch media.json: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data: MediaInfoJSON[]) =>
+        data.map((item): MediaInfo => ({
+          ...item,
+          timestamp: item.timestamp ? new Date(item.timestamp) : null,
+        }))
+      )
+      .catch((error) => {
+        console.error("Failed to load media index:", error);
+        return [] as MediaInfo[];
+      });
   });
 
-  const state = useStore<GallerySatate>({
+  const state = useStore<GalleryState>({
     selectedImageId: props.selectedImageId ?? null,
-    selectedWorld: "Real",
+    selectedWorld: props.selectedWorld ?? "Real",
+    mediaCount: 0,
+    filteredIndices: [],
   });
 
-  const worldArray = ["Real", "VRChat"];
+  const worldArray: MediaWorld[] = ["Real", "VRChat"];
 
   const selectOption = $((event: Event) => {
     if (event.target instanceof HTMLInputElement) {
-      state.selectedWorld = "VRChat"; // event.target.value;
+      const value = event.target.value;
+      if (worldArray.includes(value as MediaWorld)) {
+        state.selectedWorld = value as MediaWorld;
+        state.selectedImageId = null; // Reset selection when filter changes
+      }
     }
   });
 
@@ -65,17 +97,28 @@ export default component$((props: GallerySatate) => {
   useOnDocument(
     "keydown",
     $((event: KeyboardEvent) => {
-      if (state.selectedImageId === null) return; // 選択されていない
-      if (event.key === "ArrowRight") {
-        console.log(event);
-        console.log(state.selectedImageId);
-        state.selectedImageId++;
-        console.log(state.selectedImageId);
-      } else if (event.key === "ArrowLeft") {
-        state.selectedImageId--;
-      }
+      if (
+        state.selectedImageId === null ||
+        state.filteredIndices.length === 0
+      )
+        return;
 
-      selectImage(state.selectedImageId);
+      const currentFilteredIndex = state.filteredIndices.indexOf(
+        state.selectedImageId,
+      );
+      if (currentFilteredIndex === -1) return; // Selected image not in current filter
+
+      if (event.key === "ArrowRight") {
+        const nextFilteredIndex = currentFilteredIndex + 1;
+        if (nextFilteredIndex < state.filteredIndices.length) {
+          selectImage(state.filteredIndices[nextFilteredIndex]);
+        }
+      } else if (event.key === "ArrowLeft") {
+        const prevFilteredIndex = currentFilteredIndex - 1;
+        if (prevFilteredIndex >= 0) {
+          selectImage(state.filteredIndices[prevFilteredIndex]);
+        }
+      }
     }),
   );
 
@@ -116,34 +159,38 @@ export default component$((props: GallerySatate) => {
         <Resource
           value={indexResource}
           onResolved={(media: MediaIndex) => {
-            const filterdMedia = media
+            const filteredMedia = media
               .map((value, index) => ({ index, value }))
               .filter(
-                (value) =>
-                  value.value.world === (state.selectedWorld as string),
+                (value) => value.value.world === state.selectedWorld,
               );
+
+            state.mediaCount = media.length;
+            state.filteredIndices = filteredMedia.map((m) => m.index);
+
             return (
               <div class="flex flex-wrap gap-4">
                 {
                   // 選択した画像をオーバーレイ表示
-                  state.selectedImageId !== null && (
-                    <div
-                      onClick$={() => selectImage(null)}
-                      class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
-                    >
-                      <img
-                        src={
-                          import.meta.env.VITE_S3_BASE_URL +
-                          media[state.selectedImageId].file
-                        }
-                        class="max-w-90% max-h-90%"
-                      ></img>
-                    </div>
-                  )
+                  state.selectedImageId !== null &&
+                    media[state.selectedImageId] && (
+                      <div
+                        onClick$={() => selectImage(null)}
+                        class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
+                      >
+                        <img
+                          src={
+                            import.meta.env.VITE_S3_BASE_URL +
+                            media[state.selectedImageId].file
+                          }
+                          class="max-w-90% max-h-90%"
+                        ></img>
+                      </div>
+                    )
                 }
                 {
                   // 画像の一覧表示
-                  filterdMedia.map((m) => (
+                  filteredMedia.map((m) => (
                     <div class={styles["image-container"]}>
                       <img
                         class="max-h-60"
