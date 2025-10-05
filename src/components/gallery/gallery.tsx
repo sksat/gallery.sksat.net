@@ -74,10 +74,7 @@ export default component$((props: GalleryProps) => {
   useOnDocument(
     "keydown",
     $((event: KeyboardEvent) => {
-      if (
-        state.selectedImageId === null ||
-        state.filteredIndices.length === 0
-      )
+      if (state.selectedImageId === null || state.filteredIndices.length === 0)
         return;
 
       const currentFilteredIndex = state.filteredIndices.indexOf(
@@ -138,9 +135,7 @@ export default component$((props: GalleryProps) => {
           onResolved={(media: MediaIndex) => {
             const filteredMedia = media
               .map((value, index) => ({ index, value }))
-              .filter(
-                (value) => value.value.world === state.selectedWorld,
-              );
+              .filter((value) => value.value.world === state.selectedWorld);
 
             state.mediaCount = media.length;
             state.filteredIndices = filteredMedia.map((m) => m.index);
