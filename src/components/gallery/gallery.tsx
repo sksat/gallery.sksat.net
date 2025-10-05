@@ -73,12 +73,15 @@ export default component$((props: GalleryProps) => {
     filteredIndices: [],
   });
 
-  const worldArray = ["Real", "VRChat"];
+  const worldArray: MediaWorld[] = ["Real", "VRChat"];
 
   const selectOption = $((event: Event) => {
     if (event.target instanceof HTMLInputElement) {
-      state.selectedWorld = event.target.value as MediaWorld;
-      state.selectedImageId = null; // Reset selection when filter changes
+      const value = event.target.value;
+      if (worldArray.includes(value as MediaWorld)) {
+        state.selectedWorld = value as MediaWorld;
+        state.selectedImageId = null; // Reset selection when filter changes
+      }
     }
   });
 
