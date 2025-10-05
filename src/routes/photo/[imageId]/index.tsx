@@ -32,7 +32,24 @@ export const head: DocumentHead = ({ resolveValue }) => {
 
 export const useFetchImageUrl = routeLoader$<string>(async (event) => {
   const imageId = parseInt(event.params.imageId, 10);
-  const response = await fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json");
+
+  if (isNaN(imageId) || imageId < 0) {
+    throw event.error(400, "Invalid image ID");
+  }
+
+  const response = await fetch(
+    import.meta.env.VITE_S3_BASE_URL + "/media.json",
+  );
+
+  if (!response.ok) {
+    throw event.error(500, "Failed to fetch media index");
+  }
+
   const media = await response.json();
+
+  if (imageId >= media.length) {
+    throw event.error(404, "Image not found");
+  }
+
   return import.meta.env.VITE_S3_BASE_URL + media[imageId].file;
 });

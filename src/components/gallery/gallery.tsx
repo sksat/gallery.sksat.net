@@ -42,25 +42,35 @@ interface GalleryProps {
 
 interface GalleryState extends GalleryProps {
   mediaCount: number;
+  filteredIndices: number[];
 }
 
 export default component$((props: GalleryProps) => {
   const indexResource = useResource$(() => {
-    console.log(import.meta.env.VITE_S3_BASE_URL);
     return fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch media.json: ${res.status}`);
+        }
+        return res.json();
+      })
       .then((data: MediaInfoJSON[]) =>
         data.map((item): MediaInfo => ({
           ...item,
           timestamp: item.timestamp ? new Date(item.timestamp) : null,
         }))
-      );
+      )
+      .catch((error) => {
+        console.error("Failed to load media index:", error);
+        return [] as MediaInfo[];
+      });
   });
 
   const state = useStore<GalleryState>({
     selectedImageId: props.selectedImageId ?? null,
-    selectedWorld: "Real",
+    selectedWorld: props.selectedWorld ?? "Real",
     mediaCount: 0,
+    filteredIndices: [],
   });
 
   const worldArray = ["Real", "VRChat"];
@@ -68,6 +78,7 @@ export default component$((props: GalleryProps) => {
   const selectOption = $((event: Event) => {
     if (event.target instanceof HTMLInputElement) {
       state.selectedWorld = event.target.value as MediaWorld;
+      state.selectedImageId = null; // Reset selection when filter changes
     }
   });
 
@@ -83,17 +94,26 @@ export default component$((props: GalleryProps) => {
   useOnDocument(
     "keydown",
     $((event: KeyboardEvent) => {
-      if (state.selectedImageId === null || state.mediaCount === 0) return;
+      if (
+        state.selectedImageId === null ||
+        state.filteredIndices.length === 0
+      )
+        return;
+
+      const currentFilteredIndex = state.filteredIndices.indexOf(
+        state.selectedImageId,
+      );
+      if (currentFilteredIndex === -1) return; // Selected image not in current filter
 
       if (event.key === "ArrowRight") {
-        const nextId = state.selectedImageId + 1;
-        if (nextId < state.mediaCount) {
-          selectImage(nextId);
+        const nextFilteredIndex = currentFilteredIndex + 1;
+        if (nextFilteredIndex < state.filteredIndices.length) {
+          selectImage(state.filteredIndices[nextFilteredIndex]);
         }
       } else if (event.key === "ArrowLeft") {
-        const prevId = state.selectedImageId - 1;
-        if (prevId >= 0) {
-          selectImage(prevId);
+        const prevFilteredIndex = currentFilteredIndex - 1;
+        if (prevFilteredIndex >= 0) {
+          selectImage(state.filteredIndices[prevFilteredIndex]);
         }
       }
     }),
@@ -136,13 +156,15 @@ export default component$((props: GalleryProps) => {
         <Resource
           value={indexResource}
           onResolved={(media: MediaIndex) => {
-            state.mediaCount = media.length;
-            const filterdMedia = media
+            const filteredMedia = media
               .map((value, index) => ({ index, value }))
               .filter(
-                (value) =>
-                  value.value.world === (state.selectedWorld as string),
+                (value) => value.value.world === state.selectedWorld,
               );
+
+            state.mediaCount = media.length;
+            state.filteredIndices = filteredMedia.map((m) => m.index);
+
             return (
               <div class="flex flex-wrap gap-4">
                 {
@@ -165,7 +187,7 @@ export default component$((props: GalleryProps) => {
                 }
                 {
                   // 画像の一覧表示
-                  filterdMedia.map((m) => (
+                  filteredMedia.map((m) => (
                     <div class={styles["image-container"]}>
                       <img
                         class="max-h-60"
