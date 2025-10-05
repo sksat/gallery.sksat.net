@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp:*)",
+      "Bash(npm start)",
+      "Bash(ls:*)",
+      "Bash(gh issue view:*)",
+      "Bash(git fetch:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh issue list:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(npm run build.types:*)",
+      "Bash(npm run lint:*)",
+      "Bash(gh pr view:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
