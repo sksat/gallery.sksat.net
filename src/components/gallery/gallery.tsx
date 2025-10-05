@@ -22,25 +22,30 @@ type MediaInfo = {
   world: MediaWorld;
   timestamp: null | Date;
   camera: null | MediaCamera;
-  tags: [string];
+  tags: string[];
 };
 
 type MediaIndex = MediaInfo[];
 
-interface GallerySatate {
+interface GalleryState {
   selectedImageId: null | number;
   selectedWorld: null | "Real" | "VRChat";
 }
 
-export default component$((props: GallerySatate) => {
+export default component$((props: GalleryState) => {
   const indexResource = useResource$(() => {
     console.log(import.meta.env.VITE_S3_BASE_URL);
     return fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json")
       .then((res) => res.json())
-      .then((data) => data);
+      .then((data: MediaInfo[]) =>
+        data.map((item) => ({
+          ...item,
+          timestamp: item.timestamp ? new Date(item.timestamp as any) : null,
+        }))
+      );
   });
 
-  const state = useStore<GallerySatate>({
+  const state = useStore<GalleryState>({
     selectedImageId: props.selectedImageId ?? null,
     selectedWorld: "Real",
   });
@@ -49,7 +54,7 @@ export default component$((props: GallerySatate) => {
 
   const selectOption = $((event: Event) => {
     if (event.target instanceof HTMLInputElement) {
-      state.selectedWorld = "VRChat"; // event.target.value;
+      state.selectedWorld = event.target.value as MediaWorld;
     }
   });
 
