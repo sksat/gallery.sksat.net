@@ -17,6 +17,14 @@ type MediaCamera = {
   model: string;
 };
 
+type MediaInfoJSON = {
+  file: string;
+  world: MediaWorld;
+  timestamp: null | string;
+  camera: null | MediaCamera;
+  tags: string[];
+};
+
 type MediaInfo = {
   file: string;
   world: MediaWorld;
@@ -27,20 +35,24 @@ type MediaInfo = {
 
 type MediaIndex = MediaInfo[];
 
-interface GalleryState {
+interface GalleryProps {
   selectedImageId: null | number;
   selectedWorld: null | "Real" | "VRChat";
 }
 
-export default component$((props: GalleryState) => {
+interface GalleryState extends GalleryProps {
+  mediaCount: number;
+}
+
+export default component$((props: GalleryProps) => {
   const indexResource = useResource$(() => {
     console.log(import.meta.env.VITE_S3_BASE_URL);
     return fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json")
       .then((res) => res.json())
-      .then((data: MediaInfo[]) =>
-        data.map((item) => ({
+      .then((data: MediaInfoJSON[]) =>
+        data.map((item): MediaInfo => ({
           ...item,
-          timestamp: item.timestamp ? new Date(item.timestamp as any) : null,
+          timestamp: item.timestamp ? new Date(item.timestamp) : null,
         }))
       );
   });
@@ -48,6 +60,7 @@ export default component$((props: GalleryState) => {
   const state = useStore<GalleryState>({
     selectedImageId: props.selectedImageId ?? null,
     selectedWorld: "Real",
+    mediaCount: 0,
   });
 
   const worldArray = ["Real", "VRChat"];
@@ -70,17 +83,19 @@ export default component$((props: GalleryState) => {
   useOnDocument(
     "keydown",
     $((event: KeyboardEvent) => {
-      if (state.selectedImageId === null) return; // 選択されていない
-      if (event.key === "ArrowRight") {
-        console.log(event);
-        console.log(state.selectedImageId);
-        state.selectedImageId++;
-        console.log(state.selectedImageId);
-      } else if (event.key === "ArrowLeft") {
-        state.selectedImageId--;
-      }
+      if (state.selectedImageId === null || state.mediaCount === 0) return;
 
-      selectImage(state.selectedImageId);
+      if (event.key === "ArrowRight") {
+        const nextId = state.selectedImageId + 1;
+        if (nextId < state.mediaCount) {
+          selectImage(nextId);
+        }
+      } else if (event.key === "ArrowLeft") {
+        const prevId = state.selectedImageId - 1;
+        if (prevId >= 0) {
+          selectImage(prevId);
+        }
+      }
     }),
   );
 
@@ -121,6 +136,7 @@ export default component$((props: GalleryState) => {
         <Resource
           value={indexResource}
           onResolved={(media: MediaIndex) => {
+            state.mediaCount = media.length;
             const filterdMedia = media
               .map((value, index) => ({ index, value }))
               .filter(
@@ -131,20 +147,21 @@ export default component$((props: GalleryState) => {
               <div class="flex flex-wrap gap-4">
                 {
                   // 選択した画像をオーバーレイ表示
-                  state.selectedImageId !== null && (
-                    <div
-                      onClick$={() => selectImage(null)}
-                      class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
-                    >
-                      <img
-                        src={
-                          import.meta.env.VITE_S3_BASE_URL +
-                          media[state.selectedImageId].file
-                        }
-                        class="max-w-90% max-h-90%"
-                      ></img>
-                    </div>
-                  )
+                  state.selectedImageId !== null &&
+                    media[state.selectedImageId] && (
+                      <div
+                        onClick$={() => selectImage(null)}
+                        class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
+                      >
+                        <img
+                          src={
+                            import.meta.env.VITE_S3_BASE_URL +
+                            media[state.selectedImageId].file
+                          }
+                          class="max-w-90% max-h-90%"
+                        ></img>
+                      </div>
+                    )
                 }
                 {
                   // 画像の一覧表示
