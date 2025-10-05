@@ -9,31 +9,13 @@ import {
 } from "@builder.io/qwik";
 
 import styles from "./gallery.module.css";
-
-// media.json type
-type MediaWorld = "VRChat" | "Real";
-type MediaCamera = {
-  make: string;
-  model: string;
-};
-
-type MediaInfoJSON = {
-  file: string;
-  world: MediaWorld;
-  timestamp: null | string;
-  camera: null | MediaCamera;
-  tags: string[];
-};
-
-type MediaInfo = {
-  file: string;
-  world: MediaWorld;
-  timestamp: null | Date;
-  camera: null | MediaCamera;
-  tags: string[];
-};
-
-type MediaIndex = MediaInfo[];
+import {
+  transformMediaInfo,
+  type MediaWorld,
+  type MediaInfo,
+  type MediaInfoJSON,
+  type MediaIndex,
+} from "./types";
 
 interface GalleryProps {
   selectedImageId: null | number;
@@ -54,12 +36,7 @@ export default component$((props: GalleryProps) => {
         }
         return res.json();
       })
-      .then((data: MediaInfoJSON[]) =>
-        data.map((item): MediaInfo => ({
-          ...item,
-          timestamp: item.timestamp ? new Date(item.timestamp) : null,
-        }))
-      )
+      .then((data: MediaInfoJSON[]) => data.map(transformMediaInfo))
       .catch((error) => {
         console.error("Failed to load media index:", error);
         return [] as MediaInfo[];
