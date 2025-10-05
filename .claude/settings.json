@@ -16,7 +16,8 @@
       "Bash(gh search:*)",
       "mcp__ide__getDiagnostics",
       "Bash(npm run build.types:*)",
-      "Bash(npm run lint:*)"
+      "Bash(npm run lint:*)",
+      "mcp__chrome-devtools__*"
     ],
     "deny": [],
     "ask": []
