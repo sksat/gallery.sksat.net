@@ -148,7 +148,7 @@ export default component$((props: GalleryProps) => {
                     media[state.selectedImageId] && (
                       <div
                         onClick$={() => selectImage(null)}
-                        class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
+                        class="bg-opacity-50 fixed inset-0 z-10 flex items-center justify-center bg-black"
                       >
                         <img
                           src={
