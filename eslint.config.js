@@ -1,7 +1,10 @@
+import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import qwikPlugin from "eslint-plugin-qwik";
 
 export default tseslint.config(
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
   {
     ignores: [
       "**/.wrangler/**",
@@ -34,6 +37,7 @@ export default tseslint.config(
       "@typescript-eslint/no-inferrable-types": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
       "@typescript-eslint/no-empty-interface": "off",
+      "@typescript-eslint/no-empty-object-type": "off",
       "@typescript-eslint/no-namespace": "off",
       "@typescript-eslint/no-empty-function": "off",
       "@typescript-eslint/no-this-alias": "off",
