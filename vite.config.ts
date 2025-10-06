@@ -7,7 +7,7 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig(() => {
   return {
     plugins: [qwikCity(), qwikVite(), tsconfigPaths(), tailwindcss()],
-    dev: {
+    server: {
       headers: {
         "Cache-Control": "public, max-age=0",
       },
