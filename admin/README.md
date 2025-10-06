@@ -120,6 +120,7 @@ admin/
 Currently, no environment variables are required for Phase 0.
 
 Future phases will require:
+
 - D1 database binding
 - R2 bucket binding
 - Environment-specific configuration
@@ -136,6 +137,7 @@ Future phases will require:
 ### Build fails
 
 Check Node.js version:
+
 ```bash
 node --version  # Should be >= 20.19.0
 ```
@@ -143,6 +145,7 @@ node --version  # Should be >= 20.19.0
 ### Deployment fails
 
 Ensure you're authenticated with Wrangler:
+
 ```bash
 wrangler whoami
 ```
