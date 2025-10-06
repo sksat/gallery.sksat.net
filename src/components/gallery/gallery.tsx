@@ -8,7 +8,7 @@ import {
   useStore,
 } from "@builder.io/qwik";
 
-import styles from "./gallery.module.css";
+// import styles from "./gallery.module.css"; // Removed due to Qwik SSR + Tailwind v4 compatibility issues
 import {
   transformMediaInfo,
   type MediaWorld,
@@ -148,7 +148,7 @@ export default component$((props: GalleryProps) => {
                     media[state.selectedImageId] && (
                       <div
                         onClick$={() => selectImage(null)}
-                        class="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
+                        class="bg-opacity-50 fixed inset-0 z-10 flex items-center justify-center bg-black"
                       >
                         <img
                           src={
@@ -163,13 +163,13 @@ export default component$((props: GalleryProps) => {
                 {
                   // 画像の一覧表示
                   filteredMedia.map((m) => (
-                    <div class={styles["image-container"]}>
+                    <div class="group relative">
                       <img
                         class="max-h-60"
                         onClick$={() => selectImage(m.index)}
                         src={import.meta.env.VITE_S3_BASE_URL + m.value.file}
                       />
-                      <div class={styles["metadata"]}>
+                      <div class="absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-hover:opacity-100">
                         <div>{m.value.timestamp?.toLocaleString("ja-JP")}</div>
                         {m.value.camera && (
                           <div>
