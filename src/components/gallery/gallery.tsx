@@ -163,13 +163,13 @@ export default component$((props: GalleryProps) => {
                 {
                   // 画像の一覧表示
                   filteredMedia.map((m) => (
-                    <div class="relative group">
+                    <div class="group relative">
                       <img
                         class="max-h-60"
                         onClick$={() => selectImage(m.index)}
                         src={import.meta.env.VITE_S3_BASE_URL + m.value.file}
                       />
-                      <div class="absolute bottom-0 left-0 w-full bg-black/50 text-white p-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-left">
+                      <div class="absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-hover:opacity-100">
                         <div>{m.value.timestamp?.toLocaleString("ja-JP")}</div>
                         {m.value.camera && (
                           <div>
