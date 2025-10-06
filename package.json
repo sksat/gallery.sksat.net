@@ -37,7 +37,7 @@
     "@tailwindcss/vite": "^4.1.14",
     "@types/eslint": "^9.0.0",
     "@types/flexsearch": "^0.7.6",
-    "@types/node": "^20.10.3",
+    "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^6.13.2",
     "@typescript-eslint/parser": "^6.13.2",
     "@vitest/ui": "^3.2.4",
