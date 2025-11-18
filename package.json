@@ -56,6 +56,6 @@
     "wrangler": "^3.0.0"
   },
   "dependencies": {
-    "flexsearch": "0.7.41"
+    "flexsearch": "0.8.212"
   }
 }
