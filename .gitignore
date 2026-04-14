@@ -24,6 +24,10 @@ tsconfig.tsbuildinfo
 coverage/
 .vitest/
 
+# Playwright
+test-results/
+playwright-report/
+
 # Logs
 logs
 *.log
