@@ -3,6 +3,7 @@ import { useLocation, routeLoader$ } from "@builder.io/qwik-city";
 import type { DocumentHead } from "@builder.io/qwik-city";
 
 import Gallery from "~/components/gallery/gallery";
+import { parseImageId, getOgImageUrl } from "./logic";
 
 export default component$(() => {
   const location = useLocation();
@@ -31,9 +32,9 @@ export const head: DocumentHead = ({ resolveValue }) => {
 };
 
 export const useFetchImageUrl = routeLoader$<string>(async (event) => {
-  const imageId = parseInt(event.params.imageId, 10);
+  const imageId = parseImageId(event.params.imageId);
 
-  if (isNaN(imageId) || imageId < 0) {
+  if (imageId === null) {
     throw event.error(400, "Invalid image ID");
   }
 
@@ -46,10 +47,11 @@ export const useFetchImageUrl = routeLoader$<string>(async (event) => {
   }
 
   const media = await response.json();
+  const url = getOgImageUrl(import.meta.env.VITE_S3_BASE_URL, media, imageId);
 
-  if (imageId >= media.length) {
+  if (url === null) {
     throw event.error(404, "Image not found");
   }
 
-  return import.meta.env.VITE_S3_BASE_URL + media[imageId].file;
+  return url;
 });

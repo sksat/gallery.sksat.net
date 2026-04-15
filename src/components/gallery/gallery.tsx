@@ -16,13 +16,16 @@ import {
   type MediaInfoJSON,
   type MediaIndex,
 } from "./types";
+import { filterMediaByWorld, navigateImage } from "./logic";
 
 interface GalleryProps {
   selectedImageId: null | number;
   selectedWorld: null | "Real" | "VRChat";
 }
 
-interface GalleryState extends GalleryProps {
+interface GalleryState {
+  selectedImageId: null | number;
+  selectedWorld: MediaWorld;
   mediaCount: number;
   filteredIndices: number[];
 }
@@ -77,20 +80,15 @@ export default component$((props: GalleryProps) => {
       if (state.selectedImageId === null || state.filteredIndices.length === 0)
         return;
 
-      const currentFilteredIndex = state.filteredIndices.indexOf(
-        state.selectedImageId,
-      );
-      if (currentFilteredIndex === -1) return; // Selected image not in current filter
-
-      if (event.key === "ArrowRight") {
-        const nextFilteredIndex = currentFilteredIndex + 1;
-        if (nextFilteredIndex < state.filteredIndices.length) {
-          selectImage(state.filteredIndices[nextFilteredIndex]);
-        }
-      } else if (event.key === "ArrowLeft") {
-        const prevFilteredIndex = currentFilteredIndex - 1;
-        if (prevFilteredIndex >= 0) {
-          selectImage(state.filteredIndices[prevFilteredIndex]);
+      if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+        const direction = event.key === "ArrowRight" ? "next" : "prev";
+        const nextId = navigateImage(
+          state.selectedImageId,
+          state.filteredIndices,
+          direction,
+        );
+        if (nextId !== null) {
+          selectImage(nextId);
         }
       }
     }),
@@ -133,9 +131,10 @@ export default component$((props: GalleryProps) => {
         <Resource
           value={indexResource}
           onResolved={(media: MediaIndex) => {
-            const filteredMedia = media
-              .map((value, index) => ({ index, value }))
-              .filter((value) => value.value.world === state.selectedWorld);
+            const filteredMedia = filterMediaByWorld(
+              media,
+              state.selectedWorld,
+            );
 
             state.mediaCount = media.length;
             state.filteredIndices = filteredMedia.map((m) => m.index);
@@ -147,6 +146,7 @@ export default component$((props: GalleryProps) => {
                   state.selectedImageId !== null &&
                     media[state.selectedImageId] && (
                       <div
+                        data-testid="overlay"
                         onClick$={() => selectImage(null)}
                         class="bg-opacity-50 fixed inset-0 z-10 flex items-center justify-center bg-black"
                       >
@@ -165,6 +165,7 @@ export default component$((props: GalleryProps) => {
                   filteredMedia.map((m) => (
                     <div class="group relative">
                       <img
+                        data-testid="gallery-image"
                         class="max-h-60"
                         onClick$={() => selectImage(m.index)}
                         src={import.meta.env.VITE_S3_BASE_URL + m.value.file}

@@ -25,6 +25,7 @@
     "serve": "wrangler pages dev ./dist",
     "start": "vite --open --mode ssr",
     "test": "vitest",
+    "test.e2e": "playwright test",
     "test.ui": "vitest --ui",
     "test.coverage": "vitest --coverage",
     "qwik": "qwik"
@@ -33,10 +34,10 @@
     "@builder.io/qwik": "^1.16.1",
     "@builder.io/qwik-city": "^1.16.1",
     "@cloudflare/workers-types": "^4.20251004.0",
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4.1.14",
     "@tailwindcss/vite": "^4.1.14",
     "@types/eslint": "^9.0.0",
-    "@types/flexsearch": "^0.7.6",
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.45.0",
     "@typescript-eslint/parser": "^8.45.0",
@@ -54,8 +55,5 @@
     "vite-tsconfig-paths": "^5.0.0",
     "vitest": "^3.2.4",
     "wrangler": "^3.0.0"
-  },
-  "dependencies": {
-    "flexsearch": "0.7.41"
   }
 }
