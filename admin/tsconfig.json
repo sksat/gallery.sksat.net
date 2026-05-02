@@ -16,10 +16,15 @@
     "isolatedModules": true,
     "outDir": "tmp",
     "noEmit": true,
-    "types": ["vite/client", "@cloudflare/workers-types"],
+    "types": [
+      "node",
+      "vite/client",
+      "vitest/globals",
+      "@cloudflare/workers-types"
+    ],
     "paths": {
       "~/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "e2e", "./*.config.ts"]
 }

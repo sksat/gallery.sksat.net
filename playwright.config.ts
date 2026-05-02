@@ -15,9 +15,21 @@ export default defineConfig({
       VITE_S3_BASE_URL: `http://localhost:${port}/test-media/`,
     },
   },
+  expect: {
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.01,
+    },
+  },
   projects: [
     {
-      name: "chromium",
+      name: "e2e",
+      testDir: "./e2e",
+      testIgnore: "**/vrt/**",
+      use: { browserName: "chromium" },
+    },
+    {
+      name: "vrt",
+      testDir: "./e2e/vrt",
       use: { browserName: "chromium" },
     },
   ],
