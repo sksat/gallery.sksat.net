@@ -112,6 +112,8 @@ jobs:
 
       - run: npm run build.types
 
+      - run: npm run build
+
   admin-e2e:
     runs-on: ubuntu-latest
     defaults:

@@ -6,7 +6,7 @@ Admin panel for gallery.sksat.net. This is a separate Qwik/QwikCity project unde
 
 - **Dev port**: `5175` (root uses `5174` for Playwright). Avoids conflicts when both projects' dev servers are running.
 - **Routing**: Currently a single `/` dashboard (`src/routes/index.tsx`). No fixture data needed yet.
-- **Auth**: Production is behind Cloudflare Access. Local dev has no auth — `npm run dev` opens the dashboard directly.
+- **Auth**: Production is behind Cloudflare Access. Local dev has no auth — `npm run dev` serves the dashboard at `http://localhost:5175` (use `npm start` if you want it to auto-open in a browser).
 - **Future bindings (Phase 1+)**: D1 (metadata DB) and R2 (media storage). When these land, mock at the `platform.env` boundary in tests rather than hitting real bindings.
 
 ## Commands

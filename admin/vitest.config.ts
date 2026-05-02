@@ -7,6 +7,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    // Admin currently has no unit tests (Phase 0 scaffolding only).
+    // Remove this once admin/src grows pure-function logic so CI can flag
+    // include-pattern breakage or accidentally deleted tests.
     passWithNoTests: true,
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     coverage: {

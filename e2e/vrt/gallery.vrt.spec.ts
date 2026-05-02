@@ -12,12 +12,13 @@ test("home: Real filter (default)", async ({ page }) => {
 
 test("home: VRChat filter", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("gallery-image").first()).toBeVisible({
-    timeout: 10000,
-  });
+  const images = page.getByTestId("gallery-image");
+  await expect(images.first()).toBeVisible({ timeout: 10000 });
   await page.locator("label[for='VRChat']").click();
   await expect(page.locator("input#VRChat")).toBeChecked();
-  await expect(page.getByTestId("gallery-image").first()).toBeVisible();
+  // Wait for the filter to actually take effect — Real (2) → VRChat (3).
+  // Without this, toHaveScreenshot can race against the in-flight re-render.
+  await expect(images).toHaveCount(3);
   await expect(page).toHaveScreenshot("home-vrchat.png", { fullPage: true });
 });
 
