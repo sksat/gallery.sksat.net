@@ -18,7 +18,7 @@ npm run dev          # http://localhost:5175 (no Cloudflare Access)
 npm run build.types  # tsc --noEmit
 npm run test         # Vitest
 npm run test.e2e     # Playwright E2E (e2e/*.spec.ts)
-npm run test.vrt     # Playwright VRT (e2e/vrt/*.spec.ts)
+npm run test.vrt     # Playwright VRT (e2e/vrt/*.vrt.spec.ts)
 npm run test.vrt.update
 npm run build        # qwik build
 npm run deploy       # wrangler pages publish ./dist
