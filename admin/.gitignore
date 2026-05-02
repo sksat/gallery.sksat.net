@@ -14,6 +14,12 @@ node_modules/
 .rollup.cache/
 tsconfig.tsbuildinfo
 
+# Test
+coverage/
+.vitest/
+test-results/
+playwright-report/
+
 # Logs
 logs
 *.log

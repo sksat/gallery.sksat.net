@@ -25,7 +25,9 @@
     "serve": "wrangler pages dev ./dist",
     "start": "vite --open --mode ssr",
     "test": "vitest",
-    "test.e2e": "playwright test",
+    "test.e2e": "playwright test --project=e2e",
+    "test.vrt": "playwright test --project=vrt",
+    "test.vrt.update": "playwright test --project=vrt --update-snapshots",
     "test.ui": "vitest --ui",
     "test.coverage": "vitest --coverage",
     "qwik": "qwik"
