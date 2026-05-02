@@ -11,6 +11,8 @@ export default defineConfig({
     command: `npx vite --mode ssr --port ${port}`,
     url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
+    // No VITE_S3_BASE_URL: admin pages do not consume the gallery media index.
+    // When admin gains D1/R2 bindings, mock at the platform.env boundary instead.
   },
   expect: {
     toHaveScreenshot: {
