@@ -6,16 +6,16 @@ Admin panel for [gallery.sksat.net](https://gallery.sksat.net), protected by Clo
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Start development server
-npm start
+pnpm start
 
 # Build for production
-npm run build
+pnpm run build
 
 # Preview production build
-npm run serve
+pnpm serve
 ```
 
 ## Deployment to Cloudflare Pages
@@ -23,7 +23,7 @@ npm run serve
 ### Prerequisites
 
 - Cloudflare account with access to the `sksat.net` zone
-- Wrangler CLI installed (`npm install -g wrangler`)
+- Wrangler CLI installed (`pnpm add -g wrangler`)
 
 ### Step 1: Create Cloudflare Pages Project
 
@@ -34,7 +34,7 @@ npm run serve
    - **Project name**: `gallery-admin` (or your preferred name)
    - **Production branch**: `main`
    - **Framework preset**: None
-   - **Build command**: `npm run build`
+   - **Build command**: `pnpm run build`
    - **Build output directory**: `dist`
    - **Root directory**: `admin`
 
@@ -79,10 +79,10 @@ npm run serve
 
 ```bash
 # Build the project
-npm run build
+pnpm run build
 
 # Deploy to Cloudflare Pages
-npm run deploy
+pnpm run deploy
 ```
 
 Note: Manual deployment requires Wrangler to be authenticated with your Cloudflare account:

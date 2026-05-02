@@ -2,7 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(claude mcp:*)",
-      "Bash(npm start)",
+      "Bash(pnpm start)",
       "Bash(ls:*)",
       "Bash(gh issue view:*)",
       "Bash(gh issue list:*)",
@@ -15,9 +15,12 @@
       "Bash(gh pr list:*)",
       "Bash(gh search:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(npm run build.types:*)",
-      "Bash(npm run lint:*)",
-      "mcp__chrome-devtools__*"
+      "Bash(pnpm run build.types:*)",
+      "Bash(pnpm run lint:*)",
+      "mcp__chrome-devtools__*",
+      "Bash(pnpm run:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm exec playwright:*)"
     ],
     "deny": [],
     "ask": []

@@ -5,9 +5,9 @@
  * entry point will be the common one.
  *
  * - Server (express, cloudflare...)
- * - npm run start
- * - npm run preview
- * - npm run build
+ * - pnpm start
+ * - pnpm preview
+ * - pnpm run build
  *
  */
 import {
