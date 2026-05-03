@@ -16,7 +16,7 @@ export default defineConfig({
     command: `bash ./e2e/start-test-server.sh ${port}`,
     url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 300_000,
     stdout: "pipe",
     stderr: "pipe",
   },

@@ -17,4 +17,4 @@ pnpm exec wrangler d1 migrations apply gallery-admin --local
 
 pnpm exec wrangler d1 execute gallery-admin --local --file=e2e/fixture.sql
 
-exec pnpm exec wrangler pages dev ./dist --port "$PORT"
+exec pnpm exec wrangler pages dev ./dist --ip 127.0.0.1 --port "$PORT"
