@@ -29,9 +29,12 @@ test("media edit: world can be changed", async ({ page }) => {
     await expect(page.locator("table tbody")).toContainText("/mock/real1.png");
   } finally {
     // Restore even if the assertions above fail, so subsequent tests in the
-    // same server session see the original fixture world distribution.
+    // same server session see the original fixture world distribution. We
+    // wait for the "Saved at" confirmation here too — without it, the next
+    // test can race the in-flight UPDATE and observe the stale value.
     await page.goto("/media/1/");
     await page.locator('select[name="world"]').selectOption("Real");
     await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText(/^Saved at /)).toBeVisible();
   }
 });
