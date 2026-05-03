@@ -8,47 +8,49 @@ This is a photo/image gallery web application built with **Qwik** and **QwikCity
 
 ## Essential Commands
 
+This project uses **pnpm** as the package manager (pinned via `packageManager` in `package.json`). Use `corepack enable` once if `pnpm` is not on your PATH.
+
 ### Development
 
 ```bash
-npm start          # Start dev server with SSR (opens browser)
-npm run dev        # Start dev server without opening browser
-npm run dev.debug  # Start dev server with Node inspector for debugging
+pnpm start          # Start dev server with SSR (opens browser)
+pnpm dev            # Start dev server without opening browser
+pnpm run dev.debug  # Start dev server with Node inspector for debugging
 ```
 
 ### Building
 
 ```bash
-npm run build             # Full production build (client + server + types)
-npm run build.client      # Build client only
-npm run build.server      # Build Cloudflare Pages server adapter
-npm run build.types       # Type check only (no emit)
+pnpm run build             # Full production build (client + server + types)
+pnpm run build.client      # Build client only
+pnpm run build.server      # Build Cloudflare Pages server adapter
+pnpm run build.types       # Type check only (no emit)
 ```
 
 ### Preview & Deployment
 
 ```bash
-npm run preview    # Preview production build locally
-npm run serve      # Preview with Wrangler (Cloudflare Pages simulation)
-npm run deploy     # Deploy to Cloudflare Pages
+pnpm preview    # Preview production build locally
+pnpm serve      # Preview with Wrangler (Cloudflare Pages simulation)
+pnpm deploy     # Deploy to Cloudflare Pages
 ```
 
 ### Code Quality
 
 ```bash
-npm run lint       # ESLint on src/**/*.ts*
-npm run fmt        # Format code with Prettier
-npm run fmt.check  # Check formatting
+pnpm lint       # ESLint on src/**/*.ts*
+pnpm fmt        # Format code with Prettier
+pnpm run fmt.check  # Check formatting
 ```
 
 ### Testing
 
 ```bash
-npm run test            # Vitest watch mode (pure functions in src/**/*.spec.ts)
-npm run test.coverage   # Vitest with coverage report
-npm run test.e2e        # Playwright E2E (e2e/*.spec.ts)
-npm run test.vrt        # Visual regression (e2e/vrt/*.vrt.spec.ts, toHaveScreenshot)
-npm run test.vrt.update # Regenerate VRT baselines (commit the diff)
+pnpm test                # Vitest watch mode (pure functions in src/**/*.spec.ts)
+pnpm run test.coverage   # Vitest with coverage report
+pnpm run test.e2e        # Playwright E2E (e2e/*.spec.ts)
+pnpm run test.vrt        # Visual regression (e2e/vrt/*.vrt.spec.ts, toHaveScreenshot)
+pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 ```
 
 ## Architecture
@@ -143,7 +145,7 @@ docker run --rm -it \
   -v "$(pwd):/work" -w /work \
   -e CI=true \
   mcr.microsoft.com/playwright:v1.59.1-noble \
-  bash -c "npm ci && npm run test.vrt.update"
+  bash -c "corepack enable && pnpm install --frozen-lockfile && pnpm run test.vrt.update"
 ```
 
 Keep the image tag in sync with `@playwright/test` in `package.json`. Then commit the regenerated PNGs.
