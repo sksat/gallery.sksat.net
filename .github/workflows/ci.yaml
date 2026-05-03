@@ -143,7 +143,6 @@ jobs:
     # Keep the tag in sync with @playwright/test in admin/package.json.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
-      options: --user 1001
     defaults:
       run:
         working-directory: admin
