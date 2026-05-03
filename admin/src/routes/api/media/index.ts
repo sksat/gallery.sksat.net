@@ -1,0 +1,28 @@
+import type { RequestHandler } from "@builder.io/qwik-city";
+import { listMedia } from "~/lib/db";
+import { getDB } from "~/lib/env";
+import type { MediaWorld } from "~/lib/types";
+
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
+
+const parseInt = (v: string | null, fallback: number, max: number): number => {
+  if (!v) return fallback;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0) return fallback;
+  return Math.min(n, max);
+};
+
+const parseWorld = (v: string | null): MediaWorld | undefined =>
+  v === "Real" || v === "VRChat" ? v : undefined;
+
+export const onGet: RequestHandler = async ({ platform, url, json }) => {
+  const db = getDB(platform);
+  const limit = parseInt(url.searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT);
+  const offset = parseInt(url.searchParams.get("offset"), 0, Number.MAX_SAFE_INTEGER);
+  const world = parseWorld(url.searchParams.get("world"));
+  const q = url.searchParams.get("q") ?? undefined;
+
+  const result = await listMedia(db, { world, q, limit, offset });
+  json(200, { ...result, limit, offset });
+};

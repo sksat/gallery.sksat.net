@@ -1,5 +1,6 @@
 import { component$ } from "@builder.io/qwik";
-import { type DocumentHead } from "@builder.io/qwik-city";
+import { Link, type DocumentHead } from "@builder.io/qwik-city";
+import { PublishButton } from "~/components/publish-button";
 
 export default component$(() => {
   return (
@@ -9,17 +10,17 @@ export default component$(() => {
         This is the admin panel for gallery.sksat.net, protected by Cloudflare
         Access.
       </p>
+
       <div style={{ marginTop: "2rem" }}>
-        <h2>Status</h2>
-        <ul>
-          <li>✅ Admin app deployed</li>
-          <li>✅ Cloudflare Access configured</li>
-          <li>✅ Authentication working</li>
-        </ul>
-      </div>
-      <div style={{ marginTop: "2rem", color: "#666" }}>
-        <p>Phase 0: Minimal setup verification complete</p>
-        <p>Next steps: D1 database integration and metadata management</p>
+        <h2>Media</h2>
+        <p>
+          <Link href="/media/">Browse and edit metadata →</Link>
+        </p>
+        <p style={{ color: "#666", fontSize: "0.9em" }}>
+          Edits are saved to D1 immediately. Click Publish to regenerate
+          <code> media.json</code> on the public bucket.
+        </p>
+        <PublishButton />
       </div>
     </div>
   );

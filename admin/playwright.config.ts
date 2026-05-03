@@ -8,11 +8,17 @@ export default defineConfig({
     baseURL: `http://localhost:${port}`,
   },
   webServer: {
-    command: `npx vite --mode ssr --port ${port}`,
+    // The script builds the app, resets the local D1, applies migrations + the
+    // E2E fixture, and execs wrangler pages dev. We do this in one command (not
+    // a globalSetup) because Playwright runs globalSetup in parallel with the
+    // webServer; running it sequentially here avoids a race where wrangler
+    // opens a sqlite file that globalSetup is about to wipe.
+    command: `bash ./e2e/start-test-server.sh ${port}`,
     url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
-    // No VITE_S3_BASE_URL: admin pages do not consume the gallery media index.
-    // When admin gains D1/R2 bindings, mock at the platform.env boundary instead.
+    timeout: 120_000,
+    stdout: "pipe",
+    stderr: "pipe",
   },
   expect: {
     toHaveScreenshot: {

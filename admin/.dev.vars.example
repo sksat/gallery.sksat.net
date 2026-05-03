@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+# Production values are set via `wrangler secret put`.
+B2_ACCESS_KEY_ID=
+B2_SECRET_ACCESS_KEY=

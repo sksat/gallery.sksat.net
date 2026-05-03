@@ -117,18 +117,46 @@ admin/
 
 ## Environment Variables
 
-Currently, no environment variables are required for Phase 0.
+Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler secret put` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials:
 
-Future phases will require:
+| Var                    | Where           | Used by      |
+| ---------------------- | --------------- | ------------ |
+| `B2_REGION`            | `vars`          | publish      |
+| `B2_BUCKET`            | `vars`          | publish      |
+| `B2_ENDPOINT`          | `vars`          | publish      |
+| `B2_ACCESS_KEY_ID`     | secret/.dev.vars| publish      |
+| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars| publish      |
 
-- D1 database binding
-- R2 bucket binding
-- Environment-specific configuration
+Bindings:
+
+- `DB` — D1 database `gallery-admin` (metadata source of truth)
+
+## D1 setup (Phase 1)
+
+The metadata that backs `media.json` lives in a D1 database. Production rollout:
+
+```bash
+# 1. Create the D1 database (one-time). Capture the printed database_id.
+pnpm db.create
+
+# 2. Edit wrangler.jsonc — replace REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE with that id.
+
+# 3. Apply schema migrations.
+pnpm db.migrate.remote   # production
+pnpm db.migrate.local    # local miniflare-backed D1
+
+# 4. Initial import from the existing media.json (one-shot).
+pnpm import-media        # writes migrations/seeds/0001_seed.sql from ../media/media.json
+pnpm db.seed.remote      # apply to production
+pnpm db.seed.local       # apply to local
+```
+
+Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, `camera_make`, `camera_model`, and `tags`, and the dashboard's **Publish** button regenerates `media.json` from D1 and PUTs it to the B2 bucket.
 
 ## Next Steps
 
-- [ ] Phase 1: D1 database integration and migration
-- [ ] Phase 2: Metadata management UI (view, edit, delete)
+- [x] Phase 1: D1 database integration and migration
+- [x] Phase 2: Metadata management UI (view, edit, delete)
 - [ ] Phase 3: R2 storage integration
 - [ ] Phase 4: Image upload functionality
 

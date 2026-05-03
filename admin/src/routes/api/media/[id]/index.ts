@@ -1,0 +1,57 @@
+import type { RequestHandler } from "@builder.io/qwik-city";
+import { getMedia, updateMedia } from "~/lib/db";
+import { getDB } from "~/lib/env";
+import { validatePatch } from "~/lib/validate";
+
+const parseId = (raw: string): number | null => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+export const onGet: RequestHandler = async ({ platform, params, json }) => {
+  const id = parseId(params.id);
+  if (id === null) {
+    json(400, { error: "invalid id" });
+    return;
+  }
+  const db = getDB(platform);
+  const row = await getMedia(db, id);
+  if (!row) {
+    json(404, { error: "not found" });
+    return;
+  }
+  json(200, row);
+};
+
+export const onPatch: RequestHandler = async ({
+  platform,
+  params,
+  request,
+  json,
+}) => {
+  const id = parseId(params.id);
+  if (id === null) {
+    json(400, { error: "invalid id" });
+    return;
+  }
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    json(400, { error: "body must be JSON" });
+    return;
+  }
+  const res = validatePatch(body);
+  if (!res.ok) {
+    json(400, { error: res.error });
+    return;
+  }
+  const db = getDB(platform);
+  const existing = await getMedia(db, id);
+  if (!existing) {
+    json(404, { error: "not found" });
+    return;
+  }
+  const updated = await updateMedia(db, id, res.patch);
+  json(200, updated);
+};

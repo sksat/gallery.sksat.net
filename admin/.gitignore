@@ -11,6 +11,7 @@ node_modules/
 # Cache
 .cache/
 .mf/
+.pnpm-store/
 .rollup.cache/
 tsconfig.tsbuildinfo
 
@@ -45,4 +46,9 @@ Thumbs.db
 
 # Cloudflare
 .wrangler/
+.wrangler-test/
 wrangler.toml
+.dev.vars
+
+# Generated D1 seeds (derived from gitignored media.json)
+/migrations/seeds/
