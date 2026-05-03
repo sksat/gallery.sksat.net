@@ -138,25 +138,21 @@ jobs:
 
   admin-e2e:
     runs-on: ubuntu-latest
+    # Run inside the official Playwright image so font rendering is byte-identical
+    # to the environment used for VRT baseline generation (`podman run … mcr.microsoft.com/playwright:vX-noble`).
+    # Keep the tag in sync with @playwright/test in admin/package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      options: --user 1001
     defaults:
       run:
         working-directory: admin
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-        with:
-          package_json_file: admin/package.json
-
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
-        with:
-          node-version-file: ".node-version"
-          cache: "pnpm"
-          cache-dependency-path: admin/pnpm-lock.yaml
+      - run: corepack enable
 
       - run: pnpm install --frozen-lockfile
-
-      - run: pnpm exec playwright install --with-deps chromium
 
       - run: pnpm run test.e2e
 
