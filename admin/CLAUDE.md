@@ -7,7 +7,7 @@ Admin panel for gallery.sksat.net. This is a separate Qwik/QwikCity project unde
 - **Dev port**: `5175` (root uses `5174` for Playwright). Avoids conflicts when both projects' dev servers are running.
 - **Routing**: Currently a single `/` dashboard (`src/routes/index.tsx`). No fixture data needed yet.
 - **Auth**: Production is behind Cloudflare Access. Local dev has no auth — `pnpm dev` serves the dashboard at `http://localhost:5175` (use `pnpm start` if you want it to auto-open in a browser).
-- **Bindings**: D1 `DB` (metadata source of truth, see [migrations/](migrations/)). R2 (Phase 3+) and image upload (Phase 4) are not wired yet. Tests run against a real local D1 (sequenced via `e2e/start-test-server.sh` so wrangler dev opens the file *after* seeding).
+- **Bindings**: D1 `DB` (metadata source of truth, see [migrations/](migrations/)). R2 (Phase 3+) and image upload (Phase 4) are not wired yet. Tests run against a real local D1 (sequenced via `e2e/start-test-server.sh` so wrangler dev opens the file _after_ seeding).
 - **Publish path**: D1 → JSON dump → B2 S3-compatible `PUT /media.json` via `aws4fetch`. The public gallery still reads the static `media.json`; the admin's "Publish" button is the only writer.
 
 ## Commands
@@ -32,8 +32,11 @@ pnpm import-media && pnpm db.seed.local
 
 ## Test layout
 
-- `e2e/smoke.spec.ts` — minimum: `/` returns 200 and renders the dashboard heading
-- `e2e/vrt/*.vrt.spec.ts` — visual baseline of admin screens (currently dashboard only)
-- `src/**/*.spec.ts` — pure-function unit tests (none yet; add as logic accumulates)
+- `e2e/smoke.spec.ts` — `/` returns 200 and renders the dashboard heading
+- `e2e/media-list.spec.ts`, `e2e/media-edit.spec.ts` — `/media` flows
+- `e2e/vrt/*.vrt.spec.ts` — visual baselines (`/`, `/media`)
+- `src/**/*.spec.ts` — pure-function unit tests (`db.ts`, `validate.ts`)
 
-VRT baselines must be regenerated on Linux/Chromium (CI) — same rule as the root project.
+`POST /api/publish` has no E2E coverage on purpose: a faithful test would have to mock SigV4 + the B2 round-trip. Verify manually after deploy until B2 secrets land in CI.
+
+VRT baselines must be regenerated on Linux/Chromium (CI) — same rule as the root project. Use `playwright install --with-deps chromium` (matches CI) rather than the Playwright Docker image; the two render slightly differently and CI runs the former.

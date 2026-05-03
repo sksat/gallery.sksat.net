@@ -47,11 +47,10 @@ export const onPatch: RequestHandler = async ({
     return;
   }
   const db = getDB(platform);
-  const existing = await getMedia(db, id);
-  if (!existing) {
+  const updated = await updateMedia(db, id, res.patch);
+  if (!updated) {
     json(404, { error: "not found" });
     return;
   }
-  const updated = await updateMedia(db, id, res.patch);
   json(200, updated);
 };

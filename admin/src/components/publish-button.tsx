@@ -18,9 +18,7 @@ export const PublishButton = component$(() => {
   const onClick = $(async () => {
     if (status.value.kind === "loading") return;
     if (
-      !confirm(
-        "Regenerate media.json from D1 and upload to the public bucket?",
-      )
+      !confirm("Regenerate media.json from D1 and upload to the public bucket?")
     ) {
       return;
     }
@@ -31,7 +29,8 @@ export const PublishButton = component$(() => {
       if (!res.ok) {
         status.value = {
           kind: "error",
-          message: typeof body.error === "string" ? body.error : `HTTP ${res.status}`,
+          message:
+            typeof body.error === "string" ? body.error : `HTTP ${res.status}`,
         };
         return;
       }

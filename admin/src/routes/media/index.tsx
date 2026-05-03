@@ -55,7 +55,12 @@ export default component$(() => {
       <form
         method="get"
         action="/media/"
-        style={{ margin: "1rem 0", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}
+        style={{
+          margin: "1rem 0",
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+        }}
       >
         <label>
           World:&nbsp;
@@ -70,9 +75,7 @@ export default component$(() => {
           <input type="text" name="q" value={q} placeholder="substring" />
         </label>
         <button type="submit">Filter</button>
-        {(world || q) && (
-          <Link href="/media/">Reset</Link>
-        )}
+        {(world || q) && <Link href="/media/">Reset</Link>}
       </form>
 
       <table style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -105,7 +108,9 @@ export default component$(() => {
                 {row.file}
               </td>
               <td style={{ padding: "0.4rem" }}>{row.world}</td>
-              <td style={{ padding: "0.4rem" }}>{fmtTimestamp(row.timestamp)}</td>
+              <td style={{ padding: "0.4rem" }}>
+                {fmtTimestamp(row.timestamp)}
+              </td>
               <td style={{ padding: "0.4rem" }}>
                 {row.tags.length === 0 ? (
                   <span style={{ color: "#bbb" }}>—</span>
@@ -113,7 +118,9 @@ export default component$(() => {
                   row.tags.join(", ")
                 )}
               </td>
-              <td style={{ padding: "0.4rem", color: "#888", fontSize: "0.85em" }}>
+              <td
+                style={{ padding: "0.4rem", color: "#888", fontSize: "0.85em" }}
+              >
                 {row.updated_at.slice(0, 10)}
               </td>
               <td style={{ padding: "0.4rem" }}>

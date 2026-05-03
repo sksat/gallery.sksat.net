@@ -18,20 +18,37 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     patch.world = obj.world;
   }
 
-  if ("camera_make" in obj) {
-    const v = obj.camera_make;
-    if (v !== null && typeof v !== "string") {
+  // camera_make and camera_model are paired: exported JSON drops the camera
+  // object entirely if either is null, so any patch must touch them as a pair
+  // and end up with both set or both cleared.
+  const hasMake = "camera_make" in obj;
+  const hasModel = "camera_model" in obj;
+  if (hasMake !== hasModel) {
+    return {
+      ok: false,
+      error: "camera_make and camera_model must be patched together",
+    };
+  }
+  if (hasMake && hasModel) {
+    const make = obj.camera_make;
+    const model = obj.camera_model;
+    if (make !== null && typeof make !== "string") {
       return { ok: false, error: "camera_make must be string or null" };
     }
-    patch.camera_make = v === "" ? null : v;
-  }
-
-  if ("camera_model" in obj) {
-    const v = obj.camera_model;
-    if (v !== null && typeof v !== "string") {
+    if (model !== null && typeof model !== "string") {
       return { ok: false, error: "camera_model must be string or null" };
     }
-    patch.camera_model = v === "" ? null : v;
+    const normMake = typeof make === "string" && make.trim() === "" ? null : make;
+    const normModel =
+      typeof model === "string" && model.trim() === "" ? null : model;
+    if ((normMake === null) !== (normModel === null)) {
+      return {
+        ok: false,
+        error: "camera_make and camera_model must both be set or both be null",
+      };
+    }
+    patch.camera_make = normMake;
+    patch.camera_model = normModel;
   }
 
   if ("tags" in obj) {

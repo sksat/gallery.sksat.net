@@ -6,14 +6,18 @@
   "vars": {
     "B2_REGION": "us-west-002",
     "B2_BUCKET": "sksat-gallery",
-    "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com"
+    "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
   },
   "d1_databases": [
     {
+      // Override `database_id` locally after running `pnpm db.create`. The
+      // committed value is a syntactically valid all-zero UUID so Cloudflare
+      // Pages preview validation passes; production binding is configured via
+      // the Pages dashboard.
       "binding": "DB",
       "database_name": "gallery-admin",
-      "database_id": "REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE",
-      "migrations_dir": "migrations"
-    }
-  ]
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
 }

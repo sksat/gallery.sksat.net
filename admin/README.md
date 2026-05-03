@@ -119,13 +119,13 @@ admin/
 
 Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler secret put` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials:
 
-| Var                    | Where           | Used by      |
-| ---------------------- | --------------- | ------------ |
-| `B2_REGION`            | `vars`          | publish      |
-| `B2_BUCKET`            | `vars`          | publish      |
-| `B2_ENDPOINT`          | `vars`          | publish      |
-| `B2_ACCESS_KEY_ID`     | secret/.dev.vars| publish      |
-| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars| publish      |
+| Var                    | Where            | Used by |
+| ---------------------- | ---------------- | ------- |
+| `B2_REGION`            | `vars`           | publish |
+| `B2_BUCKET`            | `vars`           | publish |
+| `B2_ENDPOINT`          | `vars`           | publish |
+| `B2_ACCESS_KEY_ID`     | secret/.dev.vars | publish |
+| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars | publish |
 
 Bindings:
 
@@ -139,7 +139,8 @@ The metadata that backs `media.json` lives in a D1 database. Production rollout:
 # 1. Create the D1 database (one-time). Capture the printed database_id.
 pnpm db.create
 
-# 2. Edit wrangler.jsonc — replace REPLACE_WITH_ID_FROM_WRANGLER_D1_CREATE with that id.
+# 2. Edit wrangler.jsonc locally — swap the all-zero placeholder `database_id`
+#    for the real id. Do not commit this local edit.
 
 # 3. Apply schema migrations.
 pnpm db.migrate.remote   # production

@@ -35,8 +35,15 @@ export const useUpdateMedia = routeAction$(
     }
     const db = getDB(platform);
     const tags = parseTagsInput(data.tags ?? "");
-    const cameraMake = data.camera_make.trim() || null;
-    const cameraModel = data.camera_model.trim() || null;
+    const makeRaw = data.camera_make.trim();
+    const modelRaw = data.camera_model.trim();
+    if ((makeRaw === "") !== (modelRaw === "")) {
+      return fail(400, {
+        message: "Camera make and model must both be set or both be cleared.",
+      });
+    }
+    const cameraMake = makeRaw === "" ? null : makeRaw;
+    const cameraModel = modelRaw === "" ? null : modelRaw;
     const updated = await updateMedia(db, id, {
       world: data.world,
       camera_make: cameraMake,
@@ -74,22 +81,46 @@ export default component$(() => {
   const row = media.value;
 
   return (
-    <div style={{ padding: "1.5rem", fontFamily: "sans-serif", maxWidth: "60rem" }}>
+    <div
+      style={{ padding: "1.5rem", fontFamily: "sans-serif", maxWidth: "60rem" }}
+    >
       <p>
         <Link href="/media/">← Media</Link>
       </p>
       <h1>Edit #{row.id}</h1>
 
-      <dl style={{ background: "#f5f5f5", padding: "0.8rem", borderRadius: "4px" }}>
+      <dl
+        style={{
+          background: "#f5f5f5",
+          padding: "0.8rem",
+          borderRadius: "4px",
+        }}
+      >
         <dt>File</dt>
-        <dd style={{ fontFamily: "monospace", fontSize: "0.9em", wordBreak: "break-all" }}>
+        <dd
+          style={{
+            fontFamily: "monospace",
+            fontSize: "0.9em",
+            wordBreak: "break-all",
+          }}
+        >
           {row.file}
         </dd>
         <dt style={{ marginTop: "0.6rem" }}>Timestamp</dt>
-        <dd>{row.timestamp ?? <span style={{ color: "#888" }}>(none)</span>}</dd>
+        <dd>
+          {row.timestamp ?? <span style={{ color: "#888" }}>(none)</span>}
+        </dd>
       </dl>
 
-      <Form action={action} style={{ marginTop: "1rem", display: "grid", gap: "0.8rem", maxWidth: "30rem" }}>
+      <Form
+        action={action}
+        style={{
+          marginTop: "1rem",
+          display: "grid",
+          gap: "0.8rem",
+          maxWidth: "30rem",
+        }}
+      >
         <label>
           World
           <br />

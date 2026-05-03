@@ -9,11 +9,6 @@ export type PublishResult = {
   etag: string | null;
 };
 
-export const buildMediaJson = async (db: D1Database): Promise<string> => {
-  const items = await allMediaForExport(db);
-  return JSON.stringify(items);
-};
-
 export const publishMediaJson = async (
   db: D1Database,
   env: Pick<
@@ -27,6 +22,7 @@ export const publishMediaJson = async (
 ): Promise<PublishResult> => {
   const items = await allMediaForExport(db);
   const body = JSON.stringify(items);
+  const bodyBytes = new TextEncoder().encode(body);
 
   const aws = new AwsClient({
     accessKeyId: env.B2_ACCESS_KEY_ID,
@@ -38,7 +34,7 @@ export const publishMediaJson = async (
   const url = `${env.B2_ENDPOINT.replace(/\/$/, "")}/${env.B2_BUCKET}/media.json`;
   const res = await aws.fetch(url, {
     method: "PUT",
-    body,
+    body: bodyBytes,
     headers: {
       "content-type": "application/json",
     },
@@ -50,7 +46,7 @@ export const publishMediaJson = async (
 
   return {
     count: items.length,
-    bytes: body.length,
+    bytes: bodyBytes.byteLength,
     uploadedAt: new Date().toISOString(),
     etag: res.headers.get("etag"),
   };

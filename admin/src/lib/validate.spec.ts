@@ -24,13 +24,23 @@ describe("validatePatch", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("converts empty camera string to null", () => {
+  it("converts empty camera strings to null when both are present", () => {
     const r = validatePatch({ camera_make: "", camera_model: "" });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.patch.camera_make).toBeNull();
       expect(r.patch.camera_model).toBeNull();
     }
+  });
+
+  it("rejects patching camera_make without camera_model", () => {
+    const r = validatePatch({ camera_make: "Canon" });
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects mixed null/non-null camera fields", () => {
+    const r = validatePatch({ camera_make: "Canon", camera_model: null });
+    expect(r.ok).toBe(false);
   });
 
   it("rejects array body", () => {
