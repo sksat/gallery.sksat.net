@@ -151,6 +151,17 @@ jobs:
 
       - run: corepack enable
 
+      # Cache pnpm store. We cannot use pnpm/action-setup or actions/setup-node's
+      # built-in pnpm cache here because they require Node 20+ and the
+      # Playwright image's environment differs; a manual cache keyed on the
+      # lockfile keeps the install fast.
+      - uses: actions/cache@2f8e54208210a422b2efd51efaa6bd6d7ca8920f # v3.4.3
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-admin-${{ runner.os }}-${{ hashFiles('admin/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-admin-${{ runner.os }}-
+
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm run test.e2e

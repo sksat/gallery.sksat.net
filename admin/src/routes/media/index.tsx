@@ -64,10 +64,16 @@ export default component$(() => {
       >
         <label>
           World:&nbsp;
-          <select name="world" value={world ?? ""}>
-            <option value="">(any)</option>
-            <option value="Real">Real</option>
-            <option value="VRChat">VRChat</option>
+          <select name="world">
+            <option value="" selected={world === null}>
+              (any)
+            </option>
+            <option value="Real" selected={world === "Real"}>
+              Real
+            </option>
+            <option value="VRChat" selected={world === "VRChat"}>
+              VRChat
+            </option>
           </select>
         </label>
         <label>

@@ -1,10 +1,20 @@
 import { expect, test } from "@playwright/test";
 
-test("media edit: tags can be saved and reflected on the list", async ({ page }) => {
+test("media edit: world select shows the row's current value as preselected", async ({
+  page,
+}) => {
+  // Regression: relying on `<select value="...">` (a React-ism) left the
+  // SSR'd select with no `selected` option, so a "Save" without editing
+  // silently flipped the row to the first option (Real).
+  await page.goto("/media/2/"); // fixture: row 2 is VRChat
+  await expect(page.locator('select[name="world"]')).toHaveValue("VRChat");
+});
+
+test("media edit: tags can be saved and reflected on the list", async ({
+  page,
+}) => {
   await page.goto("/media/3/");
-  await expect(
-    page.getByRole("heading", { name: "Edit #3" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Edit #3" })).toBeVisible();
 
   const tagsInput = page.locator('input[name="tags"]');
   await tagsInput.fill("alpha, beta");

@@ -139,11 +139,13 @@ export const updateMedia = async (
   if (sets.length === 0) return getMedia(db, id);
 
   sets.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
-  await db
-    .prepare(`UPDATE media SET ${sets.join(", ")} WHERE id = ?`)
+  const raw = await db
+    .prepare(
+      `UPDATE media SET ${sets.join(", ")} WHERE id = ? RETURNING *`,
+    )
     .bind(...args, id)
-    .run();
-  return getMedia(db, id);
+    .first<RawRow>();
+  return raw ? rowToMedia(raw) : null;
 };
 
 export const allMediaForExport = async (

@@ -124,9 +124,13 @@ export default component$(() => {
         <label>
           World
           <br />
-          <select name="world" value={row.world}>
-            <option value="Real">Real</option>
-            <option value="VRChat">VRChat</option>
+          <select name="world">
+            <option value="Real" selected={row.world === "Real"}>
+              Real
+            </option>
+            <option value="VRChat" selected={row.world === "VRChat"}>
+              VRChat
+            </option>
           </select>
         </label>
         <label>
