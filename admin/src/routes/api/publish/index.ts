@@ -2,6 +2,10 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { getB2Env, getDB } from "~/lib/env";
 import { publishMediaJson } from "~/lib/publish";
 
+// CSRF: Qwik City rejects POSTs whose Origin header does not match the
+// server origin (we observed this returns "CSRF check failed" before our
+// handler runs). Combined with Cloudflare Access at the edge, no extra
+// token is needed here.
 export const onPost: RequestHandler = async ({ platform, json }) => {
   try {
     const db = getDB(platform);

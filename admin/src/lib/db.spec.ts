@@ -98,4 +98,21 @@ describe("rowToMediaJson", () => {
     });
     expect(json.camera).toBeNull();
   });
+
+  it("preserves an empty-string camera value rather than collapsing to null", () => {
+    // Defensive: validation normally converts "" to null, but if a raw SQL
+    // import ever leaks an empty string we want it surfaced in the export
+    // rather than silently dropped via truthiness.
+    const json = rowToMediaJson({
+      id: 1,
+      file: "/x.png",
+      world: "VRChat",
+      timestamp: null,
+      camera_make: "",
+      camera_model: "",
+      tags: [],
+      updated_at: "2025-05-03T10:00:00.000Z",
+    });
+    expect(json.camera).toEqual({ make: "", model: "" });
+  });
 });

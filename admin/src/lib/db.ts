@@ -47,8 +47,10 @@ export const rowToMediaJson = (row: MediaRow): MediaInfoJSON => ({
   file: row.file,
   world: row.world,
   timestamp: row.timestamp,
+  // Use null check (not truthiness) so an empty-string make/model — should
+  // it ever leak past validation — does not silently drop the camera object.
   camera:
-    row.camera_make && row.camera_model
+    row.camera_make != null && row.camera_model != null
       ? { make: row.camera_make, model: row.camera_model }
       : null,
   tags: row.tags,
@@ -77,8 +79,11 @@ export const listMedia = async (
     args.push(params.world);
   }
   if (params.q) {
-    where.push("file LIKE ?");
-    args.push(`%${params.q}%`);
+    // Escape LIKE metacharacters so a literal `%` or `_` in the query does
+    // not behave as a wildcard.
+    const escaped = params.q.replace(/[\\%_]/g, (c) => `\\${c}`);
+    where.push("file LIKE ? ESCAPE '\\'");
+    args.push(`%${escaped}%`);
   }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
@@ -148,6 +153,10 @@ export const updateMedia = async (
   return raw ? rowToMedia(raw) : null;
 };
 
+// Pulls every row in one query for the publish step. D1 caps result sets at
+// ~10 MB; at ~200 bytes/row this comfortably handles tens of thousands of
+// entries. If the gallery ever approaches that, switch to cursor-based
+// batching here.
 export const allMediaForExport = async (
   db: D1Database,
 ): Promise<MediaInfoJSON[]> => {
