@@ -87,9 +87,16 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     if (!Array.isArray(v) || !v.every((t) => typeof t === "string")) {
       return { ok: false, error: "tags must be an array of strings" };
     }
-    // Trim + drop empties first so the length cap evaluates the
-    // post-normalisation form.
-    const trimmedTags = v.map((t) => t.trim()).filter((t) => t.length > 0);
+    // Trim + drop empties + dedupe (preserve first-seen order) so the
+    // length cap evaluates the post-normalisation form.
+    const seen = new Set<string>();
+    const trimmedTags: string[] = [];
+    for (const raw of v) {
+      const t = raw.trim();
+      if (t.length === 0 || seen.has(t)) continue;
+      seen.add(t);
+      trimmedTags.push(t);
+    }
     if (trimmedTags.length > MAX_TAGS) {
       return { ok: false, error: `tags exceeds ${MAX_TAGS} entries` };
     }

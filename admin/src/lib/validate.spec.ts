@@ -14,6 +14,12 @@ describe("validatePatch", () => {
     if (r.ok) expect(r.patch.tags).toEqual(["a", "b"]);
   });
 
+  it("deduplicates tags, preserving first-seen order", () => {
+    const r = validatePatch({ tags: ["a", "b", "a", " a ", "c", "b"] });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.patch.tags).toEqual(["a", "b", "c"]);
+  });
+
   it("rejects non-string tag entries", () => {
     const r = validatePatch({ tags: ["a", 1] });
     expect(r.ok).toBe(false);
