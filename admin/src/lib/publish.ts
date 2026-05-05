@@ -31,6 +31,10 @@ export const publishMediaJson = async (
     service: "s3",
   });
 
+  // Path-style S3 URL (`endpoint/bucket/key`). Matches the
+  // s3.us-west-002.backblazeb2.com form pinned in wrangler.jsonc. If the
+  // endpoint is ever swapped to virtual-hosted style
+  // (`bucket.endpoint/key`), update this construction in lockstep.
   const url = `${env.B2_ENDPOINT.replace(/\/$/, "")}/${env.B2_BUCKET}/media.json`;
   const res = await aws.fetch(url, {
     method: "PUT",

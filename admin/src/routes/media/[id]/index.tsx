@@ -183,6 +183,7 @@ export default component$(() => {
             name="camera_make"
             value={row.camera_make ?? ""}
             placeholder="(empty for none)"
+            maxLength={200}
             style={{ width: "100%" }}
           />
         </label>
@@ -194,6 +195,7 @@ export default component$(() => {
             name="camera_model"
             value={row.camera_model ?? ""}
             placeholder="(empty for none)"
+            maxLength={200}
             style={{ width: "100%" }}
           />
         </label>
@@ -204,6 +206,7 @@ export default component$(() => {
             type="text"
             name="tags"
             value={row.tags.join(", ")}
+            maxLength={2000}
             style={{ width: "100%" }}
           />
         </label>

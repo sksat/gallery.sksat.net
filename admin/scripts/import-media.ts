@@ -32,7 +32,9 @@ const REJECT_CHARS = /[\x00-\x1f;]/;
 const escape = (s: string) => {
   if (REJECT_CHARS.test(s)) {
     throw new Error(
-      `unsupported character in field (control char or ';'): ${JSON.stringify(s)}`,
+      `unsupported character in field: ${JSON.stringify(s)} ` +
+        `(rejected: control chars or ';' — wrangler d1 execute --file ` +
+        `splits the SQL on ';' and a stray control char would break the seed)`,
     );
   }
   return s.replace(/'/g, "''");
