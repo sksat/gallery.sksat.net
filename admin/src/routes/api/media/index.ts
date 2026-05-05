@@ -7,6 +7,9 @@ import type { MediaWorld } from "~/lib/types";
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 
+// Lenient: invalid input (non-integer, below `min`) silently falls back to
+// `fallback` rather than 4xx — admin-only API, ergonomic over strict.
+// Values above `max` are clamped, not rejected.
 const parseIntParam = (
   v: string | null,
   fallback: number,

@@ -164,6 +164,12 @@ export const updateMedia = async (
 // at ~200 bytes/row this leaves plenty of headroom but trips a clear error
 // before we hit the opaque platform limit. Switch to cursor-based batching
 // here if the gallery ever approaches this scale.
+//
+// Note: the check fires *after* `.all()` materialises the rows. If the result
+// set blows the D1 size limit the platform error surfaces first; this guard
+// is only useful for catching the "you forgot to add cursor batching" case
+// while still under the hard cap. A `SELECT COUNT(*)` pre-flight would catch
+// it earlier but doubles the publish-path queries; revisit if it matters.
 const MAX_EXPORT_ROWS = 50_000;
 
 export const allMediaForExport = async (

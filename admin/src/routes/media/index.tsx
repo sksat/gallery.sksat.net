@@ -2,28 +2,57 @@ import { component$ } from "@builder.io/qwik";
 import { Link, routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
 import { listMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
-import type { MediaWorld } from "~/lib/types";
+import type { MediaRow, MediaWorld } from "~/lib/types";
 
 const PAGE_SIZE = 100;
 
-export const useMediaList = routeLoader$(async ({ platform, query }) => {
-  const db = getDB(platform);
-  const worldRaw = query.get("world");
-  const world: MediaWorld | undefined =
-    worldRaw === "Real" || worldRaw === "VRChat" ? worldRaw : undefined;
-  const q = query.get("q")?.trim() || undefined;
-  const pageRaw = Number(query.get("page") ?? "1");
-  const page = Number.isInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1;
-  const offset = (page - 1) * PAGE_SIZE;
+type MediaListResult =
+  | {
+      kind: "ok";
+      rows: MediaRow[];
+      total: number;
+      page: number;
+      world: MediaWorld | null;
+      q: string;
+    }
+  | { kind: "missing-binding"; message: string };
 
-  const { rows, total } = await listMedia(db, {
-    world,
-    q,
-    limit: PAGE_SIZE,
-    offset,
-  });
-  return { rows, total, page, world: world ?? null, q: q ?? "" };
-});
+export const useMediaList = routeLoader$<MediaListResult>(
+  async ({ platform, query, status }) => {
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      status(500);
+      return {
+        kind: "missing-binding",
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+    const worldRaw = query.get("world");
+    const world: MediaWorld | undefined =
+      worldRaw === "Real" || worldRaw === "VRChat" ? worldRaw : undefined;
+    const q = query.get("q")?.trim() || undefined;
+    const pageRaw = Number(query.get("page") ?? "1");
+    const page = Number.isInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+    const offset = (page - 1) * PAGE_SIZE;
+
+    const { rows, total } = await listMedia(db, {
+      world,
+      q,
+      limit: PAGE_SIZE,
+      offset,
+    });
+    return {
+      kind: "ok",
+      rows,
+      total,
+      page,
+      world: world ?? null,
+      q: q ?? "",
+    };
+  },
+);
 
 // Preserve the date-component as-stored. The fixture and prod data carry
 // timezone-aware ISO strings (e.g. `2023-12-11T01:21:32.519+09:00`); using
@@ -38,6 +67,26 @@ const fmtTimestamp = (ts: string | null): string => {
 
 export default component$(() => {
   const data = useMediaList();
+  if (data.value.kind === "missing-binding") {
+    return (
+      <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
+        <p>
+          <Link href="/">← Dashboard</Link>
+        </p>
+        <h1>Configuration error</h1>
+        <pre
+          style={{
+            background: "#f5f5f5",
+            padding: "0.8rem",
+            borderRadius: "4px",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {data.value.message}
+        </pre>
+      </div>
+    );
+  }
   const { rows, total, page, world, q } = data.value;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 

@@ -10,22 +10,41 @@ import {
 } from "@builder.io/qwik-city";
 import { getMedia, updateMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
+import type { MediaRow } from "~/lib/types";
 import { parseTagsInput, validatePatch } from "~/lib/validate";
 
-export const useMedia = routeLoader$(async ({ platform, params, status }) => {
-  const id = Number(params.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    status(400);
-    return null;
-  }
-  const db = getDB(platform);
-  const row = await getMedia(db, id);
-  if (!row) {
-    status(404);
-    return null;
-  }
-  return row;
-});
+type MediaLoaderResult =
+  | { kind: "ok"; row: MediaRow }
+  | { kind: "missing-binding"; message: string }
+  | { kind: "not-found" };
+
+export const useMedia = routeLoader$<MediaLoaderResult>(
+  async ({ platform, params, status }) => {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      status(400);
+      return { kind: "not-found" };
+    }
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      // pnpm dev (vite-only) has no D1 binding. Render a clear message
+      // instead of bubbling an unhandled 500.
+      status(500);
+      return {
+        kind: "missing-binding",
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+    const row = await getMedia(db, id);
+    if (!row) {
+      status(404);
+      return { kind: "not-found" };
+    }
+    return { kind: "ok", row };
+  },
+);
 
 export const useUpdateMedia = routeAction$(
   async (data, { platform, params, fail }) => {
@@ -44,7 +63,14 @@ export const useUpdateMedia = routeAction$(
     if (!v.ok) {
       return fail(400, { message: v.error });
     }
-    const db = getDB(platform);
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      return fail(500, {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
     const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
       return fail(404, { message: "not found" });
@@ -63,7 +89,27 @@ export default component$(() => {
   const media = useMedia();
   const action = useUpdateMedia();
 
-  if (!media.value) {
+  if (media.value.kind === "missing-binding") {
+    return (
+      <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
+        <p>
+          <Link href="/media/">← Back</Link>
+        </p>
+        <h1>Configuration error</h1>
+        <pre
+          style={{
+            background: "#f5f5f5",
+            padding: "0.8rem",
+            borderRadius: "4px",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {media.value.message}
+        </pre>
+      </div>
+    );
+  }
+  if (media.value.kind === "not-found") {
     return (
       <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
         <p>
@@ -74,7 +120,7 @@ export default component$(() => {
     );
   }
 
-  const row = media.value;
+  const row = media.value.row;
 
   return (
     <div
@@ -181,8 +227,12 @@ export default component$(() => {
 });
 
 export const head: DocumentHead = ({ resolveValue }) => {
-  const row = resolveValue(useMedia);
-  return {
-    title: row ? `Edit ${row.file} — Admin` : "Not found — Admin",
-  };
+  const result = resolveValue(useMedia);
+  if (result.kind === "ok") {
+    return { title: `Edit ${result.row.file} — Admin` };
+  }
+  if (result.kind === "missing-binding") {
+    return { title: "Configuration error — Admin" };
+  }
+  return { title: "Not found — Admin" };
 };
