@@ -154,6 +154,10 @@ pnpm db.seed.local       # apply to local
 
 Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, `camera_make`, `camera_model`, and `tags`, and the dashboard's **Publish** button regenerates `media.json` from D1 and PUTs it to the B2 bucket.
 
+> **Prerequisite before first Publish**: enable Object Lock / file versioning on the B2 bucket. Publish overwrites the entire `media.json` from a single D1 SELECT — there is no diff or dry-run, so a corrupted D1 (failed seed, partial import, accidental DELETE) would otherwise destructively replace the live index. Versioning gives a one-click rollback.
+
+> **Dev caveat**: `pnpm serve` (and the test server in `e2e/start-test-server.sh`) binds locally with no auth — Cloudflare Access only fronts production. Do not expose the dev port (5175 / 8788) on a public network interface; CSRF is the only thing keeping a malicious page from POSTing to your local D1.
+
 ## Next Steps
 
 - [x] Phase 1: D1 database integration and migration

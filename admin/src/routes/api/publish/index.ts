@@ -3,9 +3,12 @@ import { getB2Env, getDB } from "~/lib/env";
 import { publishMediaJson } from "~/lib/publish";
 
 // CSRF: Qwik City rejects POSTs whose Origin header does not match the
-// server origin (we observed this returns "CSRF check failed" before our
-// handler runs). Combined with Cloudflare Access at the edge, no extra
-// token is needed here.
+// server origin — verified for raw RequestHandler `onPost` (not only
+// `routeAction$`) by curl: a missing or cross-origin POST returns 403
+// before this handler runs. The `csrf-protection` E2E spec pins this
+// behaviour so a framework upgrade that drops the default would surface
+// as a test failure rather than silently widening the attack surface.
+// Combined with Cloudflare Access at the edge, no extra token is needed.
 export const onPost: RequestHandler = async ({ platform, json }) => {
   try {
     const db = getDB(platform);

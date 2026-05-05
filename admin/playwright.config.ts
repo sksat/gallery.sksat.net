@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-const port = 5175;
+// Local override: set ADMIN_E2E_PORT if 5175 is taken on your machine.
+const port = Number(process.env.ADMIN_E2E_PORT) || 5175;
 
 export default defineConfig({
   testDir: "./e2e",
