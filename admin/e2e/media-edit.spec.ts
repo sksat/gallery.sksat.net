@@ -28,6 +28,11 @@ test("media edit: tags can be saved and reflected on the list", async ({
   );
 });
 
+// Local-dev caveat: with `reuseExistingServer: true` and `workers: 1`, an
+// interrupted run of this test (e.g. Ctrl-C between the mutation and the
+// finally restore) leaves row 1's world flipped to VRChat in the test D1.
+// `start-test-server.sh` re-applies fixture.sql on every fresh server start,
+// so a `pnpm run test.e2e` from a fresh shell recovers automatically.
 test("media edit: world can be changed", async ({ page }) => {
   try {
     await page.goto("/media/1/");
