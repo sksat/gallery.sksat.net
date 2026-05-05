@@ -30,13 +30,15 @@
     "test.vrt": "playwright test --project=vrt",
     "test.vrt.update": "playwright test --project=vrt --update-snapshots"
   },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  },
   "devDependencies": {
     "@builder.io/qwik": "^1.16.1",
     "@builder.io/qwik-city": "^1.16.1",
     "@cloudflare/workers-types": "^4.20251004.0",
     "@playwright/test": "1.59.1",
     "@types/node": "^22.0.0",
-    "aws4fetch": "^1.0.20",
     "ignore": "^5.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.3.2",

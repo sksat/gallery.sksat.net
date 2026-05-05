@@ -20,7 +20,14 @@ const isWorld = (v: string): v is MediaWorld =>
   v === "Real" || v === "VRChat";
 
 const parseTags = (raw: string): string[] => {
-  const parsed = JSON.parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `tags column is not valid JSON: ${raw} (${err instanceof Error ? err.message : err})`,
+    );
+  }
   if (!Array.isArray(parsed) || !parsed.every((t) => typeof t === "string")) {
     throw new Error(`tags column is not a JSON string array: ${raw}`);
   }

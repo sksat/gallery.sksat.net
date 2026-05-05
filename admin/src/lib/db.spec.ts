@@ -62,6 +62,21 @@ describe("rowToMedia", () => {
       }),
     ).toThrow(/tags column/);
   });
+
+  it("reports invalid (non-JSON) tags column with context", () => {
+    expect(() =>
+      rowToMedia({
+        id: 5,
+        file: "x",
+        world: "Real",
+        timestamp: null,
+        camera_make: null,
+        camera_model: null,
+        tags: "not json",
+        updated_at: "2025-05-03T10:00:00.000Z",
+      }),
+    ).toThrow(/not valid JSON/);
+  });
 });
 
 describe("rowToMediaJson", () => {

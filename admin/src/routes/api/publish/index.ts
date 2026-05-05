@@ -1,4 +1,5 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
+import { withErrorHandler } from "~/lib/api";
 import { getB2Env, getDB } from "~/lib/env";
 import { publishMediaJson } from "~/lib/publish";
 
@@ -9,17 +10,16 @@ import { publishMediaJson } from "~/lib/publish";
 // behaviour so a framework upgrade that drops the default would surface
 // as a test failure rather than silently widening the attack surface.
 // Combined with Cloudflare Access at the edge, no extra token is needed.
-export const onPost: RequestHandler = async ({ platform, json }) => {
-  try {
+//
+// withErrorHandler logs the full error (B2 endpoint, S3 body, etc.) to the
+// worker logs and returns a generic message so credentials and infra details
+// are not leaked through the response.
+export const onPost: RequestHandler = withErrorHandler(
+  "publish",
+  async ({ platform, json }) => {
     const db = getDB(platform);
     const env = getB2Env(platform);
     const result = await publishMediaJson(db, env);
     json(200, result);
-  } catch (err) {
-    // Log the full error server-side; the response is intentionally generic so
-    // B2 endpoint URLs / bucket names / S3 error bodies aren't leaked through
-    // the API even though it's behind Cloudflare Access.
-    console.error("publish failed:", err);
-    json(500, { error: "publish failed; see admin worker logs" });
-  }
-};
+  },
+);
