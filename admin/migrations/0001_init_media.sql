@@ -10,7 +10,12 @@ CREATE TABLE media (
   camera_make  TEXT,
   camera_model TEXT,
   tags         TEXT NOT NULL DEFAULT '[]',
-  updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  -- Pair invariant: rowToMediaJson collapses the exported camera object
+  -- to null whenever either field is null, and validatePatch enforces
+  -- the same rule at the API layer. This CHECK closes the gap for
+  -- direct SQL writes (raw imports, manual fixups).
+  CHECK ((camera_make IS NULL) = (camera_model IS NULL))
 );
 
 CREATE INDEX idx_media_world     ON media(world);

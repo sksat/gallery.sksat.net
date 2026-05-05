@@ -8,6 +8,7 @@ import {
   z,
   type DocumentHead,
 } from "@builder.io/qwik-city";
+import { MissingBindingError } from "~/components/missing-binding-error";
 import { getMedia, updateMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
 import type { MediaRow } from "~/lib/types";
@@ -88,19 +89,7 @@ export default component$(() => {
   const action = useUpdateMedia();
 
   if (media.value.kind === "missing-binding") {
-    return (
-      <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
-        <p>
-          <Link href="/media/">← Back</Link>
-        </p>
-        <h1>Configuration error</h1>
-        <p>
-          D1 binding unavailable. Run <code>pnpm serve</code> (not{" "}
-          <code>pnpm dev</code>) for a wrangler-backed local server, or check
-          the worker logs in production.
-        </p>
-      </div>
-    );
+    return <MissingBindingError backHref="/media/" />;
   }
   if (media.value.kind === "bad-request") {
     return (

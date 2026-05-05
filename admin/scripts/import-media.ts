@@ -84,6 +84,18 @@ for (const item of items) {
       );
     }
   }
+  // Paired camera: must be both-set or both-absent. Mirrors the SQL CHECK
+  // constraint so a clear error fires here rather than at INSERT time.
+  if (item.camera != null) {
+    if (
+      typeof item.camera.make !== "string" ||
+      typeof item.camera.model !== "string"
+    ) {
+      throw new Error(
+        `camera must be { make, model } as a pair for ${item.file}: ${JSON.stringify(item.camera)}`,
+      );
+    }
+  }
   const cols = [
     sqlString(item.file),
     sqlString(item.world),
