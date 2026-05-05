@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+test("media edit: invalid id renders the bad-request UI, not 'Not found'", async ({
+  page,
+}) => {
+  // /media/abc/ should distinguish "you typed a bad URL" from "row gone".
+  const response = await page.goto("/media/abc/");
+  expect(response?.status()).toBe(400);
+  await expect(page.getByRole("heading", { name: "Invalid id" })).toBeVisible();
+});
+
 test("media edit: world select shows the row's current value as preselected", async ({
   page,
 }) => {

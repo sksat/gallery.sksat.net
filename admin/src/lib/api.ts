@@ -10,6 +10,10 @@ const enforceSameOrigin = (ev: RequestEventCommon): boolean => {
     return false;
   }
   const origin = ev.request.headers.get("origin");
+  // Strict: a missing Origin header (curl-style request, malformed client)
+  // also falls through to 403. Browsers always send Origin on cross-origin
+  // fetch, so this only blocks non-browser callers; production traffic from
+  // the admin panel itself always sets Origin to the page origin.
   if (origin && origin === ev.url.origin) {
     return false;
   }

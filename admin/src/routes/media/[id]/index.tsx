@@ -16,6 +16,7 @@ import { parseTagsInput, validatePatch } from "~/lib/validate";
 type MediaLoaderResult =
   | { kind: "ok"; row: MediaRow }
   | { kind: "missing-binding" }
+  | { kind: "bad-request" }
   | { kind: "not-found" };
 
 export const useMedia = routeLoader$<MediaLoaderResult>(
@@ -23,7 +24,7 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
     const id = Number(params.id);
     if (!Number.isInteger(id) || id <= 0) {
       status(400);
-      return { kind: "not-found" };
+      return { kind: "bad-request" };
     }
     let db: D1Database;
     try {
@@ -98,6 +99,17 @@ export default component$(() => {
           <code>pnpm dev</code>) for a wrangler-backed local server, or check
           the worker logs in production.
         </p>
+      </div>
+    );
+  }
+  if (media.value.kind === "bad-request") {
+    return (
+      <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
+        <p>
+          <Link href="/media/">← Back</Link>
+        </p>
+        <h1>Invalid id</h1>
+        <p>The id in the URL must be a positive integer.</p>
       </div>
     );
   }
@@ -228,6 +240,9 @@ export const head: DocumentHead = ({ resolveValue }) => {
   }
   if (result.kind === "missing-binding") {
     return { title: "Configuration error — Admin" };
+  }
+  if (result.kind === "bad-request") {
+    return { title: "Invalid id — Admin" };
   }
   return { title: "Not found — Admin" };
 };
