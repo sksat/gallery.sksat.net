@@ -7,4 +7,4 @@ INSERT INTO media (id, file, world, timestamp, camera_make, camera_model, tags, 
   (3, '/mock/real2.png',   'Real',   '2023-12-03T00:00:00Z', NULL,        NULL,            '[]',                          '2024-01-01T00:00:00.000Z'),
   (4, '/mock/vrchat2.png', 'VRChat', '2023-12-04T00:00:00Z', NULL,        NULL,            '["VRChat"]',                  '2024-01-01T00:00:00.000Z'),
   (5, '/mock/vrchat3.png', 'VRChat', '2023-12-05T00:00:00Z', NULL,        NULL,            '["VRChat"]',                  '2024-01-01T00:00:00.000Z');
-INSERT INTO sqlite_sequence (name, seq) VALUES ('media', 5);
+INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('media', 5);
