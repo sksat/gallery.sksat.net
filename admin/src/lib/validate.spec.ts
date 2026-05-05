@@ -59,6 +59,23 @@ describe("validatePatch", () => {
     const r = validatePatch([]);
     expect(r.ok).toBe(false);
   });
+
+  it("rejects camera fields longer than 200 chars", () => {
+    const long = "a".repeat(201);
+    const r = validatePatch({ camera_make: long, camera_model: long });
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects more than 100 tags", () => {
+    const tags = Array.from({ length: 101 }, (_, i) => `t${i}`);
+    const r = validatePatch({ tags });
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects a tag longer than 200 chars", () => {
+    const r = validatePatch({ tags: ["a".repeat(201)] });
+    expect(r.ok).toBe(false);
+  });
 });
 
 describe("parseTagsInput", () => {

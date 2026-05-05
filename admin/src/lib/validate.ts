@@ -1,5 +1,11 @@
 import type { MediaPatch } from "./types";
 
+// Mirror the per-field caps the form's zod$ schema enforces so a direct
+// PATCH bypassing the form sees the same limits.
+const MAX_CAMERA_FIELD_LEN = 200;
+const MAX_TAG_LEN = 200;
+const MAX_TAGS = 100;
+
 export type ValidatePatchResult =
   | { ok: true; patch: MediaPatch }
   | { ok: false; error: string };
@@ -38,6 +44,18 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     if (model !== null && typeof model !== "string") {
       return { ok: false, error: "camera_model must be string or null" };
     }
+    if (typeof make === "string" && make.length > MAX_CAMERA_FIELD_LEN) {
+      return {
+        ok: false,
+        error: `camera_make exceeds ${MAX_CAMERA_FIELD_LEN} chars`,
+      };
+    }
+    if (typeof model === "string" && model.length > MAX_CAMERA_FIELD_LEN) {
+      return {
+        ok: false,
+        error: `camera_model exceeds ${MAX_CAMERA_FIELD_LEN} chars`,
+      };
+    }
     // Trim before normalising so callers don't have to remember to. An empty
     // (or whitespace-only) string collapses to null; a non-empty value is
     // stored trimmed.
@@ -67,6 +85,15 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     const v = obj.tags;
     if (!Array.isArray(v) || !v.every((t) => typeof t === "string")) {
       return { ok: false, error: "tags must be an array of strings" };
+    }
+    if (v.length > MAX_TAGS) {
+      return { ok: false, error: `tags exceeds ${MAX_TAGS} entries` };
+    }
+    if (v.some((t) => t.length > MAX_TAG_LEN)) {
+      return {
+        ok: false,
+        error: `tag exceeds ${MAX_TAG_LEN} chars`,
+      };
     }
     patch.tags = v
       .map((t) => t.trim())
