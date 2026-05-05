@@ -24,7 +24,10 @@ export const PublishButton = component$(() => {
     }
     status.value = { kind: "loading" };
     try {
-      const res = await fetch("/api/publish/", { method: "POST" });
+      const res = await fetch("/api/publish/", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      });
       const body = (await res.json()) as Record<string, unknown>;
       if (!res.ok) {
         status.value = {

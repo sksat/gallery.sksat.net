@@ -5,6 +5,12 @@ const port = Number(process.env.ADMIN_E2E_PORT) || 5175;
 
 export default defineConfig({
   testDir: "./e2e",
+  // Tests share a single wrangler dev process and a single D1 file. The
+  // media-edit specs mutate rows that the media-list specs assert counts
+  // against — running them in parallel would race a half-applied UPDATE
+  // against the SELECT and produce intermittent CI failures. Force serial
+  // execution.
+  workers: 1,
   use: {
     baseURL: `http://localhost:${port}`,
   },

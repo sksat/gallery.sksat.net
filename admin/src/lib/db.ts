@@ -148,6 +148,9 @@ export const updateMedia = async (
     sets.push("tags = ?");
     args.push(JSON.stringify(patch.tags));
   }
+  // No-op patch: skip the UPDATE entirely (don't bump updated_at) and just
+  // return the current row. Costs a second round-trip but keeps the
+  // updated_at semantics honest.
   if (sets.length === 0) return getMedia(db, id);
 
   sets.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
