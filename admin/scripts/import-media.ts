@@ -56,6 +56,11 @@ const lines: string[] = [
 ];
 
 for (const item of items) {
+  if (typeof item.file !== "string" || item.file === "") {
+    throw new Error(
+      `invalid 'file' field (expected non-empty string): ${JSON.stringify(item)}`,
+    );
+  }
   if (item.world !== "Real" && item.world !== "VRChat") {
     throw new Error(`invalid world for ${item.file}: ${item.world}`);
   }

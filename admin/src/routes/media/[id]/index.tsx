@@ -15,7 +15,7 @@ import { parseTagsInput, validatePatch } from "~/lib/validate";
 
 type MediaLoaderResult =
   | { kind: "ok"; row: MediaRow }
-  | { kind: "missing-binding"; message: string }
+  | { kind: "missing-binding" }
   | { kind: "not-found" };
 
 export const useMedia = routeLoader$<MediaLoaderResult>(
@@ -29,13 +29,11 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
     try {
       db = getDB(platform);
     } catch (err) {
-      // pnpm dev (vite-only) has no D1 binding. Render a clear message
-      // instead of bubbling an unhandled 500.
+      // pnpm dev (vite-only) has no D1 binding. Render a generic message in
+      // the UI; the verbose error stays in the worker logs only.
+      console.error("/media/[id] loader: getDB failed:", err);
       status(500);
-      return {
-        kind: "missing-binding",
-        message: err instanceof Error ? err.message : String(err),
-      };
+      return { kind: "missing-binding" };
     }
     const row = await getMedia(db, id);
     if (!row) {
@@ -67,9 +65,8 @@ export const useUpdateMedia = routeAction$(
     try {
       db = getDB(platform);
     } catch (err) {
-      return fail(500, {
-        message: err instanceof Error ? err.message : String(err),
-      });
+      console.error("/media/[id] action: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
     }
     const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
@@ -96,16 +93,11 @@ export default component$(() => {
           <Link href="/media/">← Back</Link>
         </p>
         <h1>Configuration error</h1>
-        <pre
-          style={{
-            background: "#f5f5f5",
-            padding: "0.8rem",
-            borderRadius: "4px",
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {media.value.message}
-        </pre>
+        <p>
+          D1 binding unavailable. Run <code>pnpm serve</code> (not{" "}
+          <code>pnpm dev</code>) for a wrangler-backed local server, or check
+          the worker logs in production.
+        </p>
       </div>
     );
   }

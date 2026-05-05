@@ -15,7 +15,7 @@ type MediaListResult =
       world: MediaWorld | null;
       q: string;
     }
-  | { kind: "missing-binding"; message: string };
+  | { kind: "missing-binding" };
 
 export const useMediaList = routeLoader$<MediaListResult>(
   async ({ platform, query, status }) => {
@@ -23,11 +23,9 @@ export const useMediaList = routeLoader$<MediaListResult>(
     try {
       db = getDB(platform);
     } catch (err) {
+      console.error("/media loader: getDB failed:", err);
       status(500);
-      return {
-        kind: "missing-binding",
-        message: err instanceof Error ? err.message : String(err),
-      };
+      return { kind: "missing-binding" };
     }
     const worldRaw = query.get("world");
     const world: MediaWorld | undefined =
@@ -74,16 +72,11 @@ export default component$(() => {
           <Link href="/">← Dashboard</Link>
         </p>
         <h1>Configuration error</h1>
-        <pre
-          style={{
-            background: "#f5f5f5",
-            padding: "0.8rem",
-            borderRadius: "4px",
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {data.value.message}
-        </pre>
+        <p>
+          D1 binding unavailable. Run <code>pnpm serve</code> (not{" "}
+          <code>pnpm dev</code>) for a wrangler-backed local server, or check
+          the worker logs in production.
+        </p>
       </div>
     );
   }
