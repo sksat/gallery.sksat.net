@@ -44,33 +44,38 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     if (model !== null && typeof model !== "string") {
       return { ok: false, error: "camera_model must be string or null" };
     }
-    if (typeof make === "string" && make.length > MAX_CAMERA_FIELD_LEN) {
+    // Trim first so callers don't have to. An empty (or whitespace-only)
+    // string collapses to null; a non-empty value is stored trimmed.
+    // Length checks then run on the post-trim value so a value that fits
+    // after normalisation isn't rejected for stray whitespace.
+    const trimmedMake = typeof make === "string" ? make.trim() : make;
+    const trimmedModel = typeof model === "string" ? model.trim() : model;
+    if (
+      typeof trimmedMake === "string" &&
+      trimmedMake.length > MAX_CAMERA_FIELD_LEN
+    ) {
       return {
         ok: false,
         error: `camera_make exceeds ${MAX_CAMERA_FIELD_LEN} chars`,
       };
     }
-    if (typeof model === "string" && model.length > MAX_CAMERA_FIELD_LEN) {
+    if (
+      typeof trimmedModel === "string" &&
+      trimmedModel.length > MAX_CAMERA_FIELD_LEN
+    ) {
       return {
         ok: false,
         error: `camera_model exceeds ${MAX_CAMERA_FIELD_LEN} chars`,
       };
     }
-    // Trim before normalising so callers don't have to remember to. An empty
-    // (or whitespace-only) string collapses to null; a non-empty value is
-    // stored trimmed.
     const normMake =
-      typeof make === "string"
-        ? make.trim() === ""
-          ? null
-          : make.trim()
-        : make;
+      typeof trimmedMake === "string" && trimmedMake === ""
+        ? null
+        : trimmedMake;
     const normModel =
-      typeof model === "string"
-        ? model.trim() === ""
-          ? null
-          : model.trim()
-        : model;
+      typeof trimmedModel === "string" && trimmedModel === ""
+        ? null
+        : trimmedModel;
     if ((normMake === null) !== (normModel === null)) {
       return {
         ok: false,
@@ -86,18 +91,16 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     if (!Array.isArray(v) || !v.every((t) => typeof t === "string")) {
       return { ok: false, error: "tags must be an array of strings" };
     }
-    if (v.length > MAX_TAGS) {
+    // Trim + drop empties first so the length cap evaluates the
+    // post-normalisation form.
+    const trimmedTags = v.map((t) => t.trim()).filter((t) => t.length > 0);
+    if (trimmedTags.length > MAX_TAGS) {
       return { ok: false, error: `tags exceeds ${MAX_TAGS} entries` };
     }
-    if (v.some((t) => t.length > MAX_TAG_LEN)) {
-      return {
-        ok: false,
-        error: `tag exceeds ${MAX_TAG_LEN} chars`,
-      };
+    if (trimmedTags.some((t) => t.length > MAX_TAG_LEN)) {
+      return { ok: false, error: `tag exceeds ${MAX_TAG_LEN} chars` };
     }
-    patch.tags = v
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0);
+    patch.tags = trimmedTags;
   }
 
   return { ok: true, patch };

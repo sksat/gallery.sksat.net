@@ -38,3 +38,26 @@ test("PATCH /api/media/[id]: returns 404 for unknown id", async ({
   const body = await res.json();
   expect(body).toEqual({ error: "not found" });
 });
+
+test("PATCH /api/media/[id]: returns 400 for non-integer id", async ({
+  request,
+  baseURL,
+}) => {
+  const res = await request.fetch(`${baseURL}/api/media/abc/`, {
+    method: "PATCH",
+    headers: {
+      origin: baseURL ?? "",
+      "content-type": "application/json",
+    },
+    data: JSON.stringify({ tags: ["x"] }),
+  });
+  expect(res.status()).toBe(400);
+});
+
+test("GET /api/media/[id]: returns 400 for id=0", async ({
+  request,
+  baseURL,
+}) => {
+  const res = await request.fetch(`${baseURL}/api/media/0/`);
+  expect(res.status()).toBe(400);
+});

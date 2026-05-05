@@ -3,11 +3,12 @@
 // fails at runtime on every D1 call. Run via the `predeploy` npm-lifecycle
 // hook, so `pnpm deploy` aborts before the upload starts.
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000";
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const config = readFileSync(resolve(root, "wrangler.jsonc"), "utf8");
 
 if (config.includes(PLACEHOLDER_ID)) {
