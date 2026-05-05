@@ -22,6 +22,22 @@ test("CSRF: POST /api/publish is rejected without a same-origin header", async (
   expect(crossOrigin.status()).toBe(403);
 });
 
+test("CSRF: PATCH /api/media/[id] is rejected from a cross-origin caller", async ({
+  request,
+  baseURL,
+}) => {
+  // PATCH is also state-mutating and shares the same framework guard.
+  const crossOrigin = await request.fetch(`${baseURL}/api/media/1/`, {
+    method: "PATCH",
+    headers: {
+      origin: "https://evil.example",
+      "content-type": "application/json",
+    },
+    data: JSON.stringify({ tags: ["x"] }),
+  });
+  expect(crossOrigin.status()).toBe(403);
+});
+
 test("PATCH /api/media/[id]: returns 404 for unknown id", async ({
   request,
   baseURL,

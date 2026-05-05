@@ -68,14 +68,10 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
         error: `camera_model exceeds ${MAX_CAMERA_FIELD_LEN} chars`,
       };
     }
-    const normMake =
-      typeof trimmedMake === "string" && trimmedMake === ""
-        ? null
-        : trimmedMake;
-    const normModel =
-      typeof trimmedModel === "string" && trimmedModel === ""
-        ? null
-        : trimmedModel;
+    // trimmedMake/trimmedModel are already narrowed to string|null by the
+    // earlier typeof guard; just collapse "" to null.
+    const normMake = trimmedMake === "" ? null : trimmedMake;
+    const normModel = trimmedModel === "" ? null : trimmedModel;
     if ((normMake === null) !== (normModel === null)) {
       return {
         ok: false,
