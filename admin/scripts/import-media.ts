@@ -24,7 +24,19 @@ const inputPath = process.argv[2]
 
 const outPath = resolve(adminRoot, "migrations", "seeds", "0001_seed.sql");
 
-const escape = (s: string) => s.replace(/'/g, "''");
+// SQLite's string-literal grammar only treats `'` as special, so doubling it
+// is sufficient. Reject any control character or `;` — the latter doesn't
+// confuse SQLite's parser inside a literal but wrangler's CLI splits .sql
+// input on it, and the former would silently break the seed file.
+const REJECT_CHARS = /[\x00-\x1f;]/;
+const escape = (s: string) => {
+  if (REJECT_CHARS.test(s)) {
+    throw new Error(
+      `unsupported character in field (control char or ';'): ${JSON.stringify(s)}`,
+    );
+  }
+  return s.replace(/'/g, "''");
+};
 const sqlString = (v: string | null | undefined) =>
   v == null ? "NULL" : `'${escape(v)}'`;
 

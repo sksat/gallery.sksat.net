@@ -21,3 +21,20 @@ test("CSRF: POST /api/publish is rejected without a same-origin header", async (
   });
   expect(crossOrigin.status()).toBe(403);
 });
+
+test("PATCH /api/media/[id]: returns 404 for unknown id", async ({
+  request,
+  baseURL,
+}) => {
+  const res = await request.fetch(`${baseURL}/api/media/99999/`, {
+    method: "PATCH",
+    headers: {
+      origin: baseURL ?? "",
+      "content-type": "application/json",
+    },
+    data: JSON.stringify({ tags: ["x"] }),
+  });
+  expect(res.status()).toBe(404);
+  const body = await res.json();
+  expect(body).toEqual({ error: "not found" });
+});

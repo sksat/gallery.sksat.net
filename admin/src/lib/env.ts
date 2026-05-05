@@ -40,7 +40,11 @@ export const getB2Env = (
     "B2_ACCESS_KEY_ID",
     "B2_SECRET_ACCESS_KEY",
   ] as const;
-  const missing = required.filter((k) => typeof env[k] !== "string");
+  // Reject empty strings as well — an empty B2_ACCESS_KEY_ID would pass a
+  // bare typeof check and surface later as an opaque SigV4 failure.
+  const missing = required.filter(
+    (k) => typeof env[k] !== "string" || env[k] === "",
+  );
   if (missing.length > 0) {
     throw new Error(`Missing B2 env vars: ${missing.join(", ")}`);
   }
