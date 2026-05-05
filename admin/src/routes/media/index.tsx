@@ -25,10 +25,15 @@ export const useMediaList = routeLoader$(async ({ platform, query }) => {
   return { rows, total, page, world: world ?? null, q: q ?? "" };
 });
 
+// Preserve the date-component as-stored. The fixture and prod data carry
+// timezone-aware ISO strings (e.g. `2023-12-11T01:21:32.519+09:00`); using
+// `toISOString().slice(0,10)` would silently shift JST midnight photos to
+// the previous UTC day. We trust the leading 10 chars (YYYY-MM-DD) of the
+// ISO string and only fall back to validation when the string is unrecognised.
 const fmtTimestamp = (ts: string | null): string => {
   if (!ts) return "—";
-  const d = new Date(ts);
-  return Number.isNaN(d.getTime()) ? ts : d.toISOString().slice(0, 10);
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(ts);
+  return m ? m[1] : ts;
 };
 
 export default component$(() => {

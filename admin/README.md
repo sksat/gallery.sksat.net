@@ -161,7 +161,7 @@ Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, `ca
 ## Next Steps
 
 - [x] Phase 1: D1 database integration and migration
-- [x] Phase 2: Metadata management UI (view, edit, delete)
+- [x] Phase 2: Metadata management UI (view, edit) — delete deferred
 - [ ] Phase 3: R2 storage integration
 - [ ] Phase 4: Image upload functionality
 

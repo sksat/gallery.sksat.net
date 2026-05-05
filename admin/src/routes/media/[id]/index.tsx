@@ -10,7 +10,7 @@ import {
 } from "@builder.io/qwik-city";
 import { getMedia, updateMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
-import { parseTagsInput } from "~/lib/validate";
+import { parseTagsInput, validatePatch } from "~/lib/validate";
 
 export const useMedia = routeLoader$(async ({ platform, params, status }) => {
   const id = Number(params.id);
@@ -33,23 +33,19 @@ export const useUpdateMedia = routeAction$(
     if (!Number.isInteger(id) || id <= 0) {
       return fail(400, { message: "invalid id" });
     }
-    const db = getDB(platform);
-    const tags = parseTagsInput(data.tags ?? "");
-    const makeRaw = data.camera_make.trim();
-    const modelRaw = data.camera_model.trim();
-    if ((makeRaw === "") !== (modelRaw === "")) {
-      return fail(400, {
-        message: "Camera make and model must both be set or both be cleared.",
-      });
-    }
-    const cameraMake = makeRaw === "" ? null : makeRaw;
-    const cameraModel = modelRaw === "" ? null : modelRaw;
-    const updated = await updateMedia(db, id, {
+    // Route the form data through the same validator the API uses so the
+    // empty-string→null + paired-camera contract has a single source of truth.
+    const v = validatePatch({
       world: data.world,
-      camera_make: cameraMake,
-      camera_model: cameraModel,
-      tags,
+      camera_make: data.camera_make,
+      camera_model: data.camera_model,
+      tags: parseTagsInput(data.tags ?? ""),
     });
+    if (!v.ok) {
+      return fail(400, { message: v.error });
+    }
+    const db = getDB(platform);
+    const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
       return fail(404, { message: "not found" });
     }

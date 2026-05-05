@@ -48,7 +48,7 @@ describe("rowToMedia", () => {
     ).toThrow(/unknown world/);
   });
 
-  it("rejects malformed tags JSON", () => {
+  it("rejects a JSON array whose elements are not strings", () => {
     expect(() =>
       rowToMedia({
         id: 4,

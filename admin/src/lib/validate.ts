@@ -38,9 +38,21 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     if (model !== null && typeof model !== "string") {
       return { ok: false, error: "camera_model must be string or null" };
     }
-    const normMake = typeof make === "string" && make.trim() === "" ? null : make;
+    // Trim before normalising so callers don't have to remember to. An empty
+    // (or whitespace-only) string collapses to null; a non-empty value is
+    // stored trimmed.
+    const normMake =
+      typeof make === "string"
+        ? make.trim() === ""
+          ? null
+          : make.trim()
+        : make;
     const normModel =
-      typeof model === "string" && model.trim() === "" ? null : model;
+      typeof model === "string"
+        ? model.trim() === ""
+          ? null
+          : model.trim()
+        : model;
     if ((normMake === null) !== (normModel === null)) {
       return {
         ok: false,

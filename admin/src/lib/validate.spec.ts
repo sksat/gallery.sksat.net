@@ -43,6 +43,18 @@ describe("validatePatch", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("trims whitespace from non-empty camera values", () => {
+    const r = validatePatch({
+      camera_make: "  Canon  ",
+      camera_model: "\tEOS\n",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.patch.camera_make).toBe("Canon");
+      expect(r.patch.camera_model).toBe("EOS");
+    }
+  });
+
   it("rejects array body", () => {
     const r = validatePatch([]);
     expect(r.ok).toBe(false);

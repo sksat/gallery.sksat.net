@@ -160,10 +160,12 @@ export const updateMedia = async (
   return raw ? rowToMedia(raw) : null;
 };
 
-// Pulls every row in one query for the publish step. D1 caps result sets at
-// ~10 MB; at ~200 bytes/row this comfortably handles tens of thousands of
-// entries. If the gallery ever approaches that, switch to cursor-based
-// batching here.
+// Cap on rows pulled in a single export query. D1 caps result sets at ~10 MB;
+// at ~200 bytes/row this leaves plenty of headroom but trips a clear error
+// before we hit the opaque platform limit. Switch to cursor-based batching
+// here if the gallery ever approaches this scale.
+const MAX_EXPORT_ROWS = 50_000;
+
 export const allMediaForExport = async (
   db: D1Database,
 ): Promise<MediaInfoJSON[]> => {
@@ -172,5 +174,11 @@ export const allMediaForExport = async (
       "SELECT * FROM media ORDER BY timestamp IS NULL, timestamp DESC, id DESC",
     )
     .all<RawRow>();
-  return (res.results ?? []).map((r) => rowToMediaJson(rowToMedia(r)));
+  const rows = res.results ?? [];
+  if (rows.length > MAX_EXPORT_ROWS) {
+    throw new Error(
+      `media export exceeded ${MAX_EXPORT_ROWS} rows (got ${rows.length}); switch to cursor-based batching`,
+    );
+  }
+  return rows.map((r) => rowToMediaJson(rowToMedia(r)));
 };
