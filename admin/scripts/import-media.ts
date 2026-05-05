@@ -64,6 +64,21 @@ for (const item of items) {
   if (item.world !== "Real" && item.world !== "VRChat") {
     throw new Error(`invalid world for ${item.file}: ${item.world}`);
   }
+  // tags: must be string[] — non-string entries would survive into D1 and
+  // later trip parseTags() at read time. Catch it here, where the source
+  // file is still in front of the operator.
+  if (item.tags != null) {
+    if (!Array.isArray(item.tags)) {
+      throw new Error(
+        `tags must be an array for ${item.file}: ${JSON.stringify(item.tags)}`,
+      );
+    }
+    if (!item.tags.every((t) => typeof t === "string")) {
+      throw new Error(
+        `tags must be an array of strings for ${item.file}: ${JSON.stringify(item.tags)}`,
+      );
+    }
+  }
   const cols = [
     sqlString(item.file),
     sqlString(item.world),
