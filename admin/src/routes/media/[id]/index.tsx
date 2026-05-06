@@ -1,0 +1,237 @@
+import { component$ } from "@builder.io/qwik";
+import {
+  Form,
+  Link,
+  routeAction$,
+  routeLoader$,
+  zod$,
+  z,
+  type DocumentHead,
+} from "@builder.io/qwik-city";
+import { MissingBindingError } from "~/components/missing-binding-error";
+import { getMedia, updateMedia } from "~/lib/db";
+import { getDB } from "~/lib/env";
+import type { MediaRow } from "~/lib/types";
+import { parseTagsInput, validatePatch } from "~/lib/validate";
+
+type MediaLoaderResult =
+  | { kind: "ok"; row: MediaRow }
+  | { kind: "missing-binding" }
+  | { kind: "bad-request" }
+  | { kind: "not-found" };
+
+export const useMedia = routeLoader$<MediaLoaderResult>(
+  async ({ platform, params, status }) => {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      status(400);
+      return { kind: "bad-request" };
+    }
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      // pnpm dev (vite-only) has no D1 binding. Render a generic message in
+      // the UI; the verbose error stays in the worker logs only.
+      console.error("/media/[id] loader: getDB failed:", err);
+      status(500);
+      return { kind: "missing-binding" };
+    }
+    const row = await getMedia(db, id);
+    if (!row) {
+      status(404);
+      return { kind: "not-found" };
+    }
+    return { kind: "ok", row };
+  },
+);
+
+export const useUpdateMedia = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return fail(400, { message: "invalid id" });
+    }
+    // Route the form data through the same validator the API uses so the
+    // empty-string→null + paired-camera contract has a single source of truth.
+    const v = validatePatch({
+      world: data.world,
+      camera_make: data.camera_make,
+      camera_model: data.camera_model,
+      tags: parseTagsInput(data.tags ?? ""),
+    });
+    if (!v.ok) {
+      return fail(400, { message: v.error });
+    }
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      console.error("/media/[id] action: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
+    }
+    const updated = await updateMedia(db, id, v.patch);
+    if (!updated) {
+      return fail(404, { message: "not found" });
+    }
+    return { ok: true, updated_at: updated.updated_at };
+  },
+  zod$({
+    world: z.enum(["Real", "VRChat"]),
+    camera_make: z.string().max(200).default(""),
+    camera_model: z.string().max(200).default(""),
+    tags: z.string().max(2000).default(""),
+  }),
+);
+
+export default component$(() => {
+  const media = useMedia();
+  const action = useUpdateMedia();
+
+  if (media.value.kind === "missing-binding") {
+    return <MissingBindingError backHref="/media/" />;
+  }
+  if (media.value.kind === "bad-request") {
+    return (
+      <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
+        <p>
+          <Link href="/media/">← Back</Link>
+        </p>
+        <h1>Invalid id</h1>
+        <p>The id in the URL must be a positive integer.</p>
+      </div>
+    );
+  }
+  if (media.value.kind === "not-found") {
+    return (
+      <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
+        <p>
+          <Link href="/media/">← Back</Link>
+        </p>
+        <h1>Not found</h1>
+      </div>
+    );
+  }
+
+  const row = media.value.row;
+
+  return (
+    <div
+      style={{ padding: "1.5rem", fontFamily: "sans-serif", maxWidth: "60rem" }}
+    >
+      <p>
+        <Link href="/media/">← Media</Link>
+      </p>
+      <h1>Edit #{row.id}</h1>
+
+      <dl
+        style={{
+          background: "#f5f5f5",
+          padding: "0.8rem",
+          borderRadius: "4px",
+        }}
+      >
+        <dt>File</dt>
+        <dd
+          style={{
+            fontFamily: "monospace",
+            fontSize: "0.9em",
+            wordBreak: "break-all",
+          }}
+        >
+          {row.file}
+        </dd>
+        <dt style={{ marginTop: "0.6rem" }}>Timestamp</dt>
+        <dd>
+          {row.timestamp ?? <span style={{ color: "#888" }}>(none)</span>}
+        </dd>
+      </dl>
+
+      <Form
+        action={action}
+        style={{
+          marginTop: "1rem",
+          display: "grid",
+          gap: "0.8rem",
+          maxWidth: "30rem",
+        }}
+      >
+        <label>
+          World
+          <br />
+          <select name="world">
+            <option value="Real" selected={row.world === "Real"}>
+              Real
+            </option>
+            <option value="VRChat" selected={row.world === "VRChat"}>
+              VRChat
+            </option>
+          </select>
+        </label>
+        <label>
+          Camera make
+          <br />
+          <input
+            type="text"
+            name="camera_make"
+            value={row.camera_make ?? ""}
+            placeholder="(empty for none)"
+            maxLength={200}
+            style={{ width: "100%" }}
+          />
+        </label>
+        <label>
+          Camera model
+          <br />
+          <input
+            type="text"
+            name="camera_model"
+            value={row.camera_model ?? ""}
+            placeholder="(empty for none)"
+            maxLength={200}
+            style={{ width: "100%" }}
+          />
+        </label>
+        <label>
+          Tags (comma-separated)
+          <br />
+          <input
+            type="text"
+            name="tags"
+            value={row.tags.join(", ")}
+            maxLength={2000}
+            style={{ width: "100%" }}
+          />
+        </label>
+        <div>
+          <button type="submit">Save</button>
+        </div>
+      </Form>
+
+      {action.value?.ok && (
+        <p style={{ color: "green", marginTop: "1rem" }}>
+          Saved at {action.value.updated_at}.
+        </p>
+      )}
+      {action.value?.failed && (
+        <p style={{ color: "crimson", marginTop: "1rem" }}>
+          Save failed: {action.value.message ?? "unknown error"}
+        </p>
+      )}
+    </div>
+  );
+});
+
+export const head: DocumentHead = ({ resolveValue }) => {
+  const result = resolveValue(useMedia);
+  if (result.kind === "ok") {
+    return { title: `Edit ${result.row.file} — Admin` };
+  }
+  if (result.kind === "missing-binding") {
+    return { title: "Configuration error — Admin" };
+  }
+  if (result.kind === "bad-request") {
+    return { title: "Invalid id — Admin" };
+  }
+  return { title: "Not found — Admin" };
+};

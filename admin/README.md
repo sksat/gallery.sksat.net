@@ -117,18 +117,53 @@ admin/
 
 ## Environment Variables
 
-Currently, no environment variables are required for Phase 0.
+Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler secret put` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials:
 
-Future phases will require:
+| Var                    | Where            | Used by |
+| ---------------------- | ---------------- | ------- |
+| `B2_REGION`            | `vars`           | publish |
+| `B2_BUCKET`            | `vars`           | publish |
+| `B2_ENDPOINT`          | `vars`           | publish |
+| `B2_ACCESS_KEY_ID`     | secret/.dev.vars | publish |
+| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars | publish |
 
-- D1 database binding
-- R2 bucket binding
-- Environment-specific configuration
+Bindings:
+
+- `DB` — D1 database `gallery-admin` (metadata source of truth)
+
+## D1 setup (Phase 1)
+
+The metadata that backs `media.json` lives in a D1 database. Production rollout:
+
+```bash
+# 1. Create the D1 database (one-time). Capture the printed database_id.
+pnpm db.create
+
+# 2. Edit wrangler.jsonc locally — swap the all-zero placeholder `database_id`
+#    for the real id. Do not commit this local edit.
+
+# 3. Apply schema migrations.
+pnpm db.migrate.remote   # production
+pnpm db.migrate.local    # local miniflare-backed D1
+
+# 4. Initial import from the existing media.json (one-shot).
+pnpm import-media        # writes migrations/seeds/0001_seed.sql from ../media/media.json
+pnpm db.seed.remote      # apply to production
+pnpm db.seed.local       # apply to local
+```
+
+Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, `camera_make`, `camera_model`, and `tags`, and the dashboard's **Publish** button regenerates `media.json` from D1 and PUTs it to the B2 bucket.
+
+> **Prerequisite before first Publish**: enable Object Lock / file versioning on the B2 bucket. Publish overwrites the entire `media.json` from a single D1 SELECT — there is no diff or dry-run, so a corrupted D1 (failed seed, partial import, accidental DELETE) would otherwise destructively replace the live index. Versioning gives a one-click rollback.
+
+> **Dev caveat**: `pnpm serve` (and the test server in `e2e/start-test-server.sh`) binds locally with no auth — Cloudflare Access only fronts production. Do not expose the dev port (5175 / 8788) on a public network interface; CSRF is the only thing keeping a malicious page from POSTing to your local D1.
+
+> **No publish concurrency guard**: there is no server-side in-flight lock on `/api/publish`. Two simultaneous publishes (e.g. double-click, two tabs) issue independent D1 SELECTs and B2 PUTs — whichever PUT finishes last wins. Single-admin use makes this low risk; if the admin gets multi-user, add an in-flight flag (or a `429`) in `api/publish/index.ts`.
 
 ## Next Steps
 
-- [ ] Phase 1: D1 database integration and migration
-- [ ] Phase 2: Metadata management UI (view, edit, delete)
+- [x] Phase 1: D1 database integration and migration
+- [x] Phase 2: Metadata management UI (view, edit) — delete deferred
 - [ ] Phase 3: R2 storage integration
 - [ ] Phase 4: Image upload functionality
 

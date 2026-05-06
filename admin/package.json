@@ -10,9 +10,16 @@
   "scripts": {
     "build": "qwik build",
     "build.client": "vite build",
+    "db.create": "wrangler d1 create gallery-admin",
+    "db.migrate.local": "wrangler d1 migrations apply gallery-admin --local",
+    "db.migrate.remote": "wrangler d1 migrations apply gallery-admin --remote",
+    "db.seed.local": "wrangler d1 execute gallery-admin --local --file=migrations/seeds/0001_seed.sql",
+    "db.seed.remote": "wrangler d1 execute gallery-admin --remote --file=migrations/seeds/0001_seed.sql",
+    "import-media": "tsx scripts/import-media.ts",
     "build.preview": "vite build --ssr src/entry.preview.tsx",
     "build.server": "vite build -c adapters/cloudflare-pages/vite.config.ts",
     "build.types": "tsc --incremental --noEmit",
+    "predeploy": "tsx scripts/check-deployable.ts",
     "deploy": "wrangler pages publish ./dist",
     "dev": "vite --mode ssr",
     "preview": "qwik build preview && vite preview --open",
@@ -24,6 +31,9 @@
     "test.vrt": "playwright test --project=vrt",
     "test.vrt.update": "playwright test --project=vrt --update-snapshots"
   },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  },
   "devDependencies": {
     "@builder.io/qwik": "^1.16.1",
     "@builder.io/qwik-city": "^1.16.1",
@@ -31,6 +41,7 @@
     "@playwright/test": "1.59.1",
     "@types/node": "^22.0.0",
     "ignore": "^5.3.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.3.2",
     "vite": "^7.0.0",
     "vite-tsconfig-paths": "^5.0.0",

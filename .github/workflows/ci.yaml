@@ -138,25 +138,31 @@ jobs:
 
   admin-e2e:
     runs-on: ubuntu-latest
+    # Run inside the official Playwright image so font rendering is byte-identical
+    # to the environment used for VRT baseline generation (`podman run … mcr.microsoft.com/playwright:vX-noble`).
+    # Keep the tag in sync with @playwright/test in admin/package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     defaults:
       run:
         working-directory: admin
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-        with:
-          package_json_file: admin/package.json
+      - run: corepack enable
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      # Cache pnpm store. We cannot use pnpm/action-setup or actions/setup-node's
+      # built-in pnpm cache here because they require Node 20+ and the
+      # Playwright image's environment differs; a manual cache keyed on the
+      # lockfile keeps the install fast.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          node-version-file: ".node-version"
-          cache: "pnpm"
-          cache-dependency-path: admin/pnpm-lock.yaml
+          path: ~/.local/share/pnpm/store
+          key: pnpm-admin-${{ runner.os }}-${{ hashFiles('admin/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-admin-${{ runner.os }}-
 
       - run: pnpm install --frozen-lockfile
-
-      - run: pnpm exec playwright install --with-deps chromium
 
       - run: pnpm run test.e2e
 
