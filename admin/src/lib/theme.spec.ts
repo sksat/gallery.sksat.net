@@ -31,9 +31,7 @@ describe("nextTheme", () => {
 
 describe("themeToggleLabel", () => {
   it("names the current mode and the next one", () => {
-    expect(themeToggleLabel("system")).toBe(
-      "Theme: System (switch to Light)",
-    );
+    expect(themeToggleLabel("system")).toBe("Theme: System (switch to Light)");
     expect(themeToggleLabel("dark")).toBe("Theme: Dark (switch to System)");
   });
 });

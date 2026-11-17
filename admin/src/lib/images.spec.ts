@@ -15,7 +15,14 @@ const FILE = "/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png";
 describe("PRESETS", () => {
   it("matches the image Worker's preset list", () => {
     // workers/image/src/request.ts — the Worker 404s any other name.
-    expect(PRESETS).toEqual(["h240", "h480", "w1200", "w1920", "w2560", "w3840"]);
+    expect(PRESETS).toEqual([
+      "h240",
+      "h480",
+      "w1200",
+      "w1920",
+      "w2560",
+      "w3840",
+    ]);
   });
 
   it("only uses known presets in the candidate lists", () => {

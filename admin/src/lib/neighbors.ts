@@ -54,7 +54,8 @@ export const neighborsQuery = (
   list: ListQuery,
   id: number,
 ): { sql: string; args: unknown[] } => {
-  const where: string[] = [];
+  // Like the lists, only photos whose upload has completed.
+  const where: string[] = ["status = 'ready'"];
   const args: unknown[] = [];
   if (list.world) {
     where.push("world = ?");
@@ -78,10 +79,8 @@ export const neighborsQuery = (
     where.push("instr(substr(file, length(?) + 1), '/') = 0");
     args.push(prefix, prefix, prefix);
   }
-  const whereSql = where.length
-    ? ` WHERE (${where.join(" AND ")}) OR id = ?`
-    : "";
-  if (where.length) args.push(id);
+  const whereSql = ` WHERE (${where.join(" AND ")}) OR id = ?`;
+  args.push(id);
   const order = list.view === "files" ? FILES_ORDER : LIST_ORDER;
   return {
     sql:

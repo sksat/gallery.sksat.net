@@ -113,7 +113,8 @@ export const listMedia = async (
   db: D1Database,
   params: ListParams,
 ): Promise<ListResult> => {
-  const where: string[] = [];
+  // Uploads that have not completed are not photos yet.
+  const where: string[] = ["status = 'ready'"];
   const args: unknown[] = [];
   if (params.world) {
     where.push("world = ?");
@@ -130,7 +131,7 @@ export const listMedia = async (
     where.push("file LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
   }
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const whereSql = `WHERE ${where.join(" AND ")}`;
 
   const rowsStmt = db
     .prepare(
@@ -280,7 +281,7 @@ export const listCameras = async (
 ): Promise<CameraListItem[]> => {
   const res = await db
     .prepare(
-      `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id) AS photo_count
+      `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id AND m.status = 'ready') AS photo_count
        FROM camera c ORDER BY c.name COLLATE NOCASE, c.id`,
     )
     .all<RawCameraRow & { photo_count: number }>();

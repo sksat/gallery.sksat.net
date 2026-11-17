@@ -57,6 +57,12 @@ const setup = () => {
       (4, 'aaaaaaaaa5', '/x.png',  'Real',   '2023-12-04T00:00:00Z', 2,    '[]',         'private',  3),
       (5, 'aaaaaaaaa6', '/n.png',  'Real',   NULL,                   NULL, '[]',         'public',   NULL),
       (6, 'aaaaaaaaa7', '/p3.png', 'Real',   '2023-12-01T00:00:00Z', NULL, '[]',         'public',   NULL);
+    -- Public and unlisted, but their uploads have not completed: never
+    -- served, and they do not make camera 2 visible either.
+    INSERT INTO media (id, public_id, file, world, timestamp, camera_id, tags, visibility, legacy_index, status) VALUES
+      (7, 'aaaaaaaaa8', '/up.png', 'Real', '2023-12-09T00:00:00Z', 2, '[]', 'public',   4, 'uploading'),
+      (8, 'aaaaaaaaa9', '/uu.png', 'Real', '2023-12-09T00:00:00Z', 2, '[]', 'unlisted', 5, 'uploading');
+    INSERT INTO camera_image (camera_id, file, position) VALUES (3, '/up.png', 9);
   `);
   return d1(db);
 };
@@ -167,6 +173,38 @@ describe("cameras", () => {
 
   it("hides a camera used only for private photos", async () => {
     expect(await getCamera(setup(), "pentax-sp")).toBeNull();
+  });
+});
+
+describe("uploads that have not completed", () => {
+  it("are not listed, opened, served by path or mapped from old URLs", async () => {
+    const db = setup();
+    expect((await listPublicMedia(db)).map((m) => m.file)).not.toContain(
+      "/up.png",
+    );
+    expect(await getMedia(db, "aaaaaaaaa8")).toBeNull();
+    expect(await getMedia(db, "aaaaaaaaa9")).toBeNull();
+    // Also listed as a camera picture: still hidden.
+    expect(await getFileAccess(db, "/up.png")).toBeNull();
+    expect(await getLegacyId(db, 4)).toBeNull();
+    expect(await getLegacyId(db, 5)).toBeNull();
+  });
+
+  it("do not make their camera visible", async () => {
+    const db = setup();
+    expect((await listCameras(db)).map((c) => c.slug)).not.toContain(
+      "pentax-sp",
+    );
+    expect(await getCamera(db, "pentax-sp")).toBeNull();
+  });
+
+  it("are served once ready", async () => {
+    const db = setup();
+    await db.prepare("UPDATE media SET status = 'ready'").all();
+    expect((await getMedia(db, "aaaaaaaaa8"))?.file).toBe("/up.png");
+    expect((await getFileAccess(db, "/up.png"))?.kind).toBe("photo");
+    expect(await getLegacyId(db, 5)).toBe("aaaaaaaaa9");
+    expect((await getCamera(db, "pentax-sp"))?.slug).toBe("pentax-sp");
   });
 });
 

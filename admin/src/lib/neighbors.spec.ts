@@ -48,7 +48,11 @@ describe("parseListHref", () => {
 const db = (extra: [number, string][]) => {
   const d = new DatabaseSync(":memory:");
   d.exec(
-    "CREATE TABLE media (id INTEGER PRIMARY KEY, file TEXT, world TEXT, visibility TEXT, timestamp TEXT)",
+    "CREATE TABLE media (id INTEGER PRIMARY KEY, file TEXT, world TEXT, visibility TEXT, timestamp TEXT, status TEXT NOT NULL DEFAULT 'ready')",
+  );
+  // Still uploading: in no list.
+  d.exec(
+    "INSERT INTO media (id, file, world, visibility, timestamp, status) VALUES (90, '/a/0.png', 'Real', 'public', '2023-12-02', 'uploading')",
   );
   const insert = d.prepare(
     "INSERT INTO media (id, file, world, visibility, timestamp) VALUES (?, ?, ?, ?, ?)",

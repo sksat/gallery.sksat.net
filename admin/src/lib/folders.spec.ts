@@ -6,7 +6,13 @@ import {
   filesInDir,
   findFolder,
   isWithin,
+  MAX_FOLDER_DEPTH,
+  MAX_FOLDER_NAME_LEN,
+  MAX_FOLDER_PATH_LEN,
+  newFolderPath,
   normalizeDir,
+  validateFolderName,
+  validateFolderPath,
 } from "./folders";
 
 const FILES = [
@@ -120,5 +126,106 @@ describe("filesInDir", () => {
     ]);
     expect(filesInDir(rows, "/").map((r) => r.file)).toEqual(["/top.png"]);
     expect(filesInDir(rows, "/VRChat")).toEqual([]);
+  });
+});
+
+describe("buildFolderTree with created folders", () => {
+  it("adds empty folders (and their parents) with no count", () => {
+    const tree = buildFolderTree(
+      ["/VRChat/2023-12/a.png"],
+      ["/VRChat/2026-11", "/new/deep", "/VRChat/2023-12"],
+    );
+    expect(tree.count).toBe(1);
+    expect(tree.children.map((c) => [c.path, c.count])).toEqual([
+      ["/VRChat", 1],
+      ["/new", 0],
+    ]);
+    expect(
+      findFolder(tree, "/VRChat")?.children.map((c) => [c.path, c.count]),
+    ).toEqual([
+      ["/VRChat/2023-12", 1],
+      ["/VRChat/2026-11", 0],
+    ]);
+    expect(findFolder(tree, "/new/deep")).toEqual({
+      name: "deep",
+      path: "/new/deep",
+      count: 0,
+      children: [],
+    });
+  });
+});
+
+describe("validateFolderName", () => {
+  it("trims and accepts letters, digits, '.', '_' and '-'", () => {
+    expect(validateFolderName("  2026-11_vket.v2 ")).toEqual({
+      ok: true,
+      name: "2026-11_vket.v2",
+    });
+    expect(validateFolderName("a".repeat(MAX_FOLDER_NAME_LEN)).ok).toBe(true);
+  });
+
+  it("refuses empty, long, hidden and unsafe names", () => {
+    for (const bad of [
+      "",
+      "   ",
+      "a".repeat(MAX_FOLDER_NAME_LEN + 1),
+      ".",
+      "..",
+      ".hidden",
+      "a/b",
+      "a b",
+      "日本語",
+      "a?b",
+      "a%2f",
+      "a\\b",
+      null,
+      3,
+    ]) {
+      expect(validateFolderName(bad).ok, String(bad)).toBe(false);
+    }
+  });
+});
+
+describe("validateFolderPath / newFolderPath", () => {
+  it("joins a name onto the current folder", () => {
+    expect(newFolderPath("/", "VRChat")).toEqual({ ok: true, path: "/VRChat" });
+    expect(newFolderPath("/VRChat", " 2026-11 ")).toEqual({
+      ok: true,
+      path: "/VRChat/2026-11",
+    });
+    // An unusable dir is the root (normalizeDir).
+    expect(newFolderPath("/../x", "a")).toEqual({ ok: true, path: "/a" });
+    expect(newFolderPath("/", "..").ok).toBe(false);
+  });
+
+  it("limits depth and length", () => {
+    const deep = "/a".repeat(MAX_FOLDER_DEPTH);
+    expect(validateFolderPath(deep).ok).toBe(true);
+    expect(newFolderPath(deep, "b").ok).toBe(false);
+    const long = `/${"a".repeat(64)}/${"b".repeat(64)}/${"c".repeat(64)}`;
+    expect(long.length).toBeLessThanOrEqual(MAX_FOLDER_PATH_LEN);
+    expect(newFolderPath(long, "d".repeat(10)).ok).toBe(false);
+  });
+
+  it("keeps /camera for camera pictures", () => {
+    expect(newFolderPath("/", "camera").ok).toBe(false);
+    expect(validateFolderPath("/camera/x").ok).toBe(false);
+    expect(newFolderPath("/a", "camera").ok).toBe(true);
+    expect(newFolderPath("/", "cameras").ok).toBe(true);
+  });
+
+  it("refuses the root and paths that are not normalised", () => {
+    for (const bad of [
+      "/",
+      "",
+      "a",
+      "/a/",
+      "//a",
+      "/a//b",
+      "/a/./b",
+      "/a/../b",
+    ]) {
+      expect(validateFolderPath(bad).ok, bad).toBe(false);
+    }
   });
 });

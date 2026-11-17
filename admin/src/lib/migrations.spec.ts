@@ -71,10 +71,34 @@ describe("0002_camera.sql", () => {
         )
         .all(),
     ).toEqual([
-      { id: 1, file: "/v1.png", slug: "virtuallens2", tags: '["t"]', updated_at: UPDATED },
-      { id: 2, file: "/v2.png", slug: "virtuallens2", tags: '["t"]', updated_at: UPDATED },
-      { id: 3, file: "/r1.jpg", slug: null, tags: '["t"]', updated_at: UPDATED },
-      { id: 4, file: "/r2.jpg", slug: "eos-5d-mark-ii", tags: '["t"]', updated_at: UPDATED },
+      {
+        id: 1,
+        file: "/v1.png",
+        slug: "virtuallens2",
+        tags: '["t"]',
+        updated_at: UPDATED,
+      },
+      {
+        id: 2,
+        file: "/v2.png",
+        slug: "virtuallens2",
+        tags: '["t"]',
+        updated_at: UPDATED,
+      },
+      {
+        id: 3,
+        file: "/r1.jpg",
+        slug: null,
+        tags: '["t"]',
+        updated_at: UPDATED,
+      },
+      {
+        id: 4,
+        file: "/r2.jpg",
+        slug: "eos-5d-mark-ii",
+        tags: '["t"]',
+        updated_at: UPDATED,
+      },
     ]);
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
@@ -188,7 +212,12 @@ describe("0003_visibility.sql", () => {
   it("freezes the old media.json position of known files", () => {
     const db = migrate3([
       ["/2023-12-comsys2023/1212816_0028.JPG", "Real", null, null],
-      ["/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png", "VRChat", null, null],
+      [
+        "/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png",
+        "VRChat",
+        null,
+        null,
+      ],
       ["/new.png", "Real", null, null],
     ]);
     expect(
@@ -211,11 +240,15 @@ describe("0003_visibility.sql", () => {
     db.exec("DELETE FROM media WHERE id = 2");
     db.exec(migration("0003_visibility.sql"));
     db.exec("INSERT INTO media (file, world) VALUES ('/c', 'Real')");
-    expect(db.prepare("SELECT id FROM media WHERE file = '/c'").get()).toEqual(
-      { id: 3 },
-    );
+    expect(db.prepare("SELECT id FROM media WHERE file = '/c'").get()).toEqual({
+      id: 3,
+    });
     expect(
-      db.prepare("SELECT name, seq FROM sqlite_sequence WHERE name LIKE 'media%'").all(),
+      db
+        .prepare(
+          "SELECT name, seq FROM sqlite_sequence WHERE name LIKE 'media%'",
+        )
+        .all(),
     ).toEqual([{ name: "media", seq: 3 }]);
   });
 
@@ -232,9 +265,9 @@ describe("0003_visibility.sql", () => {
 
   it("never changes a public id once set", () => {
     const db = migrate3([["/a", "Real", null, null]]);
-    expect(() =>
-      db.exec("UPDATE media SET public_id = 'abcdefghjk'"),
-    ).toThrow(/cannot be changed/);
+    expect(() => db.exec("UPDATE media SET public_id = 'abcdefghjk'")).toThrow(
+      /cannot be changed/,
+    );
     expect(() => db.exec("UPDATE media SET public_id = NULL")).toThrow(
       /cannot be changed/,
     );
@@ -267,5 +300,89 @@ describe("0003_visibility.sql", () => {
         ),
       ).toThrow(/CHECK/);
     }
+  });
+});
+
+describe("0004_upload.sql", () => {
+  const migrate4 = (rows: Parameters<typeof migrate>[0]) => {
+    const db = migrate(rows);
+    db.exec(migration("0003_visibility.sql"));
+    db.exec(migration("0004_upload.sql"));
+    return db;
+  };
+  const SHA = "a".repeat(64);
+
+  it("marks existing photos ready, with no upload data", () => {
+    const db = migrate4([["/a.png", "Real", null, null]]);
+    expect(
+      db
+        .prepare("SELECT file, status, size, sha256, uploaded_at FROM media")
+        .all(),
+    ).toEqual([
+      {
+        file: "/a.png",
+        status: "ready",
+        size: null,
+        sha256: null,
+        uploaded_at: null,
+      },
+    ]);
+  });
+
+  it("keeps the public id triggers", () => {
+    const db = migrate4([]);
+    db.exec(
+      "INSERT INTO media (file, world, status) VALUES ('/n.png', 'Real', 'uploading')",
+    );
+    const row = db.prepare("SELECT public_id, visibility FROM media").get();
+    expect(row?.public_id).toMatch(PUBLIC_ID_RE);
+    expect(row?.visibility).toBe("private");
+    expect(() => db.exec("UPDATE media SET public_id = 'abcdefghjk'")).toThrow(
+      /cannot be changed/,
+    );
+  });
+
+  it("allows many legacy rows without a hash but no duplicate hash", () => {
+    const db = migrate4([
+      ["/a.png", "Real", null, null],
+      ["/b.png", "Real", null, null],
+    ]);
+    db.exec(
+      `INSERT INTO media (file, world, sha256, size) VALUES ('/c.png', 'Real', '${SHA}', 10)`,
+    );
+    expect(() =>
+      db.exec(
+        `INSERT INTO media (file, world, sha256) VALUES ('/d.png', 'Real', '${SHA}')`,
+      ),
+    ).toThrow(/UNIQUE/);
+  });
+
+  it("rejects bad status, size and hash values", () => {
+    const db = migrate4([]);
+    for (const sql of [
+      "INSERT INTO media (file, world, status) VALUES ('/a', 'Real', 'failed')",
+      "INSERT INTO media (file, world, size) VALUES ('/b', 'Real', -1)",
+      `INSERT INTO media (file, world, sha256) VALUES ('/c', 'Real', '${"A".repeat(64)}')`,
+      "INSERT INTO media (file, world, sha256) VALUES ('/d', 'Real', 'abc')",
+    ]) {
+      expect(() => db.exec(sql), sql).toThrow(/CHECK/);
+    }
+  });
+
+  it("stores folder paths once, in the normalised shape only", () => {
+    const db = migrate4([]);
+    db.exec("INSERT INTO folder (path) VALUES ('/VRChat/2026-11')");
+    expect(() =>
+      db.exec("INSERT INTO folder (path) VALUES ('/VRChat/2026-11')"),
+    ).toThrow(/UNIQUE/);
+    for (const bad of ["/", "", "a", "/a/", "/a//b", "/a b", "/a?b", "/日本"]) {
+      expect(
+        () => db.exec(`INSERT INTO folder (path) VALUES ('${bad}')`),
+        bad,
+      ).toThrow(/CHECK/);
+    }
+    expect(
+      db.prepare("SELECT created_at FROM folder").get()?.created_at,
+    ).toMatch(/^\d{4}-\d\d-\d\dT/);
   });
 });

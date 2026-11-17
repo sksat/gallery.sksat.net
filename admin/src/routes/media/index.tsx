@@ -38,7 +38,7 @@ import {
   setVisibility,
   type VisibilityChange,
 } from "~/lib/db";
-import { listMediaFiles } from "~/lib/db-files";
+import { createFolder, listFolders, listMediaFiles } from "~/lib/db-files";
 import { FileBrowser, type FileTile } from "~/components/file-browser";
 import { SubmitButton } from "~/components/submit-button";
 import { Thumb } from "~/components/thumb";
@@ -48,6 +48,8 @@ import {
   buildFolderTree,
   filesInDir,
   findFolder,
+  MAX_FOLDER_NAME_LEN,
+  newFolderPath,
   normalizeDir,
   type FolderNode,
 } from "~/lib/folders";
@@ -135,7 +137,13 @@ export const useMediaList = routeLoader$<MediaListResult>(
         limit: FILES_LIMIT,
       });
       const dir = normalizeDir(query.get("dir"));
-      const tree = buildFolderTree(rows.map((r) => r.file));
+      // Empty folders only when unfiltered: a filter shows where the
+      // matching photos are.
+      const folders = world || visibility || q ? [] : await listFolders(db);
+      const tree = buildFolderTree(
+        rows.map((r) => r.file),
+        folders,
+      );
       return {
         kind: "ok",
         view: "files",
@@ -260,6 +268,32 @@ export const useRestoreVisibility = routeAction$(
 );
 
 /**
+ * Files view: create a folder `name` inside `dir` and open it. A folder
+ * exists without files only as a `folder` row (see 0004_upload.sql).
+ */
+export const useCreateFolder = routeAction$(
+  async (data, { platform, fail, redirect }) => {
+    const v = newFolderPath(data.dir, data.name);
+    if (!v.ok) return fail(400, { message: v.error });
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      console.error("/media folder action: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
+    }
+    if (!(await createFolder(db, v.path))) {
+      return fail(409, { message: `${v.path} はすでにあります` });
+    }
+    throw redirect(302, mediaListHref({ view: "files", dir: v.path }));
+  },
+  zod$({
+    dir: z.string().max(1000),
+    name: z.string().max(1000),
+  }),
+);
+
+/**
  * Tick or untick every photo checkbox of one layout. Only that layout's:
  * the other one is hidden but its checked boxes would still be submitted,
  * so unticking a row after "select all" would not take it out.
@@ -333,6 +367,8 @@ export default component$(() => {
   const data = useMediaList();
   const bulk = useBulkVisibility();
   const restore = useRestoreVisibility();
+  const newFolder = useCreateFolder();
+  const newFolderOpen = useSignal(false);
   const nav = useNavigate();
   const loc = useLocation();
   // Back from an edit page (#m-<id>): bring that photo's row, card or tile
@@ -414,6 +450,22 @@ export default component$(() => {
     toast.value = v.failed
       ? { tone: "error", message: `Undo failed: ${v.message ?? "error"}` }
       : { tone: "success", message: "元に戻しました。" };
+  });
+  useTask$(({ track }) => {
+    // Another folder (e.g. the one just created): the form starts closed.
+    track(() => data.value.kind === "ok" && data.value.files?.dir);
+    newFolderOpen.value = false;
+  });
+  useTask$(({ track }) => {
+    // Success redirects into the new folder; only failures land here.
+    const v = track(() => newFolder.value);
+    if (v?.failed) {
+      toast.value = {
+        tone: "error",
+        message:
+          v.message ?? v.fieldErrors?.name ?? "フォルダを作れませんでした",
+      };
+    }
   });
   const undo = $(async () => {
     const last = lastChange.value;
@@ -697,7 +749,9 @@ export default component$(() => {
         </div>
       </form>
 
-      {total === 0 ? (
+      {/* Unfiltered, the files view stays up even with no photos: it is
+          where the first folder is created. */}
+      {total === 0 && !(files && !filtered) ? (
         filtered ? (
           <StatePanel
             tone="empty"
@@ -751,7 +805,62 @@ export default component$(() => {
             world={world}
             visibility={visibility}
             q={q}
-          />
+          >
+            <div q:slot="toolbar" class="max-sm:w-full">
+              {newFolderOpen.value ? (
+                <Form
+                  action={newFolder}
+                  aria-busy={newFolder.isRunning}
+                  aria-label="New folder"
+                  class="flex items-center gap-2"
+                >
+                  <input type="hidden" name="dir" value={dir} />
+                  <label for="new-folder-name" class="sr-only">
+                    Folder name
+                  </label>
+                  <input
+                    id="new-folder-name"
+                    name="name"
+                    required
+                    maxLength={MAX_FOLDER_NAME_LEN}
+                    // Same rule as validateFolderName, which trims (and
+                    // is what counts: the server checks again).
+                    pattern={"\\s*[A-Za-z0-9_\\-][A-Za-z0-9._\\-]*\\s*"}
+                    title="英数字と . _ - (先頭に . は不可)"
+                    placeholder="2026-11"
+                    autoFocus
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellcheck={false}
+                    enterKeyHint="done"
+                    class={[field, "min-w-0 flex-1 sm:w-48"]}
+                  />
+                  <SubmitButton
+                    running={newFolder.isRunning}
+                    class={buttonPrimary}
+                  >
+                    Create
+                  </SubmitButton>
+                  <button
+                    type="button"
+                    onClick$={() => (newFolderOpen.value = false)}
+                    class={buttonSecondary}
+                  >
+                    Cancel
+                  </button>
+                </Form>
+              ) : (
+                <button
+                  type="button"
+                  onClick$={() => (newFolderOpen.value = true)}
+                  class={[buttonSecondary, "max-sm:w-full"]}
+                >
+                  <span aria-hidden="true">＋</span>
+                  New folder
+                </button>
+              )}
+            </div>
+          </FileBrowser>
         </>
       ) : (
         // Bulk change: tick photos (table rows or phone cards), pick a
