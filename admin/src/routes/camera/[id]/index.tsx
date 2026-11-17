@@ -448,6 +448,9 @@ export default component$(() => {
               required
               placeholder={`/camera/${camera.slug}/front.png`}
               maxLength={MAX_IMAGE_FILE_LEN}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellcheck={false}
               class={field}
             />
           </div>
