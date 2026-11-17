@@ -91,6 +91,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 - Build config: `adapters/cloudflare-pages/vite.config.ts`
 - Output: `dist/` directory
 - Routing: Auto-generated `_routes.json` for SSR/static file handling
+- Build watch paths (set in the Cloudflare dashboard, not in the repo): `gallery-sksat-net` skips pushes that only touch `admin/*`, and `admin-gallery-sksat-net` builds only when `admin/*` changes. The two apps must stay independent: if admin ever imports files outside `admin/` (or the gallery imports from `admin/`), update these watch paths too, or a change to the shared file will not redeploy the other app.
 
 ### Styling
 
