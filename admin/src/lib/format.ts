@@ -33,17 +33,35 @@ export const formatJst = (ts: string | null): string | null => {
   );
 };
 
-/** URL of a /media list page, omitting defaults (no filter, page 1). */
+export type MediaView = "list" | "files";
+
+/** The `view` query value; anything but "files" is the default list. */
+export const parseView = (raw: string | null | undefined): MediaView =>
+  raw === "files" ? "files" : "list";
+
+/**
+ * URL of a /media page, omitting defaults (list view, root folder, no
+ * filter, page 1). `dir` only applies to the files view and `page` only to
+ * the list view. Slashes in values are left unescaped (valid in a query)
+ * so `dir=/VRChat/2023-12` stays readable.
+ */
 export const mediaListHref = (opts: {
+  view?: MediaView;
+  dir?: string | null;
   world?: string | null;
   q?: string | null;
   page?: number;
 }): string => {
   const params = new URLSearchParams();
+  const files = opts.view === "files";
+  if (files) params.set("view", "files");
+  if (files && opts.dir && opts.dir !== "/") params.set("dir", opts.dir);
   if (opts.world) params.set("world", opts.world);
   if (opts.q) params.set("q", opts.q);
-  if (opts.page && opts.page > 1) params.set("page", String(opts.page));
-  const s = params.toString();
+  if (!files && opts.page && opts.page > 1) {
+    params.set("page", String(opts.page));
+  }
+  const s = params.toString().replace(/%2F/gi, "/");
   return s ? `/media/?${s}` : "/media/";
 };
 
