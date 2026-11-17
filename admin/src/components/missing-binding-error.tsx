@@ -1,5 +1,5 @@
 import { component$ } from "@builder.io/qwik";
-import { Link } from "@builder.io/qwik-city";
+import { StatePanel } from "./state-panel";
 
 // Rendered when a route loader catches a `getDB` failure (no D1 binding
 // in the current runtime — e.g. `pnpm dev` instead of `pnpm serve`, or a
@@ -8,17 +8,17 @@ import { Link } from "@builder.io/qwik-city";
 // pointer.
 export const MissingBindingError = component$<{ backHref: string }>(
   ({ backHref }) => (
-    <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
-      <p>
-        <Link href={backHref}>← Back</Link>
+    <StatePanel
+      tone="error"
+      title="Configuration error"
+      action={{ href: backHref, label: "← Back" }}
+    >
+      <p>The D1 database binding is unavailable in this runtime.</p>
+      <p class="mt-2">
+        Locally, run <code>pnpm serve</code> (not <code>pnpm dev</code>) for a
+        wrangler-backed server. Preview deployments have no database by design;
+        in production, check the worker logs.
       </p>
-      <h1>Configuration error</h1>
-      <p>
-        D1 binding unavailable. Run <code>pnpm serve</code> (not{" "}
-        <code>pnpm dev</code>) for a wrangler-backed local server. Preview
-        deployments have no database by design; in production, check the worker
-        logs.
-      </p>
-    </div>
+    </StatePanel>
   ),
 );

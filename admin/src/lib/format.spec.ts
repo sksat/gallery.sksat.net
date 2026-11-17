@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest";
+import { formatJst, lastPage, mediaListHref, splitPath } from "./format";
+
+describe("splitPath", () => {
+  it("splits a nested path into folder and basename", () => {
+    expect(
+      splitPath("/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png"),
+    ).toEqual({
+      dir: "/VRChat/2023-12/",
+      base: "VRChat_2023-12-11_01-21-32.519_7680x4320.png",
+    });
+  });
+
+  it("keeps the leading slash with the folder for a top-level file", () => {
+    expect(splitPath("/a.png")).toEqual({ dir: "/", base: "a.png" });
+  });
+
+  it("returns an empty folder when there is no slash", () => {
+    expect(splitPath("a.png")).toEqual({ dir: "", base: "a.png" });
+  });
+
+  it("concatenates back to the original path", () => {
+    const p = "/mock/real1.png";
+    const { dir, base } = splitPath(p);
+    expect(dir + base).toBe(p);
+  });
+});
+
+describe("formatJst", () => {
+  it("renders an offset-aware timestamp in JST", () => {
+    expect(formatJst("2023-12-11T01:21:32.519+09:00")).toBe("2023/12/11 01:21");
+  });
+
+  it("converts UTC to JST, crossing the date boundary", () => {
+    expect(formatJst("2023-12-01T20:30:00Z")).toBe("2023/12/02 05:30");
+  });
+
+  it("returns null for null / empty", () => {
+    expect(formatJst(null)).toBeNull();
+    expect(formatJst("")).toBeNull();
+  });
+
+  it("passes an unparseable string through unchanged", () => {
+    expect(formatJst("sometime in 2023")).toBe("sometime in 2023");
+  });
+
+  it("passes an offset-less timestamp through instead of guessing a zone", () => {
+    expect(formatJst("2023-12-11T01:21:32")).toBe("2023-12-11T01:21:32");
+  });
+
+  it("accepts a compact offset", () => {
+    expect(formatJst("2023-12-11T01:21:32+0900")).toBe("2023/12/11 01:21");
+  });
+});
+
+describe("mediaListHref", () => {
+  it("is the bare list URL for defaults", () => {
+    expect(mediaListHref({})).toBe("/media/");
+    expect(mediaListHref({ world: null, q: "", page: 1 })).toBe("/media/");
+  });
+
+  it("keeps the filter and drops page=1", () => {
+    expect(mediaListHref({ world: "VRChat", q: "a b", page: 1 })).toBe(
+      "/media/?world=VRChat&q=a+b",
+    );
+  });
+
+  it("adds page beyond the first", () => {
+    expect(mediaListHref({ q: "x", page: 3 })).toBe("/media/?q=x&page=3");
+  });
+});
+
+describe("lastPage", () => {
+  it("is 1 for an empty result", () => {
+    expect(lastPage(0, 100)).toBe(1);
+  });
+
+  it("rounds up partial pages", () => {
+    expect(lastPage(100, 100)).toBe(1);
+    expect(lastPage(101, 100)).toBe(2);
+  });
+});

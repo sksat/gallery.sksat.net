@@ -35,9 +35,13 @@ pnpm import-media && pnpm db.seed.local
 - `e2e/smoke.spec.ts` — `/` returns 200 and renders the dashboard heading
 - `e2e/access.spec.ts` — the Access JWT check is wired in (hits a second server on PORT+1 started without the bypass; expects 403)
 - `e2e/media-list.spec.ts`, `e2e/media-edit.spec.ts` — `/media` flows
-- `e2e/vrt/*.vrt.spec.ts` — visual baselines (`/`, `/media`)
-- `src/**/*.spec.ts` — pure-function unit tests (`db.ts`, `validate.ts`)
+- `e2e/vrt/*.vrt.spec.ts` — visual baselines (`/`, `/media` at 1280px and 390px, `/media/2`)
+- `src/**/*.spec.ts` — pure-function unit tests (`db.ts`, `validate.ts`, `format.ts`)
 
 `POST /api/publish` has no E2E coverage on purpose: a faithful test would have to mock SigV4 + the B2 round-trip. Verify manually after deploy until B2 secrets land in CI.
 
 VRT baselines must be regenerated inside the Playwright Docker image — `admin-e2e` in [.github/workflows/ci.yaml](../.github/workflows/ci.yaml) runs the same image (`mcr.microsoft.com/playwright:v1.65.1-noble`) so baselines generated outside it drift in sub-pixel font rendering. Use the docker invocation from the root [CLAUDE.md](../CLAUDE.md) (substitute `podman` for `docker` if not in the docker group). Keep the image tag in sync with `@playwright/test` in `package.json`.
+
+## Styling
+
+Tailwind CSS v4 via `@tailwindcss/vite` (same setup as the root project); base styles in `src/global.css`. Use utilities only — no CSS modules or UI libraries. Shared class strings live in `src/components/ui.ts`, error/empty states use `StatePanel` (`src/components/state-panel.tsx`). Theme: the header toggle cycles system / light / dark, stored in `localStorage` (`admin-theme`) and mirrored on `<html data-theme>` by an inline `<head>` script before first paint (`src/lib/theme.ts`). The `dark:` variant is redefined in `global.css` to follow that attribute, and `prefers-color-scheme` when it is `system`.

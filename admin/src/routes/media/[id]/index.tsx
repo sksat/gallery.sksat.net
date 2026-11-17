@@ -9,8 +9,19 @@ import {
   type DocumentHead,
 } from "@builder.io/qwik-city";
 import { MissingBindingError } from "~/components/missing-binding-error";
+import { StatePanel } from "~/components/state-panel";
+import {
+  buttonPrimary,
+  card,
+  field,
+  label,
+  link,
+  muted,
+  worldBadge,
+} from "~/components/ui";
 import { getMedia, updateMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
+import { formatJst, splitPath } from "~/lib/format";
 import type { MediaRow } from "~/lib/types";
 import { parseTagsInput, validatePatch } from "~/lib/validate";
 
@@ -93,131 +104,177 @@ export default component$(() => {
   }
   if (media.value.kind === "bad-request") {
     return (
-      <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
+      <StatePanel
+        tone="error"
+        title="Invalid id"
+        action={{ href: "/media/", label: "← Back to media" }}
+      >
         <p>
-          <Link href="/media/">← Back</Link>
+          The id in the URL must be a positive integer, like{" "}
+          <code>/media/12/</code>. Pick a photo from the list instead.
         </p>
-        <h1>Invalid id</h1>
-        <p>The id in the URL must be a positive integer.</p>
-      </div>
+      </StatePanel>
     );
   }
   if (media.value.kind === "not-found") {
     return (
-      <div style={{ padding: "1.5rem", fontFamily: "sans-serif" }}>
+      <StatePanel
+        tone="error"
+        title="Not found"
+        action={{ href: "/media/", label: "← Back to media" }}
+      >
         <p>
-          <Link href="/media/">← Back</Link>
+          No media row has this id. It may have been removed from D1, or the
+          link is out of date.
         </p>
-        <h1>Not found</h1>
-      </div>
+      </StatePanel>
     );
   }
 
   const row = media.value.row;
+  const { dir, base } = splitPath(row.file);
+  const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 
   return (
-    <div
-      style={{ padding: "1.5rem", fontFamily: "sans-serif", maxWidth: "60rem" }}
-    >
-      <p>
-        <Link href="/media/">← Media</Link>
-      </p>
-      <h1>Edit #{row.id}</h1>
+    <div class="mx-auto max-w-3xl space-y-6">
+      <div>
+        <nav aria-label="Breadcrumb" class="text-sm">
+          <Link href="/media/" class={link}>
+            ← Media
+          </Link>
+        </nav>
+        <div class="mt-2 flex flex-wrap items-center gap-3">
+          <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">
+            Edit #{row.id}
+          </h1>
+          <span class={worldBadge(row.world)}>{row.world}</span>
+        </div>
+      </div>
 
       <dl
-        style={{
-          background: "#f5f5f5",
-          padding: "0.8rem",
-          borderRadius: "4px",
-        }}
+        class={[
+          card,
+          "grid gap-x-4 gap-y-1 p-5 text-sm sm:grid-cols-[8rem_1fr] sm:gap-y-4 [&>dd]:mb-3 sm:[&>dd]:mb-0 [&>dd:last-child]:mb-0",
+        ]}
       >
-        <dt>File</dt>
-        <dd
-          style={{
-            fontFamily: "monospace",
-            fontSize: "0.9em",
-            wordBreak: "break-all",
-          }}
-        >
-          {row.file}
+        <dt class={["font-medium", muted]}>File</dt>
+        <dd class="min-w-0" title={row.file}>
+          <span class="block font-medium break-all">{base}</span>
+          <span class={["block text-xs break-all", muted]}>{dir}</span>
         </dd>
-        <dt style={{ marginTop: "0.6rem" }}>Timestamp</dt>
-        <dd>
-          {row.timestamp ?? <span style={{ color: "#888" }}>(none)</span>}
+        <dt class={["font-medium", muted]}>Taken</dt>
+        <dd title={row.timestamp ?? undefined} class="tabular-nums">
+          {row.timestamp ? (
+            <>
+              {formatJst(row.timestamp)}{" "}
+              <span class={["text-xs", muted]}>JST</span>
+            </>
+          ) : (
+            <span class={muted}>(none)</span>
+          )}
+        </dd>
+        <dt class={["font-medium", muted]}>Last updated</dt>
+        <dd title={row.updated_at} class="tabular-nums">
+          {formatJst(row.updated_at)}{" "}
+          <span class={["text-xs", muted]}>JST</span>
         </dd>
       </dl>
 
-      <Form
-        action={action}
-        style={{
-          marginTop: "1rem",
-          display: "grid",
-          gap: "0.8rem",
-          maxWidth: "30rem",
-        }}
-      >
-        <label>
-          World
-          <br />
-          <select name="world">
-            <option value="Real" selected={row.world === "Real"}>
-              Real
-            </option>
-            <option value="VRChat" selected={row.world === "VRChat"}>
-              VRChat
-            </option>
-          </select>
-        </label>
-        <label>
-          Camera make
-          <br />
-          <input
-            type="text"
-            name="camera_make"
-            value={row.camera_make ?? ""}
-            placeholder="(empty for none)"
-            maxLength={200}
-            style={{ width: "100%" }}
-          />
-        </label>
-        <label>
-          Camera model
-          <br />
-          <input
-            type="text"
-            name="camera_model"
-            value={row.camera_model ?? ""}
-            placeholder="(empty for none)"
-            maxLength={200}
-            style={{ width: "100%" }}
-          />
-        </label>
-        <label>
-          Tags (comma-separated)
-          <br />
-          <input
-            type="text"
-            name="tags"
-            value={row.tags.join(", ")}
-            maxLength={2000}
-            style={{ width: "100%" }}
-          />
-        </label>
-        <div>
-          <button type="submit">Save</button>
+      <Form action={action} class={[card, "space-y-6 p-5"]}>
+        <fieldset class="space-y-3">
+          <legend class={legend}>Category</legend>
+          <div class="max-w-xs">
+            <label for="edit-world" class={label}>
+              World
+            </label>
+            <select id="edit-world" name="world" class={field}>
+              <option value="Real" selected={row.world === "Real"}>
+                Real
+              </option>
+              <option value="VRChat" selected={row.world === "VRChat"}>
+                VRChat
+              </option>
+            </select>
+          </div>
+        </fieldset>
+
+        <fieldset class="space-y-3">
+          <legend class={legend}>Camera</legend>
+          <p class={["text-xs", muted]}>
+            Set both or leave both empty for no camera.
+          </p>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label for="edit-camera-make" class={label}>
+                Camera make
+              </label>
+              <input
+                id="edit-camera-make"
+                type="text"
+                name="camera_make"
+                value={row.camera_make ?? ""}
+                placeholder="(empty for none)"
+                maxLength={200}
+                class={field}
+              />
+            </div>
+            <div>
+              <label for="edit-camera-model" class={label}>
+                Camera model
+              </label>
+              <input
+                id="edit-camera-model"
+                type="text"
+                name="camera_model"
+                value={row.camera_model ?? ""}
+                placeholder="(empty for none)"
+                maxLength={200}
+                class={field}
+              />
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="space-y-3">
+          <legend class={legend}>Tags</legend>
+          <div>
+            <label for="edit-tags" class={label}>
+              Tags (comma-separated)
+            </label>
+            <input
+              id="edit-tags"
+              type="text"
+              name="tags"
+              value={row.tags.join(", ")}
+              maxLength={2000}
+              aria-describedby="edit-tags-help"
+              class={field}
+            />
+            <p id="edit-tags-help" class={["mt-1 text-xs", muted]}>
+              e.g. <code>VRChat, night</code>. Saved to D1 immediately; publish
+              from the dashboard to update the public gallery.
+            </p>
+          </div>
+        </fieldset>
+
+        <div class="flex flex-wrap items-center gap-3 border-t border-zinc-200 pt-5 dark:border-zinc-800">
+          <button type="submit" class={buttonPrimary}>
+            Save
+          </button>
+          <div role="status" aria-live="polite" class="text-sm">
+            {action.value?.ok && (
+              <p class="text-emerald-700 dark:text-emerald-400">
+                Saved at {formatJst(action.value.updated_at)} JST.
+              </p>
+            )}
+          </div>
+          {action.value?.failed && (
+            <p role="alert" class="text-sm text-red-700 dark:text-red-400">
+              Save failed: {action.value.message ?? "unknown error"}
+            </p>
+          )}
         </div>
       </Form>
-
-      {action.value?.ok && (
-        <p style={{ color: "green", marginTop: "1rem" }}>
-          Saved at {action.value.updated_at}.
-        </p>
-      )}
-      {action.value?.failed && (
-        <p style={{ color: "crimson", marginTop: "1rem" }}>
-          Save failed: {action.value.message ?? "unknown error"}
-        </p>
-      )}
     </div>
   );
 });
