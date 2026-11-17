@@ -6,5 +6,9 @@
   "display": "standalone",
   "background_color": "#151934",
   "theme_color": "#151934",
-  "description": "sksat の写真と VRChat スクリーンショットのギャラリー"
+  "description": "sksat の写真と VRChat スクリーンショットのギャラリー",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
 }
