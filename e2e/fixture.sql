@@ -3,6 +3,16 @@
 -- public/test-media (see the README there): five public photos with fixed
 -- public ids, plus one unlisted and one private photo that must never show
 -- up in lists.
+--
+-- The public ids are hand-made so tests can name a photo: 10 characters
+-- from the real alphabet (23456789abcdefghjkmnpqrstuvwxyz), padded with
+-- "x". The prefix says what the photo is and the last letter which one:
+--   rea… = /mock/realN.png    (reaxxxxxxa = real1, reaxxxxxxb = real2)
+--   vrc… = /mock/vrchatN.png  (vrcxxxxxxa = vrchat1 … vrcxxxxxxc = vrchat3)
+--   unxxxxxxxx = the unlisted photo, pvxxxxxxxx = the private one
+-- Letters, not digits, count the photos because 0 and 1 are not in the
+-- alphabet. legacy_index (the N of old /photo/N URLs) maps the old numeric
+-- ids in tests to these: 0 = reaxxxxxxa, 1 = vrcxxxxxxa, 2 = reaxxxxxxb.
 INSERT INTO camera (id, slug, name, manufacturer, manufacturer_url, model, kind, description, product_url) VALUES
   (1, 'pentax-sp',    'PENTAX SP',    'Asahi',    NULL,                           'Pentax SP',    'film',    NULL, NULL),
   (2, 'virtuallens2', 'VirtualLens2', 'logilabo', 'https://example.com/logilabo', 'VirtualLens2', 'virtual', 'Virtual camera for VRChat.' || char(10) || 'Second line of the description.', 'https://example.com/virtuallens2');

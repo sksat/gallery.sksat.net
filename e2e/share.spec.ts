@@ -1,15 +1,19 @@
 import { test, expect, type Page } from "@playwright/test";
 
-// Test data: public/test-media/media.json (see public/test-media/README.md)
+// Test data: e2e/fixture.sql, served by the API Worker (see
+// public/test-media/README.md and the table in gallery.spec.ts).
 
-// Open photo 2 from the filtered grid, so the URL carries the gallery query.
+// Open reaxxxxxxb from the filtered grid, so the URL carries the gallery
+// query.
 const openFilteredPhoto = async (page: Page) => {
   await page.goto("/?tag=Real&tag=night&mode=or");
   const images = page.getByTestId("gallery-image");
   await expect(images).toHaveCount(3, { timeout: 10000 });
-  // Newest first: 3, 2, 0
+  // Newest first: vrcxxxxxxb, reaxxxxxxb, reaxxxxxxa
   await images.nth(1).dispatchEvent("click");
-  await expect(page).toHaveURL(/\/photo\/2\?tag=Real&tag=night&mode=or$/);
+  await expect(page).toHaveURL(
+    /\/photo\/reaxxxxxxb\?tag=Real&tag=night&mode=or$/,
+  );
 };
 
 test.describe("without a share sheet", () => {
@@ -31,24 +35,24 @@ test.describe("without a share sheet", () => {
     );
     const origin = new URL(page.url()).origin;
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-      `${origin}/photo/2/`,
+      `${origin}/photo/reaxxxxxxb/`,
     );
 
     // The click did not close the overlay, and the arrow keys still browse.
     await expect(page.getByTestId("overlay")).toBeVisible();
     await page.keyboard.press("ArrowRight");
-    await expect(page).toHaveURL(/\/photo\/0\?/);
+    await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\?/);
   });
 
   test("drops ?camera= too", async ({ page }) => {
-    await page.goto("/photo/1?camera=virtuallens2");
+    await page.goto("/photo/vrcxxxxxxa?camera=virtuallens2");
     await page.getByRole("button", { name: "リンクをコピー" }).click();
     await expect(page.getByTestId("share-status")).toHaveText(
       "リンクをコピーしました",
     );
     const origin = new URL(page.url()).origin;
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-      `${origin}/photo/1/`,
+      `${origin}/photo/vrcxxxxxxa/`,
     );
   });
 
@@ -64,13 +68,13 @@ test.describe("without a share sheet", () => {
 
     const field = page.getByTestId("share-url");
     const origin = new URL(page.url()).origin;
-    await expect(field).toHaveValue(`${origin}/photo/2/`);
+    await expect(field).toHaveValue(`${origin}/photo/reaxxxxxxb/`);
     await expect(field).toBeFocused();
     // Arrow keys move the caret in the field, not to another photo.
     await page.keyboard.press("ArrowRight");
     // The handler is async; give it time to (wrongly) switch photos.
     await page.waitForTimeout(500);
-    await expect(page).toHaveURL(/\/photo\/2\?/);
+    await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\?/);
     await expect(field).toBeVisible();
   });
 });
@@ -97,7 +101,7 @@ test("opens the share sheet with the photo URL", async ({ page }) => {
         () => (window as unknown as { shareCalls: ShareData[] }).shareCalls,
       ),
     )
-    .toEqual([{ title: expect.any(String), url: `${origin}/photo/2/` }]);
+    .toEqual([{ title: expect.any(String), url: `${origin}/photo/reaxxxxxxb/` }]);
   await expect(page.getByTestId("overlay")).toBeVisible();
 });
 
