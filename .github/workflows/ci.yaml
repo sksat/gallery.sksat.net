@@ -45,7 +45,9 @@ jobs:
       - run: pnpm run fmt.check
 
   e2e:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, which Playwright 1.59.1 cannot
+    # install chromium on. Revisit when bumping @playwright/test.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
@@ -69,7 +71,9 @@ jobs:
           path: playwright-report/
 
   vrt:
-    runs-on: ubuntu-latest
+    # Pinned for the same reason as e2e; also keeps the runner on noble like
+    # the baseline image (not byte-identical — fonts/packages may differ).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
