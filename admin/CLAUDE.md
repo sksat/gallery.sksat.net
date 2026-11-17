@@ -40,4 +40,4 @@ pnpm import-media && pnpm db.seed.local
 
 `POST /api/publish` has no E2E coverage on purpose: a faithful test would have to mock SigV4 + the B2 round-trip. Verify manually after deploy until B2 secrets land in CI.
 
-VRT baselines must be regenerated inside the Playwright Docker image — `admin-e2e` in [.github/workflows/ci.yaml](../.github/workflows/ci.yaml) runs the same image (`mcr.microsoft.com/playwright:v1.59.1-noble`) so baselines generated outside it drift in sub-pixel font rendering. Use the docker invocation from the root [CLAUDE.md](../CLAUDE.md) (substitute `podman` for `docker` if not in the docker group). Keep the image tag in sync with `@playwright/test` in `package.json`.
+VRT baselines must be regenerated inside the Playwright Docker image — `admin-e2e` in [.github/workflows/ci.yaml](../.github/workflows/ci.yaml) runs the same image (`mcr.microsoft.com/playwright:v1.65.1-noble`) so baselines generated outside it drift in sub-pixel font rendering. Use the docker invocation from the root [CLAUDE.md](../CLAUDE.md) (substitute `podman` for `docker` if not in the docker group). Keep the image tag in sync with `@playwright/test` in `package.json`.

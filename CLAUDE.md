@@ -151,8 +151,8 @@ To regenerate locally, use the official Playwright Docker image (matches the CI 
 docker run --rm -it \
   -v "$(pwd):/work" -w /work \
   -e CI=true \
-  mcr.microsoft.com/playwright:v1.59.1-noble \
-  bash -c "corepack enable && pnpm install --frozen-lockfile && pnpm run test.vrt.update"
+  mcr.microsoft.com/playwright:v1.65.1-noble \
+  bash -c "npm install -g \"\$(node -p 'require(\"./package.json\").packageManager')\" && pnpm install --frozen-lockfile && pnpm run test.vrt.update"
 ```
 
 Keep the image tag in sync with `@playwright/test` in `package.json`. Then commit the regenerated PNGs.

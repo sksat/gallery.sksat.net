@@ -11,6 +11,11 @@
         "@builder.io/qwik-city",
         "eslint-plugin-qwik"
       ]
+    },
+    {
+      "description": "The CI image must ship the browser build @playwright/test expects, and VRT baselines are tied to it; bump both in one PR.",
+      "groupName": "playwright",
+      "matchPackageNames": ["@playwright/test", "mcr.microsoft.com/playwright"]
     }
   ]
 }
