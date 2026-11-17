@@ -43,12 +43,19 @@ test("media files: switch view, choose a folder, open a photo", async ({
   await expect(page.getByTestId("file-tile")).toHaveCount(5);
 
   await tiles.filter({ hasText: "vrchat1.png" }).click();
-  await expect(page).toHaveURL(/\/media\/2\/$/);
+  await expect(page).toHaveURL(/\/media\/2\/\?back=/);
   await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
 
-  // ...and back.
+  // ...and back, with the browser.
   await page.goBack();
   await expect(page).toHaveURL(/dir=\/mock$/);
+  await expect(page.getByTestId("file-tile")).toHaveCount(5);
+
+  // ...and with the page's own "← Media" link, which keeps the files view
+  // and folder instead of dropping back to the list.
+  await tiles.filter({ hasText: "vrchat1.png" }).click();
+  await page.getByRole("link", { name: "← Media" }).click();
+  await expect(page).toHaveURL(/\/media\/\?view=files&dir=\/mock$/);
   await expect(page.getByTestId("file-tile")).toHaveCount(5);
 });
 
