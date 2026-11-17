@@ -2,6 +2,13 @@
 # A single-package project: without `packages`, only this directory is in
 # the workspace. admin/ has its own pnpm-workspace.yaml.
 
+# Cooldown: refuse package versions published less than a day ago (in
+# minutes), so a hijacked release has time to be caught and unpublished
+# before it reaches us. Set explicitly (pnpm 12's default is the same) so
+# the check is strict. Renovate waits 3 days before proposing an update
+# (renovate.json), so its PRs normally pass this.
+minimumReleaseAge: 1440
+
 # Packages whose install scripts may run (native binaries).
 allowBuilds:
   esbuild: true
