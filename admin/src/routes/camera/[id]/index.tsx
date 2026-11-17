@@ -395,7 +395,7 @@ export default component$(() => {
               type="text"
               name="file"
               required
-              placeholder="/cameras/name.png"
+              placeholder={`/camera/${camera.slug}/front.png`}
               maxLength={MAX_IMAGE_FILE_LEN}
               class={field}
             />

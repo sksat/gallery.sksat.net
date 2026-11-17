@@ -73,9 +73,9 @@ test("cameras: the fixture camera lists its images in order", async ({
   await page.goto("/camera/1/");
   const images = page.getByTestId("camera-image");
   await expect(images).toHaveCount(2);
-  await expect(images.nth(0)).toContainText("/cameras/virtuallens2-front.png");
+  await expect(images.nth(0)).toContainText("/camera/virtuallens2/front.png");
   await expect(caption(page, 1)).toHaveValue("Front");
-  await expect(images.nth(1)).toContainText("/cameras/virtuallens2-ui.png");
+  await expect(images.nth(1)).toContainText("/camera/virtuallens2/ui.png");
   // IMAGE_BASE_URL is blank in E2E: placeholders, never the originals.
   await expect(images.getByTestId("thumb-placeholder")).toHaveCount(2);
 });
@@ -95,16 +95,16 @@ test("cameras: add, reorder, caption and remove images", async ({ page }) => {
     await page.getByRole("button", { name: "Add image" }).click();
   };
 
-  await add("/cameras/e2e-a.png", "A");
+  await add("/camera/e2e/a.png", "A");
   await expect(images).toHaveCount(1);
   // Cleared after a successful add.
   await expect(page.getByLabel("Image path")).toHaveValue("");
-  await add("/cameras/e2e-b.jpg");
+  await add("/camera/e2e/b.jpg");
   await expect(images).toHaveCount(2);
-  await expect(images.nth(1)).toContainText("/cameras/e2e-b.jpg");
+  await expect(images.nth(1)).toContainText("/camera/e2e/b.jpg");
 
   await page.getByRole("button", { name: "Move image 2 up" }).click();
-  await expect(images.nth(0)).toContainText("/cameras/e2e-b.jpg");
+  await expect(images.nth(0)).toContainText("/camera/e2e/b.jpg");
   await expect(
     page.getByRole("button", { name: "Move image 1 up" }),
   ).toBeDisabled();
@@ -117,24 +117,24 @@ test("cameras: add, reorder, caption and remove images", async ({ page }) => {
   ]);
 
   await page.reload();
-  await expect(images.nth(0)).toContainText("/cameras/e2e-b.jpg");
+  await expect(images.nth(0)).toContainText("/camera/e2e/b.jpg");
   await expect(caption(page, 1)).toHaveValue("B side");
   await expect(caption(page, 2)).toHaveValue("A");
 
   // Duplicate and unsafe paths are refused.
-  await add("/cameras/e2e-b.jpg");
+  await add("/camera/e2e/b.jpg");
   await expect(page.getByRole("alert")).toContainText("already added");
-  await add("/cameras/../secret.png");
+  await add("/camera/../secret.png");
   await expect(page.getByRole("alert")).toContainText("file must be a path");
   await expect(images).toHaveCount(2);
   // A rejected path stays in the field to be fixed.
   await expect(page.getByLabel("Image path")).toHaveValue(
-    "/cameras/../secret.png",
+    "/camera/../secret.png",
   );
 
   await page.getByRole("button", { name: "Remove image 2" }).click();
   await expect(images).toHaveCount(1);
-  await expect(images.nth(0)).toContainText("/cameras/e2e-b.jpg");
+  await expect(images.nth(0)).toContainText("/camera/e2e/b.jpg");
   // The earlier add error does not linger after a later action.
   await expect(page.getByRole("alert")).toHaveCount(0);
 });

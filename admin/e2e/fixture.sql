@@ -15,6 +15,6 @@ INSERT INTO media (id, file, world, timestamp, camera_id, tags, updated_at) VALU
   (4, '/mock/vrchat2.png', 'VRChat', '2023-12-04T00:00:00Z', NULL, '["VRChat"]', '2024-01-01T00:00:00.000Z'),
   (5, '/mock/vrchat3.png', 'VRChat', '2023-12-05T00:00:00Z', NULL, '["VRChat"]', '2024-01-01T00:00:00.000Z');
 INSERT INTO camera_image (id, camera_id, file, position, caption) VALUES
-  (1, 1, '/cameras/virtuallens2-front.png', 0, 'Front'),
-  (2, 1, '/cameras/virtuallens2-ui.png',    1, NULL);
+  (1, 1, '/camera/virtuallens2/front.png', 0, 'Front'),
+  (2, 1, '/camera/virtuallens2/ui.png',    1, NULL);
 INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('media', 5), ('camera', 2), ('camera_image', 2);

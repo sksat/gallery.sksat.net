@@ -216,7 +216,7 @@ const IMAGE_EXT_RE = /\.(png|jpe?g)$/i;
 
 /**
  * A bucket path for an image, in the same shape as media.file
- * (`/cameras/virtuallens2.png`): leading "/", segments of
+ * (`/camera/virtuallens2/front.png`): leading "/", segments of
  * `[A-Za-z0-9._-]` only, no "." / ".." segments, png/jpg/jpeg. It is
  * appended to the image Worker / bucket URLs as-is, so nothing that could
  * change the URL's meaning (`?`, `#`, `%`, `\`, `..`) gets through.
@@ -241,7 +241,7 @@ export const validateImageFile = (
     return {
       ok: false,
       error:
-        'file must be a path like /cameras/name.png (leading "/", letters, digits, ".", "_", "-")',
+        'file must be a path like /camera/<slug>/front.png (leading "/", letters, digits, ".", "_", "-")',
     };
   }
   if (!IMAGE_EXT_RE.test(file)) {

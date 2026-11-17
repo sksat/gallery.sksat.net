@@ -201,8 +201,8 @@ describe("validateCamera", () => {
 
 describe("validateImageFile", () => {
   it.each([
-    "/cameras/virtuallens2.png",
-    "/cameras/pentax-sp_front.JPG",
+    "/camera/virtuallens2/front.png",
+    "/camera/pentax-sp/front_1.JPG",
     "/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png",
     "/a.jpeg",
   ])("accepts %j", (file) => {
@@ -218,16 +218,16 @@ describe("validateImageFile", () => {
 
   it.each([
     "",
-    "cameras/a.png",
-    "/cameras/../secret.png",
-    "/cameras/./a.png",
+    "camera/a.png",
+    "/camera/../secret.png",
+    "/camera/./a.png",
     "//a.png",
-    "/cameras/a b.png",
-    "/cameras/a.png?x=1",
-    "/cameras/a%2e.png",
-    "/cameras/a.gif",
-    "/cameras/a",
-    "/cameras/",
+    "/camera/a b.png",
+    "/camera/a.png?x=1",
+    "/camera/a%2e.png",
+    "/camera/a.gif",
+    "/camera/a",
+    "/camera/",
     "https://evil.example/a.png",
     `/${"a".repeat(500)}.png`,
   ])("rejects %j", (file) => {
