@@ -34,6 +34,7 @@ const uploadBatch = async (page: Page, folder: string, seed: string) => {
     page.getByTestId("upload-panel").getByRole("heading"),
   ).toHaveText("1 件が失敗しました", { timeout: 15_000 });
   await expect(page.getByTestId("file-tile")).toHaveCount(1);
+  await expect(page.getByTestId("upload-folder")).toBeVisible();
 };
 
 const shot = (page: Page, name: string) =>

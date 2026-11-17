@@ -6,6 +6,8 @@ test.describe("desktop", () => {
   test("admin: media files view", async ({ page }) => {
     await page.goto("/media/?view=files&dir=/mock");
     await expect(page.getByTestId("file-tile")).toHaveCount(5);
+    // Shown once the page knows the browser can pick folders.
+    await expect(page.getByTestId("upload-folder")).toBeVisible();
     await expect(page).toHaveScreenshot("admin-media-files.png", {
       fullPage: true,
     });
@@ -18,6 +20,7 @@ test.describe("phone", () => {
   test("admin: media files view (phone)", async ({ page }) => {
     await page.goto("/media/?view=files&dir=/mock");
     await expect(page.getByTestId("file-tile")).toHaveCount(5);
+    await expect(page.getByTestId("upload-folder")).toBeVisible();
     await expect(page).toHaveScreenshot("admin-media-files-phone.png", {
       fullPage: true,
     });

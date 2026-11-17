@@ -2,6 +2,7 @@ import {
   $,
   component$,
   noSerialize,
+  Slot,
   useSignal,
   useVisibleTask$,
   type NoSerialize,
@@ -11,6 +12,11 @@ import {
 import { MAX_BULK_IDS } from "~/lib/db";
 import { formatBytes, UPLOAD_ACCEPT } from "~/lib/upload";
 import type { IncompleteUpload } from "~/lib/db-upload";
+import {
+  collectDropped,
+  MAX_DROPPED_FILES,
+  type EntryLike,
+} from "~/lib/drop-entries";
 import {
   browserDeps,
   completeUploadRequest,
@@ -140,7 +146,7 @@ export const UploadButton = component$<{ uploader: Uploader; dir: string }>(
     <label
       class={[
         buttonPrimary,
-        "cursor-pointer has-focus-visible:outline-2 has-focus-visible:outline-sky-500 max-sm:flex-1",
+        "min-w-fit cursor-pointer whitespace-nowrap has-focus-visible:outline-2 has-focus-visible:outline-sky-500 max-sm:flex-1",
       ]}
     >
       <UploadIcon />
@@ -177,6 +183,220 @@ const completionProblem = (err: unknown): string =>
 
 /** Completion checks run at once when a page lists incomplete uploads. */
 const CHECKS_AT_ONCE = 2;
+
+/**
+ * A hidden file or folder inside a picked folder (".DS_Store", ".git/…").
+ * The picked folder itself (the first segment) counts whatever its name.
+ */
+const isHiddenPath = (path: string) =>
+  path
+    .split("/")
+    .slice(1)
+    .some((s) => s.startsWith("."));
+
+const FolderUploadIcon = () => (
+  <svg
+    viewBox="0 0 20 20"
+    fill="currentColor"
+    aria-hidden="true"
+    class="size-4"
+  >
+    <path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h4.09a1.5 1.5 0 0 1 1.06.44L9.7 5.5h6.8A1.5 1.5 0 0 1 18 7v8.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 15.5v-10Zm8.53 3.22a.75.75 0 0 0-1.06 0l-2 2a.75.75 0 1 0 1.06 1.06l.72-.72v2.69a.75.75 0 0 0 1.5 0v-2.69l.72.72a.75.75 0 1 0 1.06-1.06l-2-2Z" />
+  </svg>
+);
+
+/**
+ * "Upload folder": a folder picker (webkitdirectory). Its files keep their
+ * path inside the picked folder, so its subfolders are created under the
+ * open one. Hidden until the browser is known to support it: iOS Safari
+ * has the attribute but cannot pick folders, so it is left out there.
+ */
+export const UploadFolderButton = component$<{
+  uploader: Uploader;
+  dir: string;
+}>(({ uploader, dir }) => {
+  const supported = useSignal(false);
+  /** The check ran (for tests: hidden on purpose, not just not yet). */
+  const checked = useSignal(false);
+  // On document ready: the label starts hidden, so the default strategy
+  // (when it becomes visible) would never run.
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(
+    () => {
+      const ios =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      supported.value =
+        !ios && "webkitdirectory" in document.createElement("input");
+      checked.value = true;
+    },
+    { strategy: "document-ready" },
+  );
+  return (
+    <label
+      data-testid="upload-folder"
+      data-checked={checked.value ? "" : undefined}
+      class={[
+        buttonSecondary,
+        "min-w-fit cursor-pointer whitespace-nowrap has-focus-visible:outline-2 has-focus-visible:outline-sky-500 max-sm:flex-1",
+        !supported.value && "hidden!",
+      ]}
+    >
+      <FolderUploadIcon />
+      Upload folder
+      <input
+        type="file"
+        multiple
+        // Not in Qwik's JSX types.
+        {...{ webkitdirectory: true }}
+        aria-label="Upload a folder"
+        data-testid="upload-folder-input"
+        class="sr-only"
+        onChange$={(_, el) => {
+          const files = Array.from(el.files ?? [])
+            .filter((f) => !isHiddenPath(f.webkitRelativePath || f.name))
+            .map((f): PickedFile => ({
+              name: f.name,
+              relativePath: f.webkitRelativePath || f.name,
+              size: f.size,
+              type: f.type,
+              blob: f,
+            }));
+          el.value = "";
+          if (files.length > 0) void uploader.add(dir, files);
+        }}
+      />
+    </label>
+  );
+});
+
+/**
+ * Drop files or folders anywhere on the wrapped area to upload them into
+ * `dir`. Native listeners (attached once visible) because the drop's
+ * DataTransfer is only readable during the event, before any lazily
+ * loaded handler could run.
+ */
+export const DropZone = component$<{
+  uploader: Uploader;
+  dir: string;
+  /** Uploads are configured; otherwise it is a plain wrapper. */
+  enabled: boolean;
+  /** Something dropped could not be taken (unreadable, too many). */
+  onProblem$: QRL<(message: string) => void>;
+}>(({ uploader, dir, enabled, onProblem$ }) => {
+  const ref = useSignal<HTMLElement>();
+  const over = useSignal(false);
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(({ cleanup }) => {
+    const el = ref.value;
+    if (!el || !enabled) return;
+    let depth = 0;
+    // A drag that started in this page (e.g. a thumbnail) is not an upload,
+    // even though Chromium lists "Files" for a dragged image.
+    let internal = false;
+    const hasFiles = (e: DragEvent) =>
+      !internal && Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const dragStart = () => (internal = true);
+    const dragEnd = () => (internal = false);
+    // Files dropped next to the zone would make the browser open them and
+    // leave the admin.
+    const swallow = (e: DragEvent) => {
+      if (hasFiles(e) && !el.contains(e.target as Node)) e.preventDefault();
+    };
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth++;
+      over.value = true;
+    };
+    const leave = () => {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) over.value = false;
+    };
+    const dragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      over.value = false;
+      // Read everything now: the DataTransfer is emptied after the event.
+      const entries: EntryLike[] = [];
+      const loose: File[] = [];
+      for (const item of Array.from(e.dataTransfer?.items ?? [])) {
+        if (item.kind !== "file") continue;
+        const entry = item.webkitGetAsEntry?.() as EntryLike | null;
+        if (entry) entries.push(entry);
+        else {
+          const f = item.getAsFile();
+          if (f) loose.push(f);
+        }
+      }
+      const target = el.dataset.dir ?? "/";
+      void collectDropped(entries).then(
+        ({ files: dropped, failed, truncated }) => {
+          const files = [
+            ...loose.map((f) => ({ file: f, relativePath: f.name })),
+            ...dropped,
+          ].map(({ file, relativePath }): PickedFile => ({
+            name: file.name,
+            relativePath,
+            size: file.size,
+            type: file.type,
+            blob: file,
+          }));
+          if (files.length > 0) void uploader.add(target, files);
+          if (failed.length > 0) {
+            void onProblem$(
+              `読み込めなかったものを飛ばしました: ${failed.slice(0, 3).join(", ")}${failed.length > 3 ? ` ほか ${failed.length - 3} 件` : ""}`,
+            );
+          } else if (truncated) {
+            void onProblem$(
+              `一度に ${MAX_DROPPED_FILES} 件までです。残りはもう一度ドロップしてください`,
+            );
+          }
+        },
+      );
+    };
+    el.addEventListener("dragenter", enter);
+    el.addEventListener("dragleave", leave);
+    el.addEventListener("dragover", dragOver);
+    el.addEventListener("drop", drop);
+    document.addEventListener("dragstart", dragStart);
+    document.addEventListener("dragend", dragEnd);
+    window.addEventListener("dragover", swallow);
+    window.addEventListener("drop", swallow);
+    cleanup(() => {
+      el.removeEventListener("dragenter", enter);
+      el.removeEventListener("dragleave", leave);
+      el.removeEventListener("dragover", dragOver);
+      el.removeEventListener("drop", drop);
+      document.removeEventListener("dragstart", dragStart);
+      document.removeEventListener("dragend", dragEnd);
+      window.removeEventListener("dragover", swallow);
+      window.removeEventListener("drop", swallow);
+    });
+  });
+  return (
+    <div ref={ref} data-dir={dir} data-testid="drop-zone" class="relative">
+      <Slot />
+      {over.value && (
+        <div
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 z-20 rounded-xl border-2 border-dashed border-sky-500 bg-sky-50/80 text-base font-semibold text-sky-800 dark:bg-sky-950/70 dark:text-sky-200"
+        >
+          {/* Sticky: stays in view over a long folder. */}
+          <p class="sticky top-1/2 py-24 text-center">
+            ここにドロップして {dir} にアップロード
+          </p>
+        </div>
+      )}
+    </div>
+  );
+});
 
 /**
  * Uploads in this folder that never completed (their rows reserve the

@@ -47,8 +47,10 @@ import {
 import { getUploadConfig } from "~/lib/b2";
 import { getObjectStat } from "~/lib/object-stat";
 import {
+  DropZone,
   IncompleteUploads,
   UploadButton,
+  UploadFolderButton,
   UploadPanel,
   useUploader,
 } from "~/components/uploader";
@@ -915,87 +917,106 @@ export default component$(() => {
               by path are in the tree. Narrow the filter to see the rest.
             </p>
           )}
-          <FileBrowser
-            tree={files.tree}
+          {/* Drops upload into the open folder (when uploads are on). */}
+          <DropZone
+            uploader={uploader}
             dir={files.dir}
-            folder={files.folder}
-            files={files.files}
-            imageBase={imageBase}
-            world={world}
-            visibility={visibility}
-            q={q}
+            enabled={files.uploadEnabled}
+            onProblem$={(message) => {
+              toast.value = { tone: "error", message };
+            }}
           >
-            <div q:slot="toolbar" class="max-sm:w-full">
-              {newFolderOpen.value ? (
-                <Form
-                  action={newFolder}
-                  aria-busy={newFolder.isRunning}
-                  aria-label="New folder"
-                  class="flex items-center gap-2"
-                >
-                  <input type="hidden" name="dir" value={dir} />
-                  <label for="new-folder-name" class="sr-only">
-                    Folder name
-                  </label>
-                  <input
-                    id="new-folder-name"
-                    name="name"
-                    required
-                    maxLength={MAX_FOLDER_NAME_LEN}
-                    // Same rule as validateFolderName, which trims (and
-                    // is what counts: the server checks again).
-                    pattern={"\\s*[A-Za-z0-9_\\-][A-Za-z0-9._\\-]*\\s*"}
-                    title="英数字と . _ - (先頭に . は不可)"
-                    placeholder="2026-11"
-                    autoFocus
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellcheck={false}
-                    enterKeyHint="done"
-                    class={[field, "min-w-0 flex-1 sm:w-48"]}
-                  />
-                  <SubmitButton
-                    running={newFolder.isRunning}
-                    class={buttonPrimary}
+            <FileBrowser
+              tree={files.tree}
+              dir={files.dir}
+              folder={files.folder}
+              files={files.files}
+              imageBase={imageBase}
+              world={world}
+              visibility={visibility}
+              q={q}
+            >
+              <div q:slot="toolbar" class="max-sm:w-full">
+                {newFolderOpen.value ? (
+                  <Form
+                    action={newFolder}
+                    aria-busy={newFolder.isRunning}
+                    aria-label="New folder"
+                    class="flex items-center gap-2"
                   >
-                    Create
-                  </SubmitButton>
-                  <button
-                    type="button"
-                    onClick$={() => (newFolderOpen.value = false)}
-                    class={buttonSecondary}
-                  >
-                    Cancel
-                  </button>
-                </Form>
-              ) : (
-                <div class="flex gap-2">
-                  <button
-                    type="button"
-                    onClick$={() => (newFolderOpen.value = true)}
-                    class={[buttonSecondary, "max-sm:flex-1"]}
-                  >
-                    <span aria-hidden="true">＋</span>
-                    New folder
-                  </button>
-                  {files.uploadEnabled && (
-                    <UploadButton uploader={uploader} dir={files.dir} />
-                  )}
-                </div>
-              )}
-            </div>
-            <div q:slot="panel" class="space-y-4">
-              <UploadPanel
-                uploader={uploader}
-                onSetVisibility$={setUploadedVisibility}
-              />
-              <IncompleteUploads
-                rows={files.incomplete}
-                uploader={uploader}
-                onDelete$={deleteIncompleteUpload$}
-              />
-            </div>
-          </FileBrowser>
+                    <input type="hidden" name="dir" value={dir} />
+                    <label for="new-folder-name" class="sr-only">
+                      Folder name
+                    </label>
+                    <input
+                      id="new-folder-name"
+                      name="name"
+                      required
+                      maxLength={MAX_FOLDER_NAME_LEN}
+                      // Same rule as validateFolderName, which trims (and
+                      // is what counts: the server checks again).
+                      pattern={"\\s*[A-Za-z0-9_\\-][A-Za-z0-9._\\-]*\\s*"}
+                      title="英数字と . _ - (先頭に . は不可)"
+                      placeholder="2026-11"
+                      autoFocus
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellcheck={false}
+                      enterKeyHint="done"
+                      class={[field, "min-w-0 flex-1 sm:w-48"]}
+                    />
+                    <SubmitButton
+                      running={newFolder.isRunning}
+                      class={buttonPrimary}
+                    >
+                      Create
+                    </SubmitButton>
+                    <button
+                      type="button"
+                      onClick$={() => (newFolderOpen.value = false)}
+                      class={buttonSecondary}
+                    >
+                      Cancel
+                    </button>
+                  </Form>
+                ) : (
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick$={() => (newFolderOpen.value = true)}
+                      class={[
+                        buttonSecondary,
+                        "min-w-fit whitespace-nowrap max-sm:flex-1",
+                      ]}
+                    >
+                      <span aria-hidden="true">＋</span>
+                      New folder
+                    </button>
+                    {files.uploadEnabled && (
+                      <>
+                        <UploadFolderButton
+                          uploader={uploader}
+                          dir={files.dir}
+                        />
+                        <UploadButton uploader={uploader} dir={files.dir} />
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div q:slot="panel" class="space-y-4">
+                <UploadPanel
+                  uploader={uploader}
+                  onSetVisibility$={setUploadedVisibility}
+                />
+                <IncompleteUploads
+                  rows={files.incomplete}
+                  uploader={uploader}
+                  onDelete$={deleteIncompleteUpload$}
+                />
+              </div>
+            </FileBrowser>
+          </DropZone>
         </>
       ) : (
         // Bulk change: tick photos (table rows or phone cards), pick a
