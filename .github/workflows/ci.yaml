@@ -71,22 +71,27 @@ jobs:
           path: playwright-report/
 
   vrt:
-    # Pinned for the same reason as e2e; also keeps the runner on noble like
-    # the baseline image (not byte-identical — fonts/packages may differ).
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    # Run inside the official Playwright image, the same one used to generate
+    # the baselines (see CLAUDE.md), so fonts match. On the bare runner the
+    # system fonts differ and text-heavy screenshots exceed the 1% threshold.
+    # Keep the tag in sync with @playwright/test in package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - run: corepack enable
 
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      # Same manual pnpm store cache as admin-e2e.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
-          node-version-file: ".node-version"
-          cache: "pnpm"
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
 
       - run: pnpm install --frozen-lockfile
-
-      - run: pnpm exec playwright install --with-deps chromium
 
       - run: pnpm run test.vrt
 

@@ -2,7 +2,7 @@
 
 Deterministic fixture used by E2E (`e2e/*.spec.ts`) and VRT (`e2e/vrt/*.vrt.spec.ts`).
 
-In tests, `playwright.config.ts` sets `VITE_S3_BASE_URL=http://localhost:5174/test-media/`, so the dev server reads `media.json` from this directory and serves the PNGs under `mock/`.
+In tests, `playwright.config.ts` sets `VITE_S3_BASE_URL=http://127.0.0.1:5174/test-media/`, so the dev server reads `media.json` from this directory and serves the PNGs under `mock/`.
 
 ## Inventory
 
