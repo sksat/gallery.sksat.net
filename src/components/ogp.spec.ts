@@ -130,15 +130,15 @@ describe("cameraOgp", () => {
       ...vl2,
       description: "First line\nsecond line",
       images: [
-        { file: "/cameras/a.png", caption: null },
-        { file: "/cameras/b.png", caption: null },
+        { file: "/camera/virtuallens2/a.png", caption: null },
+        { file: "/camera/virtuallens2/b.png", caption: null },
       ],
     });
     expect(ogp.title).toBe("VirtualLens2 | sksat gallery");
     expect(ogp.description).toBe("First line");
     expect(ogp.url).toBe("https://gallery.sksat.net/camera/virtuallens2/");
     expect(ogp.image?.url).toBe(
-      "https://gallery.sksat.net/img/og-site/cameras/a.png",
+      "https://gallery.sksat.net/img/og-site/camera/virtuallens2/a.png",
     );
   });
 

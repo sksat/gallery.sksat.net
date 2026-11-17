@@ -118,7 +118,7 @@ test("camera: a picture of the camera opens in the overlay", async ({
   await expect(overlay).toBeVisible();
   await expect(overlay.locator("img").first()).toHaveAttribute(
     "src",
-    /\/cameras\/virtuallens2-side\.png$/,
+    /\/camera\/virtuallens2\/side\.png$/,
   );
   // Not a photo: the URL stays on the camera page.
   await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
@@ -170,7 +170,7 @@ test("camera list: header link, cards and navigation to a camera", async ({
   // Covers: the camera's first picture, else its newest photo.
   await expect(cards.nth(0).locator("img")).toHaveAttribute(
     "src",
-    /\/cameras\/virtuallens2-front\.png$/,
+    /\/camera\/virtuallens2\/front\.png$/,
   );
   await expect(cards.nth(1).locator("img")).toHaveAttribute(
     "src",

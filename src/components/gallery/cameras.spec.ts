@@ -103,9 +103,9 @@ describe("parseCameras", () => {
           manufacturerUrl: "https://asahi.example",
           productUrl: "https://a.example",
           images: [
-            { file: "/cameras/a.png", caption: "Front" },
-            { file: "/cameras/../x.png" },
-            { file: "/cameras/b.jpg" },
+            { file: "/camera/a/a.png", caption: "Front" },
+            { file: "/camera/a/../x.png" },
+            { file: "/camera/a/b.jpg" },
             "nope",
           ],
         },
@@ -132,8 +132,8 @@ describe("parseCameras", () => {
         description: null,
         productUrl: "https://a.example",
         images: [
-          { file: "/cameras/a.png", caption: "Front" },
-          { file: "/cameras/b.jpg", caption: null },
+          { file: "/camera/a/a.png", caption: "Front" },
+          { file: "/camera/a/b.jpg", caption: null },
         ],
       },
       {
@@ -152,7 +152,7 @@ describe("parseCameras", () => {
 });
 
 describe("isImagePath", () => {
-  it.each(["/cameras/a.png", "/a/b_c-d.1.JPG", "/x.jpeg"])(
+  it.each(["/camera/a/a.png", "/a/b_c-d.1.JPG", "/x.jpeg"])(
     "accepts %j",
     (p) => {
       expect(isImagePath(p)).toBe(true);
@@ -160,8 +160,8 @@ describe("isImagePath", () => {
   );
 
   it.each([
-    "cameras/a.png",
-    "/cameras/../a.png",
+    "camera/a/a.png",
+    "/camera/a/../a.png",
     "/./a.png",
     "//a.png",
     "/a.png?x",
@@ -245,7 +245,7 @@ describe("cameraSummaries", () => {
       kind: "film",
       description: null,
       productUrl: null,
-      images: [{ file: "/cameras/sp.png", caption: null }],
+      images: [{ file: "/camera/a/sp.png", caption: null }],
     },
     // No photos: left out of the list.
     { ...published0(), slug: "unused", name: "Unused" },
@@ -278,7 +278,7 @@ describe("cameraSummaries", () => {
     const list = cameraSummaries(media, published);
     const cover = (slug: string) =>
       list.find((s) => s.camera.slug === slug)?.cover;
-    expect(cover("pentax-sp")).toBe("/cameras/sp.png");
+    expect(cover("pentax-sp")).toBe("/camera/a/sp.png");
     expect(cover("virtuallens2")).toBe("/v-new.png");
     expect(cover("a1")).toBe("/a1.png");
   });

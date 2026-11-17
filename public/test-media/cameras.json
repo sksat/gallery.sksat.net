@@ -20,9 +20,9 @@
     "description": "Virtual camera for VRChat.\nSecond line of the description.",
     "productUrl": "https://example.com/virtuallens2",
     "images": [
-      { "file": "/cameras/virtuallens2-front.png", "caption": "Front" },
-      { "file": "/cameras/virtuallens2-ui.png", "caption": null },
-      { "file": "/cameras/virtuallens2-side.png", "caption": "Side" }
+      { "file": "/camera/virtuallens2/front.png", "caption": "Front" },
+      { "file": "/camera/virtuallens2/ui.png", "caption": null },
+      { "file": "/camera/virtuallens2/side.png", "caption": "Side" }
     ]
   }
 ]

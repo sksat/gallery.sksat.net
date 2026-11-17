@@ -22,14 +22,14 @@ Photos 0 and 1 use the camera format the admin publishes (`{make, model, slug, n
 
 `cameras.json` (published by the admin next to `media.json`) has two cameras:
 
-| slug           | name         | kind    | manufacturer (url) / model            | description / productUrl       | images                                     |
-| -------------- | ------------ | ------- | ------------------------------------- | ------------------------------ | ------------------------------------------ |
-| `pentax-sp`    | PENTAX SP    | film    | Asahi / Pentax SP                     | —                              | —                                          |
-| `virtuallens2` | VirtualLens2 | virtual | logilabo (example.com) / VirtualLens2 | two-line text, example.com URL | `cameras/virtuallens2-{front,ui,side}.png` |
+| slug           | name         | kind    | manufacturer (url) / model            | description / productUrl       | images                                    |
+| -------------- | ------------ | ------- | ------------------------------------- | ------------------------------ | ----------------------------------------- |
+| `pentax-sp`    | PENTAX SP    | film    | Asahi / Pentax SP                     | —                              | —                                         |
+| `virtuallens2` | VirtualLens2 | virtual | logilabo (example.com) / VirtualLens2 | two-line text, example.com URL | `camera/virtuallens2/{front,ui,side}.png` |
 
 On the camera list (`/camera/`) VirtualLens2 comes first (2 photos, cover = its first picture), then PENTAX SP (1 photo, no pictures, so the cover is photo 0).
 
-The camera images under `cameras/` are tiny gradients (80x60 / 60x80) made with ImageMagick (`-strip`, no date chunks, so they are byte-stable). `e2e/camera.spec.ts` and `e2e/vrt/camera.vrt.spec.ts` rely on these.
+The camera images under `camera/<slug>/` (the same key convention the admin uses for the bucket) are tiny gradients (80x60 / 60x80) made with ImageMagick (`-strip`, no date chunks, so they are byte-stable). `e2e/camera.spec.ts` and `e2e/vrt/camera.vrt.spec.ts` rely on these.
 
 ## Rules when modifying
 
