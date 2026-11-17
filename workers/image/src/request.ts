@@ -5,17 +5,21 @@
  * Only the presets below can be requested, so the number of distinct
  * transformations (the unit Cloudflare's free tier counts) stays bounded.
  */
+import type { Caption } from "./caption";
 
 export const PRESETS = {
   // Grid rows (CSS height 240px) at 1x and 2x.
   h240: { height: 240 },
   h480: { height: 480 },
-  // og:image.
+  // Full-screen overlay candidates (w1200 for phones).
   w1200: { width: 1200 },
-  // Full-screen overlay candidates.
   w1920: { width: 1920 },
   w2560: { width: 2560 },
   w3840: { width: 3840 },
+  // og:image social cards: a 1200x630 crop with the site badge drawn on top.
+  // `og` (photo pages) adds the photo's date, camera and tags.
+  og: { width: 1200, height: 630 },
+  "og-site": { width: 1200, height: 630 },
 } as const;
 
 export type PresetName = keyof typeof PRESETS;
@@ -59,3 +63,118 @@ export const pickFormat = (accept: string | null): OutputFormat => {
   if (accept?.includes("image/webp")) return "webp";
   return "jpeg";
 };
+
+/**
+ * Card assets, served by Cloudflare Pages from public/ on the same host as
+ * the Worker. Regenerate them with workers/image/og-assets.sh.
+ */
+export const OG_ASSETS = {
+  /** Avatar + "sksat gallery" pill, 96px tall. */
+  badge: "/og-badge.png",
+  /** 1200x240 transparent-to-dark gradient behind the caption. */
+  shade: "/og-shade.png",
+  /** Roboto Bold subset to printable ASCII, "·" and "…". */
+  font: "/fonts/Roboto-Bold-subset.ttf",
+} as const;
+
+export type DrawImage = {
+  url: string;
+  left?: number;
+  right?: number;
+  bottom?: number;
+};
+
+export type DrawText = {
+  text: string;
+  font: { url: string };
+  color: string;
+  size: number;
+  right: number;
+  bottom: number;
+};
+
+/** The subset of `cf.image` options the Worker uses. */
+export type TransformOptions = {
+  width?: number;
+  height?: number;
+  fit: "scale-down" | "cover";
+  gravity?: "auto";
+  format: OutputFormat;
+  quality?: number;
+  draw?: (DrawImage | DrawText)[];
+};
+
+/** Presets that render a social card (always JPEG, 1200x630). */
+export const isCardPreset = (preset: PresetName): boolean =>
+  preset === "og" || preset === "og-site";
+
+/**
+ * Overlays for a card: the badge bottom-left and, if given, the caption
+ * right-aligned beside it over a dark gradient.
+ */
+const cardDraw = (
+  origin: string,
+  caption: Caption,
+): (DrawImage | DrawText)[] => {
+  const text = (s: string, size: number, bottom: number): DrawText => ({
+    text: s,
+    font: { url: origin + OG_ASSETS.font },
+    color: "#ffffff",
+    size,
+    right: 40,
+    bottom,
+  });
+  // Offsets keep the text block vertically centred on the badge (32..128).
+  const { primary, secondary } = caption;
+  const lines: DrawText[] = [];
+  if (secondary) lines.push(text(secondary, 28, primary ? 38 : 63));
+  if (primary) lines.push(text(primary, 40, secondary ? 76 : 56));
+  return [
+    ...(lines.length > 0
+      ? [{ url: origin + OG_ASSETS.shade, left: 0, bottom: 0 }]
+      : []),
+    { url: origin + OG_ASSETS.badge, left: 32, bottom: 32 },
+    ...lines,
+  ];
+};
+
+/**
+ * `cf.image` options for a preset.
+ *
+ * `origin` is the Worker's own origin (e.g. "https://gallery.sksat.net"),
+ * where the card assets are served. `caption` is drawn on `og` cards only
+ * (`og-site`, the top page's card, has just the badge).
+ */
+export const transformOptions = (
+  preset: PresetName,
+  accept: string | null,
+  origin: string,
+  caption: Caption = {},
+): TransformOptions => {
+  if (isCardPreset(preset)) {
+    return {
+      ...PRESETS[preset],
+      fit: "cover",
+      gravity: "auto",
+      // Social crawlers (X in particular) do not reliably accept AVIF/WebP,
+      // so cards are always JPEG whatever the Accept header says.
+      format: "jpeg",
+      quality: 85,
+      draw: cardDraw(origin, preset === "og" ? caption : {}),
+    };
+  }
+  return { ...PRESETS[preset], fit: "scale-down", format: pickFormat(accept) };
+};
+
+/** Whether the response for a preset depends on the Accept header. */
+export const variesByAccept = (preset: PresetName): boolean =>
+  !isCardPreset(preset);
+
+/**
+ * Whether Image Transformations failed. Some failures still answer 2xx with
+ * the untransformed original and report the error in `Cf-Resized: err=...`.
+ */
+export const transformFailed = (
+  status: number,
+  cfResized: string | null,
+): boolean => status < 200 || status >= 300 || /\berr=/.test(cfResized ?? "");

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseImagePath, pickFormat } from "./request";
+import {
+  parseImagePath,
+  pickFormat,
+  transformFailed,
+  transformOptions,
+  variesByAccept,
+} from "./request";
 
 describe("parseImagePath", () => {
   it("parses a preset and a nested file", () => {
@@ -36,5 +42,110 @@ describe("pickFormat", () => {
     expect(pickFormat("image/webp,*/*")).toBe("webp");
     expect(pickFormat("*/*")).toBe("jpeg");
     expect(pickFormat(null)).toBe("jpeg");
+  });
+});
+
+describe("transformOptions", () => {
+  const origin = "https://gallery.sksat.net";
+
+  it("scales regular presets down in the best accepted format", () => {
+    expect(transformOptions("h240", "image/avif,*/*", origin)).toEqual({
+      height: 240,
+      fit: "scale-down",
+      format: "avif",
+    });
+    expect(transformOptions("w1920", "image/webp", origin)).toEqual({
+      width: 1920,
+      fit: "scale-down",
+      format: "webp",
+    });
+  });
+
+  const card = {
+    width: 1200,
+    height: 630,
+    fit: "cover",
+    gravity: "auto",
+    format: "jpeg",
+    quality: 85,
+  };
+  const badge = {
+    url: "https://gallery.sksat.net/og-badge.png",
+    left: 32,
+    bottom: 32,
+  };
+  const shade = {
+    url: "https://gallery.sksat.net/og-shade.png",
+    left: 0,
+    bottom: 0,
+  };
+  const text = (s: string, size: number, bottom: number) => ({
+    text: s,
+    font: { url: "https://gallery.sksat.net/fonts/Roboto-Bold-subset.ttf" },
+    color: "#ffffff",
+    size,
+    right: 40,
+    bottom,
+  });
+  const caption = {
+    primary: "2023-12-16 23:12 JST",
+    secondary: "logilabo VirtualLens2 · #VRChat",
+  };
+
+  it("draws the caption over a shade beside the badge on og", () => {
+    expect(
+      transformOptions("og", "image/avif,image/webp,*/*", origin, caption),
+    ).toEqual({
+      ...card,
+      draw: [
+        shade,
+        badge,
+        text("logilabo VirtualLens2 · #VRChat", 28, 38),
+        text("2023-12-16 23:12 JST", 40, 76),
+      ],
+    });
+  });
+
+  it("drops lines that are missing", () => {
+    expect(
+      transformOptions("og", null, origin, { secondary: "#Real" }).draw,
+    ).toEqual([shade, badge, text("#Real", 28, 63)]);
+    expect(
+      transformOptions("og", null, origin, { primary: "2023-12-01 09:00 JST" })
+        .draw,
+    ).toEqual([shade, badge, text("2023-12-01 09:00 JST", 40, 56)]);
+    expect(transformOptions("og", null, origin).draw).toEqual([badge]);
+  });
+
+  it("draws only the badge on og-site, even with a caption", () => {
+    expect(transformOptions("og-site", "image/avif", origin, caption)).toEqual({
+      ...card,
+      draw: [badge],
+    });
+  });
+
+  it("parses the card presets", () => {
+    expect(parseImagePath("/img/og/VRChat/2023-12/a.png")).toEqual({
+      preset: "og",
+      file: "/VRChat/2023-12/a.png",
+    });
+    expect(parseImagePath("/img/og-site/a.png")?.preset).toBe("og-site");
+  });
+});
+
+describe("transformFailed", () => {
+  it("detects error statuses and Cf-Resized errors", () => {
+    expect(transformFailed(200, "internal=ok/- q=85 n=1")).toBe(false);
+    expect(transformFailed(200, null)).toBe(false);
+    expect(transformFailed(200, "err=9413")).toBe(true);
+    expect(transformFailed(415, null)).toBe(true);
+  });
+});
+
+describe("variesByAccept", () => {
+  it("is false only for cards, whose format is fixed", () => {
+    expect(variesByAccept("h240")).toBe(true);
+    expect(variesByAccept("og")).toBe(false);
+    expect(variesByAccept("og-site")).toBe(false);
   });
 });

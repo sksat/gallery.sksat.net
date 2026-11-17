@@ -8,8 +8,8 @@
 import type { PresetName } from "./images";
 
 /**
- * Overlay presets by pixel width, smallest first. w1200 is the og:image
- * preset, reused so phones don't fetch 1920px.
+ * Overlay presets by pixel width, smallest first. w1200 keeps phones from
+ * fetching 1920px.
  */
 const OVERLAY_WIDTHS: [PresetName, number][] = [
   ["w1200", 1200],

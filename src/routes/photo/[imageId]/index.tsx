@@ -3,29 +3,19 @@ import { routeLoader$ } from "@builder.io/qwik-city";
 import type { DocumentHead } from "@builder.io/qwik-city";
 
 import Gallery from "~/components/gallery/gallery";
-import { parseImageId, getOgImageUrl } from "./logic";
+import { ogpHead, photoOgp, type Ogp } from "~/components/ogp";
+import type { MediaInfoJSON } from "~/components/gallery/types";
+import { parseImageId } from "./logic";
 
 // The gallery reads the photo id (from the path) and tag filter itself.
 export default component$(() => {
   return <Gallery />;
 });
 
-export const head: DocumentHead = ({ resolveValue }) => {
-  const imageUrl = resolveValue(useFetchImageUrl);
+export const head: DocumentHead = ({ resolveValue }) =>
+  ogpHead(resolveValue(usePhotoOgp));
 
-  return {
-    title: "sksat gallery",
-    meta: [
-      {
-        name: "description",
-        content: "sksat gallery",
-      },
-      { property: "og:image", content: imageUrl },
-    ],
-  };
-};
-
-export const useFetchImageUrl = routeLoader$<string>(async (event) => {
+export const usePhotoOgp = routeLoader$<Ogp>(async (event) => {
   const imageId = parseImageId(event.params.imageId);
 
   if (imageId === null) {
@@ -40,17 +30,19 @@ export const useFetchImageUrl = routeLoader$<string>(async (event) => {
     throw event.error(500, "Failed to fetch media index");
   }
 
-  const media = await response.json();
-  const url = getOgImageUrl(
-    import.meta.env.VITE_S3_BASE_URL,
+  const media: MediaInfoJSON[] = await response.json();
+  const ogp = photoOgp(
+    {
+      s3Base: import.meta.env.VITE_S3_BASE_URL,
+      imageBase: import.meta.env.VITE_IMAGE_BASE_URL,
+    },
     media,
     imageId,
-    import.meta.env.VITE_IMAGE_BASE_URL,
   );
 
-  if (url === null) {
+  if (ogp === null) {
     throw event.error(404, "Image not found");
   }
 
-  return url;
+  return ogp;
 });
