@@ -47,6 +47,7 @@ Thumbs.db
 # Cloudflare
 .wrangler/
 .wrangler-test/
+.wrangler-test-noauth/
 wrangler.toml
 .dev.vars
 
