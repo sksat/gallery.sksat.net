@@ -93,6 +93,12 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 - Routing: Auto-generated `_routes.json` for SSR/static file handling
 - Build watch paths (set in the Cloudflare dashboard, not in the repo): `gallery-sksat-net` skips pushes that only touch `admin/*`, and `admin-gallery-sksat-net` builds only when `admin/*` changes. The two apps must stay independent: if admin ever imports files outside `admin/` (or the gallery imports from `admin/`), update these watch paths too, or a change to the shared file will not redeploy the other app.
 
+### Image Worker (`workers/image/`)
+
+- Serves resized photos at `gallery.sksat.net/img/<preset>/<file>` (route in `workers/image/wrangler.jsonc`). It fetches the original from B2 with `cf.image`, so Cloudflare Image Transformations does the resize; the Worker itself cannot decode the 8K PNGs within 128MB / 10ms CPU (Free plan).
+- Only the presets in `workers/image/src/request.ts` exist. Each distinct (file, preset) counts toward the free tier of 5,000 unique transformations per month; past it, new ones fail with error 9422 (no charge). Do not add a preset per call site — reuse the existing ones.
+- Deployed from `main` by Cloudflare Workers Builds (Git integration, set in the dashboard). Manual deploy: `pnpm run deploy.image`.
+
 ### Styling
 
 - **Tailwind CSS** configured (scans `src/**/*.{js,ts,jsx,tsx,mdx}`)
