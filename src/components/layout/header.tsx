@@ -15,10 +15,7 @@ export default component$(() => {
         <div>
           <a href="/" title="" class="flex items-center">
             <LogoSksat class="mr-4" style={{ width: 50, height: 50 }} />
-            <h2
-              class="text-x1 font-bold"
-              style="color: white; text-shadow: 2px 2px 0px grey;"
-            >
+            <h2 style="color: white; text-shadow: 2px 2px 0px grey;">
               sksat gallery
             </h2>
           </a>

@@ -57,3 +57,6 @@ lerna-debug.log*
 # Cloudflare
 functions/**/*.js
 .wrangler/
+
+# pnpm store created when running pnpm inside the Playwright container (VRT baseline regeneration)
+.pnpm-store/
