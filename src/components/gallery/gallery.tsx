@@ -232,10 +232,10 @@ export default component$(() => {
                   <span data-testid="result-count" aria-live="polite">
                     {filteredMedia.length} 枚
                   </span>
-                  <label class="flex items-center gap-1.5">
-                    <span class="opacity-80">並び順</span>
+                  <span class="flex items-center gap-1">
                     <select
                       data-testid="sort-select"
+                      aria-label="並び順"
                       class="rounded border border-white/30 bg-transparent px-2 py-1 [&>option]:bg-[var(--color-bg)]"
                       onChange$={(_, el) => {
                         const kind = el.value as SortKind;
@@ -255,19 +255,38 @@ export default component$(() => {
                         </option>
                       ))}
                     </select>
-                  </label>
-                  {state.sort.kind === "random" && (
-                    <button
-                      type="button"
-                      data-testid="reshuffle"
-                      class="underline opacity-80 hover:opacity-100"
-                      onClick$={() =>
-                        setSort({ kind: "random", seed: newSeed() })
-                      }
-                    >
-                      シャッフルし直す
-                    </button>
-                  )}
+                    {state.sort.kind === "random" && (
+                      <button
+                        type="button"
+                        data-testid="reshuffle"
+                        aria-label="再シャッフル"
+                        title="再シャッフル"
+                        class="rounded p-1 opacity-80 hover:opacity-100"
+                        onClick$={() =>
+                          setSort({ kind: "random", seed: newSeed() })
+                        }
+                      >
+                        {/* Shuffle arrows */}
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="18"
+                          height="18"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M16 3h5v5" />
+                          <path d="M4 20 21 3" />
+                          <path d="M21 16v5h-5" />
+                          <path d="m15 15 6 6" />
+                          <path d="M4 4l5 5" />
+                        </svg>
+                      </button>
+                    )}
+                  </span>
                   {selectedTags.length >= 2 && (
                     <fieldset class="flex items-center gap-3">
                       <legend class="sr-only">複数タグの条件</legend>
