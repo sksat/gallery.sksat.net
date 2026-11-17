@@ -1,13 +1,37 @@
 /**
  * Globally applied styles for the admin panel.
  * Tailwind CSS v4 (https://tailwindcss.com); prefer utilities in components.
- * Light/dark follows `prefers-color-scheme` (Tailwind's default `dark:`).
+ *
+ * Theme: <html data-theme="system|light|dark">, set before first paint by the
+ * inline script in root.tsx from localStorage (see src/lib/theme.ts).
+ * `dark:` applies when the choice is "dark", or when it is "system" (or
+ * unset, e.g. no JS) and the OS prefers dark.
  */
 @import "tailwindcss";
+
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(
+      :root:not([data-theme="light"]),
+      :root:not([data-theme="light"]) *
+    ) {
+      @slot;
+    }
+  }
+}
 
 @layer base {
   :root {
     color-scheme: light dark;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
   }
 
   html {

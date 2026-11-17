@@ -44,4 +44,4 @@ VRT baselines must be regenerated inside the Playwright Docker image — `admin-
 
 ## Styling
 
-Tailwind CSS v4 via `@tailwindcss/vite` (same setup as the root project); base styles in `src/global.css`. Use utilities only — no CSS modules or UI libraries. Shared class strings live in `src/components/ui.ts`, error/empty states use `StatePanel` (`src/components/state-panel.tsx`). Light/dark follows `prefers-color-scheme`.
+Tailwind CSS v4 via `@tailwindcss/vite` (same setup as the root project); base styles in `src/global.css`. Use utilities only — no CSS modules or UI libraries. Shared class strings live in `src/components/ui.ts`, error/empty states use `StatePanel` (`src/components/state-panel.tsx`). Theme: the header toggle cycles system / light / dark, stored in `localStorage` (`admin-theme`) and mirrored on `<html data-theme>` by an inline `<head>` script before first paint (`src/lib/theme.ts`). The `dark:` variant is redefined in `global.css` to follow that attribute, and `prefers-color-scheme` when it is `system`.

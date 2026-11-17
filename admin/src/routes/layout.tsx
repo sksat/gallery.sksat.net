@@ -1,5 +1,6 @@
 import { component$, Slot } from "@builder.io/qwik";
 import { Link, useLocation } from "@builder.io/qwik-city";
+import { ThemeToggle } from "~/components/theme-toggle";
 
 const NAV = [
   { href: "/", label: "Dashboard", match: (p: string) => p === "/" },
@@ -17,7 +18,7 @@ export default component$(() => {
   return (
     <>
       <header class="sticky top-0 z-20 border-b border-zinc-200 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/85">
-        <div class="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4 sm:px-6">
+        <div class="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <Link
             href="/"
             class="flex shrink-0 items-center gap-2 rounded font-semibold tracking-tight"
@@ -50,6 +51,7 @@ export default component$(() => {
               );
             })}
           </nav>
+          <ThemeToggle />
         </div>
       </header>
       <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
