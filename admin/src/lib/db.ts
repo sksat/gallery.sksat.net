@@ -505,22 +505,44 @@ const setImageOrder = async (
   );
 };
 
-/** `ids` with `id` moved to `index` (clamped); unchanged if it is absent. */
-export const movedTo = (
-  ids: readonly number[],
-  id: number,
+/**
+ * The statements of restoreCameraImage, run as one batch (a D1 batch is a
+ * transaction, so a failure leaves nothing half done):
+ * 1. insert the picture at the position of the one now at `index` in the
+ *    order (after the last one when `index` is past the end);
+ * 2. move that one and everything after it one step down.
+ * Positions may have gaps (a removal does not renumber) and, from raw SQL,
+ * ties; the order is (position, id), as in listCameraImages.
+ */
+export const restoreCameraImageStatements = (
+  cameraId: number,
+  image: { file: string; caption: string | null },
   index: number,
-): number[] => {
-  const rest = ids.filter((x) => x !== id);
-  if (rest.length === ids.length) return [...ids];
-  const at = Math.max(0, Math.min(index, rest.length));
-  return [...rest.slice(0, at), id, ...rest.slice(at)];
-};
+): { sql: string; args: unknown[] }[] => [
+  {
+    sql: `INSERT INTO camera_image (camera_id, file, caption, position)
+     VALUES (?1, ?2, ?3, COALESCE(
+       (SELECT position FROM camera_image WHERE camera_id = ?1
+        ORDER BY position, id LIMIT 1 OFFSET ?4),
+       (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_image
+        WHERE camera_id = ?1)))`,
+    args: [cameraId, image.file, image.caption, Math.max(0, index)],
+  },
+  {
+    // The rows from `index` on (by position, then id, so ties keep their
+    // order), the inserted one aside.
+    sql: `UPDATE camera_image SET position = position + 1
+     WHERE camera_id = ?1 AND file <> ?2 AND (position, id) >=
+       (SELECT position, id FROM camera_image WHERE camera_id = ?1 AND file <> ?2
+        ORDER BY position, id LIMIT 1 OFFSET ?3)`,
+    args: [cameraId, image.file, Math.max(0, index)],
+  },
+];
 
 /**
  * Undo of a removal: add the picture back at `index` (0-based) of the
- * current order. Throws DuplicateImageError if the file was added again
- * meanwhile.
+ * current order, in one batch. Throws DuplicateImageError if the file was
+ * added again meanwhile (and then changes nothing).
  */
 export const restoreCameraImage = async (
   db: D1Database,
@@ -528,7 +550,19 @@ export const restoreCameraImage = async (
   image: { file: string; caption: string | null },
   index: number,
 ): Promise<void> => {
-  const added = await addCameraImage(db, cameraId, image);
-  const ids = (await listCameraImages(db, cameraId)).map((img) => img.id);
-  await setImageOrder(db, cameraId, movedTo(ids, added.id, index));
+  try {
+    await db.batch(
+      restoreCameraImageStatements(cameraId, image, index).map(
+        ({ sql, args }) => db.prepare(sql).bind(...args),
+      ),
+    );
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      /UNIQUE constraint failed: camera_image\./.test(err.message)
+    ) {
+      throw new DuplicateImageError(image.file);
+    }
+    throw err;
+  }
 };

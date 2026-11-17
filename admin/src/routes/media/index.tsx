@@ -352,12 +352,20 @@ export default component$(() => {
       setTimeout(() => delete el.dataset.flash, 1600);
     });
   });
-  // Phones: the filter form as a bottom sheet.
-  const sheetOpen = useSignal(false);
+  // Phones: the filter form in a modal <dialog> shown as a bottom sheet
+  // (showModal: focus moves in and is trapped, Escape closes, focus goes
+  // back to the 絞り込み button). From sm up the same dialog is styled
+  // inline and never opened as a modal.
+  const sheet = useSignal<HTMLDialogElement>();
+  const sheetTrigger = useSignal<HTMLButtonElement>();
+  const closeSheet = $(() => {
+    if (sheet.value?.open) sheet.value.close();
+  });
   /**
-   * Apply the filter form in place. A select applies as soon as it
-   * changes (the sheet stays open for the next one); submitting (Filter,
-   * or Enter in the search box) also closes the sheet.
+   * Apply the filter form in place. In the sheet a select applies as soon
+   * as it changes (a phone's picker commits once; the sheet stays open for
+   * the next one); submitting (Filter, or Enter in the search box) also
+   * closes the sheet.
    */
   const applyFilter = $(async (form: HTMLFormElement, close = false) => {
     const get = (name: string) => {
@@ -373,7 +381,15 @@ export default component$(() => {
         q: get("q") || null,
       }),
     );
-    if (close) sheetOpen.value = false;
+    if (close) await closeSheet();
+  });
+  /**
+   * A select changed: apply at once only in the phone sheet. On a desktop
+   * a closed select also fires `change` for every arrow-key step, so there
+   * the Filter button (or Enter) applies.
+   */
+  const selectChanged = $((select: HTMLSelectElement) => {
+    if (select.form && sheet.value?.open) return applyFilter(select.form);
   });
   const toast = useSignal<ToastState | null>(null);
   /** The last bulk change (its target and previous visibilities), for undo. */
@@ -554,10 +570,25 @@ export default component$(() => {
           the active filters are chips that each remove themselves. */}
       <div class="-mx-4 flex items-center gap-2 overflow-x-auto px-4 sm:hidden">
         <button
+          ref={sheetTrigger}
           type="button"
-          aria-expanded={sheetOpen.value}
-          aria-controls="media-filter"
-          onClick$={() => (sheetOpen.value = true)}
+          aria-haspopup="dialog"
+          aria-controls="media-filter-sheet"
+          data-js-only
+          onClick$={() => {
+            const d = sheet.value;
+            if (!d) return;
+            d.showModal();
+            // Turned to a wider layout while open: the form is inline there.
+            const wide = matchMedia("(min-width: 40rem)");
+            const onWide = () => wide.matches && d.close();
+            wide.addEventListener("change", onWide);
+            d.addEventListener(
+              "close",
+              () => wide.removeEventListener("change", onWide),
+              { once: true },
+            );
+          }}
           class={[
             buttonSecondary,
             "shrink-0 rounded-full",
@@ -581,121 +612,143 @@ export default component$(() => {
           </Link>
         ))}
       </div>
-      {sheetOpen.value && (
-        <div
-          aria-hidden="true"
-          onClick$={() => (sheetOpen.value = false)}
-          // m-0: no margin from the space-y-* stack it sits in.
-          class="fixed inset-0 z-30 m-0 bg-black/40 sm:hidden"
-        />
-      )}
-      <form
-        id="media-filter"
-        method="get"
-        action="/media/"
-        role="search"
-        aria-label="Filter"
-        // With JS: apply in place (no full reload) and close the sheet.
-        preventdefault:submit
-        onSubmit$={(_, form) => applyFilter(form, true)}
+      {/* Without JS the sheet cannot open: show the form inline on phones
+          too, and drop the button that would open it. */}
+      <noscript
+        dangerouslySetInnerHTML={
+          "<style>#media-filter-sheet{display:block}[data-js-only]{display:none}</style>"
+        }
+      />
+      <dialog
+        id="media-filter-sheet"
+        ref={sheet}
+        aria-labelledby="media-filter-title"
+        // Focus back on the button that opened it (Escape, ✕, backdrop, or
+        // after applying).
+        onClose$={() => sheetTrigger.value?.focus()}
+        // A tap on the backdrop (the dialog itself, outside the form).
+        onClick$={(ev, el) => {
+          if (ev.target === el) el.close();
+        }}
         class={[
-          card,
-          "grid gap-3 p-4 sm:grid-cols-[10rem_10rem_1fr_auto] sm:items-end",
-          sheetOpen.value
-            ? "max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:m-0 max-sm:max-h-[85dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:pb-[calc(1rem+env(safe-area-inset-bottom))] max-sm:shadow-2xl"
-            : "max-sm:hidden",
+          // Laid out as a plain block in the page instead of the UA's
+          // dialog box; shown (display) from sm up always, and below sm by
+          // the <noscript> style. Closed and below sm with JS: hidden (the
+          // UA style). (Vertical margins: left to the space-y-* stack.)
+          "static mx-0 w-auto max-w-none bg-transparent p-0 text-inherit sm:block",
+          // Opened as a modal (phones): a sheet along the bottom.
+          "backdrop:bg-black/40 max-sm:open:fixed max-sm:open:inset-x-0 max-sm:open:top-auto max-sm:open:bottom-0 max-sm:open:m-0 max-sm:open:max-h-[85dvh] max-sm:open:w-full max-sm:open:max-w-none max-sm:open:overflow-y-auto max-sm:open:bg-transparent max-sm:open:p-0 max-sm:open:text-inherit",
         ]}
       >
-        <div class="flex items-center justify-between sm:hidden">
-          <h2 class="text-base font-semibold">絞り込み</h2>
-          <button
-            type="button"
-            aria-label="閉じる"
-            onClick$={() => (sheetOpen.value = false)}
-            class="-mr-2 grid size-11 place-items-center rounded-lg"
-          >
-            <span aria-hidden="true">✕</span>
-          </button>
-        </div>
-        {view === "files" && (
-          <>
-            <input type="hidden" name="view" value="files" />
-            {dir !== "/" && <input type="hidden" name="dir" value={dir} />}
-          </>
-        )}
-        <div>
-          <label for="filter-world" class={label}>
-            World
-          </label>
-          <select
-            id="filter-world"
-            name="world"
-            onChange$={(_, el) => el.form && applyFilter(el.form)}
-            class={field}
-          >
-            <option value="" selected={world === null}>
-              (any)
-            </option>
-            <option value="Real" selected={world === "Real"}>
-              Real
-            </option>
-            <option value="VRChat" selected={world === "VRChat"}>
-              VRChat
-            </option>
-          </select>
-        </div>
-        <div>
-          <label for="filter-visibility" class={label}>
-            Visibility
-          </label>
-          <select
-            id="filter-visibility"
-            name="visibility"
-            onChange$={(_, el) => el.form && applyFilter(el.form)}
-            class={field}
-          >
-            <option value="" selected={visibility === null}>
-              (any)
-            </option>
-            {VISIBILITIES.map((v) => (
-              <option key={v} value={v} selected={visibility === v}>
-                {VISIBILITY_LABELS[v]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label for="filter-q" class={label}>
-            File contains
-          </label>
-          <input
-            id="filter-q"
-            type="search"
-            name="q"
-            value={q}
-            placeholder="e.g. 2023-12"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellcheck={false}
-            enterKeyHint="search"
-            class={field}
-          />
-        </div>
-        <div class="flex gap-2">
-          <button type="submit" class={buttonPrimary}>
-            Filter
-          </button>
-          {filtered && (
-            <Link
-              key={mediaListHref({ view, dir })}
-              href={mediaListHref({ view, dir })}
-              class={buttonSecondary}
+        <form
+          id="media-filter"
+          method="get"
+          action="/media/"
+          role="search"
+          aria-label="Filter"
+          // With JS: apply in place (no full reload) and close the sheet.
+          preventdefault:submit
+          onSubmit$={(_, form) => applyFilter(form, true)}
+          class={[
+            card,
+            "grid gap-3 p-4 sm:grid-cols-[10rem_10rem_1fr_auto] sm:items-end",
+            "max-sm:in-open:rounded-b-none max-sm:in-open:pb-[calc(1rem+env(safe-area-inset-bottom))] max-sm:in-open:shadow-2xl",
+          ]}
+        >
+          <div class="flex items-center justify-between sm:hidden">
+            <h2 id="media-filter-title" class="text-base font-semibold">
+              絞り込み
+            </h2>
+            <button
+              type="button"
+              aria-label="閉じる"
+              data-js-only
+              onClick$={closeSheet}
+              class="-mr-2 grid size-11 place-items-center rounded-lg"
             >
-              Reset
-            </Link>
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+          {view === "files" && (
+            <>
+              <input type="hidden" name="view" value="files" />
+              {dir !== "/" && <input type="hidden" name="dir" value={dir} />}
+            </>
           )}
-        </div>
-      </form>
+          <div>
+            <label for="filter-world" class={label}>
+              World
+            </label>
+            <select
+              id="filter-world"
+              name="world"
+              onChange$={(_, el) => selectChanged(el)}
+              class={field}
+            >
+              <option value="" selected={world === null}>
+                (any)
+              </option>
+              <option value="Real" selected={world === "Real"}>
+                Real
+              </option>
+              <option value="VRChat" selected={world === "VRChat"}>
+                VRChat
+              </option>
+            </select>
+          </div>
+          <div>
+            <label for="filter-visibility" class={label}>
+              Visibility
+            </label>
+            <select
+              id="filter-visibility"
+              name="visibility"
+              onChange$={(_, el) => selectChanged(el)}
+              class={field}
+            >
+              <option value="" selected={visibility === null}>
+                (any)
+              </option>
+              {VISIBILITIES.map((v) => (
+                <option key={v} value={v} selected={visibility === v}>
+                  {VISIBILITY_LABELS[v]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label for="filter-q" class={label}>
+              File contains
+            </label>
+            <input
+              id="filter-q"
+              type="search"
+              name="q"
+              value={q}
+              placeholder="e.g. 2023-12"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellcheck={false}
+              enterKeyHint="search"
+              class={field}
+            />
+          </div>
+          <div class="flex gap-2">
+            <button type="submit" class={buttonPrimary}>
+              Filter
+            </button>
+            {filtered && (
+              <Link
+                key={mediaListHref({ view, dir })}
+                href={mediaListHref({ view, dir })}
+                class={buttonSecondary}
+              >
+                Reset
+              </Link>
+            )}
+          </div>
+        </form>
+      </dialog>
 
       {total === 0 ? (
         filtered ? (

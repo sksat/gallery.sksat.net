@@ -1,5 +1,13 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { movedTo, reorderedIds, rowToCamera, rowToMedia } from "./db";
+import {
+  reorderedIds,
+  restoreCameraImageStatements,
+  rowToCamera,
+  rowToMedia,
+} from "./db";
 import type { CameraRow } from "./types";
 
 const UPDATED = "2025-05-03T10:00:00.000Z";
@@ -128,17 +136,98 @@ describe("rowToCamera", () => {
   });
 });
 
-describe("movedTo", () => {
-  it("puts the id at the index", () => {
-    expect(movedTo([1, 2, 3, 9], 9, 1)).toEqual([1, 9, 2, 3]);
-    expect(movedTo([1, 2, 3], 1, 2)).toEqual([2, 3, 1]);
-    expect(movedTo([9, 1], 9, 0)).toEqual([9, 1]);
+// restoreCameraImage's statements against the real schema (node:sqlite),
+// run in one transaction like a D1 batch.
+describe("restoreCameraImageStatements", () => {
+  const migration = (name: string) =>
+    readFileSync(resolve(__dirname, "../../migrations", name), "utf8");
+
+  /** Camera 1 with pictures at these positions (files a, b, c, ...). */
+  const setup = (positions: number[]) => {
+    const db = new DatabaseSync(":memory:");
+    const dir = resolve(__dirname, "../../migrations");
+    for (const m of readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort()) {
+      db.exec(migration(m));
+    }
+    db.exec(
+      "INSERT INTO camera (id, slug, name, updated_at) VALUES (1, 'c', 'C', '2024-01-01T00:00:00.000Z')",
+    );
+    const insert = db.prepare(
+      "INSERT INTO camera_image (camera_id, file, position) VALUES (1, ?, ?)",
+    );
+    positions.forEach((p, i) =>
+      insert.run(`/${String.fromCharCode(97 + i)}.png`, p),
+    );
+    return db;
+  };
+
+  const restore = (db: DatabaseSync, file: string, index: number) => {
+    db.exec("BEGIN");
+    try {
+      for (const { sql, args } of restoreCameraImageStatements(
+        1,
+        { file, caption: "back" },
+        index,
+      )) {
+        db.prepare(sql).run(...(args as (string | number | null)[]));
+      }
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  };
+
+  const order = (db: DatabaseSync) =>
+    db
+      .prepare(
+        "SELECT file FROM camera_image WHERE camera_id = 1 ORDER BY position, id",
+      )
+      .all()
+      .map((r) => (r as { file: string }).file);
+
+  it("puts the picture back at its index, also across gaps", () => {
+    // a, b, c with a gap where a removed one was.
+    const db = setup([0, 2, 3]);
+    restore(db, "/x.png", 1);
+    expect(order(db)).toEqual(["/a.png", "/x.png", "/b.png", "/c.png"]);
+    restore(db, "/y.png", 0);
+    expect(order(db)).toEqual([
+      "/y.png",
+      "/a.png",
+      "/x.png",
+      "/b.png",
+      "/c.png",
+    ]);
   });
 
-  it("clamps the index and ignores an absent id", () => {
-    expect(movedTo([1, 2, 9], 9, 10)).toEqual([1, 2, 9]);
-    expect(movedTo([1, 2, 9], 9, -1)).toEqual([9, 1, 2]);
-    expect(movedTo([1, 2], 9, 0)).toEqual([1, 2]);
+  it("keeps the order of tied positions", () => {
+    // a, b, c with b and c tied (ordered by id).
+    for (const [index, expected] of [
+      [1, ["/a.png", "/x.png", "/b.png", "/c.png"]],
+      [2, ["/a.png", "/b.png", "/x.png", "/c.png"]],
+    ] as const) {
+      const db = setup([0, 1, 1]);
+      restore(db, "/x.png", index);
+      expect(order(db)).toEqual(expected);
+    }
+  });
+
+  it("appends past the end and into an empty list", () => {
+    const db = setup([0, 1]);
+    restore(db, "/x.png", 9);
+    expect(order(db)).toEqual(["/a.png", "/b.png", "/x.png"]);
+    const empty = setup([]);
+    restore(empty, "/x.png", 3);
+    expect(order(empty)).toEqual(["/x.png"]);
+  });
+
+  it("changes nothing when the file is already there again", () => {
+    const db = setup([0, 1]);
+    expect(() => restore(db, "/b.png", 0)).toThrow(/UNIQUE/);
+    expect(order(db)).toEqual(["/a.png", "/b.png"]);
   });
 });
 

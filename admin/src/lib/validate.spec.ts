@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  cameraImagePathLengthError,
+  MAX_IMAGE_FILE_LEN,
   parseCameraIdInput,
   parseTagsInput,
   validateCamera,
@@ -22,6 +24,26 @@ describe("validatePatch visibility", () => {
   it("rejects anything else", () => {
     expect(validatePatch({ visibility: "hidden" }).ok).toBe(false);
     expect(validatePatch({ visibility: null }).ok).toBe(false);
+  });
+});
+
+describe("cameraImagePathLengthError", () => {
+  const prefix = "/camera/vl2/".length;
+
+  it("counts the folder a bare name goes in", () => {
+    const fits = "a".repeat(MAX_IMAGE_FILE_LEN - prefix - 4) + ".png";
+    expect(cameraImagePathLengthError(fits, "vl2")).toBeNull();
+    expect(cameraImagePathLengthError(`x${fits}`, "vl2")).toBe(
+      `With /camera/vl2/ in front, the path is ${MAX_IMAGE_FILE_LEN + 1} characters; at most ${MAX_IMAGE_FILE_LEN}.`,
+    );
+  });
+
+  it("measures an absolute path as is", () => {
+    const path = "/" + "a".repeat(MAX_IMAGE_FILE_LEN - 5) + ".png";
+    expect(cameraImagePathLengthError(path, "vl2")).toBeNull();
+    expect(cameraImagePathLengthError(`/a${path}`, "vl2")).toBe(
+      `The path is ${MAX_IMAGE_FILE_LEN + 2} characters; at most ${MAX_IMAGE_FILE_LEN}.`,
+    );
   });
 });
 

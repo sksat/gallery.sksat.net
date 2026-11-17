@@ -139,6 +139,30 @@ test("cameras: add, reorder, caption and remove images", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
+test("cameras: a too long image path is caught before submitting", async ({
+  page,
+}) => {
+  await page.goto("/camera/1/");
+  let posts = 0;
+  page.on("request", (r) => {
+    if (r.method() === "POST") posts++;
+  });
+  // 490 chars fits on its own, but not with /camera/virtuallens2/ in front.
+  const name = "a".repeat(486) + ".png";
+  await page.getByLabel("Image path").fill(name);
+  await expect(page.getByTestId("image-path-error")).toHaveText(
+    "With /camera/virtuallens2/ in front, the path is 511 characters; at most 500.",
+  );
+  await page.getByRole("button", { name: "Add image" }).click();
+  await page.waitForTimeout(300);
+  expect(posts).toBe(0);
+  await expect(page.getByTestId("camera-image")).toHaveCount(2);
+
+  // Shortened: the message goes away.
+  await page.getByLabel("Image path").fill("front2.png");
+  await expect(page.getByTestId("image-path-error")).toHaveText("");
+});
+
 test("cameras: a taken slug is rejected with a message", async ({ page }) => {
   await page.goto("/camera/new/");
   await page.getByLabel("Name").fill("Duplicate");
