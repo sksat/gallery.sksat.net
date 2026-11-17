@@ -10,9 +10,9 @@ const NAV = [
     match: (p: string) => p.startsWith("/media"),
   },
   {
-    href: "/cameras/",
+    href: "/camera/",
     label: "Cameras",
-    match: (p: string) => p.startsWith("/cameras"),
+    match: (p: string) => p === "/camera" || p.startsWith("/camera/"),
   },
 ];
 

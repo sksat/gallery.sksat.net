@@ -9,7 +9,7 @@ const row = (page: import("@playwright/test").Page, name: string) =>
 test("cameras: the list shows each camera with its photo count", async ({
   page,
 }) => {
-  await page.goto("/cameras/");
+  await page.goto("/camera/");
   await expect(
     page.getByRole("heading", { name: /^Cameras/, level: 1 }),
   ).toBeVisible();
@@ -26,7 +26,7 @@ test("cameras: create, then edit the new camera", async ({ page }) => {
   // hit the slug's UNIQUE constraint on a second run.
   const slug = `e2e-${Date.now().toString(36)}`;
 
-  await page.goto("/cameras/");
+  await page.goto("/camera/");
   await page.getByRole("link", { name: "New camera" }).click();
   await expect(page.getByRole("heading", { name: "New camera" })).toBeVisible();
 
@@ -37,7 +37,7 @@ test("cameras: create, then edit the new camera", async ({ page }) => {
   await page.getByLabel("Model").fill("Pixel 9");
   await page.getByRole("button", { name: "Create" }).click();
 
-  await expect(page).toHaveURL(/\/cameras\/\d+\/\?created=1$/);
+  await expect(page).toHaveURL(/\/camera\/\d+\/\?created=1$/);
   await expect(page.getByText("Camera created.")).toBeVisible();
   await expect(page.getByLabel("Slug")).toHaveValue(slug);
   await expect(page.getByLabel("Kind")).toHaveValue("phone");
@@ -53,7 +53,7 @@ test("cameras: create, then edit the new camera", async ({ page }) => {
     "https://example.com/pixel",
   );
 
-  await page.goto("/cameras/");
+  await page.goto("/camera/");
   await expect(row(page, "E2E Phone")).toContainText(slug);
   await expect(row(page, "E2E Phone")).toContainText("Phone");
 });
@@ -64,7 +64,7 @@ const caption = (page: import("@playwright/test").Page, n: number) =>
 test("cameras: the fixture camera lists its images in order", async ({
   page,
 }) => {
-  await page.goto("/cameras/1/");
+  await page.goto("/camera/1/");
   const images = page.getByTestId("camera-image");
   await expect(images).toHaveCount(2);
   await expect(images.nth(0)).toContainText("/cameras/virtuallens2-front.png");
@@ -76,7 +76,7 @@ test("cameras: the fixture camera lists its images in order", async ({
 
 test("cameras: add, reorder, caption and remove images", async ({ page }) => {
   const slug = `e2e-img-${Date.now().toString(36)}`;
-  await page.goto("/cameras/new/");
+  await page.goto("/camera/new/");
   await page.getByLabel("Name").fill("E2E Images");
   await page.getByLabel("Slug").fill(slug);
   await page.getByRole("button", { name: "Create" }).click();
@@ -134,20 +134,20 @@ test("cameras: add, reorder, caption and remove images", async ({ page }) => {
 });
 
 test("cameras: a taken slug is rejected with a message", async ({ page }) => {
-  await page.goto("/cameras/new/");
+  await page.goto("/camera/new/");
   await page.getByLabel("Name").fill("Duplicate");
   await page.getByLabel("Slug").fill("virtuallens2");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("alert")).toContainText(
     "slug “virtuallens2” is taken",
   );
-  await expect(page).toHaveURL(/\/cameras\/new\/$/);
+  await expect(page).toHaveURL(/\/camera\/new\/$/);
 });
 
 test("cameras: an invalid slug is rejected by the server", async ({ page }) => {
   // The input's `pattern` stops a browser submit; drop it to prove
   // validateCamera runs server-side too.
-  await page.goto("/cameras/new/");
+  await page.goto("/camera/new/");
   await page.getByLabel("Slug").evaluate((el) => el.removeAttribute("pattern"));
   await page.getByLabel("Name").fill("Bad slug");
   await page.getByLabel("Slug").fill("Bad Slug");
@@ -169,7 +169,7 @@ test("media edit: a photo can be linked to a camera and back to none", async ({
     await page.reload();
     await expect(page.getByLabel("Camera", { exact: true })).toHaveValue("2");
 
-    await page.goto("/cameras/");
+    await page.goto("/camera/");
     await expect(row(page, "PENTAX SP")).toContainText("1 photo");
   } finally {
     // Restore so other specs on the same server see the fixture as-is.

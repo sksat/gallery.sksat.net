@@ -22,7 +22,7 @@ export const useCreateCamera = routeAction$(
     try {
       db = getDB(platform);
     } catch (err) {
-      console.error("/cameras/new action: getDB failed:", err);
+      console.error("/camera/new action: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
     let id: number;
@@ -34,7 +34,7 @@ export const useCreateCamera = routeAction$(
       }
       throw err;
     }
-    throw redirect(302, `/cameras/${id}/?created=1`);
+    throw redirect(302, `/camera/${id}/?created=1`);
   },
   zod$(cameraFormSchema),
 );
@@ -46,7 +46,7 @@ export default component$(() => {
     <div class="mx-auto max-w-3xl space-y-6">
       <div>
         <nav aria-label="Breadcrumb" class="text-sm">
-          <Link href="/cameras/" class={link}>
+          <Link href="/camera/" class={link}>
             ← Cameras
           </Link>
         </nav>

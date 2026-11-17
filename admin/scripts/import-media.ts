@@ -72,8 +72,8 @@ for (const item of items) {
   if (item.world !== "Real" && item.world !== "VRChat") {
     throw new Error(`invalid world for ${item.file}: ${item.world}`);
   }
-  // Note: this script does not structurally validate `timestamp`,
-  // `camera_make`, or `camera_model`. They flow into D1 verbatim — the
+  // Note: this script does not structurally validate `timestamp` or the
+  // camera's make/model strings. They flow into D1 verbatim — the
   // public gallery's date parser will fall back to displaying the raw
   // string for non-ISO timestamps. Acceptable for a one-shot importer
   // staring at a known-good media.json.

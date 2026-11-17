@@ -16,7 +16,7 @@ export const useCameraList = routeLoader$<CameraListResult>(
     try {
       db = getDB(platform);
     } catch (err) {
-      console.error("/cameras loader: getDB failed:", err);
+      console.error("/camera loader: getDB failed:", err);
       status(500);
       return { kind: "missing-binding" };
     }
@@ -40,7 +40,7 @@ export default component$(() => {
         <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">
           Cameras <span class={["font-normal", muted]}>({cameras.length})</span>
         </h1>
-        <Link href="/cameras/new/" class={buttonPrimary}>
+        <Link href="/camera/new/" class={buttonPrimary}>
           New camera
         </Link>
       </div>
@@ -50,7 +50,7 @@ export default component$(() => {
           tone="empty"
           level={2}
           title="No cameras yet"
-          action={{ href: "/cameras/new/", label: "Add the first camera" }}
+          action={{ href: "/camera/new/", label: "Add the first camera" }}
         >
           <p>
             Register a camera here, then pick it on each photo&apos;s edit page.
@@ -61,7 +61,7 @@ export default component$(() => {
           {cameras.map((c) => (
             <li key={c.id}>
               <Link
-                href={`/cameras/${c.id}/`}
+                href={`/camera/${c.id}/`}
                 class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors hover:bg-sky-50/60 sm:px-5 dark:hover:bg-sky-950/30"
               >
                 <span class="flex min-w-0 flex-1 flex-col">

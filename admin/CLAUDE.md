@@ -5,7 +5,7 @@ Admin panel for gallery.sksat.net. This is a separate Qwik/QwikCity project unde
 ## Differences from the root project
 
 - **Dev port**: `5175` (root uses `5174` for Playwright). Avoids conflicts when both projects' dev servers are running.
-- **Routing**: `/` dashboard, `/media/` + `/media/[id]/` (photo metadata), `/cameras/` + `/cameras/new/` + `/cameras/[id]/` (camera records). E2E/VRT data comes from `e2e/fixture.sql`.
+- **Routing**: `/` dashboard, `/media/` + `/media/[id]/` (photo metadata), `/camera/` + `/camera/new/` + `/camera/[id]/` (camera records; route paths are singular, except the mass noun `/media/`). E2E/VRT data comes from `e2e/fixture.sql`.
 - **Cameras**: a photo links to at most one `cameras` row via `media.camera_id` (migration `0002_cameras.sql`, which replaced the old free-text `camera_make`/`camera_model` columns). The camera is the single source of truth for make/model: the exported `camera` object on each media.json item is derived from it (`{make, model, slug, name}`; `make`/`model` stay strings for older gallery builds — `""` / the camera name when unset). Cameras have no delete yet; the FK has no `ON DELETE`, so a camera with photos cannot be removed by SQL either. Pictures of a camera live in `camera_images` (`ON DELETE CASCADE`, ordered by `position`, unique per camera + file); `file` is a bucket path validated by `validateImageFile`. There is no upload, so the file is placed in B2 by hand. cameras.json items are `{slug, name, make, model, kind, description, productUrl, images: [{file, caption}]}` (the DB column is `product_url`).
 - **Auth**: Production is behind Cloudflare Access, and every SSR/API request (static assets under `/build/*` etc. are served without it) is additionally checked by `src/routes/plugin@access.ts` (verifies the `Cf-Access-Jwt-Assertion` JWT against `ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` in `wrangler.jsonc`; fails closed). This matters because the production `*.pages.dev` hostname is not covered by Access. The check is skipped only under `pnpm dev` (Vite) and when `ACCESS_DISABLED=1` is bound on a loopback hostname (`.dev.vars` for `pnpm serve`, `e2e/start-test-server.sh` for E2E). If you add an Access application, append its AUD tag to `ACCESS_AUD`.
 - **Bindings**: D1 `DB` (metadata source of truth, see [migrations/](migrations/)). Bindings come from `wrangler.jsonc` only (Pages ignores dashboard bindings because `pages_build_output_dir` is set): top-level = production + local, `env.preview` = previews with **no D1** and only the preview Access AUD. R2 (Phase 3+) and image upload (Phase 4) are not wired yet. Tests run against a real local D1 (sequenced via `e2e/start-test-server.sh` so wrangler dev opens the file _after_ seeding).
@@ -37,9 +37,11 @@ pnpm import-media && pnpm db.seed.local
 - `e2e/smoke.spec.ts` — `/` returns 200 and renders the dashboard heading
 - `e2e/access.spec.ts` — the Access JWT check is wired in (hits a second server on PORT+1 started without the bypass; expects 403)
 - `e2e/media-list.spec.ts`, `e2e/media-edit.spec.ts` — `/media` flows
-- `e2e/cameras.spec.ts` — camera list / create / edit and picking a camera on a photo
-- `e2e/vrt/*.vrt.spec.ts` — visual baselines (`/`, `/media` at 1280px and 390px, `/media/2`, `/cameras`, `/cameras/1`)
-- `src/**/*.spec.ts` — pure-function unit tests (`db.ts`, `validate.ts`, `format.ts`)
+- `e2e/media-files.spec.ts` — the Files view (`/media/?view=files&dir=…`)
+- `e2e/camera.spec.ts` — camera list / create / edit / images and picking a camera on a photo
+- `e2e/csrf-protection.spec.ts`, `e2e/theme.spec.ts` — Origin checks on mutating requests; the theme toggle
+- `e2e/vrt/*.vrt.spec.ts` — visual baselines (`/`, `/media` and the Files view at 1280px and 390px, `/media/2`, `/camera`, `/camera/1`)
+- `src/**/*.spec.ts` — pure-function unit tests (`db.ts`, `db-files.ts`, `folders.ts`, `validate.ts`, `format.ts`, `progress.ts`, `images.ts`, `theme.ts`, `access.ts`), plus `migrations.spec.ts`, which runs the D1 migrations on an in-memory `node:sqlite`
 
 `POST /api/publish` has no E2E coverage on purpose: a faithful test would have to mock SigV4 + the B2 round-trip. Verify manually after deploy until B2 secrets land in CI.
 

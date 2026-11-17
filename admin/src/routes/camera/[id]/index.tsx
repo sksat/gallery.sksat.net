@@ -73,7 +73,7 @@ export const useCamera = routeLoader$<CameraLoaderResult>(
     try {
       db = getDB(platform);
     } catch (err) {
-      console.error("/cameras/[id] loader: getDB failed:", err);
+      console.error("/camera/[id]loader: getDB failed:", err);
       status(500);
       return { kind: "missing-binding" };
     }
@@ -99,7 +99,7 @@ export const useAddCameraImage = routeAction$(
     try {
       db = getDB(platform);
     } catch (err) {
-      console.error("/cameras/[id] add image: getDB failed:", err);
+      console.error("/camera/[id]add image: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
     if (!(await getCamera(db, id))) return fail(404, { message: "not found" });
@@ -134,7 +134,7 @@ export const useCameraImageOp = routeAction$(
     try {
       db = getDB(platform);
     } catch (err) {
-      console.error("/cameras/[id] image op: getDB failed:", err);
+      console.error("/camera/[id]image op: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
     let done: boolean;
@@ -175,7 +175,7 @@ export const useUpdateCamera = routeAction$(
     try {
       db = getDB(platform);
     } catch (err) {
-      console.error("/cameras/[id] action: getDB failed:", err);
+      console.error("/camera/[id]action: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
     let updated: CameraRow | null;
@@ -207,18 +207,18 @@ export default component$(() => {
   const loc = useLocation();
 
   if (data.value.kind === "missing-binding") {
-    return <MissingBindingError backHref="/cameras/" />;
+    return <MissingBindingError backHref="/camera/" />;
   }
   if (data.value.kind === "bad-request") {
     return (
       <StatePanel
         tone="error"
         title="Invalid id"
-        action={{ href: "/cameras/", label: "← Back to cameras" }}
+        action={{ href: "/camera/", label: "← Back to cameras" }}
       >
         <p>
           The id in the URL must be a positive integer, like{" "}
-          <code>/cameras/1/</code>.
+          <code>/camera/1/</code>.
         </p>
       </StatePanel>
     );
@@ -228,7 +228,7 @@ export default component$(() => {
       <StatePanel
         tone="error"
         title="Not found"
-        action={{ href: "/cameras/", label: "← Back to cameras" }}
+        action={{ href: "/camera/", label: "← Back to cameras" }}
       >
         <p>No camera has this id.</p>
       </StatePanel>
@@ -236,14 +236,14 @@ export default component$(() => {
   }
 
   const { camera, images, imageBase } = data.value;
-  // Fresh from /cameras/new/ (and not yet re-saved here).
+  // Fresh from /camera/new/ (and not yet re-saved here).
   const created = loc.url.searchParams.has("created") && !action.value;
 
   return (
     <div class="mx-auto max-w-3xl space-y-6">
       <div>
         <nav aria-label="Breadcrumb" class="text-sm">
-          <Link href="/cameras/" class={link}>
+          <Link href="/camera/" class={link}>
             ← Cameras
           </Link>
         </nav>

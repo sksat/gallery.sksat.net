@@ -262,7 +262,7 @@ export default component$(() => {
             </select>
             <p id="edit-camera-help" class={["mt-1 text-xs", muted]}>
               Not listed?{" "}
-              <Link href="/cameras/new/" class={link}>
+              <Link href="/camera/new/" class={link}>
                 Add a camera
               </Link>{" "}
               first.
