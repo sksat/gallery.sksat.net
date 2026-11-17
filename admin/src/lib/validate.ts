@@ -323,6 +323,23 @@ export const resolveCameraImagePath = (input: string, slug: string): string => {
 };
 
 /**
+ * The length error for an image path typed on the camera page, measured
+ * after a bare file name gets its `/camera/<slug>/` prefix; null when it
+ * fits. Checked in the browser before submitting, and by the action.
+ */
+export const cameraImagePathLengthError = (
+  input: string,
+  slug: string,
+): string | null => {
+  const s = input.trim();
+  const resolved = resolveCameraImagePath(s, slug);
+  if (resolved.length <= MAX_IMAGE_FILE_LEN) return null;
+  return s.startsWith("/")
+    ? `The path is ${resolved.length} characters; at most ${MAX_IMAGE_FILE_LEN}.`
+    : `With ${cameraImageDir(slug)} in front, the path is ${resolved.length} characters; at most ${MAX_IMAGE_FILE_LEN}.`;
+};
+
+/**
  * A bucket path for an image, in the same shape as media.file
  * (`/camera/virtuallens2/front.png`): leading "/", segments of
  * `[A-Za-z0-9._-]` only, no "." / ".." segments, png/jpg/jpeg. It is

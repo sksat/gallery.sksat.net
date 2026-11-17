@@ -48,7 +48,14 @@ export const StatePanel = component$<Props>(
         </div>
         {action && (
           <div class="mt-6">
-            <Link href={action.href} class={buttonSecondary}>
+            <Link
+              // Keyed by href: Qwik City's Link keeps the href it was first
+              // rendered with while the route stays the same (e.g. /media
+              // filters applied in place).
+              key={action.href}
+              href={action.href}
+              class={buttonSecondary}
+            >
               {action.label}
             </Link>
           </div>

@@ -43,6 +43,7 @@ import { formatJst } from "~/lib/format";
 import type { CameraImageRow, CameraRow } from "~/lib/types";
 import {
   cameraImageDir,
+  cameraImagePathLengthError,
   MAX_IMAGE_CAPTION_LEN,
   MAX_IMAGE_FILE_LEN,
   resolveCameraImagePath,
@@ -107,7 +108,10 @@ export const useAddCameraImage = routeAction$(
     }
     const camera = await getCamera(db, id);
     if (!camera) return fail(404, { message: "not found" });
-    // A bare file name is in the camera's own folder.
+    // A bare file name is in the camera's own folder (and counts it in its
+    // length).
+    const tooLong = cameraImagePathLengthError(data.file, camera.slug);
+    if (tooLong) return fail(400, { message: tooLong });
     const v = validateCameraImage({
       file: resolveCameraImagePath(data.file, camera.slug),
       caption: data.caption,
@@ -211,6 +215,54 @@ export const useRestoreCameraImage = routeAction$(
     index: z.number().int().min(0).max(10_000),
   }),
 );
+
+/**
+ * The new picture's path. Its own component so that showing the length
+ * error re-renders only this field, not the page (whose caption inputs
+ * would get their saved values back).
+ */
+const ImagePathField = component$<{ slug: string }>(({ slug }) => {
+  const error = useSignal<string | null>(null);
+  return (
+    <div>
+      <label for="new-image-file" class={label}>
+        Image path
+      </label>
+      <input
+        id="new-image-file"
+        type="text"
+        name="file"
+        required
+        placeholder="front.png"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellcheck={false}
+        enterKeyHint="next"
+        aria-describedby="new-image-file-help new-image-file-error"
+        aria-invalid={error.value ? "true" : undefined}
+        // The length counts the folder a bare name goes in; the browser
+        // then refuses to submit with this message.
+        onInput$={(_, el) => {
+          const e = cameraImagePathLengthError(el.value, slug);
+          el.setCustomValidity(e ?? "");
+          error.value = e;
+        }}
+        class={field}
+      />
+      <p id="new-image-file-help" class={["mt-1 text-xs", muted]}>
+        A file name is looked up in <code>{cameraImageDir(slug)}</code>; start
+        with <code>/</code> for anywhere else.
+      </p>
+      <p
+        id="new-image-file-error"
+        data-testid="image-path-error"
+        class="mt-1 text-xs text-red-700 empty:hidden dark:text-red-400"
+      >
+        {error.value ?? ""}
+      </p>
+    </div>
+  );
+});
 
 const IMAGE_OP_DONE = {
   up: "Image moved up.",
@@ -552,30 +604,7 @@ export default component$(() => {
           }}
           class="grid gap-3 border-t border-zinc-200 pt-5 sm:grid-cols-[1fr_1fr_auto] sm:items-end dark:border-zinc-800"
         >
-          <div>
-            <label for="new-image-file" class={label}>
-              Image path
-            </label>
-            <input
-              id="new-image-file"
-              type="text"
-              name="file"
-              required
-              placeholder="front.png"
-              maxLength={MAX_IMAGE_FILE_LEN}
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellcheck={false}
-              enterKeyHint="next"
-              aria-describedby="new-image-file-help"
-              class={field}
-            />
-            <p id="new-image-file-help" class={["mt-1 text-xs", muted]}>
-              A file name is looked up in{" "}
-              <code>{cameraImageDir(camera.slug)}</code>; start with{" "}
-              <code>/</code> for anywhere else.
-            </p>
-          </div>
+          <ImagePathField slug={camera.slug} />
           <div>
             <label for="new-image-caption" class={label}>
               Caption
