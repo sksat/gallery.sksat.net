@@ -95,9 +95,9 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 ### Image Worker (`workers/image/`)
 
-- Serves resized photos at `gallery.sksat.net/img/<preset>/<file>` (route in `workers/image/wrangler.jsonc`). It fetches the original from B2 with `cf.image`, so Cloudflare Image Transformations does the resize; the Worker itself cannot decode the 8K PNGs within 128MB / 10ms CPU (Free plan).
+- Serves resized photos at `gallery.sksat.net/img/<preset>/<file>`. The Worker shell and that route are managed by Terraform outside this repo; do not add `routes` to `workers/image/wrangler.jsonc`. It fetches the original from B2 with `cf.image`, so Cloudflare Image Transformations does the resize; the Worker itself cannot decode the 8K PNGs within 128MB / 10ms CPU (Free plan).
 - Only the presets in `workers/image/src/request.ts` exist. Each distinct (file, preset) counts toward the free tier of 5,000 unique transformations per month; past it, new ones fail with error 9422 (no charge). Do not add a preset per call site — reuse the existing ones.
-- Deployed from `main` by Cloudflare Workers Builds (Git integration, set in the dashboard). Manual deploy: `pnpm run deploy.image`.
+- Deployed from `main` by `.github/workflows/deploy-image-worker.yaml` with a Workers Scripts:Edit-only token (repo secrets `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_APP_DEPLOY_TOKEN`). Manual deploy: `pnpm run deploy.image`.
 
 ### Styling
 
