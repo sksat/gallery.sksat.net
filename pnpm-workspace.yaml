@@ -2,13 +2,15 @@
 # A single-package project: without `packages`, only this directory is in
 # the workspace. admin/ has its own pnpm-workspace.yaml.
 
-# Cooldown: refuse package versions published less than a day ago (in
+# Cooldown: refuse package versions published less than 3 days ago (in
 # minutes), so a hijacked release has time to be caught and unpublished
-# before it reaches us. Set explicitly (pnpm 12's default is the same) so
-# the check is strict. Renovate waits 3 days before proposing an update
-# (renovate.json), so its PRs normally pass this. Do not add
+# before it reaches us. This applies to every install, including
+# transitive dependencies and `--frozen-lockfile`. Keep it equal to
+# `minimumReleaseAge` in renovate.json (and admin/pnpm-workspace.yaml): if
+# Renovate waited less, its PRs would name a version that pnpm then
+# refuses, and the lockfile would get an older one. Do not add
 # minimumReleaseAgeExclude entries to get a fresh version through: wait.
-minimumReleaseAge: 1440
+minimumReleaseAge: 4320
 
 # Packages whose install scripts may run (native binaries).
 allowBuilds:
