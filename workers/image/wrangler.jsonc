@@ -15,7 +15,7 @@
   "services": [{ "binding": "API", "service": "gallery-api" }],
   "vars": {
     // The public bucket URL: used while B2_KEY_ID / B2_APPLICATION_KEY are
-    // unset, and as the transformation cache key either way.
+    // unset.
     "ORIGIN_BASE_URL": "https://sksat-gallery.s3.us-west-002.backblazeb2.com",
     // The AdminImage entrypoint verifies the admin's Cloudflare Access JWT
     // itself (src/admin-auth.ts). Same values as admin/wrangler.jsonc

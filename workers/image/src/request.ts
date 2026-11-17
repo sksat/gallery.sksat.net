@@ -190,15 +190,26 @@ export const transformOptions = (
       ...PRESETS[preset],
       fit: "cover",
       gravity: "auto",
-      // Social crawlers (X in particular) do not reliably accept AVIF/WebP,
-      // so cards are always JPEG whatever the Accept header says.
-      format: "jpeg",
+      format: outputFormat(preset, accept),
       quality: 85,
       draw: cardDraw(origin, preset === "og" ? caption : {}),
     };
   }
-  return { ...PRESETS[preset], fit: "scale-down", format: pickFormat(accept) };
+  return {
+    ...PRESETS[preset],
+    fit: "scale-down",
+    format: outputFormat(preset, accept),
+  };
 };
+
+/** The format a preset is rendered in for a request's Accept header. */
+export const outputFormat = (
+  preset: PresetName,
+  accept: string | null,
+): OutputFormat =>
+  // Social crawlers (X in particular) do not reliably accept AVIF/WebP,
+  // so cards are always JPEG whatever the Accept header says.
+  isCardPreset(preset) ? "jpeg" : pickFormat(accept);
 
 /** Whether the response for a preset depends on the Accept header. */
 export const variesByAccept = (preset: PresetName): boolean =>
