@@ -1,4 +1,5 @@
 import { $, component$, useSignal } from "@builder.io/qwik";
+import { buttonPrimary } from "./ui";
 
 type Status =
   | { kind: "idle" }
@@ -53,26 +54,30 @@ export const PublishButton = component$(() => {
   });
 
   return (
-    <div style={{ marginTop: "0.5rem" }}>
+    <div class="space-y-3">
       <button
         type="button"
+        class={buttonPrimary}
         onClick$={onClick}
         disabled={status.value.kind === "loading"}
       >
         {status.value.kind === "loading" ? "Publishing…" : "Publish media.json"}
       </button>
-      {status.value.kind === "success" && (
-        <p style={{ color: "green", marginTop: "0.5rem" }}>
-          Published {status.value.count} items ({status.value.bytes} bytes) at{" "}
-          {status.value.uploadedAt}
-          {status.value.etag ? ` — etag ${status.value.etag}` : ""}.
-        </p>
-      )}
-      {status.value.kind === "error" && (
-        <p style={{ color: "crimson", marginTop: "0.5rem" }}>
-          Publish failed: {status.value.message}
-        </p>
-      )}
+      {/* Always rendered so screen readers pick up the live-region updates. */}
+      <div role="status" aria-live="polite">
+        {status.value.kind === "success" && (
+          <p class="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+            Published {status.value.count} items ({status.value.bytes} bytes) at{" "}
+            {status.value.uploadedAt}
+            {status.value.etag ? ` — etag ${status.value.etag}` : ""}.
+          </p>
+        )}
+        {status.value.kind === "error" && (
+          <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+            Publish failed: {status.value.message}
+          </p>
+        )}
+      </div>
     </div>
   );
 });

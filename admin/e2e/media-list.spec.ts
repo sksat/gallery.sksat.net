@@ -23,3 +23,45 @@ test("media list: search by file substring", async ({ page }) => {
   await expect(page.locator("table tbody tr")).toHaveCount(1);
   await expect(page.locator("table tbody")).toContainText("/mock/vrchat1.png");
 });
+
+test("media list: an out-of-range page redirects to the last page", async ({
+  page,
+}) => {
+  await page.goto("/media/?world=VRChat&page=3");
+  await expect(page).toHaveURL(/\/media\/\?world=VRChat$/);
+  await expect(page.locator("table tbody tr")).toHaveCount(3);
+  await expect(page.getByText("Page 1 / 1")).toBeVisible();
+});
+
+test("media list: the whole row opens the edit page", async ({ page }) => {
+  await page.goto("/media/?q=vrchat1");
+  // Click over the World cell, not the filename text. The stretched link
+  // overlays the whole row, so Playwright's actionability check would
+  // (correctly) report the cell as covered; click by coordinates instead.
+  const cell = page.locator("table tbody tr").first().locator("td").nth(2);
+  const box = await cell.boundingBox();
+  if (!box) throw new Error("World cell not rendered");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page).toHaveURL(/\/media\/2\/$/);
+  await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
+});
+
+test.describe("media list on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("renders cards without horizontal overflow", async ({ page }) => {
+    await page.goto("/media/");
+    await expect(page.locator("table")).toBeHidden();
+    const cards = page.getByRole("listitem");
+    await expect(cards).toHaveCount(5);
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
+    expect(overflow).toBe(0);
+
+    await cards.filter({ hasText: "vrchat1.png" }).click();
+    await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
+  });
+});
