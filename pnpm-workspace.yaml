@@ -1,0 +1,15 @@
+# pnpm settings (pnpm 11+ no longer reads the "pnpm" field in package.json).
+# A single-package project: without `packages`, only this directory is in
+# the workspace. admin/ has its own pnpm-workspace.yaml.
+
+# Packages whose install scripts may run (native binaries).
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
+
+overrides:
+  # vitest 3.x only allows tinypool ^1, which has known vulnerabilities.
+  "vitest>tinypool": "^2.1.2"
+  # vite-imagetools (via qwik-city) only allows sharp ^0.34 (libvips CVEs).
+  "vite-imagetools>sharp": "^0.35.5"

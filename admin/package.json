@@ -4,7 +4,7 @@
   "engines": {
     "node": ">=20.19.0"
   },
-  "packageManager": "pnpm@10.34.9",
+  "packageManager": "pnpm@12.21.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -50,16 +50,5 @@
     "vite-tsconfig-paths": "^5.0.0",
     "vitest": "^3.2.4",
     "wrangler": "^4.164.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "sharp",
-      "workerd"
-    ],
-    "overrides": {
-      "vitest>tinypool": "^2.1.2",
-      "vite-imagetools>sharp": "^0.35.5"
-    }
   }
 }
