@@ -2,7 +2,7 @@
  * OGP / Twitter card meta tags for the top page and photo pages.
  *
  * Kept pure (no fetch, no import.meta.env) so the head can be unit tested;
- * the route loaders pass in media.json and the base URLs.
+ * the route loaders pass in the photos from the API and the base URLs.
  */
 import type { DocumentHeadValue } from "@builder.io/qwik-city";
 
@@ -12,7 +12,11 @@ import {
   cameraLabel,
   takenWith,
 } from "./gallery/cameras";
-import { dimensionsFromFile, imageUrl } from "./gallery/images";
+import {
+  dimensionsFromFile,
+  imageUrl,
+  type ImageSource,
+} from "./gallery/images";
 import { mediaTags } from "./gallery/tags";
 import {
   parseMediaTimestamp,
@@ -71,14 +75,18 @@ export const formatJst = (d: Date): { date: string; time: string } => {
  */
 export const ogImage = (
   { s3Base, imageBase }: ImageBases,
-  file: string,
+  src: ImageSource,
   alt: string,
   preset: "og" | "og-site",
 ): OgImage => ({
-  url: imageUrl(s3Base, file, imageBase, preset),
+  url: imageUrl(s3Base, src, imageBase, preset),
   alt,
-  ...(imageBase ? OG_CARD_SIZE : dimensionsFromFile(file)),
+  ...(imageBase
+    ? OG_CARD_SIZE
+    : dimensionsFromFile(typeof src === "string" ? src : src.file)),
 });
+
+const photoSource = ({ id, file }: MediaInfoJSON) => ({ id, file });
 
 /**
  * Index of the newest photo by timestamp, used as the top page's card.
@@ -111,28 +119,21 @@ export const topOgp = (bases: ImageBases, media: MediaInfoJSON[]): Ogp => {
         ? null
         : ogImage(
             bases,
-            media[newest].file,
+            photoSource(media[newest]),
             `${SITE_NAME} の最新の写真`,
             "og-site",
           ),
   };
 };
 
-/** Card for /photo/<id>; null when the id is out of range. */
-export const photoOgp = (
-  bases: ImageBases,
-  media: MediaInfoJSON[],
-  id: number,
-): Ogp | null => {
-  if (!Number.isInteger(id) || id < 0 || id >= media.length) return null;
-  const m = media[id];
-
+/** Card for /photo/<id>. */
+export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
   const taken = parseMediaTimestamp(m.timestamp);
   const jst = taken && formatJst(taken);
   const tags = mediaTags({ ...m, timestamp: taken });
   const camera = m.camera && cameraLabel(m.camera);
 
-  const subject = jst ? `${jst.date}の写真` : `写真 #${id}`;
+  const subject = jst ? `${jst.date}の写真` : "写真";
   const description = [
     jst && `${jst.date} ${jst.time} 撮影。`,
     tags.length > 0 && `タグ: ${tags.join(", ")}。`,
@@ -145,9 +146,9 @@ export const photoOgp = (
     title: `${subject} | ${SITE_NAME}`,
     description: description || `${SITE_NAME} の写真です。`,
     // Qwik City redirects /photo/<id> to the trailing-slash form.
-    url: `${SITE_URL}/photo/${id}/`,
+    url: `${SITE_URL}/photo/${m.id}/`,
     type: "article",
-    image: ogImage(bases, m.file, subject, "og"),
+    image: ogImage(bases, photoSource(m), subject, "og"),
   };
 };
 
@@ -164,8 +165,9 @@ export const cameraOgp = (
     takenWith(transformMediaInfo(m), camera.slug),
   );
   const newest = newestMediaIndex(own);
-  const file =
-    camera.images.at(0)?.file ?? (newest === null ? null : own[newest].file);
+  const src: ImageSource | null =
+    camera.images.at(0)?.file ??
+    (newest === null ? null : photoSource(own[newest]));
   return {
     title: `${camera.name} | ${SITE_NAME}`,
     description:
@@ -173,7 +175,7 @@ export const cameraOgp = (
       `${camera.name} で撮った写真 (${own.length} 枚)。`,
     url: SITE_URL + cameraHref(camera.slug),
     type: "website",
-    image: file === null ? null : ogImage(bases, file, camera.name, "og-site"),
+    image: src === null ? null : ogImage(bases, src, camera.name, "og-site"),
   };
 };
 
@@ -188,7 +190,7 @@ export const cameraListOgp = (
   url: SITE_URL + CAMERA_LIST_HREF,
 });
 
-/** Fallback when media.json could not be read: text-only card. */
+/** Fallback when the photos could not be read: text-only card. */
 export const fallbackOgp = (path: string): Ogp => ({
   title: SITE_NAME,
   description: SITE_DESCRIPTION,

@@ -4,41 +4,24 @@ import { routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
 import { CameraCard } from "~/components/gallery/camera-card";
 import {
   cameraSummaries,
-  parseCameras,
   type CameraSummary,
 } from "~/components/gallery/cameras";
-import {
-  transformMediaInfo,
-  type MediaInfoJSON,
-} from "~/components/gallery/types";
+import { transformMediaInfo } from "~/components/gallery/types";
 import { cameraListOgp, ogpHead, type Ogp } from "~/components/ogp";
+import { useGalleryIndex } from "../layout";
 
 type CameraList = { cameras: CameraSummary[]; ogp: Ogp };
 
-/** Every camera that has photos, from cameras.json (or media.json alone). */
+/** Every camera that has public photos. */
 export const useCameraList = routeLoader$<CameraList>(async (event) => {
-  const base = import.meta.env.VITE_S3_BASE_URL;
-  // A 500 rather than an empty list: the layout lets responses be served
-  // stale for a week, which must not pin a transient outage as "no cameras".
-  let media: MediaInfoJSON[];
-  const camerasReq = fetch(base + "/cameras.json").catch(() => null);
-  try {
-    const mediaRes = await fetch(base + "/media.json");
-    if (!mediaRes.ok) throw new Error(`media.json: ${mediaRes.status}`);
-    media = await mediaRes.json();
-  } catch (error) {
-    console.error("Failed to load media.json for the camera list:", error);
-    throw event.error(500, "Failed to fetch media index");
-  }
-  // Optional: before the admin publishes it, media.json alone is enough.
-  const camerasRes = await camerasReq;
-  const cameras = camerasRes?.ok
-    ? parseCameras(await camerasRes.json().catch(() => null))
-    : null;
+  const { media, cameras } = await event.resolveValue(useGalleryIndex);
   return {
     cameras: cameraSummaries(media.map(transformMediaInfo), cameras),
     ogp: cameraListOgp(
-      { s3Base: base, imageBase: import.meta.env.VITE_IMAGE_BASE_URL },
+      {
+        s3Base: import.meta.env.VITE_S3_BASE_URL,
+        imageBase: import.meta.env.VITE_IMAGE_BASE_URL,
+      },
       media,
     ),
   };

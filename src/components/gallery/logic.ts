@@ -1,12 +1,12 @@
 import { cameraHref, takenWith } from "./cameras";
 import { DEFAULT_SORT, serializeSort, type SortOrder } from "./sort";
 import { filterMediaByTags, serializeTagFilter, type TagFilter } from "./tags";
-import type { MediaIndex, MediaInfo } from "./types";
+import { PUBLIC_ID_RE, type MediaIndex, type MediaInfo } from "./types";
 
 /**
  * Photos passing the tag filter and, on a camera page, taken with that
- * camera. Indices stay those of the full media array (they are the photo
- * IDs); the caller sorts.
+ * camera. Indices stay those of the full media array (they order ties when
+ * sorting); the caller sorts.
  */
 export const visibleMedia = (
   media: MediaIndex,
@@ -22,16 +22,17 @@ export const visibleMedia = (
 /**
  * Navigate to the next or previous image within a filtered set.
  *
- * @param currentId - Current image ID (index in the full media array)
- * @param filteredIndices - Array of indices in the filtered set
+ * @param currentId - Current photo's public id
+ * @param filteredIndices - Public ids of the filtered set, in display order
  * @param direction - "next" or "prev"
- * @returns New image ID or null if at boundary / not found
+ * @returns New photo id or null if at boundary / not found (e.g. an
+ *   unlisted photo, which is in no list)
  */
-export const navigateImage = (
-  currentId: number,
-  filteredIndices: number[],
+export const navigateImage = <T>(
+  currentId: T,
+  filteredIndices: T[],
   direction: "next" | "prev",
-): number | null => {
+): T | null => {
   const currentFilteredIndex = filteredIndices.indexOf(currentId);
   if (currentFilteredIndex === -1) return null;
 
@@ -53,7 +54,7 @@ export const navigateImage = (
  * `?camera={slug}` so closing it returns to that page.
  */
 export const galleryUrl = (
-  imageId: number | null,
+  imageId: string | null,
   filter: TagFilter,
   sort: SortOrder = DEFAULT_SORT,
   camera: string | null = null,
@@ -73,8 +74,19 @@ export const galleryUrl = (
   return query === "" ? path : `${path}?${query}`;
 };
 
-/** Photo id from a `/photo/{id}` path (trailing slash allowed), else null. */
-export const photoIdFromPath = (pathname: string): number | null => {
-  const match = /^\/photo\/(\d+)\/?$/.exec(pathname);
-  return match ? Number(match[1]) : null;
+/**
+ * Public id from a `/photo/{id}` path (trailing slash allowed), else null.
+ * Old `/photo/{N}` paths are not ids: their route redirects them.
+ */
+export const photoIdFromPath = (pathname: string): string | null => {
+  const match = /^\/photo\/([^/]+)\/?$/.exec(pathname);
+  return match && PUBLIC_ID_RE.test(match[1]) ? match[1] : null;
 };
+
+/**
+ * N of an old `/photo/N` URL (from before public ids; an index into the
+ * old media.json), else null. Public ids are 10 symbols, so the two never
+ * overlap.
+ */
+export const legacyIndex = (raw: string | null): number | null =>
+  raw !== null && /^(?:0|[1-9]\d{0,5})$/.test(raw) ? Number(raw) : null;

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   galleryUrl,
+  legacyIndex,
   navigateImage,
   photoIdFromPath,
   visibleMedia,
@@ -8,57 +9,56 @@ import {
 import type { MediaInfo } from "./types";
 
 describe("navigateImage", () => {
-  const filteredIndices = [0, 3, 7];
+  const ids = ["aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc"];
 
   it("should navigate to next image", () => {
-    expect(navigateImage(0, filteredIndices, "next")).toBe(3);
-    expect(navigateImage(3, filteredIndices, "next")).toBe(7);
+    expect(navigateImage("aaaaaaaaaa", ids, "next")).toBe("bbbbbbbbbb");
+    expect(navigateImage("bbbbbbbbbb", ids, "next")).toBe("cccccccccc");
   });
 
   it("should return null at the end boundary (next)", () => {
-    expect(navigateImage(7, filteredIndices, "next")).toBeNull();
+    expect(navigateImage("cccccccccc", ids, "next")).toBeNull();
   });
 
   it("should navigate to previous image", () => {
-    expect(navigateImage(7, filteredIndices, "prev")).toBe(3);
-    expect(navigateImage(3, filteredIndices, "prev")).toBe(0);
+    expect(navigateImage("cccccccccc", ids, "prev")).toBe("bbbbbbbbbb");
+    expect(navigateImage("bbbbbbbbbb", ids, "prev")).toBe("aaaaaaaaaa");
   });
 
   it("should return null at the start boundary (prev)", () => {
-    expect(navigateImage(0, filteredIndices, "prev")).toBeNull();
+    expect(navigateImage("aaaaaaaaaa", ids, "prev")).toBeNull();
   });
 
-  it("should return null when currentId is not in filteredIndices", () => {
-    expect(navigateImage(5, filteredIndices, "next")).toBeNull();
-    expect(navigateImage(5, filteredIndices, "prev")).toBeNull();
+  it("should return null for a photo in no list (e.g. unlisted)", () => {
+    expect(navigateImage("dddddddddd", ids, "next")).toBeNull();
+    expect(navigateImage("dddddddddd", ids, "prev")).toBeNull();
   });
 
-  it("should return null for empty filteredIndices", () => {
-    expect(navigateImage(0, [], "next")).toBeNull();
-    expect(navigateImage(0, [], "prev")).toBeNull();
-  });
-
-  it("should return null in both directions for single element", () => {
-    expect(navigateImage(5, [5], "next")).toBeNull();
-    expect(navigateImage(5, [5], "prev")).toBeNull();
+  it("should return null for empty or single-element lists", () => {
+    expect(navigateImage("aaaaaaaaaa", [], "next")).toBeNull();
+    expect(navigateImage("aaaaaaaaaa", ["aaaaaaaaaa"], "next")).toBeNull();
+    expect(navigateImage("aaaaaaaaaa", ["aaaaaaaaaa"], "prev")).toBeNull();
   });
 });
 
 describe("galleryUrl", () => {
   const none = { tags: [], mode: "and" as const };
+  const id = "abcdefghjk";
 
   it("returns / with no photo and no filter", () => {
     expect(galleryUrl(null, none)).toBe("/");
   });
 
   it("returns /photo/{id} for a selected photo", () => {
-    expect(galleryUrl(3, none)).toBe("/photo/3");
+    expect(galleryUrl(id, none)).toBe(`/photo/${id}`);
   });
 
   it("keeps the tag filter in the query", () => {
     const filter = { tags: ["VRChat", "film"], mode: "or" as const };
     expect(galleryUrl(null, filter)).toBe("/?tag=VRChat&tag=film&mode=or");
-    expect(galleryUrl(2, filter)).toBe("/photo/2?tag=VRChat&tag=film&mode=or");
+    expect(galleryUrl(id, filter)).toBe(
+      `/photo/${id}?tag=VRChat&tag=film&mode=or`,
+    );
   });
 
   it("encodes tags", () => {
@@ -71,11 +71,11 @@ describe("galleryUrl", () => {
     expect(galleryUrl(null, none, { kind: "old", seed: 0 })).toBe("/?sort=old");
     expect(
       galleryUrl(
-        1,
+        id,
         { tags: ["VRChat"], mode: "and" },
         { kind: "random", seed: 7 },
       ),
-    ).toBe("/photo/1?tag=VRChat&sort=random&seed=7");
+    ).toBe(`/photo/${id}?tag=VRChat&sort=random&seed=7`);
     expect(galleryUrl(null, none, { kind: "new", seed: 0 })).toBe("/");
   });
 
@@ -84,37 +84,37 @@ describe("galleryUrl", () => {
     expect(galleryUrl(null, none, newest, "virtuallens2")).toBe(
       "/camera/virtuallens2/",
     );
-    expect(galleryUrl(1, none, newest, "virtuallens2")).toBe(
-      "/photo/1?camera=virtuallens2",
+    expect(galleryUrl(id, none, newest, "virtuallens2")).toBe(
+      `/photo/${id}?camera=virtuallens2`,
     );
     const filter = { tags: ["VRChat"], mode: "and" as const };
     const oldest = { kind: "old" as const, seed: 0 };
     expect(galleryUrl(null, filter, oldest, "virtuallens2")).toBe(
       "/camera/virtuallens2/?tag=VRChat&sort=old",
     );
-    expect(galleryUrl(4, filter, oldest, "virtuallens2")).toBe(
-      "/photo/4?camera=virtuallens2&tag=VRChat&sort=old",
+    expect(galleryUrl(id, filter, oldest, "virtuallens2")).toBe(
+      `/photo/${id}?camera=virtuallens2&tag=VRChat&sort=old`,
     );
   });
 });
 
 describe("visibleMedia", () => {
+  const vl2 = {
+    slug: "virtuallens2",
+    name: "VirtualLens2",
+    manufacturer: "logilabo",
+    model: "VirtualLens2",
+  };
+  const photo = (
+    id: string,
+    world: MediaInfo["world"],
+    camera: MediaInfo["camera"],
+    tags: string[],
+  ): MediaInfo => ({ id, file: `/${id}`, world, timestamp: null, camera, tags });
   const media: MediaInfo[] = [
-    { file: "/0", world: "Real", timestamp: null, camera: null, tags: [] },
-    {
-      file: "/1",
-      world: "VRChat",
-      timestamp: null,
-      camera: { make: "logilabo", model: "VirtualLens2", slug: "virtuallens2" },
-      tags: ["night"],
-    },
-    {
-      file: "/2",
-      world: "VRChat",
-      timestamp: null,
-      camera: { make: "logilabo", model: "VirtualLens2" },
-      tags: [],
-    },
+    photo("aaaaaaaaaa", "Real", null, []),
+    photo("bbbbbbbbbb", "VRChat", vl2, ["night"]),
+    photo("cccccccccc", "VRChat", vl2, []),
   ];
   const none = { tags: [], mode: "and" as const };
 
@@ -140,16 +140,29 @@ describe("visibleMedia", () => {
 });
 
 describe("photoIdFromPath", () => {
-  it("reads the id from /photo/{id} with or without trailing slash", () => {
-    expect(photoIdFromPath("/photo/3")).toBe(3);
-    expect(photoIdFromPath("/photo/12/")).toBe(12);
+  it("reads the public id from /photo/{id} with or without trailing slash", () => {
+    expect(photoIdFromPath("/photo/abcdefghjk")).toBe("abcdefghjk");
+    expect(photoIdFromPath("/photo/abcdefghjk/")).toBe("abcdefghjk");
   });
 
-  it("returns null elsewhere or for invalid ids", () => {
+  it("returns null elsewhere, for old numeric ids and malformed ids", () => {
     expect(photoIdFromPath("/")).toBeNull();
     expect(photoIdFromPath("/photo/")).toBeNull();
-    expect(photoIdFromPath("/photo/abc")).toBeNull();
-    expect(photoIdFromPath("/photo/-1")).toBeNull();
-    expect(photoIdFromPath("/photo/1/extra")).toBeNull();
+    expect(photoIdFromPath("/photo/3")).toBeNull();
+    expect(photoIdFromPath("/photo/abcdefghjo")).toBeNull();
+    expect(photoIdFromPath("/photo/abcdefghjk/extra")).toBeNull();
+  });
+});
+
+describe("legacyIndex", () => {
+  it("reads N of an old /photo/N", () => {
+    expect(legacyIndex("0")).toBe(0);
+    expect(legacyIndex("50")).toBe(50);
+  });
+
+  it("rejects anything else", () => {
+    for (const raw of [null, "", "01", "-1", "1.5", "abcdefghjk", "9999999"]) {
+      expect(legacyIndex(raw)).toBeNull();
+    }
   });
 });

@@ -63,7 +63,7 @@ type Indexed = { index: number; value: Pick<MediaInfo, "timestamp"> };
 
 /**
  * Sort photos for display. Photos without a timestamp go last in both date
- * orders; ties keep the media.json order (by index). Returns a new array.
+ * orders; ties keep the API's order (by index). Returns a new array.
  */
 export const sortMedia = <T extends Indexed>(
   items: readonly T[],

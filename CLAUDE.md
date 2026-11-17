@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a photo/image gallery web application built with **Qwik** and **QwikCity**, designed for deployment on **Cloudflare Pages**. It displays photos from two categories: "Real" (real-world photos) and "VRChat" (VRChat screenshots). Images are served from an S3-compatible storage, with metadata managed via `media.json`.
+This is a photo/image gallery web application built with **Qwik** and **QwikCity**, designed for deployment on **Cloudflare Pages**. It displays photos from two categories: "Real" (real-world photos) and "VRChat" (VRChat screenshots). Images are served from an S3-compatible storage (resized by the image Worker); metadata lives in the admin's D1 and is read through the API Worker.
 
 ## Essential Commands
 
@@ -59,7 +59,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - **File-based routing**: Routes defined in `src/routes/` directory
 - **Layout system**: `src/routes/layout.tsx` provides shared layout (Header/Footer) with caching configuration
-- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing, `/camera/` (list of cameras with photos) and `/camera/[slug]/` for a camera's details and its photos (route paths are singular; data from `cameras.json`, falling back to the `camera` fields in `media.json`; see `src/components/gallery/cameras.ts`)
+- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing (`imageId` is the photo's public id; an old numeric `/photo/N` and `/?imageId=N` are 301-redirected through the API's frozen legacy index, see `src/routes/photo/[imageId]/legacy.ts`), `/camera/` (list of cameras with photos) and `/camera/[slug]/` for a camera's details and its photos (route paths are singular; see `src/components/gallery/cameras.ts`)
 - **Path alias**: `~/` maps to `./src/` (configured in tsconfig.json)
 
 ### Core Components
@@ -67,22 +67,24 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 **Gallery Component** (`src/components/gallery/gallery.tsx`)
 
 - Main UI component managing photo display and navigation
-- Fetches `media.json` index from S3 via `VITE_S3_BASE_URL` environment variable
+- Reads the photo and camera lists from `useGalleryIndex` (the layout's route loader, which asks the API Worker; `src/lib/api.ts`)
 - State management: tag filter (AND/OR; `world` is treated as one more tag, see `tags.ts`), selected image overlay
 - Keyboard navigation: Arrow keys to browse within the filtered photos when an image is selected
 - URL history: the filter lives in the query (`?tag=a&tag=b&mode=or`, replaceState); selecting an image pushes `/photo/[imageId]?<same query>`. On a camera page the same Gallery runs with a camera filter; a photo opened there carries `?camera=<slug>` so closing it returns to `/camera/<slug>/`
+- Visibility: lists contain public photos only. An unlisted photo is passed in by its `/photo/<id>` route and shown in the overlay, but never joins the grid, the tag counts, the sort or the arrow-key order. Private photos are 404.
 
 **Media Data Flow**
 
-1. `media.json` contains array of `MediaInfo` objects with metadata (file path, world, timestamp, camera, tags)
-2. Images stored in `media/` directory, organized by category (VRChat/, 2023-12-comsys2023/)
-3. In production: served from S3 bucket; in dev: served from local `media/` folder
+1. The admin's D1 (`gallery-admin`) is the source of truth; the API Worker (`workers/api`) serves `/api/media`, `/api/media/<public_id>`, `/api/media/legacy/<N>`, `/api/camera`, `/api/camera/<slug>`
+2. Route loaders reach it through the Pages service binding `API` (root `wrangler.jsonc`), or `VITE_API_BASE_URL` without one (dev, tests)
+3. Images are addressed by public id at the image Worker (`/img/<preset>/<public_id>`); without `VITE_IMAGE_BASE_URL` (dev, tests) the originals under `VITE_S3_BASE_URL` are used
 
 ### Environment Configuration
 
-- `.env.local`: Development (local media serving)
-- `.env.production`: Production (S3 base URL)
-- Required variable: `VITE_S3_BASE_URL` - base URL for media assets
+- `.env.local`: Development (local media serving; the production API by default)
+- `.env.production`: Production (S3, image Worker and API base URLs)
+- Variables: `VITE_S3_BASE_URL` (originals), `VITE_IMAGE_BASE_URL` (image Worker; optional), `VITE_API_BASE_URL` (API Worker, when there is no `API` binding)
+- Root `wrangler.jsonc` holds the Pages project's runtime bindings (`API` → `gallery-api`); with `pages_build_output_dir` set, Pages ignores bindings set in the dashboard
 
 ### Deployment (Cloudflare Pages)
 
@@ -144,7 +146,7 @@ Pure functions live in `src/components/gallery/logic.ts`, `tags.ts` and `types.t
 
 ### Fixture rules
 
-- E2E and VRT both read `public/test-media/media.json` via `VITE_S3_BASE_URL=http://127.0.0.1:5174/test-media/` (set in `playwright.config.ts`). Never point tests at the production S3 URL.
+- E2E and VRT read the photos from a local API Worker on a D1 seeded with the admin migrations and `e2e/fixture.sql` (`e2e/start-api-server.sh`, started by `playwright.config.ts`), and the images from `public/test-media/` via `VITE_S3_BASE_URL=http://127.0.0.1:5174/test-media/`. Never point tests at the production API or S3 URL.
 - Fixture timestamps are fixed ISO strings (`2023-12-0X`). When adding a media entry, use a deterministic timestamp; do not use `new Date().toISOString()`.
 - Do not call `Date.now()` / `Math.random()` / external `fetch` from code under test without injection — pass them as arguments or mock at the boundary.
 - See [public/test-media/README.md](public/test-media/README.md) for the canonical fixture inventory.

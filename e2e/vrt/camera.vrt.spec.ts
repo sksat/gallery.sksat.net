@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 
-// Fixture: see public/test-media/README.md.
+// Fixture: e2e/fixture.sql (see public/test-media/README.md).
 
 /** Wait until lazy-loaded images are painted, then go back to the top. */
 const loaded = async (page: Page, images: Locator, count: number) => {
@@ -16,8 +16,8 @@ const loaded = async (page: Page, images: Locator, count: number) => {
   await page.evaluate(() => window.scrollTo(0, 0));
 };
 
-// /camera/virtuallens2/: header with three camera pictures, then photos 4
-// and 1.
+// /camera/virtuallens2/: header with three camera pictures, then its two
+// public photos.
 const cameraPage = async (page: Page) => {
   await page.goto("/camera/virtuallens2/");
   await expect(page.getByTestId("gallery-image")).toHaveCount(2, {

@@ -5,26 +5,16 @@ import type {
   MediaIndex,
   MediaInfo,
 } from "./types";
+import type { ImageSource } from "./images";
 
-/**
- * Slug of a photo's camera. media.json written by the admin carries it;
- * older files only have make/model, so derive it the same way the admin's
- * migration did (lowercased model, ' ', '/', '_', '.' → '-').
- */
-export const cameraSlug = (camera: MediaCamera): string => {
-  if (camera.slug) return camera.slug;
-  const base = camera.model
-    .trim()
-    .toLowerCase()
-    .replace(/[ /_.]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-  return base === "" || /[^a-z0-9-]/.test(base) ? "camera" : base;
-};
+/** Slug of a photo's camera (`/camera/<slug>/`). */
+export const cameraSlug = (camera: MediaCamera): string => camera.slug;
 
 /** Display name of a photo's camera. */
 export const cameraLabel = (camera: MediaCamera): string =>
-  camera.name || [camera.make, camera.model].filter(Boolean).join(" ");
+  camera.name ||
+  [camera.manufacturer, camera.model].filter(Boolean).join(" ") ||
+  camera.slug;
 
 export const cameraHref = (slug: string): string =>
   `/camera/${encodeURIComponent(slug)}/`;
@@ -33,8 +23,8 @@ export const cameraHref = (slug: string): string =>
 export const CAMERA_LIST_HREF = "/camera/";
 
 /**
- * Minimal camera records from media.json alone, for when cameras.json is
- * not published (yet): one per slug, name/manufacturer/model only.
+ * Minimal camera records from the photos alone, for a camera the camera
+ * list does not have: one per slug, name/manufacturer/model only.
  */
 export const camerasFromMedia = (media: MediaIndex): CameraJSON[] => {
   const bySlug = new Map<string, CameraJSON>();
@@ -45,9 +35,9 @@ export const camerasFromMedia = (media: MediaIndex): CameraJSON[] => {
     bySlug.set(slug, {
       slug,
       name: cameraLabel(camera),
-      manufacturer: camera.make || null,
+      manufacturer: camera.manufacturer,
       manufacturerUrl: null,
-      model: camera.model || null,
+      model: camera.model,
       kind: null,
       description: null,
       productUrl: null,
@@ -69,7 +59,7 @@ const httpUrl = (v: unknown): string | null => {
 };
 
 /**
- * Parse cameras.json, dropping malformed entries rather than failing the
+ * Parse cameras from the API, dropping malformed entries rather than failing the
  * page. Returns null when the payload is not an array at all.
  */
 export const parseCameras = (data: unknown): CameraJSON[] | null => {
@@ -117,8 +107,8 @@ export const isImagePath = (v: unknown): v is string =>
   /\.(png|jpe?g)$/i.test(v);
 
 /**
- * The camera for `slug`: the cameras.json entry when there is one (it has
- * the description, kind, ...), else what media.json alone tells us.
+ * The camera for `slug`: its record when there is one (it has the
+ * description, kind, ...), else what the photos alone tell us.
  */
 export const findCamera = (
   cameras: CameraJSON[] | null,
@@ -138,7 +128,7 @@ export type CameraSummary = {
   /** Photos taken with it. */
   count: number;
   /** Card image: the camera's first picture, else its newest photo. */
-  cover: string | null;
+  cover: ImageSource | null;
 };
 
 /**
@@ -163,7 +153,7 @@ export const cameraSummaries = (
   );
   const out: CameraSummary[] = [];
   for (const [slug, own] of photos) {
-    // cameras.json wins over what media.json alone says (later in the map).
+    // The record wins over what the photos alone say (later in the map).
     const camera = bySlug.get(slug);
     if (!camera) continue;
     // Newest by timestamp; undated photos only when nothing is dated.
@@ -177,7 +167,9 @@ export const cameraSummaries = (
     out.push({
       camera,
       count: own.length,
-      cover: camera.images.at(0)?.file ?? newest?.file ?? null,
+      cover:
+        camera.images.at(0)?.file ??
+        (newest ? { id: newest.id, file: newest.file } : null),
     });
   }
   return out.sort(

@@ -183,7 +183,7 @@ export const CameraHeader = component$<{
       {opened.value && (
         <PhotoOverlay
           key={opened.value}
-          file={opened.value}
+          src={opened.value}
           onClose$={() => (opened.value = null)}
         />
       )}

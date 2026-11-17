@@ -1,19 +1,18 @@
-// media.json type definitions
+// Photo and camera types, as served by the API Worker (workers/api, see its
+// src/types.ts) and as used at runtime.
 export type MediaWorld = "VRChat" | "Real";
 
+/** `camera` on a photo: enough to label it and link to /camera/<slug>/. */
 export type MediaCamera = {
-  /** Legacy: the manufacturer's name ("" when unknown). */
-  make: string;
-  model: string;
-  /** Key into cameras.json (`/camera/<slug>/`). Absent in older media.json. */
-  slug?: string;
-  /** Display name from cameras.json. Absent in older media.json. */
-  name?: string;
+  slug: string;
+  name: string;
+  manufacturer: string | null;
+  model: string | null;
 };
 
 export type CameraKind = "digital" | "film" | "phone" | "virtual";
 
-/** One item of cameras.json (published next to media.json by the admin). */
+/** One camera from /api/camera. */
 export type CameraJSON = {
   slug: string;
   name: string;
@@ -35,7 +34,9 @@ export type CameraImageJSON = {
   caption: string | null;
 };
 
+/** One photo from /api/media. `id` is its public id (/photo/<id>). */
 export type MediaInfoJSON = {
+  id: string;
   file: string;
   world: MediaWorld;
   timestamp: null | string;
@@ -44,6 +45,7 @@ export type MediaInfoJSON = {
 };
 
 export type MediaInfo = {
+  id: string;
   file: string;
   world: MediaWorld;
   timestamp: null | Date;
@@ -52,6 +54,9 @@ export type MediaInfo = {
 };
 
 export type MediaIndex = MediaInfo[];
+
+/** A photo's public id (admin/migrations/0003_visibility.sql). */
+export const PUBLIC_ID_RE = /^[23456789abcdefghjkmnpqrstuvwxyz]{10}$/;
 
 /**
  * Parse a timestamp string into a Date object.
@@ -67,13 +72,62 @@ export const parseMediaTimestamp = (timestamp: string | null): Date | null => {
 };
 
 /**
- * Transform MediaInfoJSON (from media.json) to MediaInfo (runtime type).
+ * Transform MediaInfoJSON (from the API) to MediaInfo (runtime type).
  * Converts timestamp string to Date object.
- *
- * @param item - MediaInfoJSON from media.json
- * @returns MediaInfo with parsed timestamp
  */
 export const transformMediaInfo = (item: MediaInfoJSON): MediaInfo => ({
   ...item,
   timestamp: parseMediaTimestamp(item.timestamp),
 });
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null;
+
+const strOrNull = (v: unknown): string | null =>
+  typeof v === "string" && v !== "" ? v : null;
+
+/**
+ * One photo from an API response, or null if it is malformed. The id and
+ * file end up in URLs, so both are checked for shape.
+ */
+export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
+  if (!isRecord(v)) return null;
+  const { id, file, world, timestamp, camera, tags } = v;
+  if (typeof id !== "string" || !PUBLIC_ID_RE.test(id)) return null;
+  if (
+    typeof file !== "string" ||
+    !/^(\/[A-Za-z0-9._-]+)+$/.test(file) ||
+    /\/\.{1,2}(\/|$)/.test(file)
+  ) {
+    return null;
+  }
+  if (world !== "Real" && world !== "VRChat") return null;
+  let cam: MediaCamera | null = null;
+  if (isRecord(camera) && typeof camera.slug === "string") {
+    cam = {
+      slug: camera.slug,
+      name: strOrNull(camera.name) ?? camera.slug,
+      manufacturer: strOrNull(camera.manufacturer),
+      model: strOrNull(camera.model),
+    };
+  }
+  return {
+    id,
+    file,
+    world,
+    timestamp: typeof timestamp === "string" ? timestamp : null,
+    camera: cam,
+    tags: Array.isArray(tags)
+      ? tags.filter((t): t is string => typeof t === "string")
+      : [],
+  };
+};
+
+/** The photos in an API list response; malformed entries are dropped. */
+export const parseMediaList = (data: unknown): MediaInfoJSON[] =>
+  Array.isArray(data)
+    ? data.flatMap((v) => {
+        const m = parseMediaItem(v);
+        return m ? [m] : [];
+      })
+    : [];

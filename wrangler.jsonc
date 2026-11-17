@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // The public gallery on Cloudflare Pages (project gallery-sksat-net).
+  // With `pages_build_output_dir` set, Pages takes runtime bindings from
+  // this file and ignores the dashboard. Build-time settings (VITE_* in
+  // .env.production) are unaffected.
+  "name": "gallery-sksat-net",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2025-04-01",
+  // The API Worker (workers/api), for route loaders (src/lib/api.ts). A
+  // fetch of gallery.sksat.net/api/* from a Pages Function on the same zone
+  // would not reliably reach the Worker's route, so it goes through a
+  // service binding. Previews get it too: the API only serves public data.
+  "services": [{ "binding": "API", "service": "gallery-api" }],
+  "env": {
+    "preview": {
+      "services": [{ "binding": "API", "service": "gallery-api" }],
+    },
+  },
+}

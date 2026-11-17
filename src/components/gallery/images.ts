@@ -11,18 +11,28 @@ import type { PresetName } from "../../../workers/image/src/request";
 
 export type { PresetName };
 
+/**
+ * What to show: a photo (the Worker serves it by public id, so it can tell
+ * whether the photo may be shown) or a bucket path (camera pictures).
+ */
+export type ImageSource = { id: string; file: string } | string;
+
+const fileOf = (src: ImageSource): string =>
+  typeof src === "string" ? src : src.file;
+
 export const originalUrl = (s3Base: string, file: string): string =>
   s3Base + file;
 
 export const imageUrl = (
   s3Base: string,
-  file: string,
+  src: ImageSource,
   imageBase: string | undefined,
   preset: PresetName,
-): string =>
-  imageBase
-    ? `${imageBase.replace(/\/$/, "")}/${preset}${file}`
-    : originalUrl(s3Base, file);
+): string => {
+  if (!imageBase) return originalUrl(s3Base, fileOf(src));
+  const base = `${imageBase.replace(/\/$/, "")}/${preset}`;
+  return typeof src === "string" ? base + src : `${base}/${src.id}`;
+};
 
 /**
  * `srcset` from (preset, descriptor) pairs, e.g. [["h240", "1x"]].
@@ -30,13 +40,13 @@ export const imageUrl = (
  */
 export const srcSet = (
   s3Base: string,
-  file: string,
+  src: ImageSource,
   imageBase: string | undefined,
   candidates: [PresetName, string][],
 ): string | undefined => {
   if (!imageBase) return undefined;
   return candidates
-    .map(([preset, d]) => `${imageUrl(s3Base, file, imageBase, preset)} ${d}`)
+    .map(([preset, d]) => `${imageUrl(s3Base, src, imageBase, preset)} ${d}`)
     .join(", ");
 };
 

@@ -46,6 +46,20 @@ describe("imageUrl", () => {
     );
   });
 
+  it("addresses a photo by its public id", () => {
+    const photo = { id: "abcdefghjk", file };
+    expect(imageUrl(s3, photo, base, "h240")).toBe(
+      "https://gallery.sksat.net/img/h240/abcdefghjk",
+    );
+    expect(imageUrl(s3, photo, undefined, "h240")).toBe(
+      originalUrl(s3, file),
+    );
+    expect(srcSet(s3, photo, base, GRID_CANDIDATES)).toBe(
+      "https://gallery.sksat.net/img/h240/abcdefghjk 1x, " +
+        "https://gallery.sksat.net/img/h480/abcdefghjk 2x",
+    );
+  });
+
   it("tolerates a trailing slash on the base", () => {
     expect(imageUrl(s3, file, base + "/", "w1200")).toBe(
       imageUrl(s3, file, base, "w1200"),
