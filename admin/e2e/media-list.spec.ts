@@ -38,7 +38,8 @@ test("media list: the whole row opens the edit page", async ({ page }) => {
   // Click over the World cell, not the filename text. The stretched link
   // overlays the whole row, so Playwright's actionability check would
   // (correctly) report the cell as covered; click by coordinates instead.
-  const cell = page.locator("table tbody tr").first().locator("td").nth(2);
+  // Columns: ID, thumbnail, File, World, ...
+  const cell = page.locator("table tbody tr").first().locator("td").nth(3);
   const box = await cell.boundingBox();
   if (!box) throw new Error("World cell not rendered");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -64,4 +65,26 @@ test.describe("media list on a phone", () => {
     await cards.filter({ hasText: "vrchat1.png" }).click();
     await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
   });
+});
+
+test("thumbnails: without IMAGE_BASE_URL, placeholders and no image requests", async ({
+  page,
+}) => {
+  // start-test-server.sh blanks IMAGE_BASE_URL. The list and the edit page
+  // must then show placeholder tiles and never fetch any image (in
+  // particular not the multi-MB originals).
+  const imageRequests: string[] = [];
+  page.on("request", (req) => {
+    if (req.resourceType() === "image") imageRequests.push(req.url());
+  });
+
+  await page.goto("/media/");
+  // Table + phone cards each render one tile per row.
+  await expect(page.getByTestId("thumb-placeholder")).toHaveCount(10);
+  await expect(page.locator("main img")).toHaveCount(0);
+
+  await page.goto("/media/2/");
+  await expect(page.getByTestId("thumb-placeholder")).toHaveCount(1);
+  await expect(page.getByText("Preview off")).toBeVisible();
+  expect(imageRequests).toEqual([]);
 });

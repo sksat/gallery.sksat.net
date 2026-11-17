@@ -16,6 +16,11 @@
     // Production accepts only the custom-domain app (admin.gallery.sksat.net).
     "ACCESS_TEAM_DOMAIN": "https://sksat.cloudflareaccess.com",
     "ACCESS_AUD": "e5ff448257acbe43d36fecf57eb2a1e2f133d21c13c46315b5d61b08f332d93a",
+    // Resized thumbnails from the image Worker (workers/image). Only its
+    // fixed presets are requested (src/lib/images.ts). Empty = placeholder
+    // tiles; the originals are never loaded. E2E blanks it on the command
+    // line (e2e/start-test-server.sh) so VRT stays deterministic.
+    "IMAGE_BASE_URL": "https://gallery.sksat.net/img",
   },
   "d1_databases": [
     {
@@ -38,6 +43,7 @@
         "ACCESS_TEAM_DOMAIN": "https://sksat.cloudflareaccess.com",
         // Preview deployments app (*.admin-gallery-sksat-net.pages.dev).
         "ACCESS_AUD": "eba20c113f589a0b3a11d2fd46268f17ead1732f1f5e01cbc6ef0da525d8ac8a",
+        "IMAGE_BASE_URL": "https://gallery.sksat.net/img",
       },
       // Previews (incl. Renovate PRs) run unreviewed code, so they get no
       // database: the UI shows the missing-binding notice instead of being

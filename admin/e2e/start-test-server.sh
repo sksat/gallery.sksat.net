@@ -40,8 +40,11 @@ trap 'kill "$NOAUTH_PID" 2>/dev/null || true' EXIT INT TERM
 # ACCESS_DISABLED=1: there is no Cloudflare Access in front of the local
 # server, so skip JWT verification for the functional E2E server only.
 # (Honoured only for loopback hostnames — see src/lib/access.ts.)
+# IMAGE_BASE_URL is blanked so thumbnails render as deterministic
+# placeholder tiles: no network, and VRT does not depend on the live Worker.
 pnpm exec wrangler pages dev ./dist \
   --persist-to "$PERSIST_DIR" \
   --binding ACCESS_DISABLED=1 \
+  --binding IMAGE_BASE_URL= \
   --ip 127.0.0.1 --port "$PORT" &
 wait $!

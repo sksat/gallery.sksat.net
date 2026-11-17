@@ -13,7 +13,8 @@ import {
   worldBadge,
 } from "~/components/ui";
 import { listMedia } from "~/lib/db";
-import { getDB } from "~/lib/env";
+import { Thumb } from "~/components/thumb";
+import { getDB, getImageBase } from "~/lib/env";
 import { formatJst, lastPage, mediaListHref, splitPath } from "~/lib/format";
 import type { MediaRow, MediaWorld } from "~/lib/types";
 
@@ -27,6 +28,8 @@ type MediaListResult =
       page: number;
       world: MediaWorld | null;
       q: string;
+      /** Image Worker base URL, or null for placeholder tiles. */
+      imageBase: string | null;
     }
   | { kind: "missing-binding" };
 
@@ -69,6 +72,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
       page,
       world: world ?? null,
       q: q ?? "",
+      imageBase: getImageBase(platform),
     };
   },
 );
@@ -118,7 +122,7 @@ export default component$(() => {
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
-  const { rows, total, page, world, q } = data.value;
+  const { rows, total, page, world, q, imageBase } = data.value;
   const pageCount = lastPage(total, PAGE_SIZE);
   const filtered = Boolean(world || q);
   const pageUrl = (p: number) => mediaListHref({ world, q, page: p });
@@ -225,6 +229,9 @@ export default component$(() => {
                   <th scope="col" class="w-14 px-4 py-2.5 font-medium">
                     ID
                   </th>
+                  <th scope="col" class="w-[8.5rem] px-4 py-2.5 font-medium">
+                    <span class="sr-only">Thumbnail</span>
+                  </th>
                   <th scope="col" class="px-4 py-2.5 font-medium">
                     File
                   </th>
@@ -252,9 +259,18 @@ export default component$(() => {
                 {rows.map((row) => (
                   <tr
                     key={row.id}
-                    class="relative align-top transition-colors hover:bg-sky-50/60 has-[a:focus-visible]:bg-sky-50/60 dark:hover:bg-sky-950/30 dark:has-[a:focus-visible]:bg-sky-950/30"
+                    class="relative align-middle transition-colors hover:bg-sky-50/60 has-[a:focus-visible]:bg-sky-50/60 dark:hover:bg-sky-950/30 dark:has-[a:focus-visible]:bg-sky-950/30"
                   >
                     <td class={["px-4 py-3 tabular-nums", muted]}>{row.id}</td>
+                    <td class="px-4 py-2">
+                      <Thumb
+                        file={row.file}
+                        world={row.world}
+                        imageBase={imageBase}
+                        variant="list"
+                        class="h-14 rounded-md"
+                      />
+                    </td>
                     <td class="px-4 py-3">
                       <Link
                         href={`/media/${row.id}/`}
@@ -299,20 +315,29 @@ export default component$(() => {
                 <Link
                   href={`/media/${row.id}/`}
                   title={row.file}
-                  class="flex flex-col gap-2 px-4 py-3 active:bg-sky-50 dark:active:bg-sky-950/30"
+                  class="flex items-start gap-3 px-4 py-3 active:bg-sky-50 dark:active:bg-sky-950/30"
                 >
-                  <div class="flex items-start justify-between gap-3">
-                    <FileName file={row.file} stacked />
-                    <span class={["shrink-0 text-xs tabular-nums", muted]}>
-                      #{row.id}
-                    </span>
-                  </div>
-                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                    <span class={worldBadge(row.world)}>{row.world}</span>
-                    <span class="tabular-nums">
-                      {formatJst(row.timestamp) ?? "—"}
-                    </span>
-                    {row.tags.length > 0 && <Tags tags={row.tags} />}
+                  <Thumb
+                    file={row.file}
+                    world={row.world}
+                    imageBase={imageBase}
+                    variant="list"
+                    class="w-24 rounded-md"
+                  />
+                  <div class="flex min-w-0 flex-1 flex-col gap-2">
+                    <div class="flex items-start justify-between gap-3">
+                      <FileName file={row.file} stacked />
+                      <span class={["shrink-0 text-xs tabular-nums", muted]}>
+                        #{row.id}
+                      </span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                      <span class={worldBadge(row.world)}>{row.world}</span>
+                      <span class="tabular-nums">
+                        {formatJst(row.timestamp) ?? "—"}
+                      </span>
+                      {row.tags.length > 0 && <Tags tags={row.tags} />}
+                    </div>
                   </div>
                 </Link>
               </li>
