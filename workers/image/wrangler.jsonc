@@ -1,0 +1,15 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Resizes gallery photos with Cloudflare Image Transformations (see
+  // src/index.ts). Deployed from main by Cloudflare Workers Builds; a manual
+  // deploy is `pnpm run deploy.image` from the repo root.
+  "name": "gallery-image",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "routes": [
+    { "pattern": "gallery.sksat.net/img/*", "zone_name": "sksat.net" },
+  ],
+  "vars": {
+    "ORIGIN_BASE_URL": "https://sksat-gallery.s3.us-west-002.backblazeb2.com",
+  },
+}

@@ -60,3 +60,6 @@ functions/**/*.js
 
 # pnpm store created when running pnpm inside the Playwright container (VRT baseline regeneration)
 .pnpm-store/
+
+# Claude Code agent worktrees
+.claude/worktrees/
