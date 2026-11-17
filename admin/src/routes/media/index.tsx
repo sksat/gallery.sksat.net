@@ -1,5 +1,13 @@
 import { component$ } from "@builder.io/qwik";
-import { Link, routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
+import {
+  Form,
+  Link,
+  routeAction$,
+  routeLoader$,
+  z,
+  zod$,
+  type DocumentHead,
+} from "@builder.io/qwik-city";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { StatePanel } from "~/components/state-panel";
 import {
@@ -10,9 +18,11 @@ import {
   label,
   muted,
   tagChip,
+  VISIBILITY_LABELS,
+  visibilityBadge,
   worldBadge,
 } from "~/components/ui";
-import { listMedia } from "~/lib/db";
+import { listMedia, MAX_BULK_IDS, setVisibility } from "~/lib/db";
 import { listMediaFiles } from "~/lib/db-files";
 import { FileBrowser, type FileTile } from "~/components/file-browser";
 import { Thumb } from "~/components/thumb";
@@ -32,9 +42,17 @@ import {
   splitPath,
   type MediaView,
 } from "~/lib/format";
-import type { MediaRow, MediaWorld } from "~/lib/types";
+import {
+  isVisibility,
+  VISIBILITIES,
+  type MediaRow,
+  type MediaWorld,
+  type Visibility,
+} from "~/lib/types";
+import { validateBulkVisibility } from "~/lib/validate";
 
-const PAGE_SIZE = 100;
+// One page is also the most a bulk change can touch.
+const PAGE_SIZE = MAX_BULK_IDS;
 /**
  * The files view builds its tree from every (filtered) row in one query of
  * id/file/world. Far above today's size; past it the tree is incomplete
@@ -59,6 +77,7 @@ type MediaListResult =
       total: number;
       page: number;
       world: MediaWorld | null;
+      visibility: Visibility | null;
       q: string;
       /** Image Worker base URL, or null for placeholder tiles. */
       imageBase: string | null;
@@ -80,12 +99,15 @@ export const useMediaList = routeLoader$<MediaListResult>(
     const worldRaw = query.get("world");
     const world: MediaWorld | undefined =
       worldRaw === "Real" || worldRaw === "VRChat" ? worldRaw : undefined;
+    const visibilityRaw = query.get("visibility");
+    const visibility = isVisibility(visibilityRaw) ? visibilityRaw : undefined;
     const q = query.get("q")?.trim() || undefined;
     const imageBase = getImageBase(platform);
 
     if (parseView(query.get("view")) === "files") {
       const { rows, truncated } = await listMediaFiles(db, {
         world,
+        visibility,
         q,
         limit: FILES_LIMIT,
       });
@@ -98,6 +120,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
         total: rows.length,
         page: 1,
         world: world ?? null,
+        visibility: visibility ?? null,
         q: q ?? "",
         imageBase,
         files: {
@@ -116,6 +139,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
 
     const { rows, total } = await listMedia(db, {
       world,
+      visibility,
       q,
       limit: PAGE_SIZE,
       offset,
@@ -125,7 +149,12 @@ export const useMediaList = routeLoader$<MediaListResult>(
     if (rows.length === 0 && page > 1) {
       throw redirect(
         302,
-        mediaListHref({ world, q, page: lastPage(total, PAGE_SIZE) }),
+        mediaListHref({
+          world,
+          visibility,
+          q,
+          page: lastPage(total, PAGE_SIZE),
+        }),
       );
     }
     return {
@@ -135,12 +164,59 @@ export const useMediaList = routeLoader$<MediaListResult>(
       total,
       page,
       world: world ?? null,
+      visibility: visibility ?? null,
       q: q ?? "",
       imageBase,
       files: null,
     };
   },
 );
+
+/** Bulk change: set the visibility of the photos ticked on this page. */
+export const useBulkVisibility = routeAction$(
+  async (data, { platform, fail }) => {
+    const v = validateBulkVisibility(
+      { ids: data.ids, visibility: data.visibility },
+      MAX_BULK_IDS,
+    );
+    if (!v.ok) return fail(400, { message: v.error });
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      console.error("/media bulk action: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
+    }
+    const changed = await setVisibility(db, v.ids, v.visibility);
+    return {
+      ok: true,
+      selected: v.ids.length,
+      changed,
+      visibility: v.visibility,
+    };
+  },
+  zod$({
+    // `ids[]` in the form; Qwik City collects repeated `[]` keys.
+    ids: z
+      .array(z.string().max(20))
+      .max(2 * MAX_BULK_IDS)
+      .default([]),
+    visibility: z.string().max(20),
+  }),
+);
+
+/**
+ * Tick or untick every photo checkbox of one layout. Only that layout's:
+ * the other one is hidden but its checked boxes would still be submitted,
+ * so unticking a row after "select all" would not take it out.
+ */
+const selectAll = (toggle: HTMLInputElement, layout: "table" | "phone") => {
+  toggle.form
+    ?.querySelectorAll<HTMLInputElement>(
+      `input[name="ids[]"][data-layout="${layout}"]`,
+    )
+    .forEach((cb) => (cb.checked = toggle.checked));
+};
 
 // Folder (muted) + basename. Rendered as two adjacent text nodes so the
 // element's text is still the full path (search / E2E match on it).
@@ -184,23 +260,30 @@ const Tags = component$<{ tags: string[] }>(({ tags }) =>
 
 export default component$(() => {
   const data = useMediaList();
+  const bulk = useBulkVisibility();
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
-  const { view, rows, total, page, world, q, imageBase, files } = data.value;
+  const { view, rows, total, page, world, visibility, q, imageBase, files } =
+    data.value;
   const pageCount = lastPage(total, PAGE_SIZE);
-  const filtered = Boolean(world || q);
+  const filtered = Boolean(world || visibility || q);
   const dir = files?.dir ?? "/";
-  const pageUrl = (p: number) => mediaListHref({ world, q, page: p });
+  const pageUrl = (p: number) =>
+    mediaListHref({ world, visibility, q, page: p });
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = (page - 1) * PAGE_SIZE + rows.length;
   // Switching keeps the filter; the folder is remembered only in files view.
   const viewTabs: { view: MediaView; label: string; href: string }[] = [
-    { view: "list", label: "List", href: mediaListHref({ world, q }) },
+    {
+      view: "list",
+      label: "List",
+      href: mediaListHref({ world, visibility, q }),
+    },
     {
       view: "files",
       label: "Files",
-      href: mediaListHref({ view: "files", dir, world, q }),
+      href: mediaListHref({ view: "files", dir, world, visibility, q }),
     },
   ];
 
@@ -245,7 +328,7 @@ export default component$(() => {
         role="search"
         class={[
           card,
-          "grid gap-3 p-4 sm:grid-cols-[10rem_1fr_auto] sm:items-end",
+          "grid gap-3 p-4 sm:grid-cols-[10rem_10rem_1fr_auto] sm:items-end",
         ]}
       >
         {view === "files" && (
@@ -268,6 +351,21 @@ export default component$(() => {
             <option value="VRChat" selected={world === "VRChat"}>
               VRChat
             </option>
+          </select>
+        </div>
+        <div>
+          <label for="filter-visibility" class={label}>
+            Visibility
+          </label>
+          <select id="filter-visibility" name="visibility" class={field}>
+            <option value="" selected={visibility === null}>
+              (any)
+            </option>
+            {VISIBILITIES.map((v) => (
+              <option key={v} value={v} selected={visibility === v}>
+                {VISIBILITY_LABELS[v]}
+              </option>
+            ))}
           </select>
         </div>
         <div>
@@ -308,9 +406,14 @@ export default component$(() => {
           >
             <p>
               Nothing in D1 matches
-              {world ? ` world “${world}”` : ""}
-              {world && q ? " and" : ""}
-              {q ? ` a file path containing “${q}”` : ""}.
+              {[
+                world && ` world “${world}”`,
+                visibility && ` visibility “${VISIBILITY_LABELS[visibility]}”`,
+                q && ` a file path containing “${q}”`,
+              ]
+                .filter(Boolean)
+                .join(" and")}
+              .
             </p>
           </StatePanel>
         ) : (
@@ -342,16 +445,73 @@ export default component$(() => {
             files={files.files}
             imageBase={imageBase}
             world={world}
+            visibility={visibility}
             q={q}
           />
         </>
       ) : (
-        <>
+        // Bulk change: tick photos (table rows or phone cards), pick a
+        // visibility, Apply. Both layouts carry the checkboxes; the hidden
+        // layout's stay unticked (each "select all" only touches its own
+        // layout), and the action deduplicates the ids anyway.
+        <Form action={bulk} class="space-y-3">
+          <div
+            class={[
+              card,
+              "flex flex-wrap items-center gap-3 px-4 py-3 text-sm",
+            ]}
+          >
+            <label class="flex items-center gap-2 sm:hidden">
+              <input
+                type="checkbox"
+                data-testid="select-all-phone"
+                onChange$={(_, el) => selectAll(el, "phone")}
+              />
+              Select all
+            </label>
+            <label for="bulk-visibility" class="font-medium">
+              Set visibility of selected to
+            </label>
+            <div class="w-36">
+              <select id="bulk-visibility" name="visibility" class={field}>
+                {VISIBILITIES.map((v) => (
+                  <option key={v} value={v}>
+                    {VISIBILITY_LABELS[v]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button type="submit" class={buttonSecondary}>
+              Apply
+            </button>
+            <div role="status" aria-live="polite">
+              {bulk.value?.ok && (
+                <p class="text-emerald-700 dark:text-emerald-400">
+                  {bulk.value.selected} selected, {bulk.value.changed} changed
+                  to {VISIBILITY_LABELS[bulk.value.visibility]}.
+                </p>
+              )}
+            </div>
+            {bulk.value?.failed && (
+              <p role="alert" class="text-red-700 dark:text-red-400">
+                {bulk.value.message ?? "Bulk change failed"}
+              </p>
+            )}
+          </div>
+
           {/* sm and up: table. Every row is one link target (stretched link). */}
           <div class={[card, "hidden overflow-hidden sm:block"]}>
             <table class="w-full table-fixed text-left text-sm">
               <thead class="border-b border-zinc-200 bg-zinc-50 text-xs tracking-wide text-zinc-500 uppercase dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
                 <tr>
+                  <th scope="col" class="w-10 py-2.5 pl-4">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all on this page"
+                      data-testid="select-all"
+                      onChange$={(_, el) => selectAll(el, "table")}
+                    />
+                  </th>
                   <th scope="col" class="w-14 px-4 py-2.5 font-medium">
                     ID
                   </th>
@@ -361,8 +521,8 @@ export default component$(() => {
                   <th scope="col" class="px-4 py-2.5 font-medium">
                     File
                   </th>
-                  <th scope="col" class="w-24 px-4 py-2.5 font-medium">
-                    World
+                  <th scope="col" class="w-28 px-4 py-2.5 font-medium">
+                    Status
                   </th>
                   <th scope="col" class="w-40 px-4 py-2.5 font-medium">
                     Taken
@@ -387,6 +547,17 @@ export default component$(() => {
                     key={row.id}
                     class="relative align-middle transition-colors hover:bg-sky-50/60 has-[a:focus-visible]:bg-sky-50/60 dark:hover:bg-sky-950/30 dark:has-[a:focus-visible]:bg-sky-950/30"
                   >
+                    <td class="py-3 pl-4">
+                      {/* Above the row's stretched link. */}
+                      <input
+                        type="checkbox"
+                        name="ids[]"
+                        data-layout="table"
+                        value={String(row.id)}
+                        aria-label={`Select #${row.id}`}
+                        class="relative z-10"
+                      />
+                    </td>
                     <td class={["px-4 py-3 tabular-nums", muted]}>{row.id}</td>
                     <td class="px-4 py-2">
                       <Thumb
@@ -407,7 +578,15 @@ export default component$(() => {
                       </Link>
                     </td>
                     <td class="px-4 py-3">
-                      <span class={worldBadge(row.world)}>{row.world}</span>
+                      <span class="flex flex-col items-start gap-1">
+                        <span class={worldBadge(row.world)}>{row.world}</span>
+                        <span
+                          data-testid="visibility-badge"
+                          class={visibilityBadge(row.visibility)}
+                        >
+                          {VISIBILITY_LABELS[row.visibility]}
+                        </span>
+                      </span>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap tabular-nums">
                       {formatJst(row.timestamp) ?? <span class={muted}>—</span>}
@@ -437,11 +616,19 @@ export default component$(() => {
             ]}
           >
             {rows.map((row) => (
-              <li key={row.id}>
+              <li key={row.id} class="flex items-start">
+                <input
+                  type="checkbox"
+                  name="ids[]"
+                  data-layout="phone"
+                  value={String(row.id)}
+                  aria-label={`Select #${row.id}`}
+                  class="mt-4 ml-4 shrink-0"
+                />
                 <Link
                   href={`/media/${row.id}/`}
                   title={row.file}
-                  class="flex items-start gap-3 px-4 py-3 active:bg-sky-50 dark:active:bg-sky-950/30"
+                  class="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 active:bg-sky-50 dark:active:bg-sky-950/30"
                 >
                   <Thumb
                     file={row.file}
@@ -459,6 +646,9 @@ export default component$(() => {
                     </div>
                     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                       <span class={worldBadge(row.world)}>{row.world}</span>
+                      <span class={visibilityBadge(row.visibility)}>
+                        {VISIBILITY_LABELS[row.visibility]}
+                      </span>
                       <span class="tabular-nums">
                         {formatJst(row.timestamp) ?? "—"}
                       </span>
@@ -469,7 +659,7 @@ export default component$(() => {
               </li>
             ))}
           </ul>
-        </>
+        </Form>
       )}
 
       {total > 0 && view === "list" && (

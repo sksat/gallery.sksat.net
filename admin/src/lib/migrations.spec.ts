@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { PUBLIC_ID_RE } from "./public-id";
 import { CAMERA_SLUG_RE } from "./validate";
 
 const migration = (name: string) =>
@@ -126,5 +127,145 @@ describe("0002_camera.sql", () => {
   it("rejects deleting a camera that still has photos", () => {
     const db = migrate([["/v1.png", "VRChat", "logilabo", "VirtualLens2"]]);
     expect(() => db.exec("DELETE FROM camera")).toThrow(/FOREIGN KEY/);
+  });
+});
+
+describe("0003_visibility.sql", () => {
+  const migrate3 = (rows: Parameters<typeof migrate>[0]) => {
+    const db = migrate(rows);
+    db.exec(migration("0003_visibility.sql"));
+    return db;
+  };
+
+  // Two files of the production media.json and one that was never in it.
+  const A = "/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png";
+  const B = "/2023-12-comsys2023/1212816_0002.JPG";
+  const UNPUBLISHED = "/2023-12-comsys2023/1212816_0001.JPG";
+
+  it("makes published photos public, the rest private, all with a public id", () => {
+    const db = migrate3([
+      [A, "VRChat", "logilabo", "VirtualLens2"],
+      [B, "Real", null, null],
+      [UNPUBLISHED, "Real", null, null],
+    ]);
+    const rows = db
+      .prepare(
+        "SELECT m.id, m.file, m.visibility, m.public_id, c.slug, m.tags, m.updated_at FROM media m LEFT JOIN camera c ON c.id = m.camera_id ORDER BY m.id",
+      )
+      .all();
+    expect(rows.map(({ public_id: _, ...r }) => r)).toEqual([
+      {
+        id: 1,
+        file: A,
+        visibility: "public",
+        slug: "virtuallens2",
+        tags: '["t"]',
+        updated_at: "2024-01-01T00:00:00.000Z",
+      },
+      {
+        id: 2,
+        file: B,
+        visibility: "public",
+        slug: null,
+        tags: '["t"]',
+        updated_at: "2024-01-01T00:00:00.000Z",
+      },
+      {
+        id: 3,
+        file: UNPUBLISHED,
+        visibility: "private",
+        slug: null,
+        tags: '["t"]',
+        updated_at: "2024-01-01T00:00:00.000Z",
+      },
+    ]);
+    const ids = rows.map((r) => r.public_id as string);
+    for (const id of ids) expect(id).toMatch(PUBLIC_ID_RE);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("freezes the old media.json position of known files", () => {
+    const db = migrate3([
+      ["/2023-12-comsys2023/1212816_0028.JPG", "Real", null, null],
+      ["/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png", "VRChat", null, null],
+      ["/new.png", "Real", null, null],
+    ]);
+    expect(
+      db.prepare("SELECT file, legacy_index FROM media ORDER BY id").all(),
+    ).toEqual([
+      { file: "/2023-12-comsys2023/1212816_0028.JPG", legacy_index: 50 },
+      {
+        file: "/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png",
+        legacy_index: 0,
+      },
+      { file: "/new.png", legacy_index: null },
+    ]);
+  });
+
+  it("keeps the id counter past deleted rows", () => {
+    const db = migrate([
+      ["/a", "Real", null, null],
+      ["/b", "Real", null, null],
+    ]);
+    db.exec("DELETE FROM media WHERE id = 2");
+    db.exec(migration("0003_visibility.sql"));
+    db.exec("INSERT INTO media (file, world) VALUES ('/c', 'Real')");
+    expect(db.prepare("SELECT id FROM media WHERE file = '/c'").get()).toEqual(
+      { id: 3 },
+    );
+    expect(
+      db.prepare("SELECT name, seq FROM sqlite_sequence WHERE name LIKE 'media%'").all(),
+    ).toEqual([{ name: "media", seq: 3 }]);
+  });
+
+  it("defaults new photos to private and fills in a public id", () => {
+    const db = migrate3([]);
+    db.exec("INSERT INTO media (file, world) VALUES ('/n.png', 'Real')");
+    const row = db
+      .prepare("SELECT visibility, public_id, legacy_index FROM media")
+      .get();
+    expect(row?.visibility).toBe("private");
+    expect(row?.public_id).toMatch(PUBLIC_ID_RE);
+    expect(row?.legacy_index).toBeNull();
+  });
+
+  it("never changes a public id once set", () => {
+    const db = migrate3([["/a", "Real", null, null]]);
+    expect(() =>
+      db.exec("UPDATE media SET public_id = 'abcdefghjk'"),
+    ).toThrow(/cannot be changed/);
+    expect(() => db.exec("UPDATE media SET public_id = NULL")).toThrow(
+      /cannot be changed/,
+    );
+    // Other columns stay editable.
+    db.exec("UPDATE media SET visibility = 'unlisted', tags = '[]'");
+    expect(db.prepare("SELECT visibility FROM media").get()).toEqual({
+      visibility: "unlisted",
+    });
+  });
+
+  it("rejects bad visibility, malformed or duplicate public ids", () => {
+    const db = migrate3([]);
+    db.exec(
+      "INSERT INTO media (file, world, public_id) VALUES ('/a', 'Real', 'abcdefghjk')",
+    );
+    expect(() =>
+      db.exec(
+        "INSERT INTO media (file, world, visibility) VALUES ('/b', 'Real', 'hidden')",
+      ),
+    ).toThrow(/CHECK/);
+    expect(() =>
+      db.exec(
+        "INSERT INTO media (file, world, public_id) VALUES ('/c', 'Real', 'abcdefghjk')",
+      ),
+    ).toThrow(/UNIQUE/);
+    for (const bad of ["abcdefghj", "abcdefghjo", "ABCDEFGHJK"]) {
+      expect(() =>
+        db.exec(
+          `INSERT INTO media (file, world, public_id) VALUES ('/d', 'Real', '${bad}')`,
+        ),
+      ).toThrow(/CHECK/);
+    }
   });
 });

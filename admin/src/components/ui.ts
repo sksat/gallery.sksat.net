@@ -32,6 +32,23 @@ export const worldBadge = (world: string): string =>
       : "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-800",
   ].join(" ");
 
+/** Labels for a photo's visibility (see Visibility in lib/types.ts). */
+export const VISIBILITY_LABELS = {
+  private: "Private",
+  unlisted: "Unlisted",
+  public: "Public",
+} as const;
+
+export const visibilityBadge = (visibility: string): string =>
+  [
+    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+    visibility === "public"
+      ? "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950 dark:text-sky-300 dark:ring-sky-800"
+      : visibility === "unlisted"
+        ? "bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-800"
+        : "bg-zinc-100 text-zinc-700 ring-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700",
+  ].join(" ");
+
 export const kindBadge =
   "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 ring-inset dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700";
 

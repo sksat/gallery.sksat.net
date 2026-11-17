@@ -2,12 +2,13 @@
 // tiles need (id, file, world), for every row matching the filter. Kept apart
 // from db.ts's listMedia, which pages full rows by date for the list view.
 
-import type { MediaWorld } from "./types";
+import type { MediaWorld, Visibility } from "./types";
 
 export type MediaFileRow = { id: number; file: string; world: MediaWorld };
 
 export type FilesParams = {
   world?: MediaWorld;
+  visibility?: Visibility;
   q?: string;
   limit: number;
 };
@@ -25,6 +26,10 @@ export const filesQuery = (
   if (params.world) {
     where.push("world = ?");
     args.push(params.world);
+  }
+  if (params.visibility) {
+    where.push("visibility = ?");
+    args.push(params.visibility);
   }
   if (params.q) {
     // Same LIKE escaping as listMedia: `%` / `_` in the query are literal.

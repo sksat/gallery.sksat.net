@@ -38,14 +38,25 @@ const film: CameraRow = {
 
 const media = (over: Partial<MediaRow>): MediaRow => ({
   id: 1,
+  public_id: "abcdefghjk",
   file: "/x.png",
   world: "VRChat",
   timestamp: null,
   camera_id: null,
   tags: [],
+  visibility: "public",
+  legacy_index: null,
   updated_at: UPDATED,
   ...over,
 });
+
+// Columns added by 0003_visibility.sql, for raw rows.
+const NEW_COLS = {
+  public_id: "abcdefghjk",
+  visibility: "unlisted",
+  legacy_index: 3,
+  updated_at: UPDATED,
+};
 
 describe("rowToMedia", () => {
   it("parses tags JSON and preserves nullable fields", () => {
@@ -56,9 +67,12 @@ describe("rowToMedia", () => {
       timestamp: "2023-12-11T01:21:32.519+09:00",
       camera_id: 4,
       tags: '["VRChat","portrait"]',
-      updated_at: UPDATED,
+      ...NEW_COLS,
     });
     expect(row.tags).toEqual(["VRChat", "portrait"]);
+    expect(row.public_id).toBe("abcdefghjk");
+    expect(row.visibility).toBe("unlisted");
+    expect(row.legacy_index).toBe(3);
     expect(row.camera_id).toBe(4);
     expect(row.timestamp).toBe("2023-12-11T01:21:32.519+09:00");
   });
@@ -71,7 +85,7 @@ describe("rowToMedia", () => {
       timestamp: null,
       camera_id: null,
       tags: "[]",
-      updated_at: UPDATED,
+      ...NEW_COLS,
     });
     expect(row.tags).toEqual([]);
     expect(row.camera_id).toBeNull();
@@ -86,9 +100,24 @@ describe("rowToMedia", () => {
         timestamp: null,
         camera_id: null,
         tags: "[]",
-        updated_at: UPDATED,
+        ...NEW_COLS,
       }),
     ).toThrow(/unknown world/);
+  });
+
+  it("rejects unknown visibility value", () => {
+    expect(() =>
+      rowToMedia({
+        id: 3,
+        file: "x",
+        world: "Real",
+        timestamp: null,
+        camera_id: null,
+        tags: "[]",
+        ...NEW_COLS,
+        visibility: "secret",
+      }),
+    ).toThrow(/unknown visibility/);
   });
 
   it("rejects a JSON array whose elements are not strings", () => {
@@ -100,7 +129,7 @@ describe("rowToMedia", () => {
         timestamp: null,
         camera_id: null,
         tags: "[1,2,3]",
-        updated_at: UPDATED,
+        ...NEW_COLS,
       }),
     ).toThrow(/tags column/);
   });
@@ -114,7 +143,7 @@ describe("rowToMedia", () => {
         timestamp: null,
         camera_id: null,
         tags: "not json",
-        updated_at: UPDATED,
+        ...NEW_COLS,
       }),
     ).toThrow(/not valid JSON/);
   });

@@ -2,7 +2,7 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { listMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
-import type { MediaWorld } from "~/lib/types";
+import { isVisibility, type MediaWorld } from "~/lib/types";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -43,8 +43,16 @@ export const onGet: RequestHandler = withErrorHandler(
     );
     const world = parseWorld(url.searchParams.get("world"));
     const q = url.searchParams.get("q") ?? undefined;
+    const v = url.searchParams.get("visibility");
+    const visibility = isVisibility(v) ? v : undefined;
 
-    const result = await listMedia(db, { world, q, limit, offset });
+    const result = await listMedia(db, {
+      world,
+      visibility,
+      q,
+      limit,
+      offset,
+    });
     json(200, { ...result, limit, offset });
   },
 );

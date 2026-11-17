@@ -17,13 +17,15 @@ import {
   label,
   link,
   muted,
+  VISIBILITY_LABELS,
+  visibilityBadge,
   worldBadge,
 } from "~/components/ui";
 import { getCamera, getMedia, listCameras, updateMedia } from "~/lib/db";
 import { Thumb } from "~/components/thumb";
 import { getDB, getImageBase } from "~/lib/env";
-import { formatJst, splitPath } from "~/lib/format";
-import type { MediaRow } from "~/lib/types";
+import { formatJst, publicPhotoUrl, splitPath } from "~/lib/format";
+import { VISIBILITIES, type MediaRow, type Visibility } from "~/lib/types";
 import {
   parseCameraIdInput,
   parseTagsInput,
@@ -91,6 +93,7 @@ export const useUpdateMedia = routeAction$(
       world: data.world,
       camera_id: parseCameraIdInput(data.camera_id),
       tags: parseTagsInput(data.tags ?? ""),
+      visibility: data.visibility,
     });
     if (!v.ok) {
       return fail(400, { message: v.error });
@@ -120,8 +123,18 @@ export const useUpdateMedia = routeAction$(
     // silently clear the photo's camera. "" = none.
     camera_id: z.string().max(20),
     tags: z.string().max(2000).default(""),
+    // Required: a submission without it must not change who can see the
+    // photo.
+    visibility: z.enum(VISIBILITIES),
   }),
 );
+
+/** What each visibility means on the public site. */
+const VISIBILITY_HELP: Record<Visibility, string> = {
+  private: "Only in the admin. The public site answers 404.",
+  unlisted: "Opens from its URL, but never shown in the gallery list.",
+  public: "Listed in the gallery.",
+};
 
 export default component$(() => {
   const media = useMedia();
@@ -176,6 +189,12 @@ export default component$(() => {
             Edit #{row.id}
           </h1>
           <span class={worldBadge(row.world)}>{row.world}</span>
+          <span
+            data-testid="visibility-badge"
+            class={visibilityBadge(row.visibility)}
+          >
+            {VISIBILITY_LABELS[row.visibility]}
+          </span>
         </div>
       </div>
 
@@ -209,6 +228,25 @@ export default component$(() => {
             <span class={muted}>(none)</span>
           )}
         </dd>
+        <dt class={["font-medium", muted]}>Public URL</dt>
+        <dd class="min-w-0 break-all">
+          {/* Private photos have no working public URL; show it as text. */}
+          {row.visibility === "private" ? (
+            <span data-testid="public-url" class={muted}>
+              {publicPhotoUrl(row.public_id)}
+            </span>
+          ) : (
+            <a
+              data-testid="public-url"
+              href={publicPhotoUrl(row.public_id)}
+              target="_blank"
+              rel="noopener"
+              class={link}
+            >
+              {publicPhotoUrl(row.public_id)}
+            </a>
+          )}
+        </dd>
         <dt class={["font-medium", muted]}>Last updated</dt>
         <dd title={row.updated_at} class="tabular-nums">
           {formatJst(row.updated_at)}{" "}
@@ -217,6 +255,32 @@ export default component$(() => {
       </dl>
 
       <Form action={action} class={[card, "space-y-6 p-5"]}>
+        <fieldset class="space-y-3">
+          <legend class={legend}>Visibility</legend>
+          <div class="grid gap-2 sm:grid-cols-3">
+            {VISIBILITIES.map((v) => (
+              <label
+                key={v}
+                class="flex cursor-pointer gap-2 rounded-lg border border-zinc-200 p-3 text-sm has-[:checked]:border-sky-500 has-[:checked]:bg-sky-50/60 dark:border-zinc-800 dark:has-[:checked]:bg-sky-950/30"
+              >
+                <input
+                  type="radio"
+                  name="visibility"
+                  value={v}
+                  checked={row.visibility === v}
+                  class="mt-0.5"
+                />
+                <span>
+                  <span class="block font-medium">{VISIBILITY_LABELS[v]}</span>
+                  <span class={["block text-xs", muted]}>
+                    {VISIBILITY_HELP[v]}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <fieldset class="space-y-3">
           <legend class={legend}>Category</legend>
           <div class="max-w-xs">

@@ -73,13 +73,29 @@ export type CameraJSON = {
   images: CameraImageJSON[];
 };
 
+/**
+ * Who can see a photo on the public site: `private` = nobody (the default
+ * for new photos), `unlisted` = anyone with its URL but never in lists,
+ * `public` = listed.
+ */
+export const VISIBILITIES = ["private", "unlisted", "public"] as const;
+export type Visibility = (typeof VISIBILITIES)[number];
+
+export const isVisibility = (v: unknown): v is Visibility =>
+  (VISIBILITIES as readonly unknown[]).includes(v);
+
 export type MediaRow = {
   id: number;
+  /** Id in public URLs (/photo/<public_id>); fixed at creation. */
+  public_id: string;
   file: string;
   world: MediaWorld;
   timestamp: string | null;
   camera_id: number | null;
   tags: string[];
+  visibility: Visibility;
+  /** N of the old /photo/<N> URL, for photos that had one. */
+  legacy_index: number | null;
   updated_at: string;
 };
 
@@ -87,4 +103,5 @@ export type MediaPatch = {
   world?: MediaWorld;
   camera_id?: number | null;
   tags?: string[];
+  visibility?: Visibility;
 };

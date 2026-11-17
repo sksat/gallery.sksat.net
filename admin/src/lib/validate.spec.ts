@@ -5,8 +5,55 @@ import {
   validateCamera,
   validateCameraImage,
   validateImageFile,
+  validateBulkVisibility,
   validatePatch,
 } from "./validate";
+
+describe("validatePatch visibility", () => {
+  it("accepts each visibility", () => {
+    for (const v of ["private", "unlisted", "public"]) {
+      const r = validatePatch({ visibility: v });
+      expect(r).toEqual({ ok: true, patch: { visibility: v } });
+    }
+  });
+
+  it("rejects anything else", () => {
+    expect(validatePatch({ visibility: "hidden" }).ok).toBe(false);
+    expect(validatePatch({ visibility: null }).ok).toBe(false);
+  });
+});
+
+describe("validateBulkVisibility", () => {
+  it("parses form ids and deduplicates them", () => {
+    expect(
+      validateBulkVisibility(
+        { ids: ["3", "1", "3"], visibility: "unlisted" },
+        100,
+      ),
+    ).toEqual({ ok: true, ids: [3, 1], visibility: "unlisted" });
+  });
+
+  it("accepts a single id (one checkbox submits a string)", () => {
+    expect(
+      validateBulkVisibility({ ids: "7", visibility: "public" }, 100),
+    ).toEqual({ ok: true, ids: [7], visibility: "public" });
+  });
+
+  it("rejects no selection, bad ids, too many ids and bad visibility", () => {
+    const bad = [
+      { ids: [], visibility: "public" },
+      { ids: undefined, visibility: "public" },
+      { ids: ["0"], visibility: "public" },
+      { ids: ["1.5"], visibility: "public" },
+      { ids: ["-1"], visibility: "public" },
+      { ids: ["1"], visibility: "secret" },
+    ];
+    for (const input of bad) {
+      expect(validateBulkVisibility(input, 100).ok).toBe(false);
+    }
+    expect(validateBulkVisibility({ ids: ["1", "2", "3"], visibility: "public" }, 2).ok).toBe(false);
+  });
+});
 
 describe("validatePatch", () => {
   it("accepts a partial patch with only tags", () => {

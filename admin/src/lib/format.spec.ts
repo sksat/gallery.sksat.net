@@ -4,8 +4,25 @@ import {
   lastPage,
   mediaListHref,
   parseView,
+  publicPhotoUrl,
   splitPath,
 } from "./format";
+
+describe("mediaListHref visibility", () => {
+  it("keeps the visibility filter", () => {
+    expect(mediaListHref({ visibility: "private", page: 2 })).toBe(
+      "/media/?visibility=private&page=2",
+    );
+  });
+});
+
+describe("publicPhotoUrl", () => {
+  it("points at the photo page on the public site", () => {
+    expect(publicPhotoUrl("abcdefghjk")).toBe(
+      "https://gallery.sksat.net/photo/abcdefghjk/",
+    );
+  });
+});
 
 describe("splitPath", () => {
   it("splits a nested path into folder and basename", () => {

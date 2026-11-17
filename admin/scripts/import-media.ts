@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { generatePublicId } from "../src/lib/public-id";
 
 type MediaCamera = { make: string; model: string };
 type MediaInfoJSON = {
@@ -113,7 +114,12 @@ for (const item of items) {
     if (item.world !== "VRChat") cameras.get(key)!.onlyVRChat = false;
     cameraId = `(SELECT id FROM camera WHERE manufacturer = ${sqlString(make)} AND model = ${sqlString(model)})`;
   }
+  // Photos in media.json are already on the public site, so they are
+  // imported as public. The public id is generated here (crypto) rather
+  // than by the column default.
   const cols = [
+    sqlString(generatePublicId()),
+    "'public'",
     sqlString(item.file),
     sqlString(item.world),
     sqlString(item.timestamp),
@@ -121,7 +127,7 @@ for (const item of items) {
     sqlString(JSON.stringify(item.tags ?? [])),
   ].join(", ");
   mediaLines.push(
-    `INSERT OR IGNORE INTO media (file, world, timestamp, camera_id, tags) VALUES (${cols});`,
+    `INSERT OR IGNORE INTO media (public_id, visibility, file, world, timestamp, camera_id, tags) VALUES (${cols});`,
   );
 }
 
