@@ -1,6 +1,8 @@
 import { component$ } from "@builder.io/qwik";
 
-import LogoSksat from "~/media/sksat.jpg?jsx";
+// The avatar with its grey square corners made transparent (the same
+// source as public/favicon.ico), so only the round icon shows on the header.
+import LogoSksat from "~/media/sksat-round.png?jsx";
 import HeaderSksat from "~/media/sksat-header.png?jsx";
 
 export default component$(() => {
@@ -18,7 +20,11 @@ export default component$(() => {
               not track. Keeping the router inactive avoids it acting on a
               stale URL (e.g. a <Link> to "/" being ignored as "same page"). */}
           <a href="/" title="" class="flex items-center">
-            <LogoSksat class="mr-4" style={{ width: 50, height: 50 }} />
+            <LogoSksat
+              class="mr-3 [image-rendering:pixelated]"
+              style={{ width: 56, height: 56 }}
+              alt=""
+            />
             <h2 style="color: white; text-shadow: 2px 2px 0px grey;">
               sksat gallery
             </h2>
