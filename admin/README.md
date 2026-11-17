@@ -117,7 +117,7 @@ admin/
 
 ## Environment Variables
 
-Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler secret put` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials:
+Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler pages secret put <NAME> --project-name admin-gallery-sksat-net --env production` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials. Set B2 secrets for **production only**: preview deployments run unreviewed code (e.g. Renovate PRs) and must not be able to write to the bucket.
 
 | Var                    | Where            | Used by |
 | ---------------------- | ---------------- | ------- |
@@ -136,11 +136,15 @@ Bindings:
 The metadata that backs `media.json` lives in a D1 database. Production rollout:
 
 ```bash
-# 1. Create the D1 database (one-time). Capture the printed database_id.
+# 1. Create the D1 database (one-time) and put the printed database_id in
+#    wrangler.jsonc (top-level `d1_databases`). It is committed: Pages reads
+#    bindings from wrangler.jsonc, not the dashboard, and the id is not a
+#    credential. Preview deployments (`env.preview`) intentionally have no D1.
 pnpm db.create
 
-# 2. Edit wrangler.jsonc locally — swap the all-zero placeholder `database_id`
-#    for the real id. Do not commit this local edit.
+# 2. (already done for gallery-admin: 70d6bc59-9937-48e0-90bb-0ef8a2a53bcd)
+#    Local D1 state is keyed by database_id: data you seeded while the id was
+#    the all-zero placeholder is no longer used — re-run the local steps below.
 
 # 3. Apply schema migrations.
 pnpm db.migrate.remote   # production
