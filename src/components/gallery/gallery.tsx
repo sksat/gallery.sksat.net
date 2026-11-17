@@ -8,7 +8,6 @@ import {
   useStore,
 } from "@builder.io/qwik";
 
-// import styles from "./gallery.module.css"; // Removed due to Qwik SSR + Tailwind v4 compatibility issues
 import {
   transformMediaInfo,
   type MediaWorld,

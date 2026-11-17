@@ -95,7 +95,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 ### Styling
 
 - **Tailwind CSS** configured (scans `src/**/*.{js,ts,jsx,tsx,mdx}`)
-- **CSS Modules** for component-specific styles (e.g., `gallery.module.css`)
+- **CSS Modules** are not used for the gallery (Qwik SSR + Tailwind v4 issues); prefer Tailwind utilities
 - Global styles in `src/routes/styles.css`
 
 ### Key Qwik Patterns
