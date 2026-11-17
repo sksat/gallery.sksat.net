@@ -35,7 +35,13 @@ pnpm exec wrangler pages dev ./dist \
   --inspector-port $((NOAUTH_PORT + 4000)) \
   --ip 127.0.0.1 --port "$NOAUTH_PORT" &
 NOAUTH_PID=$!
-trap 'kill "$NOAUTH_PID" 2>/dev/null || true' EXIT INT TERM
+
+# Uploads go to a fake bucket on PORT+2 (e2e/fake-b2.mjs) that checks the
+# presigned PUTs with this test key. Never the real B2.
+FAKE_B2_PORT=$((PORT + 2))
+node e2e/fake-b2.mjs "$FAKE_B2_PORT" sksat-gallery e2e-key-id e2e-secret us-west-002 &
+FAKE_B2_PID=$!
+trap 'kill "$NOAUTH_PID" "$FAKE_B2_PID" 2>/dev/null || true' EXIT INT TERM
 
 # ACCESS_DISABLED=1: there is no Cloudflare Access in front of the local
 # server, so skip JWT verification for the functional E2E server only.
@@ -47,5 +53,9 @@ pnpm exec wrangler pages dev ./dist \
   --persist-to "$PERSIST_DIR" \
   --binding ACCESS_DISABLED=1 \
   --binding THUMBNAILS= \
+  --binding "B2_ENDPOINT=http://127.0.0.1:${FAKE_B2_PORT}" \
+  --binding B2_UPLOAD_KEY_ID=e2e-key-id \
+  --binding B2_UPLOAD_APPLICATION_KEY=e2e-secret \
+  --binding "E2E_FAKE_B2_STAT_URL=http://127.0.0.1:${FAKE_B2_PORT}/__stat" \
   --ip 127.0.0.1 --port "$PORT" &
 wait $!

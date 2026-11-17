@@ -1,0 +1,216 @@
+// D1 side of uploads (see 0004_upload.sql): reserve a row before the PUT,
+// mark it ready after, and list / drop the ones that never completed.
+// Covered by db-upload.spec.ts on the real schema.
+
+import type { UploadInit } from "./upload";
+import type { MediaWorld } from "./types";
+
+export type InitOutcome =
+  /**
+   * Upload to the row `id` at `file` (new, or an earlier attempt being
+   * resumed). `file` differs from the requested path when that was taken
+   * by another photo ("IMG_0001-1.jpg"), or when the same photo's earlier
+   * attempt went elsewhere.
+   */
+  | { kind: "upload"; id: number; file: string; resumed: boolean }
+  /** This photo (same SHA-256) is already uploaded, at `file`. */
+  | { kind: "exists"; id: number; file: string }
+  /** Cannot upload here; `message` says why. */
+  | { kind: "conflict"; message: string; retry: boolean };
+
+type Existing = {
+  id: number;
+  file: string;
+  status: string;
+  sha256: string | null;
+};
+
+const isUniqueError = (err: unknown) =>
+  err instanceof Error && /UNIQUE constraint failed: media\./.test(err.message);
+
+/**
+ * Reserve a path for an upload of `init.file`. A new row is private,
+ * `uploading`, with the given public id and world; when another photo
+ * already has that path, the first free numbered name is used instead
+ * (numberedPaths). An `uploading` row with the same hash is resumed (a
+ * retry, or picking the same file again after a failure).
+ */
+export const initUpload = async (
+  db: D1Database,
+  init: UploadInit,
+  row: { publicId: string; world: MediaWorld },
+): Promise<InitOutcome> => {
+  const candidates = numberedPaths(init.file);
+  const found =
+    (
+      await db
+        .prepare(
+          `SELECT id, file, status, sha256 FROM media
+           WHERE sha256 = ?1 OR file IN (SELECT value FROM json_each(?2))`,
+        )
+        .bind(init.sha256, JSON.stringify(candidates))
+        .all<Existing>()
+    ).results ?? [];
+  const same = found.find((r) => r.sha256 === init.sha256);
+  if (same) {
+    if (same.status === "ready") {
+      return { kind: "exists", id: same.id, file: same.file };
+    }
+    return { kind: "upload", id: same.id, file: same.file, resumed: true };
+  }
+  const taken = new Set(found.map((r) => r.file));
+  const file = candidates.find((c) => !taken.has(c));
+  if (!file) {
+    return {
+      kind: "conflict",
+      message: `${init.file} と同じ名前が多すぎます`,
+      retry: false,
+    };
+  }
+  try {
+    const inserted = await db
+      .prepare(
+        `INSERT INTO media (public_id, file, world, timestamp, tags, visibility, status, size, sha256)
+         VALUES (?, ?, ?, ?, '[]', 'private', 'uploading', ?, ?) RETURNING id`,
+      )
+      .bind(
+        row.publicId,
+        file,
+        row.world,
+        init.timestamp,
+        init.size,
+        init.sha256,
+      )
+      .first<{ id: number }>();
+    if (!inserted) throw new Error("INSERT INTO media returned no row");
+    return { kind: "upload", id: inserted.id, file, resumed: false };
+  } catch (err) {
+    // Lost a race with another upload of the same path or photo; the
+    // browser retries (and then resumes or takes the next name).
+    if (isUniqueError(err)) {
+      return {
+        kind: "conflict",
+        message: `${file} は別のアップロードと重なりました`,
+        retry: true,
+      };
+    }
+    throw err;
+  }
+};
+
+/** How many numbered names are tried after the requested one. */
+export const MAX_NAME_NUMBER = 50;
+
+/**
+ * `file` and its numbered variants, in the order they are tried:
+ * "/a/IMG.jpg", "/a/IMG-1.jpg", ..., "/a/IMG-50.jpg".
+ */
+export const numberedPaths = (file: string): string[] => {
+  const slash = file.lastIndexOf("/");
+  const dot = file.lastIndexOf(".");
+  const stem = dot > slash ? file.slice(0, dot) : file;
+  const ext = dot > slash ? file.slice(dot) : "";
+  return [
+    file,
+    ...Array.from(
+      { length: MAX_NAME_NUMBER },
+      (_, i) => `${stem}-${i + 1}${ext}`,
+    ),
+  ];
+};
+
+/** What the bucket has at a path (HEAD), or null when nothing is there. */
+export type ObjectStat = { size: number; sha256: string | null };
+
+export type CompleteOutcome =
+  | { kind: "ready" }
+  | { kind: "not-found" }
+  /** The bucket has no file at the row's path. */
+  | { kind: "missing" }
+  /** The file in the bucket is not the one that was announced. */
+  | { kind: "mismatch"; message: string };
+
+/**
+ * Mark an upload ready once the bucket has the announced file: `stat`
+ * (the image Worker's HEAD, which can read the bucket) must report the
+ * row's size and SHA-256 metadata. "ready" also when the row already was
+ * (the browser may retry a complete whose response it lost).
+ */
+export const completeUpload = async (
+  db: D1Database,
+  id: number,
+  stat: (file: string) => Promise<ObjectStat | null>,
+): Promise<CompleteOutcome> => {
+  const row = await db
+    .prepare("SELECT file, status, size, sha256 FROM media WHERE id = ?")
+    .bind(id)
+    .first<{
+      file: string;
+      status: string;
+      size: number | null;
+      sha256: string | null;
+    }>();
+  if (!row) return { kind: "not-found" };
+  if (row.status === "ready") return { kind: "ready" };
+  const object = await stat(row.file);
+  if (!object) return { kind: "missing" };
+  if (row.size !== null && object.size !== row.size) {
+    return {
+      kind: "mismatch",
+      message: `サイズが違います (${object.size} / ${row.size} バイト)`,
+    };
+  }
+  if (row.sha256 !== null && object.sha256 !== row.sha256) {
+    return { kind: "mismatch", message: "SHA-256 が違います" };
+  }
+  const [, after] = await db.batch([
+    db
+      .prepare(
+        `UPDATE media SET status = 'ready',
+           uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ? AND status = 'uploading'`,
+      )
+      .bind(id),
+    db.prepare("SELECT status FROM media WHERE id = ?").bind(id),
+  ]);
+  const now = (after.results ?? [])[0] as { status: string } | undefined;
+  // Deleted meanwhile (incomplete uploads can be deleted).
+  return now?.status === "ready" ? { kind: "ready" } : { kind: "not-found" };
+};
+
+/**
+ * Forget an upload that never completed (only `uploading` rows; a ready
+ * photo is never deleted here). A file the PUT may have stored stays in
+ * the bucket, unreferenced and not served; uploading to the same path
+ * again replaces it.
+ */
+export const deleteIncompleteUpload = async (
+  db: D1Database,
+  id: number,
+): Promise<boolean> => {
+  const res = await db
+    .prepare("DELETE FROM media WHERE id = ? AND status = 'uploading'")
+    .bind(id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+};
+
+export type IncompleteUpload = {
+  id: number;
+  file: string;
+  size: number | null;
+  updated_at: string;
+};
+
+/** Every upload that has not completed, by file. */
+export const listIncompleteUploads = async (
+  db: D1Database,
+): Promise<IncompleteUpload[]> => {
+  const res = await db
+    .prepare(
+      "SELECT id, file, size, updated_at FROM media WHERE status = 'uploading' ORDER BY file",
+    )
+    .all<IncompleteUpload>();
+  return res.results ?? [];
+};

@@ -39,6 +39,18 @@ import {
   type VisibilityChange,
 } from "~/lib/db";
 import { createFolder, listFolders, listMediaFiles } from "~/lib/db-files";
+import {
+  deleteIncompleteUpload,
+  listIncompleteUploads,
+  type IncompleteUpload,
+} from "~/lib/db-upload";
+import { getUploadConfig } from "~/lib/b2";
+import {
+  IncompleteUploads,
+  UploadButton,
+  UploadPanel,
+  useUploader,
+} from "~/components/uploader";
 import { FileBrowser, type FileTile } from "~/components/file-browser";
 import { SubmitButton } from "~/components/submit-button";
 import { Thumb } from "~/components/thumb";
@@ -46,6 +58,7 @@ import { Toast, type ToastState } from "~/components/toast";
 import { getDB, getImageBase } from "~/lib/env";
 import {
   buildFolderTree,
+  dirOf,
   filesInDir,
   findFolder,
   MAX_FOLDER_NAME_LEN,
@@ -92,6 +105,10 @@ type FilesData = {
   files: FileTile[];
   /** More rows matched than FILES_LIMIT. */
   truncated: boolean;
+  /** The B2 upload key is configured (production only). */
+  uploadEnabled: boolean;
+  /** Uploads into `dir` that never completed. */
+  incomplete: IncompleteUpload[];
 };
 
 type MediaListResult =
@@ -160,6 +177,10 @@ export const useMediaList = routeLoader$<MediaListResult>(
           folder: findFolder(tree, dir),
           files: filesInDir(rows, dir),
           truncated,
+          uploadEnabled: getUploadConfig(platform) !== null,
+          incomplete: (await listIncompleteUploads(db)).filter(
+            (u) => dirOf(u.file) === dir,
+          ),
         },
       };
     }
@@ -268,6 +289,30 @@ export const useRestoreVisibility = routeAction$(
 );
 
 /**
+ * Reload the page data (after uploads). Any action re-runs the loaders;
+ * this one does nothing else.
+ */
+export const useRefresh = routeAction$(() => ({ ok: true }));
+
+/** Forget an upload that never completed (ready photos are refused). */
+export const useDeleteIncomplete = routeAction$(
+  async (data, { platform, fail }) => {
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      console.error("/media delete-incomplete action: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
+    }
+    if (!(await deleteIncompleteUpload(db, data.id))) {
+      return fail(404, { message: "未完了のアップロードが見つかりません" });
+    }
+    return { ok: true };
+  },
+  zod$({ id: z.number().int().positive() }),
+);
+
+/**
  * Files view: create a folder `name` inside `dir` and open it. A folder
  * exists without files only as a `folder` row (see 0004_upload.sql).
  */
@@ -368,6 +413,24 @@ export default component$(() => {
   const bulk = useBulkVisibility();
   const restore = useRestoreVisibility();
   const newFolder = useCreateFolder();
+  const toast = useSignal<ToastState | null>(null);
+  const refresh = useRefresh();
+  const deleteIncomplete = useDeleteIncomplete();
+  const uploader = useUploader($(() => refresh.submit()));
+  const deleteIncompleteUpload$ = $(async (id: number) => {
+    const res = await deleteIncomplete.submit({ id });
+    if (res.value.failed) {
+      toast.value = {
+        tone: "error",
+        message: res.value.message ?? "削除できませんでした",
+      };
+    }
+  });
+  // After an upload: the photos are private; one tap makes them visible
+  // (through the bulk action, so its toast and undo apply).
+  const setUploadedVisibility = $((ids: number[], v: Visibility) =>
+    bulk.submit({ ids: ids.map(String), visibility: v }),
+  );
   const newFolderOpen = useSignal(false);
   const nav = useNavigate();
   const loc = useLocation();
@@ -427,7 +490,6 @@ export default component$(() => {
   const selectChanged = $((select: HTMLSelectElement) => {
     if (select.form && sheet.value?.open) return applyFilter(select.form);
   });
-  const toast = useSignal<ToastState | null>(null);
   /** The last bulk change (its target and previous visibilities), for undo. */
   const lastChange = useSignal<{
     from: Visibility;
@@ -903,15 +965,31 @@ export default component$(() => {
                   </button>
                 </Form>
               ) : (
-                <button
-                  type="button"
-                  onClick$={() => (newFolderOpen.value = true)}
-                  class={[buttonSecondary, "max-sm:w-full"]}
-                >
-                  <span aria-hidden="true">＋</span>
-                  New folder
-                </button>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    onClick$={() => (newFolderOpen.value = true)}
+                    class={[buttonSecondary, "max-sm:flex-1"]}
+                  >
+                    <span aria-hidden="true">＋</span>
+                    New folder
+                  </button>
+                  {files.uploadEnabled && (
+                    <UploadButton uploader={uploader} dir={files.dir} />
+                  )}
+                </div>
               )}
+            </div>
+            <div q:slot="panel" class="space-y-4">
+              <UploadPanel
+                uploader={uploader}
+                onSetVisibility$={setUploadedVisibility}
+              />
+              <IncompleteUploads
+                rows={files.incomplete}
+                uploader={uploader}
+                onDelete$={deleteIncompleteUpload$}
+              />
             </div>
           </FileBrowser>
         </>

@@ -33,6 +33,9 @@ export type AccessResult =
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+/** Local test servers only (gates the E2E-only bindings). */
+export const isLoopback = (hostname: string): boolean => LOOPBACK.has(hostname);
+
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
 
 /** Read config from bindings; null if incomplete (caller must fail closed). */

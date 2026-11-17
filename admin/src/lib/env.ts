@@ -24,6 +24,21 @@ export type AdminImages = {
     preset: string,
     accept: string | null,
   ): Promise<Response>;
+  /** The bucket's object at `file` (workers/image/src/stat.ts). */
+  stat(
+    accessJwt: string | null,
+    file: string,
+  ): Promise<
+    | {
+        ok: true;
+        stat: {
+          size: number;
+          etag: string | null;
+          sha256: string | null;
+        } | null;
+      }
+    | { ok: false; status: number }
+  >;
 };
 
 /** The `IMAGES` binding, or null when it is not bound. */
