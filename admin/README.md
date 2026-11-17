@@ -119,13 +119,14 @@ admin/
 
 Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler pages secret put <NAME> --project-name admin-gallery-sksat-net --env production` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials. Set B2 secrets for **production only**: preview deployments run unreviewed code (e.g. Renovate PRs) and must not be able to write to the bucket.
 
-| Var                    | Where            | Used by |
-| ---------------------- | ---------------- | ------- |
-| `B2_REGION`            | `vars`           | publish |
-| `B2_BUCKET`            | `vars`           | publish |
-| `B2_ENDPOINT`          | `vars`           | publish |
-| `B2_ACCESS_KEY_ID`     | secret/.dev.vars | publish |
-| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars | publish |
+| Var                    | Where            | Used by                                         |
+| ---------------------- | ---------------- | ----------------------------------------------- |
+| `B2_REGION`            | `vars`           | publish                                         |
+| `B2_BUCKET`            | `vars`           | publish                                         |
+| `B2_ENDPOINT`          | `vars`           | publish                                         |
+| `B2_ACCESS_KEY_ID`     | secret/.dev.vars | publish                                         |
+| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars | publish                                         |
+| `IMAGE_BASE_URL`       | `vars`           | thumbnails (image Worker; empty = placeholders) |
 
 Bindings:
 

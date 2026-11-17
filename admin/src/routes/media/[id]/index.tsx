@@ -20,13 +20,14 @@ import {
   worldBadge,
 } from "~/components/ui";
 import { getMedia, updateMedia } from "~/lib/db";
-import { getDB } from "~/lib/env";
+import { Thumb } from "~/components/thumb";
+import { getDB, getImageBase } from "~/lib/env";
 import { formatJst, splitPath } from "~/lib/format";
 import type { MediaRow } from "~/lib/types";
 import { parseTagsInput, validatePatch } from "~/lib/validate";
 
 type MediaLoaderResult =
-  | { kind: "ok"; row: MediaRow }
+  | { kind: "ok"; row: MediaRow; imageBase: string | null }
   | { kind: "missing-binding" }
   | { kind: "bad-request" }
   | { kind: "not-found" };
@@ -53,7 +54,7 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
       status(404);
       return { kind: "not-found" };
     }
-    return { kind: "ok", row };
+    return { kind: "ok", row, imageBase: getImageBase(platform) };
   },
 );
 
@@ -150,6 +151,14 @@ export default component$(() => {
           <span class={worldBadge(row.world)}>{row.world}</span>
         </div>
       </div>
+
+      <Thumb
+        file={row.file}
+        world={row.world}
+        imageBase={media.value.imageBase}
+        variant="preview"
+        class="w-full rounded-xl border border-zinc-200 dark:border-zinc-800"
+      />
 
       <dl
         class={[

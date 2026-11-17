@@ -1,6 +1,8 @@
 // Runtime accessor for Cloudflare Pages bindings (D1 + B2 secrets).
 // Pages' platform.env is typed as Record<string, any>; we narrow it here.
 
+import { normalizeImageBase } from "./images";
+
 export type AdminEnv = {
   DB: D1Database;
   B2_REGION: string;
@@ -21,6 +23,16 @@ export const getDB = (
   }
   return db as D1Database;
 };
+
+/**
+ * Image Worker base URL (IMAGE_BASE_URL var, e.g.
+ * "https://gallery.sksat.net/img"), or null to show placeholders. Read on
+ * the server at request time and handed to the page via routeLoader$, so
+ * it is a runtime var rather than a build-time VITE_ one.
+ */
+export const getImageBase = (
+  platform: { env?: Record<string, unknown> } | undefined,
+): string | null => normalizeImageBase(platform?.env?.IMAGE_BASE_URL);
 
 export const getB2Env = (
   platform: { env?: Record<string, unknown> } | undefined,
