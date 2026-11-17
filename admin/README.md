@@ -31,7 +31,7 @@ pnpm serve
 2. Navigate to **Workers & Pages** → **Create application** → **Pages** → **Connect to Git**
 3. Select the repository: `sksat/gallery.sksat.net`
 4. Configure build settings:
-   - **Project name**: `gallery-admin` (or your preferred name)
+   - **Project name**: `admin-gallery-sksat-net` (must match `name` in `wrangler.jsonc`)
    - **Production branch**: `main`
    - **Framework preset**: None
    - **Build command**: `pnpm run build`
@@ -117,7 +117,7 @@ admin/
 
 ## Environment Variables
 
-Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler pages secret put <NAME> --project-name admin-gallery-sksat-net --env production` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials. Set secrets for **production only**: preview deployments run unreviewed code (e.g. Renovate PRs).
+Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `npx wrangler pages secret put <NAME>` run inside `admin/` (the project name comes from `wrangler.jsonc`; the secret goes to production) (or `.dev.vars` locally — see `.dev.vars.example`) for credentials. Set secrets for **production only**: preview deployments run unreviewed code (e.g. Renovate PRs).
 
 | Var          | Where  | Used by                                             |
 | ------------ | ------ | --------------------------------------------------- |
