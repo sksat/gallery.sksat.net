@@ -23,7 +23,7 @@ pnpm run test.e2e    # Playwright E2E (e2e/*.spec.ts) — runs e2e/start-test-se
 pnpm run test.vrt    # Playwright VRT (e2e/vrt/*.vrt.spec.ts)
 pnpm run test.vrt.update
 pnpm run build       # qwik build
-pnpm run deploy      # wrangler pages publish ./dist
+pnpm run deploy      # wrangler pages deploy ./dist --project-name admin-gallery-sksat-net (normally Git integration deploys instead)
 
 # D1 lifecycle (see README.md for the full flow)
 pnpm db.migrate.local
