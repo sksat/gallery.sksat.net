@@ -56,7 +56,7 @@ test("prev / next step through the filtered list", async ({ page }) => {
 
   // Still the same list to go back to.
   await page.getByRole("link", { name: "← Media" }).tap();
-  await expect(page).toHaveURL(/\/media\/\?world=VRChat$/);
+  await expect(page).toHaveURL(/\/media\/\?world=VRChat#m-4$/);
 });
 
 test("unsaved changes ask before leaving", async ({ page }) => {
@@ -98,17 +98,35 @@ test("a choice survives the page re-rendering around the form", async ({
   // The unsaved mark and unfolding the details re-render the page; the
   // radios must keep what was picked, not the saved value.
   await expect(page.getByTestId("dirty")).toBeVisible();
-  await page.getByRole("button", { name: /公開 URL/ }).tap();
+  await page.getByRole("button", { name: "ファイル・更新日時" }).tap();
   await expect(unlisted).toBeChecked();
   await expect(page.getByRole("radio", { name: /Public/ })).not.toBeChecked();
 });
 
-test("file, public URL and last updated are folded away", async ({ page }) => {
+test("file and last updated are folded away", async ({ page }) => {
   await page.goto("/media/2/");
-  const url = page.getByTestId("public-url");
-  await expect(url).toBeHidden();
-  await page.getByRole("button", { name: /公開 URL/ }).tap();
-  await expect(url).toBeVisible();
+  const file = page.getByText("vrchat1.png", { exact: true });
+  await expect(file).toBeHidden();
+  await expect(page.getByTestId("public-url")).toBeVisible();
+  await page.getByRole("button", { name: "ファイル・更新日時" }).tap();
+  await expect(file).toBeVisible();
   await page.getByRole("button", { name: "詳細を閉じる" }).tap();
-  await expect(url).toBeHidden();
+  await expect(file).toBeHidden();
+});
+
+test("copy the public link", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/media/2/");
+  await page.getByRole("button", { name: "リンクをコピー" }).tap();
+  await expect(page.getByRole("status")).toHaveText("コピーしました");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    "https://gallery.sksat.net/photo/aaaaaaaaa3/",
+  );
+
+  // A private photo's link does not work: no button.
+  await page.goto("/media/5/");
+  await expect(page.getByTestId("public-url")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "リンクをコピー" }),
+  ).toHaveCount(0);
 });

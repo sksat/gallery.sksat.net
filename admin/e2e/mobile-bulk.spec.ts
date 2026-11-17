@@ -17,7 +17,8 @@ test("the left column of a card ticks it without opening the photo", async ({
 }) => {
   await page.goto("/media/");
   const real1 = card(page, "real1.png");
-  await real1.scrollIntoViewIfNeeded();
+  // Mid-screen, clear of the tab bar along the bottom.
+  await real1.evaluate((e) => e.scrollIntoView({ block: "center" }));
   const box = await real1.boundingBox();
   if (!box) throw new Error("card not rendered");
   // Near the left edge, well away from the checkbox itself.

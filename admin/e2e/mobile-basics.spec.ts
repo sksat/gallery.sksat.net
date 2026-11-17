@@ -33,7 +33,8 @@ test("form controls use 16px text on phones", async ({ page }) => {
 });
 
 test("tap targets are at least 44px tall", async ({ page }) => {
-  await page.goto("/media/2/");
+  await page.goto("/camera/");
+  // The tab bar (the edit page swaps it for its own bar).
   const nav = page.getByRole("navigation", { name: "Main" });
   for (const name of ["Dashboard", "Media", "Cameras"]) {
     expect(
@@ -41,8 +42,10 @@ test("tap targets are at least 44px tall", async ({ page }) => {
     ).toBeGreaterThanOrEqual(44);
   }
   expect(
-    await height(page.getByRole("button", { name: /^Theme:/ })),
+    await height(page.getByLabel("Menu", { exact: true })),
   ).toBeGreaterThanOrEqual(44);
+
+  await page.goto("/media/2/");
   expect(
     await height(page.getByRole("link", { name: "← Media" })),
   ).toBeGreaterThanOrEqual(44);

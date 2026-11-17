@@ -75,6 +75,64 @@ export const publicPhotoUrl = (publicId: string): string =>
   `${PUBLIC_SITE_URL}/photo/${publicId}/`;
 
 /**
+ * "#m-<id>" on a /media list URL marks the photo the user came back from
+ * (the edit page's "← Media"), so the list can scroll to it.
+ */
+export const mediaAnchor = (id: number): string => `#m-${id}`;
+
+export const parseMediaAnchor = (hash: string): number | null => {
+  const m = /^#m-([1-9]\d{0,15})$/.exec(hash);
+  return m ? Number(m[1]) : null;
+};
+
+export type FilterChip = { key: string; label: string; href: string };
+
+/**
+ * The active /media filters as chips, each with the list URL that drops
+ * just that filter (keeping the view and folder; back to page 1).
+ */
+export const filterChips = (opts: {
+  view: MediaView;
+  dir: string;
+  world: string | null;
+  visibility: string | null;
+  q: string;
+  /** Display name of a visibility value. */
+  visibilityLabel: (v: string) => string;
+}): FilterChip[] => {
+  const base = {
+    view: opts.view,
+    dir: opts.dir,
+    world: opts.world,
+    visibility: opts.visibility,
+    q: opts.q,
+  };
+  const chips: FilterChip[] = [];
+  if (opts.world) {
+    chips.push({
+      key: "world",
+      label: opts.world,
+      href: mediaListHref({ ...base, world: null }),
+    });
+  }
+  if (opts.visibility) {
+    chips.push({
+      key: "visibility",
+      label: opts.visibilityLabel(opts.visibility),
+      href: mediaListHref({ ...base, visibility: null }),
+    });
+  }
+  if (opts.q) {
+    chips.push({
+      key: "q",
+      label: `“${opts.q}”`,
+      href: mediaListHref({ ...base, q: null }),
+    });
+  }
+  return chips;
+};
+
+/**
  * Edit page URL that remembers the list it was opened from (`?back=`), so
  * "← Media" returns to the same view, folder, filter and page.
  */

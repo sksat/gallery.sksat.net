@@ -62,6 +62,9 @@ export const FileBrowser = component$<Props>(
       return (
         <li key={node.path}>
           <Link
+            // Keyed by href: Qwik City's Link keeps the href it was first
+            // rendered with, and a filter applies without leaving /media.
+            key={href(node.path)}
             href={href(node.path)}
             // "page" is the view tab; this marks where we are in the tree.
             aria-current={selected ? "location" : undefined}
@@ -145,6 +148,7 @@ export const FileBrowser = component$<Props>(
                     </span>
                   ) : (
                     <Link
+                      key={href(c.path)}
                       href={href(c.path)}
                       class="inline-flex min-h-11 items-center rounded px-1 font-medium text-sky-700 underline-offset-4 hover:underline sm:min-h-0 sm:px-0 dark:text-sky-400"
                     >
@@ -173,6 +177,7 @@ export const FileBrowser = component$<Props>(
               {folder.children.map((child) => (
                 <li key={child.path}>
                   <Link
+                    key={href(child.path)}
                     href={href(child.path)}
                     data-testid="folder-tile"
                     title={child.path}
@@ -194,8 +199,10 @@ export const FileBrowser = component$<Props>(
                 return (
                   <li key={f.id}>
                     <Link
+                      key={href(dir)}
                       href={mediaEditHref(f.id, href(dir))}
                       data-testid="file-tile"
+                      data-media-id={f.id}
                       title={f.file}
                       class={[
                         card,

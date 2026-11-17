@@ -37,7 +37,11 @@ const iconProps = {
   "stroke-linejoin": "round" as const,
 };
 
-export const ThemeToggle = component$(() => {
+/**
+ * `menu`: a full-width row with a visible label, for the phone header's
+ * menu (the accessible name stays "Theme: …").
+ */
+export const ThemeToggle = component$<{ menu?: boolean }>(({ menu }) => {
   const cycle = $((_: Event, el: HTMLButtonElement) => {
     const root = document.documentElement;
     const next = nextTheme(parseTheme(root.getAttribute("data-theme")));
@@ -48,6 +52,13 @@ export const ThemeToggle = component$(() => {
       // Storage blocked: the choice still applies to this page view.
     }
     const label = themeToggleLabel(next);
+    // Every toggle (header and phone menu), not only this one.
+    for (const b of document.querySelectorAll<HTMLElement>(
+      "[data-theme-toggle]",
+    )) {
+      b.setAttribute("aria-label", label);
+      b.title = label;
+    }
     el.setAttribute("aria-label", label);
     el.title = label;
   });
@@ -59,7 +70,12 @@ export const ThemeToggle = component$(() => {
         aria-label={themeToggleLabel("system")}
         title={themeToggleLabel("system")}
         onClick$={cycle}
-        class="ml-auto grid size-11 shrink-0 place-items-center rounded-md border border-zinc-200 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:size-9 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        data-theme-toggle
+        class={
+          menu
+            ? "flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            : "ml-auto grid size-11 shrink-0 place-items-center rounded-md border border-zinc-200 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:size-9 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        }
       >
         {/* System: monitor */}
         <svg {...iconProps} class={stateClass.system}>
@@ -75,6 +91,8 @@ export const ThemeToggle = component$(() => {
         <svg {...iconProps} class={stateClass.dark}>
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
         </svg>
+        {/* "Theme" is the start of the accessible name (label in name). */}
+        {menu && <span aria-hidden="true">Theme</span>}
       </button>
       <script dangerouslySetInnerHTML={themeToggleLabelScript} />
     </>

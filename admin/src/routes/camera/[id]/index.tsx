@@ -1,4 +1,4 @@
-import { component$, useSignal, useTask$ } from "@builder.io/qwik";
+import { $, component$, sync$, useSignal, useTask$ } from "@builder.io/qwik";
 import {
   Form,
   Link,
@@ -12,7 +12,7 @@ import {
 import { CameraFields, cameraFormSchema } from "~/components/camera-fields";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { StatePanel } from "~/components/state-panel";
-import { SubmitButton } from "~/components/submit-button";
+import { Spinner, SubmitButton } from "~/components/submit-button";
 import { Thumb } from "~/components/thumb";
 import { Toast, type ToastState } from "~/components/toast";
 import {
@@ -33,6 +33,7 @@ import {
   listCameraImages,
   moveCameraImage,
   removeCameraImage,
+  restoreCameraImage,
   SlugConflictError,
   updateCamera,
   updateCameraImageCaption,
@@ -41,8 +42,10 @@ import { getDB, getImageBase } from "~/lib/env";
 import { formatJst } from "~/lib/format";
 import type { CameraImageRow, CameraRow } from "~/lib/types";
 import {
+  cameraImageDir,
   MAX_IMAGE_CAPTION_LEN,
   MAX_IMAGE_FILE_LEN,
+  resolveCameraImagePath,
   validateCamera,
   validateCameraImage,
 } from "~/lib/validate";
@@ -95,8 +98,6 @@ export const useAddCameraImage = routeAction$(
   async (data, { platform, params, fail }) => {
     const id = parseId(params.id);
     if (id === null) return fail(400, { message: "invalid id" });
-    const v = validateCameraImage(data);
-    if (!v.ok) return fail(400, { message: v.error });
     let db: D1Database;
     try {
       db = getDB(platform);
@@ -104,7 +105,14 @@ export const useAddCameraImage = routeAction$(
       console.error("/camera/[id]add image: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
-    if (!(await getCamera(db, id))) return fail(404, { message: "not found" });
+    const camera = await getCamera(db, id);
+    if (!camera) return fail(404, { message: "not found" });
+    // A bare file name is in the camera's own folder.
+    const v = validateCameraImage({
+      file: resolveCameraImagePath(data.file, camera.slug),
+      caption: data.caption,
+    });
+    if (!v.ok) return fail(400, { message: v.error });
     try {
       await addCameraImage(db, id, v.image);
     } catch (err) {
@@ -145,7 +153,10 @@ export const useCameraImageOp = routeAction$(
       if (!v.ok) return fail(400, { message: v.error });
       done = await updateCameraImageCaption(db, id, imageId, v.image.caption);
     } else if (data.op === "remove") {
-      done = await removeCameraImage(db, id, imageId);
+      const removed = await removeCameraImage(db, id, imageId);
+      if (!removed) return fail(404, { message: "image not found" });
+      // What 「元に戻す」 puts back.
+      return { ok: true, op: data.op, removed };
     } else {
       // Already first/last is a no-op, not an error.
       done = await moveCameraImage(db, id, imageId, data.op);
@@ -160,6 +171,44 @@ export const useCameraImageOp = routeAction$(
       .string()
       .max(MAX_IMAGE_CAPTION_LEN + 50)
       .default(""),
+  }),
+);
+
+/** Undo of a removal: the picture back at its old place. */
+export const useRestoreCameraImage = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = parseId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    const v = validateCameraImage({
+      file: data.file,
+      caption: data.caption ?? "",
+    });
+    if (!v.ok) return fail(400, { message: v.error });
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      console.error("/camera/[id]restore image: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
+    }
+    if (!(await getCamera(db, id))) return fail(404, { message: "not found" });
+    try {
+      await restoreCameraImage(db, id, v.image, data.index);
+    } catch (err) {
+      if (err instanceof DuplicateImageError) {
+        return fail(409, { message: `${v.image.file} is already added` });
+      }
+      throw err;
+    }
+    return { ok: true };
+  },
+  zod$({
+    file: z.string().max(MAX_IMAGE_FILE_LEN + 50),
+    caption: z
+      .string()
+      .max(MAX_IMAGE_CAPTION_LEN + 50)
+      .nullable(),
+    index: z.number().int().min(0).max(10_000),
   }),
 );
 
@@ -244,16 +293,54 @@ export default component$(() => {
         }
       : { tone: "success", message: "Image added." };
   });
+  /** The last removed picture, for 「元に戻す」. */
+  const removed = useSignal<{
+    file: string;
+    caption: string | null;
+    index: number;
+  } | null>(null);
   useTask$(({ track }) => {
     const v = track(() => imageOp.value);
+    if (!v) return;
+    if (v.failed) {
+      toast.value = {
+        tone: "error",
+        message: `Update failed: ${v.message ?? "unknown error"}`,
+      };
+      return;
+    }
+    if (v.op === "remove") {
+      removed.value = v.removed ?? null;
+    } else if (toast.value?.actionLabel) {
+      // E.g. a caption saved on blur by the tap on Remove, landing after
+      // it: keep the undo in view.
+      return;
+    }
+    toast.value = {
+      tone: "success",
+      message: IMAGE_OP_DONE[v.op],
+      actionLabel: v.removed ? "元に戻す" : undefined,
+    };
+  });
+  const restoreImage = useRestoreCameraImage();
+  useTask$(({ track }) => {
+    const v = track(() => restoreImage.value);
     if (!v) return;
     toast.value = v.failed
       ? {
           tone: "error",
-          message: `Update failed: ${v.message ?? "unknown error"}`,
+          message: `Undo failed: ${v.message ?? "unknown error"}`,
         }
-      : { tone: "success", message: IMAGE_OP_DONE[v.op] };
+      : { tone: "success", message: "元に戻しました。" };
   });
+  const undoRemove = $(async () => {
+    const r = removed.value;
+    if (!r) return;
+    removed.value = null;
+    await restoreImage.submit(r);
+  });
+  // Phones: ↑ / ↓ only while reordering (sm and up: always).
+  const ordering = useSignal(false);
 
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/camera/" />;
@@ -325,15 +412,27 @@ export default component$(() => {
       </Form>
 
       <section aria-labelledby="images-heading" class={[card, "space-y-5 p-5"]}>
-        <div>
-          <h2 id="images-heading" class={legend}>
-            Images
-          </h2>
-          <p class={["mt-1 text-xs", muted]}>
-            Pictures of the camera itself, shown on its public page in this
-            order. There is no upload yet: put the file in the B2 bucket first,
-            then add its path here.
-          </p>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 id="images-heading" class={legend}>
+              Images
+            </h2>
+            <p class={["mt-1 text-xs", muted]}>
+              Pictures of the camera itself, shown on its public page in this
+              order. There is no upload yet: put the file in the B2 bucket
+              first, then add its path here. Captions save when you leave the
+              field.
+            </p>
+          </div>
+          {images.length > 1 && (
+            <button
+              type="button"
+              onClick$={() => (ordering.value = !ordering.value)}
+              class={[buttonSecondary, "shrink-0 sm:hidden"]}
+            >
+              {ordering.value ? "完了" : "並べ替え"}
+            </button>
+          )}
         </div>
 
         {images.length > 0 && (
@@ -342,24 +441,25 @@ export default component$(() => {
               <li
                 key={img.id}
                 data-testid="camera-image"
-                class="flex flex-col gap-3 py-3 first:pt-0 sm:flex-row sm:items-start"
+                class="flex flex-wrap gap-3 py-3 first:pt-0 sm:flex-nowrap sm:items-start"
               >
                 <Thumb
                   file={img.file}
                   world={null}
                   imageBase={imageBase}
                   variant="list"
-                  class="w-40 rounded-md"
+                  class="w-24 rounded-md sm:w-40"
                 />
                 <div class="min-w-0 flex-1 space-y-2">
                   <code class="block text-xs break-all">{img.file}</code>
+                  {/* Saved when it changes (on leaving the field, or Enter). */}
                   <Form
                     action={imageOp}
                     onSubmit$={() => {
                       busyKey.value = `${img.id}:caption`;
                     }}
                     aria-busy={opRunning(`${img.id}:caption`)}
-                    class="flex gap-2"
+                    class="relative"
                   >
                     <input type="hidden" name="image_id" value={img.id} />
                     <input type="hidden" name="op" value="caption" />
@@ -373,18 +473,28 @@ export default component$(() => {
                       value={img.caption ?? ""}
                       placeholder="Caption (optional)"
                       maxLength={MAX_IMAGE_CAPTION_LEN}
-                      class={field}
+                      enterKeyHint="done"
+                      onChange$={(_, el) => el.form?.requestSubmit()}
+                      // Enter: no implicit submit on top of the change
+                      // event's (one save); leave the field instead.
+                      onKeyDown$={[
+                        sync$((e: KeyboardEvent) => {
+                          if (e.key === "Enter") e.preventDefault();
+                        }),
+                        $((e: KeyboardEvent, el: HTMLInputElement) => {
+                          if (e.key === "Enter") el.blur();
+                        }),
+                      ]}
+                      class={[field, "pr-9"]}
                     />
-                    <SubmitButton
-                      running={opRunning(`${img.id}:caption`)}
-                      aria-label={`Save caption of image ${i + 1}`}
-                      class={buttonSecondary}
-                    >
-                      Save
-                    </SubmitButton>
+                    {opRunning(`${img.id}:caption`) && (
+                      <span class="absolute inset-y-0 right-3 grid place-items-center text-zinc-400">
+                        <Spinner />
+                      </span>
+                    )}
                   </Form>
                 </div>
-                <div class="flex gap-1">
+                <div class="flex w-full justify-end gap-1 sm:w-auto">
                   {(
                     [
                       ["up", "↑", `Move image ${i + 1} up`, i === 0],
@@ -404,6 +514,11 @@ export default component$(() => {
                         busyKey.value = `${img.id}:${op}`;
                       }}
                       aria-busy={opRunning(`${img.id}:${op}`)}
+                      class={
+                        op !== "remove" && !ordering.value
+                          ? "max-sm:hidden"
+                          : undefined
+                      }
                     >
                       <input type="hidden" name="image_id" value={img.id} />
                       <input type="hidden" name="op" value={op} />
@@ -446,13 +561,20 @@ export default component$(() => {
               type="text"
               name="file"
               required
-              placeholder={`/camera/${camera.slug}/front.png`}
+              placeholder="front.png"
               maxLength={MAX_IMAGE_FILE_LEN}
               autoCapitalize="off"
               autoCorrect="off"
               spellcheck={false}
+              enterKeyHint="next"
+              aria-describedby="new-image-file-help"
               class={field}
             />
+            <p id="new-image-file-help" class={["mt-1 text-xs", muted]}>
+              A file name is looked up in{" "}
+              <code>{cameraImageDir(camera.slug)}</code>; start with{" "}
+              <code>/</code> for anywhere else.
+            </p>
           </div>
           <div>
             <label for="new-image-caption" class={label}>
@@ -476,7 +598,7 @@ export default component$(() => {
           </SubmitButton>
         </Form>
       </section>
-      <Toast toast={toast} />
+      <Toast toast={toast} onAction$={undoRemove} />
     </div>
   );
 });

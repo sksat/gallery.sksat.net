@@ -309,6 +309,19 @@ export const MAX_IMAGE_CAPTION_LEN = 200;
 const IMAGE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
 const IMAGE_EXT_RE = /\.(png|jpe?g)$/i;
 
+/** Folder a camera's pictures go in by convention. */
+export const cameraImageDir = (slug: string): string => `/camera/${slug}/`;
+
+/**
+ * The image path typed on the camera page: a bare file name ("front.png")
+ * is in the camera's folder; anything starting with "/" is used as is.
+ * Validated afterwards by validateImageFile.
+ */
+export const resolveCameraImagePath = (input: string, slug: string): string => {
+  const s = input.trim();
+  return s === "" || s.startsWith("/") ? s : cameraImageDir(slug) + s;
+};
+
 /**
  * A bucket path for an image, in the same shape as media.file
  * (`/camera/virtuallens2/front.png`): leading "/", segments of
