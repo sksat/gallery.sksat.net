@@ -18,11 +18,14 @@
  *   binding that names it: the admin's) serves any photo, private included,
  *   and only after verifying the admin request's Cloudflare Access JWT.
  *
- * The originals are never served as-is.
+ * The originals are never served as-is. With B2 credentials the Worker
+ * fetches them through presigned URLs (origin.ts), so the bucket can be
+ * private.
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { parseAccessConfig, verifyAdminToken } from "./admin-auth";
 import { captionFor, type Caption, type CaptionSource } from "./caption";
+import { originFor, type Origin, type OriginEnv } from "./origin";
 import {
   isCardPreset,
   parseAdminImage,
@@ -47,9 +50,7 @@ interface Api {
   fileAccess(file: string): Promise<FileAccess | null>;
 }
 
-interface Env {
-  /** Base URL of the originals, without a trailing slash. */
-  ORIGIN_BASE_URL: string;
+interface Env extends OriginEnv {
   API: Api;
   /** Cloudflare Access team domain and the admin's AUD tags (AdminImage). */
   ACCESS_TEAM_DOMAIN?: string;
@@ -72,17 +73,27 @@ const photoById = async (env: Env, id: string): Promise<Photo | null> => {
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API returned ${res.status} for ${id}`);
   const photo = (await res.json()) as Photo;
-  if (typeof photo?.file !== "string" || !photo.file.startsWith("/")) {
-    throw new Error(`API returned no file for ${id}`);
+  // The file goes into the origin URL: hold it to the same shape as a
+  // requested bucket path.
+  const asPath =
+    typeof photo?.file === "string"
+      ? parseImagePath(`/img/h240${photo.file}`)
+      : null;
+  if (!asPath || !("file" in asPath)) {
+    throw new Error(`API returned no usable file for ${id}`);
   }
   return photo;
 };
 
-const transform = (url: string, image: TransformOptions) =>
-  fetch(url, {
-    // workers-types does not know `draw` text entries yet (documented at
-    // https://developers.cloudflare.com/images/optimization/draw-overlays/).
-    cf: { image: image as RequestInitCfPropertiesImage },
+const transform = (origin: Origin, image: TransformOptions) =>
+  fetch(origin.url, {
+    cf: {
+      // workers-types does not know `draw` text entries yet (documented at
+      // https://developers.cloudflare.com/images/optimization/draw-overlays/).
+      image: image as RequestInitCfPropertiesImage,
+      // A presigned URL changes on every request; cache by the file.
+      cacheKey: origin.cacheKey,
+    },
   });
 
 /**
@@ -97,7 +108,7 @@ const render = async (
   origin: string,
   caption: Caption = {},
 ): Promise<{ upstream: Response; degraded: boolean }> => {
-  const original = env.ORIGIN_BASE_URL + file;
+  const original = await originFor(env, file);
   let upstream = await transform(
     original,
     transformOptions(preset, accept, origin, caption),
@@ -123,9 +134,14 @@ const respond = (
   preset: PresetName,
   cacheControl: string,
 ): Response => {
+  if (!upstream.ok) {
+    // Don't pass the origin's error body (e.g. B2's XML) through.
+    console.error(`transform failed: ${upstream.status}`);
+    return plain(upstream.status === 404 ? 404 : 502, "Image unavailable");
+  }
   const headers = new Headers(upstream.headers);
   if (variesByAccept(preset)) headers.set("Vary", "Accept");
-  headers.set("Cache-Control", upstream.ok ? cacheControl : "no-store");
+  headers.set("Cache-Control", cacheControl);
   return new Response(upstream.body, { status: upstream.status, headers });
 };
 
