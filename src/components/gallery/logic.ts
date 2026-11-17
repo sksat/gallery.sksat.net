@@ -1,3 +1,4 @@
+import { DEFAULT_SORT, serializeSort, type SortOrder } from "./sort";
 import { serializeTagFilter, type TagFilter } from "./tags";
 
 /**
@@ -28,15 +29,18 @@ export const navigateImage = (
 };
 
 /**
- * URL for a gallery state: `/` or `/photo/{id}`, with the tag filter kept in
- * the query so closing or sharing a photo preserves the current selection.
+ * URL for a gallery state: `/` or `/photo/{id}`, with the tag filter and the
+ * sort order kept in the query so closing or sharing a photo preserves them.
  */
 export const galleryUrl = (
   imageId: number | null,
   filter: TagFilter,
+  sort: SortOrder = DEFAULT_SORT,
 ): string => {
   const path = imageId === null ? "/" : `/photo/${imageId}`;
-  const query = serializeTagFilter(filter);
+  const params = new URLSearchParams(serializeTagFilter(filter));
+  for (const [key, value] of serializeSort(sort)) params.append(key, value);
+  const query = params.toString();
   return query === "" ? path : `${path}?${query}`;
 };
 
