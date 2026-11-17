@@ -18,8 +18,7 @@ export const MAX_CAMERA_URL_LEN = 2000;
 export const CAMERA_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export type ValidatePatchResult =
-  | { ok: true; patch: MediaPatch }
-  | { ok: false; error: string };
+  { ok: true; patch: MediaPatch } | { ok: false; error: string };
 
 export const validatePatch = (input: unknown): ValidatePatchResult => {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -88,12 +87,10 @@ export const parseCameraIdInput = (raw: string): number | null | undefined => {
 };
 
 export type ValidateCameraResult =
-  | { ok: true; camera: CameraInput }
-  | { ok: false; error: string };
+  { ok: true; camera: CameraInput } | { ok: false; error: string };
 
 type OptionalText =
-  | { ok: true; value: string | null }
-  | { ok: false; error: string };
+  { ok: true; value: string | null } | { ok: false; error: string };
 
 // Trim; "" (or absent / null) becomes null; then cap the length.
 const optionalText = (
@@ -168,12 +165,12 @@ export const validateCamera = (input: unknown): ValidateCameraResult => {
     MAX_CAMERA_DESCRIPTION_LEN,
   );
   if (!description.ok) return description;
-  const url = optionalText(obj, "url", MAX_CAMERA_URL_LEN);
-  if (!url.ok) return url;
+  const productUrl = optionalText(obj, "product_url", MAX_CAMERA_URL_LEN);
+  if (!productUrl.ok) return productUrl;
   // Rendered as a link on the public site: only http(s), never
   // javascript: or data:.
-  if (url.value !== null && !isHttpUrl(url.value)) {
-    return { ok: false, error: "url must be an http(s) URL" };
+  if (productUrl.value !== null && !isHttpUrl(productUrl.value)) {
+    return { ok: false, error: "product_url must be an http(s) URL" };
   }
 
   let kind: CameraKind | null = null;
@@ -196,9 +193,69 @@ export const validateCamera = (input: unknown): ValidateCameraResult => {
       model: model.value,
       kind,
       description: description.value,
-      url: url.value,
+      product_url: productUrl.value,
     },
   };
+};
+
+export const MAX_IMAGE_FILE_LEN = 500;
+export const MAX_IMAGE_CAPTION_LEN = 200;
+
+const IMAGE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+const IMAGE_EXT_RE = /\.(png|jpe?g)$/i;
+
+/**
+ * A bucket path for an image, in the same shape as media.file
+ * (`/cameras/virtuallens2.png`): leading "/", segments of
+ * `[A-Za-z0-9._-]` only, no "." / ".." segments, png/jpg/jpeg. It is
+ * appended to the image Worker / bucket URLs as-is, so nothing that could
+ * change the URL's meaning (`?`, `#`, `%`, `\`, `..`) gets through.
+ */
+export const validateImageFile = (
+  input: unknown,
+): { ok: true; file: string } | { ok: false; error: string } => {
+  if (typeof input !== "string") {
+    return { ok: false, error: "file is required" };
+  }
+  const file = input.trim();
+  if (file.length > MAX_IMAGE_FILE_LEN) {
+    return { ok: false, error: `file exceeds ${MAX_IMAGE_FILE_LEN} chars` };
+  }
+  const segments = file.split("/");
+  if (
+    !file.startsWith("/") ||
+    segments
+      .slice(1)
+      .some((s) => !IMAGE_SEGMENT_RE.test(s) || s === "." || s === "..")
+  ) {
+    return {
+      ok: false,
+      error:
+        'file must be a path like /cameras/name.png (leading "/", letters, digits, ".", "_", "-")',
+    };
+  }
+  if (!IMAGE_EXT_RE.test(file)) {
+    return { ok: false, error: "file must be a .png, .jpg or .jpeg image" };
+  }
+  return { ok: true, file };
+};
+
+export type ValidateCameraImageResult =
+  | { ok: true; image: { file: string; caption: string | null } }
+  | { ok: false; error: string };
+
+export const validateCameraImage = (
+  input: unknown,
+): ValidateCameraImageResult => {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "body must be a JSON object" };
+  }
+  const obj = input as Record<string, unknown>;
+  const file = validateImageFile(obj.file);
+  if (!file.ok) return file;
+  const caption = optionalText(obj, "caption", MAX_IMAGE_CAPTION_LEN);
+  if (!caption.ok) return caption;
+  return { ok: true, image: { file: file.file, caption: caption.value } };
 };
 
 export const parseTagsInput = (raw: string): string[] =>

@@ -17,7 +17,8 @@ import { ProgressivePreview } from "./preview";
 
 type Props = {
   file: string;
-  world: MediaWorld;
+  /** Tints the placeholder; null (camera pictures) = neutral. */
+  world: MediaWorld | null;
   imageBase: string | null;
   /**
    * "list": h240/h480 by density; "preview": the list thumbnail first, then
@@ -39,7 +40,9 @@ export const Thumb = component$<Props>(
             "grid place-items-center",
             world === "VRChat"
               ? "bg-violet-100 text-violet-500 dark:bg-violet-950 dark:text-violet-300"
-              : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300",
+              : world === "Real"
+                ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
+                : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
           ]}
           data-testid="thumb-placeholder"
           aria-hidden="true"

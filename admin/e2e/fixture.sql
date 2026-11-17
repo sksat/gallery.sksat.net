@@ -1,9 +1,11 @@
--- Deterministic E2E + VRT fixture (5 media rows, 2 cameras). Mirrors the
--- public test-media set (public/test-media/{media,cameras}.json).
+-- Deterministic E2E + VRT fixture (5 media rows, 2 cameras, 2 camera
+-- images). Mirrors the public test-media set
+-- (public/test-media/{media,cameras}.json).
 DELETE FROM media;
+DELETE FROM camera_images;
 DELETE FROM cameras;
-DELETE FROM sqlite_sequence WHERE name IN ('media', 'cameras');
-INSERT INTO cameras (id, slug, name, make, model, kind, description, url, updated_at) VALUES
+DELETE FROM sqlite_sequence WHERE name IN ('media', 'cameras', 'camera_images');
+INSERT INTO cameras (id, slug, name, make, model, kind, description, product_url, updated_at) VALUES
   (1, 'virtuallens2', 'VirtualLens2', 'logilabo', 'VirtualLens2', 'virtual', 'Virtual camera for VRChat.', 'https://example.com/virtuallens2', '2024-01-01T00:00:00.000Z'),
   (2, 'pentax-sp',    'PENTAX SP',    'Asahi',    'Pentax SP',    'film',    NULL,                         NULL,                               '2024-01-01T00:00:00.000Z');
 INSERT INTO media (id, file, world, timestamp, camera_id, tags, updated_at) VALUES
@@ -12,4 +14,7 @@ INSERT INTO media (id, file, world, timestamp, camera_id, tags, updated_at) VALU
   (3, '/mock/real2.png',   'Real',   '2023-12-03T00:00:00Z', NULL, '[]',         '2024-01-01T00:00:00.000Z'),
   (4, '/mock/vrchat2.png', 'VRChat', '2023-12-04T00:00:00Z', NULL, '["VRChat"]', '2024-01-01T00:00:00.000Z'),
   (5, '/mock/vrchat3.png', 'VRChat', '2023-12-05T00:00:00Z', NULL, '["VRChat"]', '2024-01-01T00:00:00.000Z');
-INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('media', 5), ('cameras', 2);
+INSERT INTO camera_images (id, camera_id, file, position, caption) VALUES
+  (1, 1, '/cameras/virtuallens2-front.png', 0, 'Front'),
+  (2, 1, '/cameras/virtuallens2-ui.png',    1, NULL);
+INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('media', 5), ('cameras', 2), ('camera_images', 2);

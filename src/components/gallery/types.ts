@@ -20,7 +20,15 @@ export type CameraJSON = {
   model: string | null;
   kind: CameraKind | null;
   description: string | null;
-  url: string | null;
+  /** The maker's / shop's product page (http/https). */
+  productUrl: string | null;
+  /** Pictures of the camera itself, in display order (bucket paths). */
+  images: CameraImageJSON[];
+};
+
+export type CameraImageJSON = {
+  file: string;
+  caption: string | null;
 };
 
 export type MediaInfoJSON = {

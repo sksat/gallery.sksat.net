@@ -17,9 +17,24 @@ CREATE TABLE cameras (
   -- NULL = not specified.
   kind        TEXT CHECK (kind IN ('digital','film','phone','virtual')),
   description TEXT,
-  url         TEXT,
+  -- The maker's / shop's product page; http(s) only (validateCamera).
+  product_url TEXT,
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+
+-- Pictures of the camera itself (not photos taken with it), in `position`
+-- order. `file` is a bucket path like media.file (validateImageFile); the
+-- admin has no upload yet, so the file is put in B2 by hand.
+CREATE TABLE camera_images (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  camera_id INTEGER NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
+  file      TEXT NOT NULL CHECK (file <> ''),
+  position  INTEGER NOT NULL DEFAULT 0,
+  caption   TEXT,
+  UNIQUE (camera_id, file)
+);
+
+CREATE INDEX idx_camera_images_camera ON camera_images(camera_id, position);
 
 -- Backfill: one camera per distinct (camera_make, camera_model) pair. The
 -- slug is the lowercased model with ' ', '/', '_' and '.' turned into '-'

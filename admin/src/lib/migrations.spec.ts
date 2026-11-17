@@ -11,7 +11,12 @@ const migration = (name: string) =>
   readFileSync(resolve(__dirname, "../../migrations", name), "utf8");
 
 const migrate = (
-  rows: [file: string, world: string, make: string | null, model: string | null][],
+  rows: [
+    file: string,
+    world: string,
+    make: string | null,
+    model: string | null,
+  ][],
 ) => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
@@ -34,7 +39,9 @@ describe("0002_cameras.sql", () => {
     ]);
     expect(
       db
-        .prepare("SELECT slug, name, make, model, kind FROM cameras ORDER BY slug")
+        .prepare(
+          "SELECT slug, name, make, model, kind FROM cameras ORDER BY slug",
+        )
         .all(),
     ).toEqual([
       {
@@ -59,10 +66,34 @@ describe("0002_cameras.sql", () => {
         )
         .all(),
     ).toEqual([
-      { id: 1, file: "/v1.png", slug: "virtuallens2", tags: '["t"]', updated_at: "2024-01-01T00:00:00.000Z" },
-      { id: 2, file: "/v2.png", slug: "virtuallens2", tags: '["t"]', updated_at: "2024-01-01T00:00:00.000Z" },
-      { id: 3, file: "/r1.jpg", slug: null, tags: '["t"]', updated_at: "2024-01-01T00:00:00.000Z" },
-      { id: 4, file: "/r2.jpg", slug: "eos-5d-mark-ii", tags: '["t"]', updated_at: "2024-01-01T00:00:00.000Z" },
+      {
+        id: 1,
+        file: "/v1.png",
+        slug: "virtuallens2",
+        tags: '["t"]',
+        updated_at: "2024-01-01T00:00:00.000Z",
+      },
+      {
+        id: 2,
+        file: "/v2.png",
+        slug: "virtuallens2",
+        tags: '["t"]',
+        updated_at: "2024-01-01T00:00:00.000Z",
+      },
+      {
+        id: 3,
+        file: "/r1.jpg",
+        slug: null,
+        tags: '["t"]',
+        updated_at: "2024-01-01T00:00:00.000Z",
+      },
+      {
+        id: 4,
+        file: "/r2.jpg",
+        slug: "eos-5d-mark-ii",
+        tags: '["t"]',
+        updated_at: "2024-01-01T00:00:00.000Z",
+      },
     ]);
     expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
@@ -91,6 +122,25 @@ describe("0002_cameras.sql", () => {
       .map((r) => r.slug);
     expect(slugs).toEqual(["foo-bar", "foo-bar-2", "camera", "x-y"]);
     for (const s of slugs) expect(s).toMatch(CAMERA_SLUG_RE);
+  });
+
+  it("keeps one row per camera image file and drops them with the camera", () => {
+    const db = migrate([]);
+    db.exec(
+      "INSERT INTO cameras (id, slug, name) VALUES (1, 'a', 'A'), (2, 'b', 'B')",
+    );
+    db.exec(
+      "INSERT INTO camera_images (camera_id, file) VALUES (1, '/c/a.png'), (2, '/c/a.png')",
+    );
+    expect(() =>
+      db.exec(
+        "INSERT INTO camera_images (camera_id, file) VALUES (1, '/c/a.png')",
+      ),
+    ).toThrow(/UNIQUE/);
+    db.exec("DELETE FROM cameras WHERE id = 1");
+    expect(db.prepare("SELECT camera_id FROM camera_images").all()).toEqual([
+      { camera_id: 2 },
+    ]);
   });
 
   it("rejects deleting a camera that still has photos", () => {

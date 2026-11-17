@@ -3,6 +3,8 @@ import {
   parseCameraIdInput,
   parseTagsInput,
   validateCamera,
+  validateCameraImage,
+  validateImageFile,
   validatePatch,
 } from "./validate";
 
@@ -100,7 +102,7 @@ describe("validateCamera", () => {
     model: "VirtualLens2",
     kind: "virtual",
     description: "VRChat camera gimmick",
-    url: "https://logilabo.booth.pm/items/2280136",
+    product_url: "https://logilabo.booth.pm/items/2280136",
   };
 
   it("accepts a full record", () => {
@@ -116,7 +118,7 @@ describe("validateCamera", () => {
       model: "",
       kind: "",
       description: "",
-      url: "",
+      product_url: "",
     });
     expect(r.ok && r.camera).toEqual({
       slug: "pentax-sp",
@@ -125,7 +127,7 @@ describe("validateCamera", () => {
       model: null,
       kind: null,
       description: null,
-      url: null,
+      product_url: null,
     });
   });
 
@@ -158,21 +160,82 @@ describe("validateCamera", () => {
   });
 
   it.each(["javascript:alert(1)", "data:text/html,x", "not a url"])(
-    "rejects url %j",
-    (url) => {
-      expect(validateCamera({ ...base, url }).ok).toBe(false);
+    "rejects product_url %j",
+    (product_url) => {
+      expect(validateCamera({ ...base, product_url }).ok).toBe(false);
     },
   );
 
   it("rejects over-long fields", () => {
+    expect(
+      validateCamera({
+        ...base,
+        product_url: `https://example.com/${"a".repeat(2000)}`,
+      }).ok,
+    ).toBe(false);
     expect(validateCamera({ ...base, name: "a".repeat(201) }).ok).toBe(false);
     expect(validateCamera({ ...base, model: "a".repeat(201) }).ok).toBe(false);
-    expect(
-      validateCamera({ ...base, description: "a".repeat(2001) }).ok,
-    ).toBe(false);
+    expect(validateCamera({ ...base, description: "a".repeat(2001) }).ok).toBe(
+      false,
+    );
   });
 
   it("rejects non-string optional fields", () => {
     expect(validateCamera({ ...base, make: 1 }).ok).toBe(false);
+  });
+});
+
+describe("validateImageFile", () => {
+  it.each([
+    "/cameras/virtuallens2.png",
+    "/cameras/pentax-sp_front.JPG",
+    "/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png",
+    "/a.jpeg",
+  ])("accepts %j", (file) => {
+    expect(validateImageFile(file)).toEqual({ ok: true, file });
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(validateImageFile("  /a.png ")).toEqual({
+      ok: true,
+      file: "/a.png",
+    });
+  });
+
+  it.each([
+    "",
+    "cameras/a.png",
+    "/cameras/../secret.png",
+    "/cameras/./a.png",
+    "//a.png",
+    "/cameras/a b.png",
+    "/cameras/a.png?x=1",
+    "/cameras/a%2e.png",
+    "/cameras/a.gif",
+    "/cameras/a",
+    "/cameras/",
+    "https://evil.example/a.png",
+    `/${"a".repeat(500)}.png`,
+  ])("rejects %j", (file) => {
+    expect(validateImageFile(file).ok).toBe(false);
+  });
+
+  it("rejects non-strings", () => {
+    expect(validateImageFile(undefined).ok).toBe(false);
+  });
+});
+
+describe("validateCameraImage", () => {
+  it("normalises an empty caption to null", () => {
+    expect(validateCameraImage({ file: "/a.png", caption: " " })).toEqual({
+      ok: true,
+      image: { file: "/a.png", caption: null },
+    });
+  });
+
+  it("rejects an over-long caption", () => {
+    expect(
+      validateCameraImage({ file: "/a.png", caption: "a".repeat(201) }).ok,
+    ).toBe(false);
   });
 });

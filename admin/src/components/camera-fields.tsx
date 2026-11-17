@@ -32,7 +32,7 @@ export const cameraFormSchema = {
     .max(MAX_CAMERA_FIELD_LEN + 50)
     .default(""),
   kind: z.string().max(20).default(""),
-  url: z
+  product_url: z
     .string()
     .max(MAX_CAMERA_URL_LEN + 50)
     .default(""),
@@ -48,7 +48,7 @@ export type CameraFieldValues = {
   make: string | null;
   model: string | null;
   kind: CameraKind | null;
-  url: string | null;
+  product_url: string | null;
   description: string | null;
 };
 
@@ -152,14 +152,14 @@ export const CameraFields = component$<{ values?: CameraFieldValues }>(
       <fieldset class="space-y-3">
         <legend class={legend}>Details</legend>
         <div>
-          <label for="camera-url" class={label}>
-            URL
+          <label for="camera-product-url" class={label}>
+            製品ページ
           </label>
           <input
-            id="camera-url"
+            id="camera-product-url"
             type="url"
-            name="url"
-            value={values?.url ?? ""}
+            name="product_url"
+            value={values?.product_url ?? ""}
             placeholder="https://"
             maxLength={MAX_CAMERA_URL_LEN}
             class={field}

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildExport, rowToCamera, rowToMedia, rowToMediaJson } from "./db";
+import {
+  buildExport,
+  reorderedIds,
+  rowToCamera,
+  rowToMedia,
+  rowToMediaJson,
+} from "./db";
 import type { CameraRow, MediaRow } from "./types";
 
 const UPDATED = "2025-05-03T10:00:00.000Z";
@@ -12,7 +18,7 @@ const vl2: CameraRow = {
   model: "VirtualLens2",
   kind: "virtual",
   description: null,
-  url: null,
+  product_url: null,
   updated_at: UPDATED,
 };
 
@@ -24,7 +30,7 @@ const film: CameraRow = {
   model: null,
   kind: "film",
   description: "35mm SLR",
-  url: "https://example.com/sp",
+  product_url: "https://example.com/sp",
   updated_at: UPDATED,
 };
 
@@ -170,11 +176,28 @@ describe("rowToMediaJson", () => {
   });
 });
 
+describe("reorderedIds", () => {
+  it("swaps with the neighbour", () => {
+    expect(reorderedIds([1, 2, 3], 2, "up")).toEqual([2, 1, 3]);
+    expect(reorderedIds([1, 2, 3], 2, "down")).toEqual([1, 3, 2]);
+  });
+
+  it("returns null at either end or for an unknown id", () => {
+    expect(reorderedIds([1, 2, 3], 1, "up")).toBeNull();
+    expect(reorderedIds([1, 2, 3], 3, "down")).toBeNull();
+    expect(reorderedIds([1, 2, 3], 9, "up")).toBeNull();
+  });
+});
+
 describe("buildExport", () => {
   it("keeps media order and sorts cameras by slug, without admin fields", () => {
     const out = buildExport(
       [media({ id: 2, file: "/b.png" }), media({ id: 1, camera_id: 1 })],
       [vl2, film],
+      [
+        { id: 7, camera_id: 1, file: "/c/b.png", position: 1, caption: null },
+        { id: 9, camera_id: 1, file: "/c/a.png", position: 0, caption: "A" },
+      ],
     );
     expect(out.media.map((m) => m.file)).toEqual(["/b.png", "/x.png"]);
     expect(out.cameras).toEqual([
@@ -185,7 +208,8 @@ describe("buildExport", () => {
         model: null,
         kind: "film",
         description: "35mm SLR",
-        url: "https://example.com/sp",
+        productUrl: "https://example.com/sp",
+        images: [],
       },
       {
         slug: "virtuallens2",
@@ -194,9 +218,17 @@ describe("buildExport", () => {
         model: "VirtualLens2",
         kind: "virtual",
         description: null,
-        url: null,
+        productUrl: null,
+        images: [
+          { file: "/c/a.png", caption: "A" },
+          { file: "/c/b.png", caption: null },
+        ],
       },
     ]);
+  });
+
+  it("returns cameras with an empty images list when none are given", () => {
+    expect(buildExport([], [vl2]).cameras[0].images).toEqual([]);
   });
 
   it("is a plain JSON array per file (media.json stays an array)", () => {
