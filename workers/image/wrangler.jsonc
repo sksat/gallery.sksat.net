@@ -14,6 +14,8 @@
   // Photo metadata (workers/api). Requires the gallery-api Worker to exist.
   "services": [{ "binding": "API", "service": "gallery-api" }],
   "vars": {
+    // The public bucket URL: used while B2_KEY_ID / B2_APPLICATION_KEY are
+    // unset, and as the transformation cache key either way.
     "ORIGIN_BASE_URL": "https://sksat-gallery.s3.us-west-002.backblazeb2.com",
     // The AdminImage entrypoint verifies the admin's Cloudflare Access JWT
     // itself (src/admin-auth.ts). Same values as admin/wrangler.jsonc
@@ -22,5 +24,12 @@
     // are not bound to the entrypoint; their AUD is deliberately not here.
     "ACCESS_TEAM_DOMAIN": "https://sksat.cloudflareaccess.com",
     "ACCESS_AUD": "e5ff448257acbe43d36fecf57eb2a1e2f133d21c13c46315b5d61b08f332d93a",
+    // Where presigned GETs go once the secrets are set (src/origin.ts).
+    // The secrets are a read-only B2 application key for this bucket only:
+    //   pnpm exec wrangler secret put B2_KEY_ID -c workers/image/wrangler.jsonc
+    //   pnpm exec wrangler secret put B2_APPLICATION_KEY -c workers/image/wrangler.jsonc
+    "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
+    "B2_BUCKET": "sksat-gallery",
+    "B2_REGION": "us-west-002",
   },
 }

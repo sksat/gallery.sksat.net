@@ -45,6 +45,7 @@
     "@typescript-eslint/eslint-plugin": "^8.73.0",
     "@typescript-eslint/parser": "^8.73.0",
     "@vitest/ui": "^3.2.4",
+    "aws4fetch": "1.0.20",
     "eslint": "^9.37.0",
     "eslint-plugin-qwik": "^1.20.4",
     "jose": "6.2.17",
