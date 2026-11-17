@@ -171,12 +171,42 @@ test("gallery: direct navigation to /photo/{id}", async ({ page }) => {
   // Overlay should appear with the image
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible({ timeout: 10000 });
-  // The full-size image is stacked over the thumbnail and loads.
+  // The full-size image is fetched (with a progress bar), then stacked over
+  // the thumbnail as a blob: URL — even though this overlay was rendered on
+  // the server.
+  const full = overlay.getByTestId("overlay-image");
+  await expect(full).toHaveAttribute("src", /^blob:/);
   await expect
     .poll(() =>
-      overlay
-        .getByTestId("overlay-image")
-        .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth),
+      full.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth),
     )
     .toBeGreaterThan(0);
+  // The bar reached 100% and faded out.
+  const bar = overlay.getByTestId("overlay-progress");
+  await expect(bar).toHaveClass(/opacity-0/);
+});
+
+test("gallery: progress bar shows the download of the full-size photo", async ({
+  page,
+}) => {
+  // Hold the full-size download so the bar can be observed mid-way.
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  await page.route("**/test-media/mock/vrchat1.png", async (route) => {
+    if (route.request().resourceType() === "fetch") await gate;
+    await route.continue();
+  });
+
+  await page.goto("/photo/1");
+  const bar = page.getByTestId("overlay-progress");
+  await expect(bar).toHaveClass(/opacity-100/, { timeout: 10000 });
+  await expect(bar).toHaveAttribute("role", "progressbar");
+  await expect(page.getByTestId("overlay-image")).toHaveCount(0);
+
+  release();
+  await expect(page.getByTestId("overlay-image")).toHaveAttribute(
+    "src",
+    /^blob:/,
+  );
+  await expect(bar).toHaveClass(/opacity-0/);
 });

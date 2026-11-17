@@ -61,12 +61,3 @@ export const GRID_CANDIDATES: [PresetName, string][] = [
   ["h240", "1x"],
   ["h480", "2x"],
 ];
-
-/** Full-screen overlay, chosen by width with sizes="90vw". */
-export const OVERLAY_CANDIDATES: [PresetName, string][] = [
-  // w1200 is the og:image preset, reused so phones don't fetch 1920px.
-  ["w1200", "1200w"],
-  ["w1920", "1920w"],
-  ["w2560", "2560w"],
-  ["w3840", "3840w"],
-];
