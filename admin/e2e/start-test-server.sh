@@ -48,11 +48,13 @@ trap 'kill "$NOAUTH_PID" "$FAKE_B2_PID" 2>/dev/null || true' EXIT INT TERM
 # (Honoured only for loopback hostnames — see src/lib/access.ts.)
 # THUMBNAILS is blanked so thumbnails render as deterministic placeholder
 # tiles: the image Worker (IMAGES binding) is not running locally, and VRT
-# does not depend on it.
+# does not depend on it. E2E_TEST_ROUTES=1 enables /e2e/* pages (loopback
+# only), e.g. the photo preview with thumbnails Playwright serves itself.
 pnpm exec wrangler pages dev ./dist \
   --persist-to "$PERSIST_DIR" \
   --binding ACCESS_DISABLED=1 \
   --binding THUMBNAILS= \
+  --binding E2E_TEST_ROUTES=1 \
   --binding "B2_ENDPOINT=http://127.0.0.1:${FAKE_B2_PORT}" \
   --binding B2_UPLOAD_KEY_ID=e2e-key-id \
   --binding B2_UPLOAD_APPLICATION_KEY=e2e-secret \

@@ -5,15 +5,18 @@ import {
   type QRL,
 } from "@builder.io/qwik";
 
+import {
+  OVERLAY_BOX_WIDTH_RATIO,
+  pickOverlayPreset,
+  progressPercent,
+  readWithProgress,
+} from "@shared/overlay/progress";
+import { overlayClass } from "@shared/overlay/styles";
 import { GRID_CANDIDATES, imageUrl, srcSet, type ImageSource } from "./images";
-import { pickOverlayPreset, readWithProgress } from "./progress";
 import { ShareButton } from "./share-button";
 
 const S3_BASE = import.meta.env.VITE_S3_BASE_URL;
 const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
-
-// The photo box is 90vw × 90vh; the image is drawn at most this wide.
-const BOX_WIDTH_RATIO = 0.9;
 
 interface PhotoOverlayProps {
   /** A photo (by public id) or a camera picture (by bucket path). */
@@ -49,7 +52,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     progress.value = 0;
 
     const preset = pickOverlayPreset(
-      window.innerWidth * BOX_WIDTH_RATIO,
+      window.innerWidth * OVERLAY_BOX_WIDTH_RATIO,
       window.devicePixelRatio || 1,
     );
     const url = imageUrl(S3_BASE, src, IMAGE_BASE, preset);
@@ -82,30 +85,28 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     });
   });
 
-  const percent =
-    typeof progress.value === "number"
-      ? Math.round(progress.value * 100)
-      : undefined;
+  const percent = progressPercent(progress.value);
 
+  // The look (shared/overlay/styles.ts) is shared with the admin's
+  // full-screen preview.
   return (
     <div
       data-testid="overlay"
       onClick$={() => props.onClose$()}
-      // Translucent so the grid stays visible behind the photo.
-      class="fixed inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm"
+      class={overlayClass.backdrop}
     >
-      <div class="relative flex h-[85vh] w-[90vw] items-center justify-center">
+      <div class={overlayClass.box}>
         <img
           aria-hidden="true"
           src={imageUrl(S3_BASE, props.src, IMAGE_BASE, "h240")}
           srcset={srcSet(S3_BASE, props.src, IMAGE_BASE, GRID_CANDIDATES)}
-          class="absolute inset-0 h-full w-full object-contain"
+          class={overlayClass.image}
         />
         {fullSrc.value && (
           <img
             data-testid="overlay-image"
             src={fullSrc.value}
-            class="absolute inset-0 h-full w-full object-contain"
+            class={overlayClass.image}
           />
         )}
       </div>
@@ -116,21 +117,19 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
-        // Kept in the layout (invisible when done) so the photo doesn't
-        // jump when the bar disappears.
         class={[
-          // Wide enough to read the progress at a glance, but narrower
-          // than the photo box (90vw) so it reads as part of the photo.
-          "h-1 w-[min(60vw,48rem)] overflow-hidden rounded-full bg-white/20 transition-opacity duration-300",
-          progress.value === undefined ? "opacity-0" : "opacity-100",
+          overlayClass.progress,
+          progress.value === undefined
+            ? overlayClass.progressDone
+            : overlayClass.progressActive,
         ]}
       >
         <div
           class={[
-            "h-full rounded-full bg-white/80",
+            overlayClass.progressFill,
             percent === undefined
-              ? "w-1/3 animate-pulse"
-              : "transition-[width] duration-150",
+              ? overlayClass.progressIndeterminate
+              : overlayClass.progressDeterminate,
           ]}
           style={percent === undefined ? undefined : { width: `${percent}%` }}
         />

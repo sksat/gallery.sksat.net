@@ -93,7 +93,9 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 - Build config: `adapters/cloudflare-pages/vite.config.ts`
 - Output: `dist/` directory
 - Routing: Auto-generated `_routes.json` for SSR/static file handling
-- Build watch paths (set in the Cloudflare dashboard, not in the repo): `gallery-sksat-net` skips pushes that only touch `admin/*`, and `admin-gallery-sksat-net` builds only when `admin/*` changes. The two apps must stay independent: if admin ever imports files outside `admin/` (or the gallery imports from `admin/`), update these watch paths too, or a change to the shared file will not redeploy the other app.
+- Build watch paths (set in the Cloudflare dashboard, not in the repo): `gallery-sksat-net` skips pushes that only touch `admin/*`, and `admin-gallery-sksat-net` builds only when `admin/*` or `shared/*` changes.
+- Shared code: code used by both the gallery and admin lives in `shared/` (imported as `@shared/*`, a tsconfig path in both apps; admin's Vite allows `../shared` in dev, and both apps' CSS has `@source` on it so Tailwind classes there are generated). Keep it plain TS (no Qwik components: a `.tsx` there would resolve the root's Qwik from admin and could bundle two copies). Its tests (`shared/**/*.spec.ts`) run in the root Vitest. Nothing else is shared: the gallery does not import from `admin/` nor admin from `src/`. If another shared directory is added, add it to the admin project's watch paths too, or a change there will not redeploy admin.
+- `shared/overlay/`: the photo overlay's download-with-progress, preset choice and class strings, used by the gallery's `PhotoOverlay` and the admin's full-screen preview so both look and load the same.
 
 ### Image Worker (`workers/image/`)
 

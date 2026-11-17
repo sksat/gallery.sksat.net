@@ -1,6 +1,6 @@
 # CLAUDE.md (admin)
 
-Admin panel for gallery.sksat.net. This is a separate Qwik/QwikCity project under `admin/` with its own `package.json`, `node_modules`, and Cloudflare Pages deployment. Read alongside the root [CLAUDE.md](../CLAUDE.md) — workflow rules, fixture conventions, and VRT baseline policy are inherited from there.
+Admin panel for gallery.sksat.net. This is a separate Qwik/QwikCity project under `admin/` with its own `package.json`, `node_modules`, and Cloudflare Pages deployment. Read alongside the root [CLAUDE.md](../CLAUDE.md) — workflow rules, fixture conventions, and VRT baseline policy are inherited from there. Code shared with the public gallery lives in `../shared/` (`@shared/*`, plain TS; see the root CLAUDE.md): e.g. `shared/overlay/` gives the edit page's full-screen preview (`src/components/photo-preview.tsx`) the same look and progressive loading as the gallery's photo overlay.
 
 ## Differences from the root project
 
@@ -44,6 +44,7 @@ pnpm import-media && pnpm db.seed.local
 - `e2e/media-filter.spec.ts` — the filter sheet as a modal (and without JS), keyboard steps through a select, the empty state's Clear filters
 - `e2e/media-visibility.spec.ts` — visibility badge/filter, edit-page change, bulk change
 - `e2e/camera.spec.ts` — camera list / create / edit / images and picking a camera on a photo
+- `e2e/photo-preview.spec.ts` — the full-screen preview (thumbnail first, then the larger preset with progress; cancel on close) on `/e2e/preview/`, a page served only with the E2E server's `E2E_TEST_ROUTES=1` binding on loopback, with thumbnails Playwright answers itself
 - `e2e/upload.spec.ts` — uploads into the fake bucket: progress, private rows, dedup, failure + retry, resume and delete of incomplete uploads, phone (runs last: it adds rows other specs would count; `e2e/vrt/upload.vrt.spec.ts` likewise)
 - `e2e/csrf-protection.spec.ts`, `e2e/theme.spec.ts` — Origin checks on mutating requests; the theme toggle
 - `e2e/mobile-*.spec.ts` — phone flows (390×844, `isMobile`, `hasTouch`): text size, tap targets, busy buttons and toasts; bulk selection and undo; the edit page's save bar, prev/next and unsaved-changes guard; the tab bar, filter sheet, scroll restore and camera pictures
