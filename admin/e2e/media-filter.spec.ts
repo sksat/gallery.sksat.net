@@ -113,6 +113,10 @@ test.describe("on a larger screen", () => {
       .getByRole("navigation", { name: "View" })
       .getByRole("link", { name: "List" })
       .click();
+    // Wait for the list: filtering while the files view is still shown
+    // filters the files view (a race that made this test flaky).
+    await expect(page).toHaveURL(/\/media\/$/);
+    await expect(page.locator("table tbody tr").first()).toBeVisible();
     await page.getByLabel("File contains").fill("nothing-matches");
     await page.getByRole("button", { name: "Filter" }).click();
     await page.getByRole("link", { name: "Clear filters" }).click();

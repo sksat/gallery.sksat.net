@@ -123,7 +123,10 @@ export type UploadQueue<S extends UploadSource> = {
   retry(key: number): void;
   /** Queue every failed file again. */
   retryFailed(): void;
-  /** Drop finished rows (done / skipped) from the list. */
+  /**
+   * Drop every row that is not in flight (done, skipped and failed): a
+   * failed upload is listed in its folder as incomplete instead.
+   */
   clearFinished(): void;
   items(): UploadItem[];
 };
@@ -134,8 +137,17 @@ export const createUploadQueue = <S extends UploadSource>(
   const concurrency = deps.concurrency ?? DEFAULT_CONCURRENCY;
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const backoff = deps.backoffMs ?? defaultBackoff;
-  /** `target`: the path asked for (item.file becomes where it went). */
-  const entries: { item: UploadItem; source: S; target: string }[] = [];
+  type Entry = {
+    item: UploadItem;
+    source: S;
+    /** The path asked for (item.file becomes where it went). */
+    target: string;
+    /** The row whose file is in the bucket: a retry only completes it. */
+    stored: number | null;
+    /** Said when the server put it elsewhere (a numbered name, a resume). */
+    note: string | null;
+  };
+  const entries: Entry[] = [];
   let nextKey = 1;
   let active = 0;
   /** The last prepare() started; the next one waits for it. */
@@ -165,11 +177,31 @@ export const createUploadQueue = <S extends UploadSource>(
     }
   };
 
-  const upload = async (
-    item: UploadItem,
-    source: S,
-    requested: string,
-  ): Promise<void> => {
+  /** Mark the stored file ready (the complete call, retried on its own). */
+  const complete = async (entry: Entry, id: number): Promise<void> => {
+    const { item } = entry;
+    set(item, {
+      status: "completing",
+      loaded: item.size,
+      message: entry.note,
+      attempts: 0,
+    });
+    try {
+      await withRetry(item, () => deps.complete(id));
+    } catch (err) {
+      // Not in the bucket after all, the wrong file, or the row is gone:
+      // the next try uploads again. Only a check that could not be made
+      // (retryable) keeps the complete-only path.
+      if (!isRetryable(err)) entry.stored = null;
+      throw err;
+    }
+    set(item, { status: "done", message: entry.note });
+  };
+
+  const upload = async (entry: Entry): Promise<void> => {
+    const { item, source, target: requested } = entry;
+    // Already in the bucket (the complete failed): don't upload it again.
+    if (entry.stored !== null) return complete(entry, entry.stored);
     set(item, { status: "preparing", loaded: 0, message: null });
     // One file at a time: hashing reads the whole file into memory.
     const turn = preparing.then(() => deps.prepare(source));
@@ -183,8 +215,6 @@ export const createUploadQueue = <S extends UploadSource>(
       set(item, { status: "skipped", message: errorMessage(err) });
       return;
     }
-    /** Said when the server put it elsewhere (a numbered name, a resume). */
-    let note: string | null = null;
     // The media id once the file is in the bucket, null when skipped.
     const id = await withRetry(item, async (): Promise<number | null> => {
       set(item, { status: "uploading", loaded: 0 });
@@ -204,24 +234,17 @@ export const createUploadQueue = <S extends UploadSource>(
         });
         return null;
       }
-      note = init.file === requested ? null : `${init.file} として登録します`;
-      set(item, { mediaId: init.id, file: init.file, message: note });
+      entry.note =
+        init.file === requested ? null : `${init.file} として登録します`;
+      set(item, { mediaId: init.id, file: init.file, message: entry.note });
       await deps.put(init, source, (loaded) =>
         set(item, { loaded: Math.min(loaded, item.size) }),
       );
       return init.id;
     });
     if (id === null) return;
-    // The file is in the bucket: only the complete call is retried, with
-    // its own attempts.
-    set(item, {
-      status: "completing",
-      loaded: item.size,
-      message: note,
-      attempts: 0,
-    });
-    await withRetry(item, () => deps.complete(id));
-    set(item, { status: "done", message: note });
+    entry.stored = id;
+    await complete(entry, id);
   };
 
   const pump = () => {
@@ -231,7 +254,7 @@ export const createUploadQueue = <S extends UploadSource>(
       active++;
       // Marked before the first await so the loop does not pick it again.
       next.item.status = "preparing";
-      upload(next.item, next.source, next.target)
+      upload(next)
         .catch((err) =>
           set(next.item, { status: "failed", message: errorMessage(err) }),
         )
@@ -257,7 +280,13 @@ export const createUploadQueue = <S extends UploadSource>(
           mediaId: null,
           attempts: 0,
         };
-        entries.push({ item, source, target: item.file });
+        entries.push({
+          item,
+          source,
+          target: item.file,
+          stored: null,
+          note: null,
+        });
       }
       changed();
       pump();
@@ -285,7 +314,9 @@ export const createUploadQueue = <S extends UploadSource>(
     clearFinished() {
       for (let i = entries.length - 1; i >= 0; i--) {
         const s = entries[i].item.status;
-        if (s === "done" || s === "skipped") entries.splice(i, 1);
+        if (s === "done" || s === "skipped" || s === "failed") {
+          entries.splice(i, 1);
+        }
       }
       changed();
     },

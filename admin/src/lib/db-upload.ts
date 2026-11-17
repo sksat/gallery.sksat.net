@@ -157,11 +157,14 @@ export const completeUpload = async (
   if (row.size !== null && object.size !== row.size) {
     return {
       kind: "mismatch",
-      message: `サイズが違います (${object.size} / ${row.size} バイト)`,
+      message: `大きさが違います (B2 は ${object.size} バイト、予定は ${row.size} バイト)`,
     };
   }
   if (row.sha256 !== null && object.sha256 !== row.sha256) {
-    return { kind: "mismatch", message: "SHA-256 が違います" };
+    return {
+      kind: "mismatch",
+      message: "中身が違います (SHA-256 が一致しません)",
+    };
   }
   const [, after] = await db.batch([
     db

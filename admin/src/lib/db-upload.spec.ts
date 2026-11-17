@@ -170,7 +170,10 @@ describe("completeUpload", () => {
         2,
         bucket({ "/up/a.png": { size: 10, sha256: null } }),
       ),
-    ).toEqual({ kind: "mismatch", message: "SHA-256 が違います" });
+    ).toEqual({
+      kind: "mismatch",
+      message: "中身が違います (SHA-256 が一致しません)",
+    });
     expect(
       raw.prepare("SELECT status FROM media WHERE id = 2").get()?.status,
     ).toBe("uploading");

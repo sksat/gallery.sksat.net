@@ -165,10 +165,15 @@ test("a photo is not marked ready unless the bucket has it", async ({
   await page.getByTestId("upload-input").setInputFiles([png("ghost.png", "m")]);
   const row = rows(page);
   await expect(row).toHaveAttribute("data-status", "failed");
-  await expect(row).toContainText("バケットにファイルがありません");
+  await expect(row).toContainText("B2 にファイルがありません");
+  // Checked again on the next page view, and still missing: it stays,
+  // with the reason.
   await page.reload();
-  await expect(page.getByTestId("file-tile")).toHaveCount(0);
   await expect(page.getByTestId("incomplete-row")).toHaveText(/ghost\.png/);
+  await expect(page.getByTestId("incomplete-reason")).toHaveText(
+    "B2 にファイルがありません",
+  );
+  await expect(page.getByTestId("file-tile")).toHaveCount(0);
 });
 
 test("a failed upload can be retried, or resumed after a reload", async ({
@@ -200,10 +205,15 @@ test("a failed upload can be retried, or resumed after a reload", async ({
   await page.reload();
   const incomplete = page.getByTestId("incomplete-uploads");
   await expect(incomplete.getByTestId("incomplete-row")).toHaveText(/s\.png/);
+  await expect(incomplete.getByTestId("incomplete-reason")).toHaveText(
+    "B2 にファイルがありません",
+  );
   await expect(page.getByTestId("file-tile")).toHaveCount(1);
 
-  // ...that picking the same file again finishes.
-  await page.getByTestId("upload-input").setInputFiles([png("s.png", "g")]);
+  // ...that uploading the same file again finishes.
+  await page
+    .getByLabel("/mock/up-4/s.png をアップロードし直す")
+    .setInputFiles([png("s.png", "g")]);
   await expect(rows(page)).toHaveAttribute("data-status", "done");
   await expect(page.getByTestId("file-tile")).toHaveCount(2);
   await expect(incomplete).toHaveCount(0);
@@ -231,6 +241,53 @@ test("an incomplete upload can be deleted", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "This folder is empty" }),
   ).toBeVisible();
+});
+
+/** Upload `name` while every completion call fails (the PUT succeeds). */
+const uploadWithFailingCheck = async (
+  page: Page,
+  folder: string,
+  name: string,
+  seed: string,
+) => {
+  await newFolder(page, "/mock", folder);
+  await page.route(/\/api\/upload\/\d+$/, (route) => route.abort("failed"));
+  await page.getByTestId("upload-input").setInputFiles([png(name, seed)]);
+  await expect(
+    page.getByTestId("upload-panel").getByRole("heading"),
+  ).toHaveText("1 件が失敗しました", { timeout: 15_000 });
+  await page.unroute(/\/api\/upload\/\d+$/);
+};
+
+const putCount = async (page: Page, key: string) =>
+  (await uploadedKeys(page)).filter((k) => k === key).length;
+
+// Regressions for production: the PUT went through but the completion
+// check failed (the image Worker's stat hung). The row must become a photo
+// on its own, without uploading again.
+test("a stored upload whose check failed completes on the next page load", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await uploadWithFailingCheck(page, "up-check", "c.png", "q");
+  await page.reload();
+  await expect(page.getByTestId("file-tile")).toHaveCount(1);
+  await expect(page.getByTestId("incomplete-uploads")).toHaveCount(0);
+  expect(await putCount(page, "/mock/up-check/c.png")).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("閉じる after a failure clears the panel and completes stored files", async ({
+  page,
+}) => {
+  await uploadWithFailingCheck(page, "up-close", "d.png", "r");
+  const panel = page.getByTestId("upload-panel");
+  await panel.getByRole("button", { name: "閉じる" }).click();
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByTestId("file-tile")).toHaveCount(1);
+  await expect(page.getByTestId("incomplete-uploads")).toHaveCount(0);
+  expect(await putCount(page, "/mock/up-close/d.png")).toBe(1);
 });
 
 test.describe("on a phone", () => {

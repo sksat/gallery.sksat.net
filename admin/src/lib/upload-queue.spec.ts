@@ -308,10 +308,74 @@ describe("createUploadQueue", () => {
     h.puts[1].resolve();
     await flush();
     expect(h.status()).toEqual(["a.png:failed", "b.png:done", "x.txt:skipped"]);
-    h.queue.clearFinished();
-    expect(h.status()).toEqual(["a.png:failed"]);
     h.queue.retryFailed();
     await flush();
+    expect(h.status()).toEqual([
+      "a.png:uploading",
+      "b.png:done",
+      "x.txt:skipped",
+    ]);
+    // Closing leaves only what is in flight.
+    h.queue.clearFinished();
     expect(h.status()).toEqual(["a.png:uploading"]);
+  });
+
+  // Regression: closing the panel after a failure did nothing (failed rows
+  // were kept).
+  it("clearFinished also drops failed rows", async () => {
+    const h = harness({ maxAttempts: 1 });
+    h.queue.add("/", [src("a.png")]);
+    await flush();
+    h.puts[0].reject(new UploadError("e", true));
+    await flush();
+    expect(h.status()).toEqual(["a.png:failed"]);
+    h.queue.clearFinished();
+    expect(h.status()).toEqual([]);
+  });
+
+  // Regression: the file was in the bucket but the check failed (the image
+  // Worker's stat hung): a retry must only complete it, not upload again.
+  it("retries only the complete call when the file is already stored", async () => {
+    let fail = true;
+    const h = harness({
+      maxAttempts: 2,
+      complete: vi.fn(async () => {
+        if (fail) throw new UploadError("バケットを確認できませんでした", true);
+      }),
+    });
+    h.queue.add("/", [src("a.png")]);
+    await flush();
+    h.puts[0].resolve();
+    await flush();
+    expect(h.status()).toEqual(["a.png:failed"]);
+    fail = false;
+    h.queue.retry(h.items()[0].key);
+    await flush();
+    expect(h.status()).toEqual(["a.png:done"]);
+    expect(h.deps.put).toHaveBeenCalledTimes(1);
+    expect(h.deps.init).toHaveBeenCalledTimes(1);
+    expect(h.deps.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it("uploads again when the bucket turned out not to have the file", async () => {
+    let missing = true;
+    const h = harness({
+      complete: vi.fn(async () => {
+        if (missing)
+          throw new UploadError("バケットにファイルがありません", false);
+      }),
+    });
+    h.queue.add("/", [src("a.png")]);
+    await flush();
+    h.puts[0].resolve();
+    await flush();
+    expect(h.status()).toEqual(["a.png:failed"]);
+    missing = false;
+    h.queue.retry(h.items()[0].key);
+    await flush();
+    expect(h.puts).toHaveLength(2);
+    h.puts[1].resolve();
+    await flush();
+    expect(h.status()).toEqual(["a.png:done"]);
   });
 });
