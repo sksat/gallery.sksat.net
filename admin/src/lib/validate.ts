@@ -3,6 +3,9 @@ import {
   type CameraInput,
   type CameraKind,
   type MediaPatch,
+  isVisibility,
+  VISIBILITIES,
+  type Visibility,
 } from "./types";
 
 // Mirror of the per-field caps the forms' zod$ schemas enforce so a direct
@@ -71,7 +74,51 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     patch.tags = trimmedTags;
   }
 
+  if ("visibility" in obj) {
+    if (!isVisibility(obj.visibility)) {
+      return {
+        ok: false,
+        error: `visibility must be one of ${VISIBILITIES.join(", ")}`,
+      };
+    }
+    patch.visibility = obj.visibility;
+  }
+
   return { ok: true, patch };
+};
+
+export type ValidateBulkResult =
+  | { ok: true; ids: number[]; visibility: Visibility }
+  | { ok: false; error: string };
+
+/**
+ * A bulk visibility change: `ids` (positive integers, deduplicated, at
+ * most `maxIds`) and the new `visibility`.
+ */
+export const validateBulkVisibility = (
+  input: { ids: unknown; visibility: unknown },
+  maxIds: number,
+): ValidateBulkResult => {
+  if (!isVisibility(input.visibility)) {
+    return {
+      ok: false,
+      error: `visibility must be one of ${VISIBILITIES.join(", ")}`,
+    };
+  }
+  const raw = Array.isArray(input.ids) ? input.ids : [input.ids];
+  const ids: number[] = [];
+  for (const v of raw) {
+    const n = typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v;
+    if (!Number.isSafeInteger(n) || (n as number) <= 0) {
+      return { ok: false, error: "ids must be positive integers" };
+    }
+    if (!ids.includes(n as number)) ids.push(n as number);
+  }
+  if (ids.length === 0) return { ok: false, error: "select at least one photo" };
+  if (ids.length > maxIds) {
+    return { ok: false, error: `at most ${maxIds} photos at a time` };
+  }
+  return { ok: true, ids, visibility: input.visibility };
 };
 
 /**

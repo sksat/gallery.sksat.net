@@ -2,7 +2,7 @@ import { component$, type JSXOutput } from "@builder.io/qwik";
 import { Link } from "@builder.io/qwik-city";
 import { ancestors, isWithin, type FolderNode } from "~/lib/folders";
 import { mediaListHref } from "~/lib/format";
-import type { MediaWorld } from "~/lib/types";
+import type { MediaWorld, Visibility } from "~/lib/types";
 import { StatePanel } from "./state-panel";
 import { Thumb } from "./thumb";
 import { card, muted } from "./ui";
@@ -25,6 +25,7 @@ type Props = {
   files: FileTile[];
   imageBase: string | null;
   world: MediaWorld | null;
+  visibility: Visibility | null;
   q: string;
 };
 
@@ -49,9 +50,9 @@ const Count = ({ n }: { n: number }) => (
 );
 
 export const FileBrowser = component$<Props>(
-  ({ tree, dir, folder, files, imageBase, world, q }) => {
+  ({ tree, dir, folder, files, imageBase, world, visibility, q }) => {
     const href = (path: string) =>
-      mediaListHref({ view: "files", dir: path, world, q });
+      mediaListHref({ view: "files", dir: path, world, visibility, q });
 
     // Nested link list: the root's children are always shown, and a folder's
     // children once the selection is in it (like a file manager's sidebar).

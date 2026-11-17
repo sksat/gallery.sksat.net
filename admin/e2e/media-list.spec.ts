@@ -38,10 +38,10 @@ test("media list: the whole row opens the edit page", async ({ page }) => {
   // Click over the World cell, not the filename text. The stretched link
   // overlays the whole row, so Playwright's actionability check would
   // (correctly) report the cell as covered; click by coordinates instead.
-  // Columns: ID, thumbnail, File, World, ...
-  const cell = page.locator("table tbody tr").first().locator("td").nth(3);
+  // Columns: checkbox, ID, thumbnail, File, Status, ...
+  const cell = page.locator("table tbody tr").first().locator("td").nth(4);
   const box = await cell.boundingBox();
-  if (!box) throw new Error("World cell not rendered");
+  if (!box) throw new Error("Status cell not rendered");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page).toHaveURL(/\/media\/2\/$/);
   await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();

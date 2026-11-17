@@ -10,15 +10,20 @@ import {
   type MediaPatch,
   type MediaRow,
   type MediaWorld,
+  isVisibility,
+  type Visibility,
 } from "./types";
 
 type RawRow = {
   id: number;
+  public_id: string;
   file: string;
   world: string;
   timestamp: string | null;
   camera_id: number | null;
   tags: string;
+  visibility: string;
+  legacy_index: number | null;
   updated_at: string;
 };
 
@@ -59,13 +64,19 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
   if (!isWorld(raw.world)) {
     throw new Error(`unknown world value in DB: ${raw.world}`);
   }
+  if (!isVisibility(raw.visibility)) {
+    throw new Error(`unknown visibility value in DB: ${raw.visibility}`);
+  }
   return {
     id: raw.id,
+    public_id: raw.public_id,
     file: raw.file,
     world: raw.world,
     timestamp: raw.timestamp,
     camera_id: raw.camera_id,
     tags: parseTags(raw.tags),
+    visibility: raw.visibility,
+    legacy_index: raw.legacy_index,
     updated_at: raw.updated_at,
   };
 };
@@ -148,6 +159,7 @@ export const rowToMediaJson = (
 
 export type ListParams = {
   world?: MediaWorld;
+  visibility?: Visibility;
   q?: string;
   limit: number;
   offset: number;
@@ -167,6 +179,10 @@ export const listMedia = async (
   if (params.world) {
     where.push("world = ?");
     args.push(params.world);
+  }
+  if (params.visibility) {
+    where.push("visibility = ?");
+    args.push(params.visibility);
   }
   if (params.q) {
     // Escape LIKE metacharacters so a literal `%` or `_` in the query does
@@ -227,6 +243,10 @@ export const updateMedia = async (
     sets.push("tags = ?");
     args.push(JSON.stringify(patch.tags));
   }
+  if (patch.visibility !== undefined) {
+    sets.push("visibility = ?");
+    args.push(patch.visibility);
+  }
   // No-op patch: skip the UPDATE entirely (don't bump updated_at) and just
   // return the current row. Costs a second round-trip but keeps the
   // updated_at semantics honest.
@@ -238,6 +258,36 @@ export const updateMedia = async (
     .bind(...args, id)
     .first<RawRow>();
   return raw ? rowToMedia(raw) : null;
+};
+
+/** Most ids one bulk visibility change accepts (one /media page). */
+export const MAX_BULK_IDS = 100;
+
+/**
+ * Set the visibility of several photos at once. Rows that already have it
+ * are left alone (their updated_at does not move). Returns the number of
+ * rows changed.
+ */
+export const setVisibility = async (
+  db: D1Database,
+  ids: readonly number[],
+  visibility: Visibility,
+): Promise<number> => {
+  if (ids.length === 0) return 0;
+  if (ids.length > MAX_BULK_IDS) {
+    throw new Error(`too many ids (${ids.length} > ${MAX_BULK_IDS})`);
+  }
+  // One JSON parameter instead of one per id: D1 caps bound parameters
+  // at 100 per statement.
+  const res = await db
+    .prepare(
+      `UPDATE media SET visibility = ?1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE id IN (SELECT value FROM json_each(?2)) AND visibility <> ?1`,
+    )
+    .bind(visibility, JSON.stringify(ids))
+    .run();
+  return res.meta.changes ?? 0;
 };
 
 export type CameraListItem = CameraRow & { photo_count: number };
@@ -501,10 +551,11 @@ export const exportSnapshot = async (
   db: D1Database,
 ): Promise<ExportSnapshot> => {
   // One batch = one transaction, so media never references a camera the
-  // cameras query did not see.
+  // cameras query did not see. Only public photos are exported: media.json
+  // is a list, and unlisted photos must not appear in lists.
   const [mediaRes, cameraRes, imageRes] = await db.batch([
     db.prepare(
-      "SELECT * FROM media ORDER BY timestamp IS NULL, timestamp DESC, id DESC",
+      "SELECT * FROM media WHERE visibility = 'public' ORDER BY timestamp IS NULL, timestamp DESC, id DESC",
     ),
     db.prepare("SELECT * FROM camera"),
     db.prepare("SELECT * FROM camera_image"),

@@ -49,6 +49,7 @@ export const mediaListHref = (opts: {
   view?: MediaView;
   dir?: string | null;
   world?: string | null;
+  visibility?: string | null;
   q?: string | null;
   page?: number;
 }): string => {
@@ -57,6 +58,7 @@ export const mediaListHref = (opts: {
   if (files) params.set("view", "files");
   if (files && opts.dir && opts.dir !== "/") params.set("dir", opts.dir);
   if (opts.world) params.set("world", opts.world);
+  if (opts.visibility) params.set("visibility", opts.visibility);
   if (opts.q) params.set("q", opts.q);
   if (!files && opts.page && opts.page > 1) {
     params.set("page", String(opts.page));
@@ -64,6 +66,13 @@ export const mediaListHref = (opts: {
   const s = params.toString().replace(/%2F/gi, "/");
   return s ? `/media/?${s}` : "/media/";
 };
+
+/** Public site that serves /photo/<public_id>/. */
+export const PUBLIC_SITE_URL = "https://gallery.sksat.net";
+
+/** A photo's page on the public site. */
+export const publicPhotoUrl = (publicId: string): string =>
+  `${PUBLIC_SITE_URL}/photo/${publicId}/`;
 
 /** Number of the last page (1-based); 1 when there are no rows. */
 export const lastPage = (total: number, pageSize: number): number =>
