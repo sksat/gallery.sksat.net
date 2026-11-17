@@ -481,8 +481,8 @@ export const IncompleteUploads = component$<{
             data-testid="incomplete-row"
             class="flex flex-wrap items-center gap-x-3 py-1.5"
           >
-            <span class="min-w-0 flex-1 truncate" title={r.file}>
-              {r.file.slice(r.file.lastIndexOf("/") + 1)}
+            <span class="min-w-0 flex-1 truncate" title={r.path}>
+              {r.path.slice(r.path.lastIndexOf("/") + 1)}
             </span>
             {r.size !== null && (
               <span class={["shrink-0 text-xs tabular-nums", muted]}>
@@ -500,7 +500,7 @@ export const IncompleteUploads = component$<{
               <input
                 type="file"
                 accept={UPLOAD_ACCEPT}
-                aria-label={`${r.file} をアップロードし直す`}
+                aria-label={`${r.path} をアップロードし直す`}
                 class="sr-only"
                 onChange$={(_, el) => {
                   const f = el.files?.[0];
@@ -511,8 +511,8 @@ export const IncompleteUploads = component$<{
                   delete rest[r.id];
                   problems.value = rest;
                   // Under the row's own name: the same file resumes it.
-                  const name = r.file.slice(r.file.lastIndexOf("/") + 1);
-                  void props.uploader.add(dirOf(r.file), [
+                  const name = r.path.slice(r.path.lastIndexOf("/") + 1);
+                  void props.uploader.add(dirOf(r.path), [
                     {
                       name: f.name,
                       relativePath: name,
@@ -527,7 +527,7 @@ export const IncompleteUploads = component$<{
             <button
               type="button"
               disabled={busy.value !== null || checking.value.includes(r.id)}
-              aria-label={`${r.file} の未完了のアップロードを削除`}
+              aria-label={`${r.path} の未完了のアップロードを削除`}
               onClick$={async () => {
                 busy.value = r.id;
                 try {

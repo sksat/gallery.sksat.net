@@ -8,6 +8,7 @@ import {
   type MediaRow,
   type MediaWorld,
   isVisibility,
+  LIVE_PHOTO,
   type Visibility,
 } from "./types";
 
@@ -15,6 +16,8 @@ type RawRow = {
   id: number;
   public_id: string;
   file: string;
+  /** NULL only before migration 0005 / in hand-written test tables. */
+  path?: string | null;
   world: string;
   timestamp: string | null;
   camera_id: number | null;
@@ -68,6 +71,7 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     id: raw.id,
     public_id: raw.public_id,
     file: raw.file,
+    path: raw.path ?? raw.file,
     world: raw.world,
     timestamp: raw.timestamp,
     camera_id: raw.camera_id,
@@ -113,8 +117,8 @@ export const listMedia = async (
   db: D1Database,
   params: ListParams,
 ): Promise<ListResult> => {
-  // Uploads that have not completed are not photos yet.
-  const where: string[] = ["status = 'ready'"];
+  // Not uploads that have not completed, nor the trash.
+  const where: string[] = [LIVE_PHOTO];
   const args: unknown[] = [];
   if (params.world) {
     where.push("world = ?");
@@ -126,9 +130,9 @@ export const listMedia = async (
   }
   if (params.q) {
     // Escape LIKE metacharacters so a literal `%` or `_` in the query does
-    // not behave as a wildcard.
+    // not behave as a wildcard. Searches where photos are shown (path).
     const escaped = params.q.replace(/[\\%_]/g, (c) => `\\${c}`);
-    where.push("file LIKE ? ESCAPE '\\'");
+    where.push("path LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
   }
   const whereSql = `WHERE ${where.join(" AND ")}`;
@@ -281,7 +285,7 @@ export const listCameras = async (
 ): Promise<CameraListItem[]> => {
   const res = await db
     .prepare(
-      `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id AND m.status = 'ready') AS photo_count
+      `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id AND m.status = 'ready' AND m.trashed_at IS NULL) AS photo_count
        FROM camera c ORDER BY c.name COLLATE NOCASE, c.id`,
     )
     .all<RawCameraRow & { photo_count: number }>();

@@ -5,7 +5,8 @@
  * - lists contain `public` photos only;
  * - a single photo (by public id or legacy index) may also be `unlisted`;
  * - `private` photos are never returned;
- * - nor are photos whose upload has not completed (`status <> 'ready'`).
+ * - nor are photos whose upload has not completed (`status <> 'ready'`)
+ *   or that are in the trash (`trashed_at`).
  */
 import type {
   CameraImageJSON,
@@ -54,10 +55,12 @@ const MEDIA_SELECT = `
   FROM media m LEFT JOIN camera c ON c.id = m.camera_id`;
 
 /**
- * A photo whose upload has completed (admin migration 0004). Rows still
- * `uploading` reserve a path but may have no file yet: never served.
+ * A photo whose upload has completed (admin migration 0004) and that is
+ * not in the admin's trash (0005). Rows still `uploading` reserve a path
+ * but may have no file yet; trashed ones are on their way out. Neither is
+ * ever served.
  */
-const READY = "m.status = 'ready'";
+const READY = "m.status = 'ready' AND m.trashed_at IS NULL";
 
 /** Photos that are listed. */
 const LISTED = `${READY} AND m.visibility = 'public'`;

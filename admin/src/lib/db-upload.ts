@@ -21,8 +21,10 @@ export type InitOutcome =
 type Existing = {
   id: number;
   file: string;
+  path: string;
   status: string;
   sha256: string | null;
+  trashed_at: string | null;
 };
 
 const isUniqueError = (err: unknown) =>
@@ -41,24 +43,36 @@ export const initUpload = async (
   row: { publicId: string; world: MediaWorld },
 ): Promise<InitOutcome> => {
   const candidates = numberedPaths(init.file);
+  // A name is taken by another file in the bucket (any row: keys never
+  // change) or by a photo shown there (path, not trashed: moved photos).
   const found =
     (
       await db
         .prepare(
-          `SELECT id, file, status, sha256 FROM media
-           WHERE sha256 = ?1 OR file IN (SELECT value FROM json_each(?2))`,
+          `SELECT id, file, path, status, sha256, trashed_at FROM media
+           WHERE sha256 = ?1 OR file IN (SELECT value FROM json_each(?2))
+              OR (trashed_at IS NULL AND path IN (SELECT value FROM json_each(?2)))`,
         )
         .bind(init.sha256, JSON.stringify(candidates))
         .all<Existing>()
     ).results ?? [];
   const same = found.find((r) => r.sha256 === init.sha256);
   if (same) {
+    if (same.trashed_at !== null) {
+      return {
+        kind: "conflict",
+        message: `同じ写真がゴミ箱にあります (${same.path})`,
+        retry: false,
+      };
+    }
     if (same.status === "ready") {
-      return { kind: "exists", id: same.id, file: same.file };
+      return { kind: "exists", id: same.id, file: same.path };
     }
     return { kind: "upload", id: same.id, file: same.file, resumed: true };
   }
-  const taken = new Set(found.map((r) => r.file));
+  const taken = new Set(
+    found.flatMap((r) => (r.trashed_at === null ? [r.file, r.path] : [r.file])),
+  );
   const file = candidates.find((c) => !taken.has(c));
   if (!file) {
     return {
@@ -70,8 +84,8 @@ export const initUpload = async (
   try {
     const inserted = await db
       .prepare(
-        `INSERT INTO media (public_id, file, world, timestamp, tags, visibility, status, size, sha256)
-         VALUES (?, ?, ?, ?, '[]', 'private', 'uploading', ?, ?) RETURNING id`,
+        `INSERT INTO media (public_id, file, path, world, timestamp, tags, visibility, status, size, sha256)
+         VALUES (?1, ?2, ?2, ?3, ?4, '[]', 'private', 'uploading', ?5, ?6) RETURNING id`,
       )
       .bind(
         row.publicId,
@@ -202,6 +216,8 @@ export const deleteIncompleteUpload = async (
 export type IncompleteUpload = {
   id: number;
   file: string;
+  /** Where it is shown (its folder in the Files view). */
+  path: string;
   size: number | null;
   updated_at: string;
 };
@@ -212,7 +228,7 @@ export const listIncompleteUploads = async (
 ): Promise<IncompleteUpload[]> => {
   const res = await db
     .prepare(
-      "SELECT id, file, size, updated_at FROM media WHERE status = 'uploading' ORDER BY file",
+      "SELECT id, file, path, size, updated_at FROM media WHERE status = 'uploading' AND trashed_at IS NULL ORDER BY path",
     )
     .all<IncompleteUpload>();
   return res.results ?? [];

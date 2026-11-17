@@ -165,8 +165,10 @@ export const useMediaList = routeLoader$<MediaListResult>(
       // Empty folders only when unfiltered: a filter shows where the
       // matching photos are.
       const folders = world || visibility || q ? [] : await listFolders(db);
+      // Folders are where photos are shown (path), not where their files
+      // are in the bucket.
       const tree = buildFolderTree(
-        rows.map((r) => r.file),
+        rows.map((r) => r.path),
         folders,
       );
       return {
@@ -190,7 +192,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
             getUploadConfig(platform) !== null &&
             getObjectStat(platform, url, null) !== null,
           incomplete: (await listIncompleteUploads(db)).filter(
-            (u) => dirOf(u.file) === dir,
+            (u) => dirOf(u.path) === dir,
           ),
         },
       };
@@ -614,7 +616,7 @@ export default component$(() => {
       />
       <div class="flex min-w-0 flex-1 flex-col gap-2">
         <div class="flex items-start justify-between gap-3">
-          <FileName file={row.file} stacked />
+          <FileName file={row.path} stacked />
           <span class={["shrink-0 text-xs tabular-nums", muted]}>
             #{row.id}
           </span>
@@ -1143,10 +1145,10 @@ export default component$(() => {
                       <Link
                         key={back}
                         href={mediaEditHref(row.id, back)}
-                        title={row.file}
+                        title={row.path}
                         class="block min-w-0 rounded after:absolute after:inset-0 after:content-['']"
                       >
-                        <FileName file={row.file} />
+                        <FileName file={row.path} />
                       </Link>
                     </td>
                     <td class="px-4 py-3">
@@ -1225,7 +1227,7 @@ export default component$(() => {
                 {selectionMode ? (
                   <label
                     for={`pick-${row.id}`}
-                    title={row.file}
+                    title={row.path}
                     class="flex min-w-0 flex-1 cursor-pointer items-start gap-3 py-3 pr-4 pl-1 select-none"
                   >
                     {cardBody(row)}
@@ -1234,7 +1236,7 @@ export default component$(() => {
                   <Link
                     key={back}
                     href={mediaEditHref(row.id, back)}
-                    title={row.file}
+                    title={row.path}
                     class="flex min-w-0 flex-1 items-start gap-3 py-3 pr-4 pl-1 active:bg-sky-50 dark:active:bg-sky-950/30"
                   >
                     {cardBody(row)}

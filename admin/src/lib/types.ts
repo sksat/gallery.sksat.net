@@ -47,11 +47,20 @@ export type Visibility = (typeof VISIBILITIES)[number];
 export const isVisibility = (v: unknown): v is Visibility =>
   (VISIBILITIES as readonly unknown[]).includes(v);
 
+/**
+ * SQL condition (on `media`, unqualified) for a photo the admin lists: its
+ * upload completed (0004) and it is not in the trash (0005).
+ */
+export const LIVE_PHOTO = "status = 'ready' AND trashed_at IS NULL";
+
 export type MediaRow = {
   id: number;
   /** Id in public URLs (/photo/<public_id>); fixed at creation. */
   public_id: string;
+  /** The B2 object key: fixed, used for images. */
   file: string;
+  /** Where the admin shows it (folder + name); moving rewrites it. */
+  path: string;
   world: MediaWorld;
   timestamp: string | null;
   camera_id: number | null;

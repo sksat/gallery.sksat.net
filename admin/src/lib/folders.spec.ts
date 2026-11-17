@@ -117,15 +117,21 @@ describe("isWithin", () => {
 });
 
 describe("filesInDir", () => {
-  const rows = FILES.map((file, id) => ({ id, file }));
+  const rows = FILES.map((path, id) => ({ id, path }));
 
-  it("keeps direct children only, sorted by file name", () => {
-    expect(filesInDir(rows, "/VRChat/2023-12").map((r) => r.file)).toEqual([
+  it("keeps direct children only, sorted by path", () => {
+    expect(filesInDir(rows, "/VRChat/2023-12").map((r) => r.path)).toEqual([
       "/VRChat/2023-12/a.png",
       "/VRChat/2023-12/b.png",
     ]);
-    expect(filesInDir(rows, "/").map((r) => r.file)).toEqual(["/top.png"]);
+    expect(filesInDir(rows, "/").map((r) => r.path)).toEqual(["/top.png"]);
     expect(filesInDir(rows, "/VRChat")).toEqual([]);
+  });
+
+  it("goes by where a photo is shown, not its file", () => {
+    const moved = [{ id: 1, file: "/a/x.png", path: "/b/x.png" }];
+    expect(filesInDir(moved, "/b")).toEqual(moved);
+    expect(filesInDir(moved, "/a")).toEqual([]);
   });
 });
 

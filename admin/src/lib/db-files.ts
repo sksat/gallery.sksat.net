@@ -1,11 +1,18 @@
 // Lean query for the Files view on /media: only what the folder tree and the
-// tiles need (id, file, world), for every row matching the filter. Kept apart
-// from db.ts's listMedia, which pages full rows by date for the list view.
+// tiles need, for every row matching the filter. The tree follows `path`
+// (where a photo is shown); `file` (the B2 key) is only for its thumbnail.
+// Kept apart from db.ts's listMedia, which pages full rows by date for the
+// list view.
 
 import { dirOf } from "./folders";
-import type { MediaWorld, Visibility } from "./types";
+import { LIVE_PHOTO, type MediaWorld, type Visibility } from "./types";
 
-export type MediaFileRow = { id: number; file: string; world: MediaWorld };
+export type MediaFileRow = {
+  id: number;
+  file: string;
+  path: string;
+  world: MediaWorld;
+};
 
 export type FilesParams = {
   world?: MediaWorld;
@@ -15,15 +22,15 @@ export type FilesParams = {
 };
 
 /**
- * SQL + bind args. Ordered by file so that, past `limit`, the cut is
+ * SQL + bind args. Ordered by path so that, past `limit`, the cut is
  * predictable (the alphabetically last paths), and fetching one more row
  * than `limit` tells the caller the result was truncated.
  */
 export const filesQuery = (
   params: FilesParams,
 ): { sql: string; args: unknown[] } => {
-  // Uploads that have not completed are not photos yet (listIncomplete).
-  const where: string[] = ["status = 'ready'"];
+  // Not uploads that have not completed (listIncomplete), nor the trash.
+  const where: string[] = [LIVE_PHOTO];
   const args: unknown[] = [];
   if (params.world) {
     where.push("world = ?");
@@ -36,12 +43,12 @@ export const filesQuery = (
   if (params.q) {
     // Same LIKE escaping as listMedia: `%` / `_` in the query are literal.
     const escaped = params.q.replace(/[\\%_]/g, (c) => `\\${c}`);
-    where.push("file LIKE ? ESCAPE '\\'");
+    where.push("path LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
   }
   const whereSql = ` WHERE ${where.join(" AND ")}`;
   return {
-    sql: `SELECT id, file, world FROM media${whereSql} ORDER BY file LIMIT ?`,
+    sql: `SELECT id, file, path, world FROM media${whereSql} ORDER BY path LIMIT ?`,
     args: [...args, params.limit + 1],
   };
 };
@@ -69,14 +76,16 @@ export const listMediaFiles = async (
  * completed. Sorted, without duplicates.
  */
 export const listFolders = async (db: D1Database): Promise<string[]> => {
-  const [folders, pending] = await db.batch<{ path?: string; file?: string }>([
+  const [folders, pending] = await db.batch<{ path?: string }>([
     db.prepare("SELECT path FROM folder"),
-    db.prepare("SELECT file FROM media WHERE status <> 'ready'"),
+    db.prepare(
+      "SELECT path FROM media WHERE status <> 'ready' AND trashed_at IS NULL",
+    ),
   ]);
   const paths = new Set<string>();
   for (const r of folders.results ?? []) if (r.path) paths.add(r.path);
   for (const r of pending.results ?? []) {
-    if (r.file && dirOf(r.file) !== "/") paths.add(dirOf(r.file));
+    if (r.path && dirOf(r.path) !== "/") paths.add(dirOf(r.path));
   }
   return [...paths].sort();
 };
@@ -84,8 +93,8 @@ export const listFolders = async (db: D1Database): Promise<string[]> => {
 /**
  * Create the folder `path` (validated by validateFolderPath). False when
  * it already exists: as a `folder` row, or implicitly because a photo
- * (in any state; see listFolders) or another created folder lives below
- * it.
+ * (in any state but trashed; see listFolders) or another created folder
+ * lives below it.
  */
 export const createFolder = async (
   db: D1Database,
@@ -96,7 +105,8 @@ export const createFolder = async (
     .prepare(
       `INSERT INTO folder (path) SELECT ?1
        WHERE NOT EXISTS (
-         SELECT 1 FROM media WHERE substr(file, 1, length(?1) + 1) = ?1 || '/'
+         SELECT 1 FROM media WHERE trashed_at IS NULL
+           AND substr(path, 1, length(?1) + 1) = ?1 || '/'
        ) AND NOT EXISTS (
          SELECT 1 FROM folder WHERE substr(path, 1, length(?1) + 1) = ?1 || '/'
        )

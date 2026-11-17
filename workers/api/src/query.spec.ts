@@ -176,6 +176,36 @@ describe("cameras", () => {
   });
 });
 
+describe("photos in the admin's trash", () => {
+  const trash = async (db: D1Database) =>
+    db
+      .prepare(
+        "UPDATE media SET trashed_at = '2026-11-18T00:00:00Z' WHERE id IN (1, 2, 3)",
+      )
+      .all();
+
+  it("are not listed, opened, served by path or mapped from old URLs", async () => {
+    const db = setup();
+    await trash(db);
+    const listed = (await listPublicMedia(db)).map((m) => m.file);
+    expect(listed).not.toContain("/p1.png");
+    expect(listed).not.toContain("/p2.png");
+    expect(await getMedia(db, "aaaaaaaaa2")).toBeNull();
+    expect(await getMedia(db, "aaaaaaaaa4")).toBeNull(); // unlisted
+    expect(await getFileAccess(db, "/p1.png")).toBeNull();
+    expect(await getLegacyId(db, 0)).toBeNull();
+    expect(await getLegacyId(db, 2)).toBeNull();
+  });
+
+  it("do not make their camera visible", async () => {
+    const db = setup();
+    await trash(db);
+    // Cameras 4 (row 1), 1 (row 2) and 3 (row 3) had only these photos.
+    expect(await listCameras(db)).toEqual([]);
+    expect(await getCamera(db, "a-unlisted")).toBeNull();
+  });
+});
+
 describe("uploads that have not completed", () => {
   it("are not listed, opened, served by path or mapped from old URLs", async () => {
     const db = setup();

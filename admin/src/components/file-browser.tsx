@@ -13,7 +13,13 @@ import { card, muted } from "./ui";
 // the view, folder and filter in the URL, so reload/back work and the tree
 // is navigable with Tab / Enter.
 
-export type FileTile = { id: number; file: string; world: MediaWorld };
+/** A photo tile: `path` places and names it, `file` is its thumbnail. */
+export type FileTile = {
+  id: number;
+  file: string;
+  path: string;
+  world: MediaWorld;
+};
 
 type Props = {
   tree: FolderNode;
@@ -207,7 +213,7 @@ export const FileBrowser = component$<Props>(
                 </li>
               ))}
               {files.map((f) => {
-                const name = f.file.slice(f.file.lastIndexOf("/") + 1);
+                const name = f.path.slice(f.path.lastIndexOf("/") + 1);
                 return (
                   <li key={f.id}>
                     <Link
@@ -215,7 +221,7 @@ export const FileBrowser = component$<Props>(
                       href={mediaEditHref(f.id, href(dir))}
                       data-testid="file-tile"
                       data-media-id={f.id}
-                      title={f.file}
+                      title={f.path}
                       class={[
                         card,
                         "block overflow-hidden transition-colors hover:border-sky-300 dark:hover:border-sky-800",

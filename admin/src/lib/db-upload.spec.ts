@@ -107,6 +107,30 @@ describe("initUpload", () => {
     ).toMatchObject({ kind: "upload", file: "/old/x-2.png" });
   });
 
+  it("counts a photo moved to the path, and the file of one moved away", async () => {
+    const { raw, db } = setup();
+    // /old/x.png's file stays; it is shown at /show/x.png now.
+    raw.exec("UPDATE media SET path = '/show/x.png' WHERE file = '/old/x.png'");
+    expect(
+      await initUpload(db, init({ file: "/show/x.png", sha256: SHA_B }), row),
+    ).toMatchObject({ file: "/show/x-1.png" });
+    expect(
+      await initUpload(db, init({ file: "/old/x.png" }), id(1)),
+    ).toMatchObject({ file: "/old/x-1.png" });
+  });
+
+  it("refuses a photo that is in the trash", async () => {
+    const { raw, db } = setup();
+    await initUpload(db, init(), row);
+    await completeUpload(db, 2, UPLOADED);
+    raw.exec("UPDATE media SET trashed_at = '2026-01-01' WHERE id = 2");
+    expect(await initUpload(db, init({ file: "/b/a.png" }), id(1))).toEqual({
+      kind: "conflict",
+      message: "同じ写真がゴミ箱にあります (/up/a.png)",
+      retry: false,
+    });
+  });
+
   it("gives up when every numbered name is taken", async () => {
     const { raw, db } = setup();
     const insert = raw.prepare(

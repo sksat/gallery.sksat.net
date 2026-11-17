@@ -560,7 +560,7 @@ export default component$(() => {
   }
 
   const { row, cameras, neighbors } = media.value;
-  const { dir, base } = splitPath(row.file);
+  const { dir, base } = splitPath(row.path);
   const previewBase = media.value.imageBase;
   const publicUrl = publicPhotoUrl(row.public_id);
   // Folded on phones unless opened ("max-sm": below sm only).
@@ -666,10 +666,22 @@ export default component$(() => {
             )}
           </dd>
           <dt class={["font-medium", muted, meta]}>File</dt>
-          <dd class={["min-w-0", meta]} title={row.file}>
+          <dd class={["min-w-0", meta]} title={row.path}>
             <span class="block font-medium break-all">{base}</span>
             <span class={["block text-xs break-all", muted]}>{dir}</span>
           </dd>
+          {/* Moved or renamed: the file in B2 keeps its first name. */}
+          {row.file !== row.path && (
+            <>
+              <dt class={["font-medium", muted, meta]}>B2 key</dt>
+              <dd
+                class={["min-w-0 text-xs break-all", muted, meta]}
+                data-testid="bucket-key"
+              >
+                {row.file}
+              </dd>
+            </>
+          )}
           <dt class={["font-medium", muted, meta]}>Last updated</dt>
           <dd title={row.updated_at} class={["tabular-nums", meta]}>
             {formatJst(row.updated_at)}{" "}
@@ -785,7 +797,7 @@ export default component$(() => {
 export const head: DocumentHead = ({ resolveValue }) => {
   const result = resolveValue(useMedia);
   if (result.kind === "ok") {
-    return { title: `Edit ${result.row.file} — Admin` };
+    return { title: `Edit ${result.row.path} — Admin` };
   }
   if (result.kind === "missing-binding") {
     return { title: "Configuration error — Admin" };

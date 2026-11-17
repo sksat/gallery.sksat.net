@@ -386,3 +386,63 @@ describe("0004_upload.sql", () => {
     ).toMatch(/^\d{4}-\d\d-\d\dT/);
   });
 });
+
+describe("0005_path_trash.sql", () => {
+  const migrate5 = (rows: Parameters<typeof migrate>[0]) => {
+    const db = migrate(rows);
+    db.exec(migration("0003_visibility.sql"));
+    db.exec(migration("0004_upload.sql"));
+    db.exec(migration("0005_path_trash.sql"));
+    return db;
+  };
+
+  it("shows existing photos where their files are, none trashed", () => {
+    const db = migrate5([["/a/x.png", "Real", null, null]]);
+    expect(
+      db.prepare("SELECT file, path, trashed_at FROM media").all(),
+    ).toEqual([{ file: "/a/x.png", path: "/a/x.png", trashed_at: null }]);
+  });
+
+  it("fills in the path of a row inserted without one", () => {
+    const db = migrate5([]);
+    db.exec("INSERT INTO media (file, world) VALUES ('/n.png', 'Real')");
+    db.exec(
+      "INSERT INTO media (file, world, path) VALUES ('/k.png', 'Real', '/moved/k.png')",
+    );
+    expect(
+      db.prepare("SELECT file, path FROM media ORDER BY id").all(),
+    ).toEqual([
+      { file: "/n.png", path: "/n.png" },
+      { file: "/k.png", path: "/moved/k.png" },
+    ]);
+  });
+
+  it("gives a path to one live photo, but not to trashed ones", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    expect(() =>
+      db.exec(
+        "INSERT INTO media (file, world, path) VALUES ('/b.png', 'Real', '/a.png')",
+      ),
+    ).toThrow(/UNIQUE/);
+    db.exec("UPDATE media SET trashed_at = '2026-11-18T00:00:00Z'");
+    db.exec(
+      "INSERT INTO media (file, world, path) VALUES ('/b.png', 'Real', '/a.png')",
+    );
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM media WHERE path = '/a.png'").get(),
+    ).toEqual({ n: 2 });
+  });
+
+  it("rejects malformed paths", () => {
+    const db = migrate5([]);
+    for (const bad of ["a.png", "/a/", "/a//b.png", "/"]) {
+      expect(
+        () =>
+          db.exec(
+            `INSERT INTO media (file, world, path) VALUES ('/x${bad.length}.png', 'Real', '${bad}')`,
+          ),
+        bad,
+      ).toThrow(/CHECK/);
+    }
+  });
+});
