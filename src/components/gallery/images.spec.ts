@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { GRID_CANDIDATES, imageUrl, originalUrl, srcSet } from "./images";
+import {
+  dimensionsFromFile,
+  GRID_CANDIDATES,
+  imageUrl,
+  originalUrl,
+  srcSet,
+} from "./images";
+
+describe("dimensionsFromFile", () => {
+  it("reads the size from a VRChat screenshot name", () => {
+    expect(
+      dimensionsFromFile(
+        "/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png",
+      ),
+    ).toEqual({ width: 7680, height: 4320 });
+  });
+
+  it("is empty when the name has no size", () => {
+    expect(dimensionsFromFile("/2023-12-comsys2023/DSC01234.JPG")).toEqual({});
+    expect(dimensionsFromFile("/a_0x10.png")).toEqual({});
+  });
+});
 
 const s3 = "https://bucket.example.com";
 const file = "/VRChat/a.png";
