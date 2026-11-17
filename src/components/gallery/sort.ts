@@ -15,8 +15,9 @@ export type SortOrder = {
 export const DEFAULT_SORT: SortOrder = { kind: "new", seed: 0 };
 
 export const SORT_LABELS: Record<SortKind, string> = {
-  new: "日付 降順",
-  old: "日付 昇順",
+  // Full-width space: a half-width one is too narrow between kanji.
+  new: "日付　降順",
+  old: "日付　昇順",
   random: "ランダム",
 };
 

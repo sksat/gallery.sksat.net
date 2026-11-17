@@ -194,40 +194,6 @@ export default component$(() => {
           return (
             <>
               <div class="mb-3 flex flex-col gap-3 px-1">
-                <div
-                  role="group"
-                  aria-label="タグで絞り込む"
-                  class="flex flex-wrap gap-2"
-                >
-                  {tagCounts(media).map(({ tag, count }) => {
-                    const pressed = selectedTags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        data-testid="tag-chip"
-                        aria-pressed={pressed}
-                        onClick$={() =>
-                          setFilter({
-                            tags: toggleTag(state.filter.tags, tag),
-                            mode: state.filter.mode,
-                          })
-                        }
-                        class={[
-                          "rounded-full border px-3 py-1.5 text-sm transition-colors",
-                          pressed
-                            ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-bg)]"
-                            : "border-white/30 hover:border-white/70",
-                        ]}
-                      >
-                        {tag}
-                        <span class="ml-1.5 tabular-nums opacity-70">
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
                 <div class="flex min-h-8 flex-wrap items-center gap-4 text-sm">
                   <span
                     data-testid="result-count"
@@ -294,8 +260,42 @@ export default component$(() => {
                       </button>
                     )}
                   </span>
+                </div>
+                <div
+                  role="group"
+                  aria-label="タグで絞り込む"
+                  class="flex flex-wrap items-center gap-2"
+                >
+                  {tagCounts(media).map(({ tag, count }) => {
+                    const pressed = selectedTags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        data-testid="tag-chip"
+                        aria-pressed={pressed}
+                        onClick$={() =>
+                          setFilter({
+                            tags: toggleTag(state.filter.tags, tag),
+                            mode: state.filter.mode,
+                          })
+                        }
+                        class={[
+                          "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                          pressed
+                            ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-bg)]"
+                            : "border-white/30 hover:border-white/70",
+                        ]}
+                      >
+                        {tag}
+                        <span class="ml-1.5 tabular-nums opacity-70">
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
                   {selectedTags.length >= 2 && (
-                    <fieldset class="flex items-center gap-3">
+                    <fieldset class="ml-2 flex items-center gap-3 text-sm">
                       <legend class="sr-only">複数タグの条件</legend>
                       {(["and", "or"] as const).map((mode) => (
                         <label key={mode} class="flex items-center gap-1.5">
@@ -316,7 +316,7 @@ export default component$(() => {
                   {selectedTags.length > 0 && (
                     <button
                       type="button"
-                      class="underline opacity-80 hover:opacity-100"
+                      class="ml-2 text-sm underline opacity-80 hover:opacity-100"
                       onClick$={() =>
                         setFilter({ tags: [], mode: state.filter.mode })
                       }
