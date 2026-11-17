@@ -22,6 +22,13 @@ test("photo overlay: direct navigation", async ({ page }) => {
   await page.goto("/photo/1");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible({ timeout: 10000 });
-  await expect(overlay.locator("img")).toBeVisible();
+  // Wait until the full-size image (stacked over the thumbnail) has loaded.
+  await expect
+    .poll(() =>
+      overlay
+        .getByTestId("overlay-image")
+        .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth),
+    )
+    .toBeGreaterThan(0);
   await expect(page).toHaveScreenshot("photo-1.png");
 });

@@ -11,6 +11,8 @@ export const parseImageId = (raw: string): number | null => {
   return id;
 };
 
+import { imageUrl } from "~/components/gallery/images";
+
 /**
  * Get the OG image URL for a given image ID.
  * Returns null if the image ID is out of bounds.
@@ -18,13 +20,17 @@ export const parseImageId = (raw: string): number | null => {
  * @param baseUrl - S3 base URL
  * @param media - Array of media objects with file paths
  * @param imageId - Validated image ID
+ * @param imageBase - Image Worker base URL, or empty for the original
  * @returns Full image URL or null
  */
 export const getOgImageUrl = (
   baseUrl: string,
   media: { file: string }[],
   imageId: number,
+  imageBase?: string,
 ): string | null => {
   if (imageId >= media.length) return null;
-  return baseUrl + media[imageId].file;
+  // 1200px wide: social crawlers reject multi-megabyte images, and the
+  // originals are up to ~37MB.
+  return imageUrl(baseUrl, media[imageId].file, imageBase, "w1200");
 };
