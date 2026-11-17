@@ -184,4 +184,27 @@ describe("AdminImage", () => {
     expect(cacheDefault.put).not.toHaveBeenCalled();
     expect(transforms).toHaveLength(2);
   });
+
+  it("stat HEADs the object and refuses bad paths", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        transforms.push(`${init?.method} ${url}`);
+        return new Response(null, {
+          headers: { "content-length": "42", "x-amz-meta-sha256": "ab" },
+        });
+      }),
+    );
+    const admin = new AdminImage(ctx as never, env as never);
+    expect(await admin.stat("jwt", FILE)).toEqual({
+      ok: true,
+      stat: { size: 42, etag: null, sha256: "ab" },
+    });
+    expect(transforms[0]).toMatch(/^HEAD https:\/\/s3\.example\/bucket\//);
+    expect(await admin.stat("jwt", "/../media.json")).toEqual({
+      ok: false,
+      status: 404,
+    });
+    expect(transforms).toHaveLength(1);
+  });
 });

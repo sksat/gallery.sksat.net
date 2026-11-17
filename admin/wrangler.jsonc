@@ -19,6 +19,13 @@
     // = placeholder tiles; the originals are never loaded. E2E blanks it on
     // the command line (e2e/start-test-server.sh) so VRT stays deterministic.
     "THUMBNAILS": "1",
+    // Uploads (src/lib/b2.ts): the browser PUTs originals straight to the
+    // bucket through URLs presigned with B2_UPLOAD_KEY_ID /
+    // B2_UPLOAD_APPLICATION_KEY, production secrets of a B2 "Write Only"
+    // key restricted to this bucket. Without them uploading is off.
+    "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
+    "B2_BUCKET": "sksat-gallery",
+    "B2_REGION": "us-west-002",
   },
   // The image Worker's AdminImage entrypoint (workers/image): resized
   // thumbnails of any photo, private included, for the /thumb route. It

@@ -16,7 +16,8 @@
  *   photo or a camera picture. It has no trusted-caller branch.
  * - `AdminImage` (a named RPC entrypoint, reachable only through a service
  *   binding that names it: the admin's) serves any photo, private included,
- *   and only after verifying the admin request's Cloudflare Access JWT.
+ *   and only after verifying the admin request's Cloudflare Access JWT. Its
+ *   `stat` reports an object's size and hash metadata (upload checks).
  *
  * The originals are never served as-is. With B2 credentials the Worker
  * fetches them through presigned URLs (origin.ts), so the bucket can be
@@ -30,6 +31,7 @@ import { parseAccessConfig, verifyAdminToken } from "./admin-auth";
 import { edgeCacheKey, withEdgeCache } from "./cache";
 import { captionFor, type Caption, type CaptionSource } from "./caption";
 import { originFor, type OriginEnv } from "./origin";
+import { statObject, type ObjectStat } from "./stat";
 import {
   isCardPreset,
   parseAdminImage,
@@ -274,5 +276,27 @@ export class AdminImage extends WorkerEntrypoint<Env> {
       "",
     );
     return respond(upstream, parsed.preset, "private, max-age=3600");
+  }
+
+  /**
+   * What the bucket has at `file` (size, etag, SHA-256 metadata), or null:
+   * the admin checks an upload with it before marking the photo ready, as
+   * its own key cannot read the bucket (stat.ts). Same Access check and
+   * path rules as `image`.
+   */
+  async stat(
+    accessJwt: string | null,
+    file: string,
+  ): Promise<
+    { ok: true; stat: ObjectStat | null } | { ok: false; status: number }
+  > {
+    const auth = await verifyAdminToken(accessJwt, parseAccessConfig(this.env));
+    if (!auth.ok) {
+      console.error(`AdminImage.stat: ${auth.status} ${auth.reason}`);
+      return { ok: false, status: auth.status };
+    }
+    // Any resize preset: only the path rules matter here.
+    if (!parseAdminImage("h240", file)) return { ok: false, status: 404 };
+    return { ok: true, stat: await statObject(this.env, file) };
   }
 }

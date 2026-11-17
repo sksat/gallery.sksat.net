@@ -163,6 +163,8 @@ export const FileBrowser = component$<Props>(
             {/* Folder actions (new folder, upload) from the page. */}
             <Slot name="toolbar" />
           </div>
+          {/* Upload progress and leftovers, above the folder's contents. */}
+          <Slot name="panel" />
 
           {!folder ? (
             <StatePanel
