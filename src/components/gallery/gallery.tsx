@@ -192,6 +192,13 @@ export default component$(() => {
     // Alt/Cmd+Arrow is the browser's Back/Forward; leave it alone.
     if (current === null || event.altKey || event.metaKey || event.ctrlKey)
       return;
+    // Arrows in a text field (the share URL) move the caret. Checked here
+    // because qwikloader runs document listeners before stoppropagation.
+    if (
+      event.target instanceof HTMLInputElement &&
+      event.target.type === "text"
+    )
+      return;
 
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       // A photo opened from a URL may not match the filter; browse

@@ -7,6 +7,7 @@ import {
 
 import { GRID_CANDIDATES, imageUrl, srcSet } from "./images";
 import { pickOverlayPreset, readWithProgress } from "./progress";
+import { ShareButton } from "./share-button";
 
 const S3_BASE = import.meta.env.VITE_S3_BASE_URL;
 const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
@@ -17,6 +18,8 @@ const BOX_WIDTH_RATIO = 0.9;
 interface PhotoOverlayProps {
   file: string;
   onClose$: QRL<() => void>;
+  /** Show the share button (default); off where the URL is not the photo's. */
+  share?: boolean;
 }
 
 /**
@@ -131,6 +134,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
           style={percent === undefined ? undefined : { width: `${percent}%` }}
         />
       </div>
+      {props.share !== false && <ShareButton />}
     </div>
   );
 });
