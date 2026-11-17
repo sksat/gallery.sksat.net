@@ -1,6 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "gallery-admin",
+  // The Pages project name. Wrangler reads it from here (and then rejects
+  // --project-name) when run inside admin/, e.g. `pages secret put`.
+  "name": "admin-gallery-sksat-net",
   "compatibility_date": "2025-04-01",
   // With `pages_build_output_dir` set, Cloudflare Pages treats this file as
   // the source of truth for bindings and ignores the dashboard. Top-level
