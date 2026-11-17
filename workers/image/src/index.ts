@@ -102,6 +102,9 @@ export default {
 
     const headers = new Headers(upstream.headers);
     if (variesByAccept(parsed.preset)) headers.set("Vary", "Accept");
+    // The photos are public. Lets the admin panel (another origin) fetch()
+    // a preview to show its download progress.
+    headers.set("Access-Control-Allow-Origin", "*");
     if (upstream.ok) {
       headers.set(
         "Cache-Control",
