@@ -1,8 +1,15 @@
-import type {
-  MediaInfoJSON,
-  MediaPatch,
-  MediaRow,
-  MediaWorld,
+import {
+  CAMERA_KINDS,
+  type CameraImageRow,
+  type CameraInput,
+  type CameraJSON,
+  type CameraKind,
+  type CameraRow,
+  type MediaCamera,
+  type MediaInfoJSON,
+  type MediaPatch,
+  type MediaRow,
+  type MediaWorld,
 } from "./types";
 
 type RawRow = {
@@ -10,14 +17,28 @@ type RawRow = {
   file: string;
   world: string;
   timestamp: string | null;
-  camera_make: string | null;
-  camera_model: string | null;
+  camera_id: number | null;
   tags: string;
   updated_at: string;
 };
 
-const isWorld = (v: string): v is MediaWorld =>
-  v === "Real" || v === "VRChat";
+type RawCameraRow = {
+  id: number;
+  slug: string;
+  name: string;
+  manufacturer: string | null;
+  manufacturer_url: string | null;
+  model: string | null;
+  kind: string | null;
+  description: string | null;
+  product_url: string | null;
+  updated_at: string;
+};
+
+const isWorld = (v: string): v is MediaWorld => v === "Real" || v === "VRChat";
+
+const isCameraKind = (v: string): v is CameraKind =>
+  (CAMERA_KINDS as readonly string[]).includes(v);
 
 const parseTags = (raw: string): string[] => {
   let parsed: unknown;
@@ -43,25 +64,87 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     file: raw.file,
     world: raw.world,
     timestamp: raw.timestamp,
-    camera_make: raw.camera_make,
-    camera_model: raw.camera_model,
+    camera_id: raw.camera_id,
     tags: parseTags(raw.tags),
     updated_at: raw.updated_at,
   };
 };
 
-export const rowToMediaJson = (row: MediaRow): MediaInfoJSON => ({
-  file: row.file,
-  world: row.world,
-  timestamp: row.timestamp,
-  // Use null check (not truthiness) so an empty-string make/model — should
-  // it ever leak past validation — does not silently drop the camera object.
-  camera:
-    row.camera_make != null && row.camera_model != null
-      ? { make: row.camera_make, model: row.camera_model }
-      : null,
-  tags: row.tags,
+export const rowToCamera = (raw: RawCameraRow): CameraRow => {
+  if (raw.kind !== null && !isCameraKind(raw.kind)) {
+    throw new Error(`unknown camera kind in DB: ${raw.kind}`);
+  }
+  return {
+    id: raw.id,
+    slug: raw.slug,
+    name: raw.name,
+    manufacturer: raw.manufacturer,
+    manufacturer_url: raw.manufacturer_url,
+    model: raw.model,
+    kind: raw.kind,
+    description: raw.description,
+    product_url: raw.product_url,
+    updated_at: raw.updated_at,
+  };
+};
+
+/**
+ * One item of cameras.json (the row minus admin-only fields, camelCase
+ * keys). `images` must already be in display order.
+ */
+export const cameraToJson = (
+  c: CameraRow,
+  images: readonly CameraImageRow[] = [],
+): CameraJSON => ({
+  slug: c.slug,
+  name: c.name,
+  manufacturer: c.manufacturer,
+  manufacturerUrl: c.manufacturer_url,
+  model: c.model,
+  kind: c.kind,
+  description: c.description,
+  productUrl: c.product_url,
+  images: images.map(({ file, caption }) => ({ file, caption })),
 });
+
+/**
+ * The `camera` object embedded in a media.json item. The legacy
+ * `make`/`model` stay non-null strings so gallery builds that predate
+ * cameras.json (they render `${make} ${model}`) keep working: `make` is the
+ * manufacturer ("" when unset), and a camera without a model falls back to
+ * its display name.
+ */
+export const mediaCameraJson = (c: CameraRow): MediaCamera => ({
+  make: c.manufacturer ?? "",
+  model: c.model ?? c.name,
+  slug: c.slug,
+  name: c.name,
+});
+
+export const rowToMediaJson = (
+  row: MediaRow,
+  cameras: ReadonlyMap<number, CameraRow>,
+): MediaInfoJSON => {
+  let camera: MediaCamera | null = null;
+  if (row.camera_id !== null) {
+    const c = cameras.get(row.camera_id);
+    // The FK makes this unreachable; fail loudly rather than publish a
+    // photo that silently lost its camera.
+    if (!c) {
+      throw new Error(
+        `media ${row.id} references missing camera ${row.camera_id}`,
+      );
+    }
+    camera = mediaCameraJson(c);
+  }
+  return {
+    file: row.file,
+    world: row.world,
+    timestamp: row.timestamp,
+    camera,
+    tags: row.tags,
+  };
+};
 
 export type ListParams = {
   world?: MediaWorld;
@@ -136,13 +219,9 @@ export const updateMedia = async (
     sets.push("world = ?");
     args.push(patch.world);
   }
-  if (patch.camera_make !== undefined) {
-    sets.push("camera_make = ?");
-    args.push(patch.camera_make);
-  }
-  if (patch.camera_model !== undefined) {
-    sets.push("camera_model = ?");
-    args.push(patch.camera_model);
+  if (patch.camera_id !== undefined) {
+    sets.push("camera_id = ?");
+    args.push(patch.camera_id);
   }
   if (patch.tags !== undefined) {
     sets.push("tags = ?");
@@ -155,12 +234,224 @@ export const updateMedia = async (
 
   sets.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
   const raw = await db
-    .prepare(
-      `UPDATE media SET ${sets.join(", ")} WHERE id = ? RETURNING *`,
-    )
+    .prepare(`UPDATE media SET ${sets.join(", ")} WHERE id = ? RETURNING *`)
     .bind(...args, id)
     .first<RawRow>();
   return raw ? rowToMedia(raw) : null;
+};
+
+export type CameraListItem = CameraRow & { photo_count: number };
+
+export const listCameras = async (
+  db: D1Database,
+): Promise<CameraListItem[]> => {
+  const res = await db
+    .prepare(
+      `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id) AS photo_count
+       FROM camera c ORDER BY c.name COLLATE NOCASE, c.id`,
+    )
+    .all<RawCameraRow & { photo_count: number }>();
+  return (res.results ?? []).map((r) => ({
+    ...rowToCamera(r),
+    photo_count: r.photo_count,
+  }));
+};
+
+export const getCamera = async (
+  db: D1Database,
+  id: number,
+): Promise<CameraRow | null> => {
+  const raw = await db
+    .prepare("SELECT * FROM camera WHERE id = ?")
+    .bind(id)
+    .first<RawCameraRow>();
+  return raw ? rowToCamera(raw) : null;
+};
+
+/** Thrown by createCamera/updateCamera when the slug is already taken. */
+export class SlugConflictError extends Error {
+  constructor(slug: string) {
+    super(`slug already in use: ${slug}`);
+    this.name = "SlugConflictError";
+  }
+}
+
+const isSlugConflict = (err: unknown): boolean =>
+  err instanceof Error &&
+  /UNIQUE constraint failed: camera\.slug/.test(err.message);
+
+const cameraArgs = (input: CameraInput) => [
+  input.slug,
+  input.name,
+  input.manufacturer,
+  input.manufacturer_url,
+  input.model,
+  input.kind,
+  input.description,
+  input.product_url,
+];
+
+export const createCamera = async (
+  db: D1Database,
+  input: CameraInput,
+): Promise<CameraRow> => {
+  try {
+    const raw = await db
+      .prepare(
+        `INSERT INTO camera (slug, name, manufacturer, manufacturer_url, model, kind, description, product_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      )
+      .bind(...cameraArgs(input))
+      .first<RawCameraRow>();
+    if (!raw) throw new Error("INSERT INTO camera returned no row");
+    return rowToCamera(raw);
+  } catch (err) {
+    if (isSlugConflict(err)) throw new SlugConflictError(input.slug);
+    throw err;
+  }
+};
+
+export const updateCamera = async (
+  db: D1Database,
+  id: number,
+  input: CameraInput,
+): Promise<CameraRow | null> => {
+  try {
+    const raw = await db
+      .prepare(
+        `UPDATE camera SET slug = ?, name = ?, manufacturer = ?, manufacturer_url = ?, model = ?, kind = ?,
+           description = ?, product_url = ?,
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ? RETURNING *`,
+      )
+      .bind(...cameraArgs(input), id)
+      .first<RawCameraRow>();
+    return raw ? rowToCamera(raw) : null;
+  } catch (err) {
+    if (isSlugConflict(err)) throw new SlugConflictError(input.slug);
+    throw err;
+  }
+};
+
+/** A camera's pictures in display order. */
+export const listCameraImages = async (
+  db: D1Database,
+  cameraId: number,
+): Promise<CameraImageRow[]> => {
+  const res = await db
+    .prepare(
+      "SELECT * FROM camera_image WHERE camera_id = ? ORDER BY position, id",
+    )
+    .bind(cameraId)
+    .all<CameraImageRow>();
+  return res.results ?? [];
+};
+
+/** Thrown by addCameraImage when the camera already has that file. */
+export class DuplicateImageError extends Error {
+  constructor(file: string) {
+    super(`image already added: ${file}`);
+    this.name = "DuplicateImageError";
+  }
+}
+
+/** Append a picture after the camera's last one. */
+export const addCameraImage = async (
+  db: D1Database,
+  cameraId: number,
+  image: { file: string; caption: string | null },
+): Promise<CameraImageRow> => {
+  try {
+    const row = await db
+      .prepare(
+        `INSERT INTO camera_image (camera_id, file, caption, position)
+         VALUES (?1, ?2, ?3,
+           (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_image WHERE camera_id = ?1))
+         RETURNING *`,
+      )
+      .bind(cameraId, image.file, image.caption)
+      .first<CameraImageRow>();
+    if (!row) throw new Error("INSERT INTO camera_image returned no row");
+    return row;
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      /UNIQUE constraint failed: camera_image\./.test(err.message)
+    ) {
+      throw new DuplicateImageError(image.file);
+    }
+    throw err;
+  }
+};
+
+export const updateCameraImageCaption = async (
+  db: D1Database,
+  cameraId: number,
+  imageId: number,
+  caption: string | null,
+): Promise<boolean> => {
+  const res = await db
+    .prepare(
+      "UPDATE camera_image SET caption = ? WHERE id = ? AND camera_id = ?",
+    )
+    .bind(caption, imageId, cameraId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+};
+
+export const removeCameraImage = async (
+  db: D1Database,
+  cameraId: number,
+  imageId: number,
+): Promise<boolean> => {
+  const res = await db
+    .prepare("DELETE FROM camera_image WHERE id = ? AND camera_id = ?")
+    .bind(imageId, cameraId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+};
+
+/**
+ * New order after moving `imageId` one step up or down; null when it is
+ * not in the list or already at that end.
+ */
+export const reorderedIds = (
+  ids: readonly number[],
+  imageId: number,
+  direction: "up" | "down",
+): number[] | null => {
+  const i = ids.indexOf(imageId);
+  const j = direction === "up" ? i - 1 : i + 1;
+  if (i === -1 || j < 0 || j >= ids.length) return null;
+  const next = [...ids];
+  [next[i], next[j]] = [next[j], next[i]];
+  return next;
+};
+
+/**
+ * Move a picture one step; renumbers positions 0..n-1 in one batch. False
+ * when this camera has no such picture (already at the end is a no-op).
+ */
+export const moveCameraImage = async (
+  db: D1Database,
+  cameraId: number,
+  imageId: number,
+  direction: "up" | "down",
+): Promise<boolean> => {
+  const ids = (await listCameraImages(db, cameraId)).map((img) => img.id);
+  if (!ids.includes(imageId)) return false;
+  const order = reorderedIds(ids, imageId, direction);
+  if (!order) return true;
+  await db.batch(
+    order.map((id, position) =>
+      db
+        .prepare(
+          "UPDATE camera_image SET position = ? WHERE id = ? AND camera_id = ?",
+        )
+        .bind(position, id, cameraId),
+    ),
+  );
+  return true;
 };
 
 // Cap on rows pulled in a single export query. D1 caps result sets at ~10 MB;
@@ -176,19 +467,57 @@ export const updateMedia = async (
 // TODO: switch to cursor-based batching when the gallery approaches ~5k rows.
 const MAX_EXPORT_ROWS = 50_000;
 
-export const allMediaForExport = async (
+export type ExportSnapshot = {
+  media: MediaInfoJSON[];
+  cameras: CameraJSON[];
+};
+
+/**
+ * media.json + cameras.json from already-loaded rows. Media keep the given
+ * order; cameras are sorted by slug so the file diffs cleanly, and each
+ * camera's images by position.
+ */
+export const buildExport = (
+  mediaRows: MediaRow[],
+  cameraRows: CameraRow[],
+  imageRows: CameraImageRow[] = [],
+): ExportSnapshot => {
+  const byId = new Map(cameraRows.map((c) => [c.id, c]));
+  const imagesOf = new Map<number, CameraImageRow[]>();
+  for (const img of [...imageRows].sort(
+    (a, b) => a.position - b.position || a.id - b.id,
+  )) {
+    imagesOf.set(img.camera_id, [...(imagesOf.get(img.camera_id) ?? []), img]);
+  }
+  return {
+    media: mediaRows.map((r) => rowToMediaJson(r, byId)),
+    cameras: [...cameraRows]
+      .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
+      .map((c) => cameraToJson(c, imagesOf.get(c.id))),
+  };
+};
+
+export const exportSnapshot = async (
   db: D1Database,
-): Promise<MediaInfoJSON[]> => {
-  const res = await db
-    .prepare(
+): Promise<ExportSnapshot> => {
+  // One batch = one transaction, so media never references a camera the
+  // cameras query did not see.
+  const [mediaRes, cameraRes, imageRes] = await db.batch([
+    db.prepare(
       "SELECT * FROM media ORDER BY timestamp IS NULL, timestamp DESC, id DESC",
-    )
-    .all<RawRow>();
-  const rows = res.results ?? [];
+    ),
+    db.prepare("SELECT * FROM camera"),
+    db.prepare("SELECT * FROM camera_image"),
+  ]);
+  const rows = (mediaRes.results ?? []) as RawRow[];
   if (rows.length > MAX_EXPORT_ROWS) {
     throw new Error(
       `media export exceeded ${MAX_EXPORT_ROWS} rows (got ${rows.length}); switch to cursor-based batching`,
     );
   }
-  return rows.map((r) => rowToMediaJson(rowToMedia(r)));
+  return buildExport(
+    rows.map(rowToMedia),
+    ((cameraRes.results ?? []) as RawCameraRow[]).map(rowToCamera),
+    (imageRes.results ?? []) as CameraImageRow[],
+  );
 };

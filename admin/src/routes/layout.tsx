@@ -9,6 +9,11 @@ const NAV = [
     label: "Media",
     match: (p: string) => p.startsWith("/media"),
   },
+  {
+    href: "/camera/",
+    label: "Cameras",
+    match: (p: string) => p === "/camera" || p.startsWith("/camera/"),
+  },
 ];
 
 export default component$(() => {
@@ -29,7 +34,8 @@ export default component$(() => {
             >
               GA
             </span>
-            <span>Gallery Admin</span>
+            {/* Phones: badge only, so three nav links still fit. */}
+            <span class="sr-only sm:not-sr-only">Gallery Admin</span>
           </Link>
           <nav aria-label="Main" class="flex items-center gap-1 text-sm">
             {NAV.map((item) => {

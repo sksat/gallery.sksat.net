@@ -157,7 +157,11 @@ pnpm db.seed.remote      # apply to production
 pnpm db.seed.local       # apply to local
 ```
 
-Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, `camera_make`, `camera_model`, and `tags`, and the dashboard's **Publish** button regenerates `media.json` from D1 and PUTs it to the B2 bucket.
+Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, the camera, and `tags`, `/camera` registers cameras (name, slug, kind, manufacturer and its website, model, product page URL, description, and pictures of the camera itself), and the dashboard's **Publish** button regenerates `cameras.json` and `media.json` from D1 and PUTs them to the B2 bucket.
+
+> **Migration `0002_camera.sql`** creates `camera` and `camera_image`, makes one camera per distinct `(camera_make, camera_model)` pair already in `media` (named after the model with the make as its `manufacturer`; slug from the model, e.g. `virtuallens2`; kind `virtual` when only VRChat photos use it), points `media.camera_id` at it, and rebuilds `media` without the old `camera_make`/`camera_model` columns. Review the generated names/slugs in `/camera` after `pnpm db.migrate.remote`. `pnpm import-media` emits cameras the same way.
+
+> **Camera pictures** (`camera_image`, several per camera, ordered) are referenced by bucket path, by convention `/camera/<slug>/<name>.png`, e.g. `/camera/virtuallens2/front.png` (png/jpg/jpeg, `[A-Za-z0-9._-]` segments; the prefix is only a convention, nothing depends on it). The admin has no upload yet: **upload the file to the B2 bucket by hand first**, then add its path on the camera's edit page. Thumbnails and the public page only use the image Worker presets, never the original.
 
 > **Prerequisite before first Publish**: enable Object Lock / file versioning on the B2 bucket. Publish overwrites the entire `media.json` from a single D1 SELECT — there is no diff or dry-run, so a corrupted D1 (failed seed, partial import, accidental DELETE) would otherwise destructively replace the live index. Versioning gives a one-click rollback.
 

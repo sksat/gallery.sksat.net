@@ -57,6 +57,12 @@ const lines: string[] = [
   // file's statements appropriately for both --local and --remote.
 ];
 
+const mediaLines: string[] = [];
+const cameras = new Map<
+  string,
+  { make: string; model: string; onlyVRChat: boolean }
+>();
+
 for (const item of items) {
   if (typeof item.file !== "string" || item.file === "") {
     throw new Error(
@@ -66,8 +72,8 @@ for (const item of items) {
   if (item.world !== "Real" && item.world !== "VRChat") {
     throw new Error(`invalid world for ${item.file}: ${item.world}`);
   }
-  // Note: this script does not structurally validate `timestamp`,
-  // `camera_make`, or `camera_model`. They flow into D1 verbatim — the
+  // Note: this script does not structurally validate `timestamp` or the
+  // camera's make/model strings. They flow into D1 verbatim — the
   // public gallery's date parser will fall back to displaying the raw
   // string for non-ISO timestamps. Acceptable for a one-shot importer
   // staring at a known-good media.json.
@@ -86,8 +92,7 @@ for (const item of items) {
       );
     }
   }
-  // Paired camera: must be both-set or both-absent. Mirrors the SQL CHECK
-  // constraint so a clear error fires here rather than at INSERT time.
+  // A camera is identified by its make + model pair (one camera row each).
   if (item.camera != null) {
     if (
       typeof item.camera.make !== "string" ||
@@ -98,18 +103,56 @@ for (const item of items) {
       );
     }
   }
+  let cameraId = "NULL";
+  if (item.camera != null) {
+    const { make, model } = item.camera;
+    const key = JSON.stringify([make, model]);
+    if (!cameras.has(key)) {
+      cameras.set(key, { make, model, onlyVRChat: true });
+    }
+    if (item.world !== "VRChat") cameras.get(key)!.onlyVRChat = false;
+    cameraId = `(SELECT id FROM camera WHERE manufacturer = ${sqlString(make)} AND model = ${sqlString(model)})`;
+  }
   const cols = [
     sqlString(item.file),
     sqlString(item.world),
     sqlString(item.timestamp),
-    sqlString(item.camera?.make ?? null),
-    sqlString(item.camera?.model ?? null),
+    cameraId,
     sqlString(JSON.stringify(item.tags ?? [])),
   ].join(", ");
-  lines.push(
-    `INSERT OR IGNORE INTO media (file, world, timestamp, camera_make, camera_model, tags) VALUES (${cols});`,
+  mediaLines.push(
+    `INSERT OR IGNORE INTO media (file, world, timestamp, camera_id, tags) VALUES (${cols});`,
   );
 }
+
+// Cameras go first so the media rows' camera_id subqueries resolve. Same
+// naming rule as the backfill in migrations/0002_camera.sql. A camera that
+// already exists (same manufacturer + model) is reused; INSERT OR IGNORE also skips
+// one whose slug is taken, in which case its photos are imported without a
+// camera — fix them up in the admin.
+const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const usedSlugs = new Set<string>();
+const sortedCameras = [...cameras.values()].sort(
+  (a, b) => cmp(a.make, b.make) || cmp(a.model, b.model),
+);
+for (const { make, model, onlyVRChat } of sortedCameras) {
+  let base = model
+    .trim()
+    .toLowerCase()
+    .replace(/[ /_.]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  if (base === "" || /[^a-z0-9-]/.test(base)) base = "camera";
+  let slug = base;
+  for (let n = 2; usedSlugs.has(slug); n++) slug = `${base}-${n}`;
+  usedSlugs.add(slug);
+  lines.push(
+    `INSERT OR IGNORE INTO camera (slug, name, manufacturer, model, kind) ` +
+      `SELECT ${sqlString(slug)}, ${sqlString(model)}, ${sqlString(make)}, ${sqlString(model)}, ${onlyVRChat ? "'virtual'" : "NULL"} ` +
+      `WHERE NOT EXISTS (SELECT 1 FROM camera WHERE manufacturer = ${sqlString(make)} AND model = ${sqlString(model)});`,
+  );
+}
+lines.push(...mediaLines);
 
 lines.push("");
 

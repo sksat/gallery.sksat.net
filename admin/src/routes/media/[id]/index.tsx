@@ -19,15 +19,27 @@ import {
   muted,
   worldBadge,
 } from "~/components/ui";
-import { getMedia, updateMedia } from "~/lib/db";
+import { getCamera, getMedia, listCameras, updateMedia } from "~/lib/db";
 import { Thumb } from "~/components/thumb";
 import { getDB, getImageBase } from "~/lib/env";
 import { formatJst, splitPath } from "~/lib/format";
 import type { MediaRow } from "~/lib/types";
-import { parseTagsInput, validatePatch } from "~/lib/validate";
+import {
+  parseCameraIdInput,
+  parseTagsInput,
+  validatePatch,
+} from "~/lib/validate";
+
+type CameraOption = { id: number; name: string; slug: string };
 
 type MediaLoaderResult =
-  | { kind: "ok"; row: MediaRow; imageBase: string | null }
+  | {
+      kind: "ok";
+      row: MediaRow;
+      /** Options for the camera <select>, sorted by name. */
+      cameras: CameraOption[];
+      imageBase: string | null;
+    }
   | { kind: "missing-binding" }
   | { kind: "bad-request" }
   | { kind: "not-found" };
@@ -49,12 +61,20 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
       status(500);
       return { kind: "missing-binding" };
     }
-    const row = await getMedia(db, id);
+    const [row, cameras] = await Promise.all([
+      getMedia(db, id),
+      listCameras(db),
+    ]);
     if (!row) {
       status(404);
       return { kind: "not-found" };
     }
-    return { kind: "ok", row, imageBase: getImageBase(platform) };
+    return {
+      kind: "ok",
+      row,
+      cameras: cameras.map(({ id, name, slug }) => ({ id, name, slug })),
+      imageBase: getImageBase(platform),
+    };
   },
 );
 
@@ -65,11 +85,11 @@ export const useUpdateMedia = routeAction$(
       return fail(400, { message: "invalid id" });
     }
     // Route the form data through the same validator the API uses so the
-    // empty-string→null + paired-camera contract has a single source of truth.
+    // contract has a single source of truth. A malformed camera value
+    // (undefined here) is passed through as-is for validatePatch to reject.
     const v = validatePatch({
       world: data.world,
-      camera_make: data.camera_make,
-      camera_model: data.camera_model,
+      camera_id: parseCameraIdInput(data.camera_id),
       tags: parseTagsInput(data.tags ?? ""),
     });
     if (!v.ok) {
@@ -82,6 +102,12 @@ export const useUpdateMedia = routeAction$(
       console.error("/media/[id] action: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
+    if (
+      v.patch.camera_id != null &&
+      !(await getCamera(db, v.patch.camera_id))
+    ) {
+      return fail(400, { message: "unknown camera" });
+    }
     const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
       return fail(404, { message: "not found" });
@@ -90,8 +116,9 @@ export const useUpdateMedia = routeAction$(
   },
   zod$({
     world: z.enum(["Real", "VRChat"]),
-    camera_make: z.string().max(200).default(""),
-    camera_model: z.string().max(200).default(""),
+    // Required (no default): a submission without the field must not
+    // silently clear the photo's camera. "" = none.
+    camera_id: z.string().max(20),
     tags: z.string().max(2000).default(""),
   }),
 );
@@ -132,7 +159,7 @@ export default component$(() => {
     );
   }
 
-  const row = media.value.row;
+  const { row, cameras } = media.value;
   const { dir, base } = splitPath(row.file);
   const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 
@@ -209,38 +236,37 @@ export default component$(() => {
 
         <fieldset class="space-y-3">
           <legend class={legend}>Camera</legend>
-          <p class={["text-xs", muted]}>
-            Set both or leave both empty for no camera.
-          </p>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label for="edit-camera-make" class={label}>
-                Camera make
-              </label>
-              <input
-                id="edit-camera-make"
-                type="text"
-                name="camera_make"
-                value={row.camera_make ?? ""}
-                placeholder="(empty for none)"
-                maxLength={200}
-                class={field}
-              />
-            </div>
-            <div>
-              <label for="edit-camera-model" class={label}>
-                Camera model
-              </label>
-              <input
-                id="edit-camera-model"
-                type="text"
-                name="camera_model"
-                value={row.camera_model ?? ""}
-                placeholder="(empty for none)"
-                maxLength={200}
-                class={field}
-              />
-            </div>
+          <div class="max-w-sm">
+            {/* The fieldset legend already says "Camera". */}
+            <label for="edit-camera" class="sr-only">
+              Camera
+            </label>
+            <select
+              id="edit-camera"
+              name="camera_id"
+              aria-describedby="edit-camera-help"
+              class={field}
+            >
+              <option value="" selected={row.camera_id === null}>
+                (none)
+              </option>
+              {cameras.map((c) => (
+                <option
+                  key={c.id}
+                  value={String(c.id)}
+                  selected={row.camera_id === c.id}
+                >
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <p id="edit-camera-help" class={["mt-1 text-xs", muted]}>
+              Not listed?{" "}
+              <Link href="/camera/new/" class={link}>
+                Add a camera
+              </Link>{" "}
+              first.
+            </p>
           </div>
         </fieldset>
 
