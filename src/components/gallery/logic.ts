@@ -1,5 +1,23 @@
+import { cameraHref, takenWith } from "./cameras";
 import { DEFAULT_SORT, serializeSort, type SortOrder } from "./sort";
-import { serializeTagFilter, type TagFilter } from "./tags";
+import { filterMediaByTags, serializeTagFilter, type TagFilter } from "./tags";
+import type { MediaIndex, MediaInfo } from "./types";
+
+/**
+ * Photos passing the tag filter and, on a camera page, taken with that
+ * camera. Indices stay those of the full media array (they are the photo
+ * IDs); the caller sorts.
+ */
+export const visibleMedia = (
+  media: MediaIndex,
+  filter: TagFilter,
+  camera: string | null,
+): { index: number; value: MediaInfo }[] => {
+  const tagged = filterMediaByTags(media, filter);
+  return camera === null
+    ? tagged
+    : tagged.filter(({ value }) => takenWith(value, camera));
+};
 
 /**
  * Navigate to the next or previous image within a filtered set.
@@ -29,16 +47,27 @@ export const navigateImage = (
 };
 
 /**
- * URL for a gallery state: `/` or `/photo/{id}`, with the tag filter and the
- * sort order kept in the query so closing or sharing a photo preserves them.
+ * URL for a gallery state: `/`, `/camera/{slug}/` or `/photo/{id}`, with the
+ * tag filter and the sort order kept in the query so closing or sharing a
+ * photo preserves them. A photo opened from a camera page carries
+ * `?camera={slug}` so closing it returns to that page.
  */
 export const galleryUrl = (
   imageId: number | null,
   filter: TagFilter,
   sort: SortOrder = DEFAULT_SORT,
+  camera: string | null = null,
 ): string => {
-  const path = imageId === null ? "/" : `/photo/${imageId}`;
-  const params = new URLSearchParams(serializeTagFilter(filter));
+  const params = new URLSearchParams();
+  let path: string;
+  if (imageId !== null) {
+    path = `/photo/${imageId}`;
+    if (camera !== null) params.set("camera", camera);
+  } else {
+    path = camera === null ? "/" : cameraHref(camera);
+  }
+  for (const [key, value] of new URLSearchParams(serializeTagFilter(filter)))
+    params.append(key, value);
   for (const [key, value] of serializeSort(sort)) params.append(key, value);
   const query = params.toString();
   return query === "" ? path : `${path}?${query}`;
