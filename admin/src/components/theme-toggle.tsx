@@ -59,7 +59,7 @@ export const ThemeToggle = component$(() => {
         aria-label={themeToggleLabel("system")}
         title={themeToggleLabel("system")}
         onClick$={cycle}
-        class="ml-auto grid size-9 shrink-0 place-items-center rounded-md border border-zinc-200 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        class="ml-auto grid size-11 shrink-0 place-items-center rounded-md border border-zinc-200 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:size-9 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
       >
         {/* System: monitor */}
         <svg {...iconProps} class={stateClass.system}>

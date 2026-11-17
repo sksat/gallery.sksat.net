@@ -1,4 +1,4 @@
-import { $, component$, useSignal } from "@builder.io/qwik";
+import { component$, useSignal, useTask$ } from "@builder.io/qwik";
 import {
   Form,
   Link,
@@ -12,14 +12,16 @@ import {
 import { CameraFields, cameraFormSchema } from "~/components/camera-fields";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { StatePanel } from "~/components/state-panel";
+import { SubmitButton } from "~/components/submit-button";
 import { Thumb } from "~/components/thumb";
+import { Toast, type ToastState } from "~/components/toast";
 import {
+  backLink,
   buttonPrimary,
   buttonSecondary,
   card,
   field,
   label,
-  link,
   muted,
 } from "~/components/ui";
 
@@ -149,7 +151,7 @@ export const useCameraImageOp = routeAction$(
       done = await moveCameraImage(db, id, imageId, data.op);
     }
     if (!done) return fail(404, { message: "image not found" });
-    return { ok: true };
+    return { ok: true, op: data.op };
   },
   zod$({
     image_id: z.string().max(20),
@@ -160,6 +162,13 @@ export const useCameraImageOp = routeAction$(
       .default(""),
   }),
 );
+
+const IMAGE_OP_DONE = {
+  up: "Image moved up.",
+  down: "Image moved down.",
+  remove: "Image removed.",
+  caption: "Caption saved.",
+} as const;
 
 export const useUpdateCamera = routeAction$(
   async (data, { platform, params, fail }) => {
@@ -200,11 +209,51 @@ export default component$(() => {
   const action = useUpdateCamera();
   const addImage = useAddCameraImage();
   const imageOp = useCameraImageOp();
-  const lastImageAction = useSignal<"add" | "op" | null>(null);
-  const markOp = $(() => {
-    lastImageAction.value = "op";
-  });
   const loc = useLocation();
+  // Which image form (`<image id>:<op>`) submitted last, so only its button
+  // shows the spinner: every image form shares the imageOp action.
+  const busyKey = useSignal("");
+  // Fresh from /camera/new/.
+  const toast = useSignal<ToastState | null>(
+    loc.url.searchParams.has("created")
+      ? { tone: "success", message: "Camera created." }
+      : null,
+  );
+  // Each action reports through the one toast, so an old failure never
+  // lingers after a later action succeeded.
+  useTask$(({ track }) => {
+    const v = track(() => action.value);
+    if (!v) return;
+    toast.value = v.failed
+      ? {
+          tone: "error",
+          message: `Save failed: ${v.message ?? "unknown error"}`,
+        }
+      : {
+          tone: "success",
+          message: `Saved at ${formatJst(v.updated_at)} JST.`,
+        };
+  });
+  useTask$(({ track }) => {
+    const v = track(() => addImage.value);
+    if (!v) return;
+    toast.value = v.failed
+      ? {
+          tone: "error",
+          message: `Add failed: ${v.message ?? "unknown error"}`,
+        }
+      : { tone: "success", message: "Image added." };
+  });
+  useTask$(({ track }) => {
+    const v = track(() => imageOp.value);
+    if (!v) return;
+    toast.value = v.failed
+      ? {
+          tone: "error",
+          message: `Update failed: ${v.message ?? "unknown error"}`,
+        }
+      : { tone: "success", message: IMAGE_OP_DONE[v.op] };
+  });
 
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/camera/" />;
@@ -236,14 +285,13 @@ export default component$(() => {
   }
 
   const { camera, images, imageBase } = data.value;
-  // Fresh from /camera/new/ (and not yet re-saved here).
-  const created = loc.url.searchParams.has("created") && !action.value;
+  const opRunning = (key: string) => imageOp.isRunning && busyKey.value === key;
 
   return (
     <div class="mx-auto max-w-3xl space-y-6">
       <div>
         <nav aria-label="Breadcrumb" class="text-sm">
-          <Link href="/camera/" class={link}>
+          <Link href="/camera/" class={backLink}>
             ← Cameras
           </Link>
         </nav>
@@ -259,29 +307,20 @@ export default component$(() => {
         </p>
       </div>
 
-      <Form action={action} class={[card, "space-y-6 p-5"]}>
+      <Form
+        action={action}
+        aria-busy={action.isRunning}
+        class={[card, "space-y-6 p-5"]}
+      >
         <CameraFields values={camera} />
         <div class="flex flex-wrap items-center gap-3 border-t border-zinc-200 pt-5 dark:border-zinc-800">
-          <button type="submit" class={buttonPrimary}>
+          <SubmitButton
+            running={action.isRunning}
+            pendingLabel="保存中…"
+            class={buttonPrimary}
+          >
             Save
-          </button>
-          <div role="status" aria-live="polite" class="text-sm">
-            {created && (
-              <p class="text-emerald-700 dark:text-emerald-400">
-                Camera created.
-              </p>
-            )}
-            {action.value?.ok && (
-              <p class="text-emerald-700 dark:text-emerald-400">
-                Saved at {formatJst(action.value.updated_at)} JST.
-              </p>
-            )}
-          </div>
-          {action.value?.failed && (
-            <p role="alert" class="text-sm text-red-700 dark:text-red-400">
-              Save failed: {action.value.message ?? "unknown error"}
-            </p>
-          )}
+          </SubmitButton>
         </div>
       </Form>
 
@@ -314,7 +353,14 @@ export default component$(() => {
                 />
                 <div class="min-w-0 flex-1 space-y-2">
                   <code class="block text-xs break-all">{img.file}</code>
-                  <Form action={imageOp} onSubmit$={markOp} class="flex gap-2">
+                  <Form
+                    action={imageOp}
+                    onSubmit$={() => {
+                      busyKey.value = `${img.id}:caption`;
+                    }}
+                    aria-busy={opRunning(`${img.id}:caption`)}
+                    class="flex gap-2"
+                  >
                     <input type="hidden" name="image_id" value={img.id} />
                     <input type="hidden" name="op" value="caption" />
                     <label for={`image-caption-${img.id}`} class="sr-only">
@@ -329,13 +375,13 @@ export default component$(() => {
                       maxLength={MAX_IMAGE_CAPTION_LEN}
                       class={field}
                     />
-                    <button
-                      type="submit"
+                    <SubmitButton
+                      running={opRunning(`${img.id}:caption`)}
                       aria-label={`Save caption of image ${i + 1}`}
                       class={buttonSecondary}
                     >
                       Save
-                    </button>
+                    </SubmitButton>
                   </Form>
                 </div>
                 <div class="flex gap-1">
@@ -351,11 +397,18 @@ export default component$(() => {
                       ["remove", "Remove", `Remove image ${i + 1}`, false],
                     ] as const
                   ).map(([op, text, aria, disabled]) => (
-                    <Form key={op} action={imageOp} onSubmit$={markOp}>
+                    <Form
+                      key={op}
+                      action={imageOp}
+                      onSubmit$={() => {
+                        busyKey.value = `${img.id}:${op}`;
+                      }}
+                      aria-busy={opRunning(`${img.id}:${op}`)}
+                    >
                       <input type="hidden" name="image_id" value={img.id} />
                       <input type="hidden" name="op" value={op} />
-                      <button
-                        type="submit"
+                      <SubmitButton
+                        running={opRunning(`${img.id}:${op}`)}
                         aria-label={aria}
                         disabled={disabled}
                         class={[
@@ -364,7 +417,7 @@ export default component$(() => {
                         ]}
                       >
                         {text}
-                      </button>
+                      </SubmitButton>
                     </Form>
                   ))}
                 </div>
@@ -375,9 +428,7 @@ export default component$(() => {
 
         <Form
           action={addImage}
-          onSubmit$={() => {
-            lastImageAction.value = "add";
-          }}
+          aria-busy={addImage.isRunning}
           // Clear the inputs only when the image was added; a rejected path
           // stays in the field to be fixed (spaReset would always clear).
           onSubmitCompleted$={(ev, form) => {
@@ -413,23 +464,16 @@ export default component$(() => {
               class={field}
             />
           </div>
-          <button type="submit" class={buttonPrimary}>
+          <SubmitButton
+            running={addImage.isRunning}
+            pendingLabel="追加中…"
+            class={buttonPrimary}
+          >
             Add image
-          </button>
+          </SubmitButton>
         </Form>
-        {/* Only the latest image action's error: an old failure must not
-            linger after a later action succeeded. */}
-        {lastImageAction.value === "add" && addImage.value?.failed && (
-          <p role="alert" class="text-sm text-red-700 dark:text-red-400">
-            Add failed: {addImage.value.message ?? "unknown error"}
-          </p>
-        )}
-        {lastImageAction.value === "op" && imageOp.value?.failed && (
-          <p role="alert" class="text-sm text-red-700 dark:text-red-400">
-            Update failed: {imageOp.value.message ?? "unknown error"}
-          </p>
-        )}
       </section>
+      <Toast toast={toast} />
     </div>
   );
 });

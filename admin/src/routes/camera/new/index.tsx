@@ -1,4 +1,4 @@
-import { component$ } from "@builder.io/qwik";
+import { component$, useSignal, useTask$ } from "@builder.io/qwik";
 import {
   Form,
   Link,
@@ -7,7 +7,9 @@ import {
   type DocumentHead,
 } from "@builder.io/qwik-city";
 import { CameraFields, cameraFormSchema } from "~/components/camera-fields";
-import { buttonPrimary, card, link } from "~/components/ui";
+import { SubmitButton } from "~/components/submit-button";
+import { Toast, type ToastState } from "~/components/toast";
+import { backLink, buttonPrimary, card } from "~/components/ui";
 import { createCamera, SlugConflictError } from "~/lib/db";
 import { getDB } from "~/lib/env";
 import { validateCamera } from "~/lib/validate";
@@ -41,12 +43,23 @@ export const useCreateCamera = routeAction$(
 
 export default component$(() => {
   const action = useCreateCamera();
+  const toast = useSignal<ToastState | null>(null);
+  // Success redirects to the new camera; only failures land here.
+  useTask$(({ track }) => {
+    const v = track(() => action.value);
+    if (v?.failed) {
+      toast.value = {
+        tone: "error",
+        message: `Create failed: ${v.message ?? "unknown error"}`,
+      };
+    }
+  });
 
   return (
     <div class="mx-auto max-w-3xl space-y-6">
       <div>
         <nav aria-label="Breadcrumb" class="text-sm">
-          <Link href="/camera/" class={link}>
+          <Link href="/camera/" class={backLink}>
             ← Cameras
           </Link>
         </nav>
@@ -55,19 +68,23 @@ export default component$(() => {
         </h1>
       </div>
 
-      <Form action={action} class={[card, "space-y-6 p-5"]}>
+      <Form
+        action={action}
+        aria-busy={action.isRunning}
+        class={[card, "space-y-6 p-5"]}
+      >
         <CameraFields />
         <div class="flex flex-wrap items-center gap-3 border-t border-zinc-200 pt-5 dark:border-zinc-800">
-          <button type="submit" class={buttonPrimary}>
+          <SubmitButton
+            running={action.isRunning}
+            pendingLabel="作成中…"
+            class={buttonPrimary}
+          >
             Create
-          </button>
-          {action.value?.failed && (
-            <p role="alert" class="text-sm text-red-700 dark:text-red-400">
-              Create failed: {action.value.message ?? "unknown error"}
-            </p>
-          )}
+          </SubmitButton>
         </div>
       </Form>
+      <Toast toast={toast} />
     </div>
   );
 });

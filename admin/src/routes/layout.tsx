@@ -46,7 +46,7 @@ export default component$(() => {
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   class={[
-                    "rounded-md px-3 py-1.5 font-medium transition-colors",
+                    "inline-flex h-11 items-center rounded-md px-3 font-medium transition-colors sm:h-auto sm:py-1.5",
                     active
                       ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                       : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",

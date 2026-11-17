@@ -4,17 +4,20 @@
 export const card =
   "rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900";
 
+// Phones (below sm): every tap target is at least 44px tall (h-11), and
+// form controls use 16px text so iOS Safari does not zoom in on focus.
+
 export const buttonPrimary =
-  "inline-flex items-center justify-center gap-2 h-10 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex items-center justify-center gap-2 h-11 min-w-11 sm:h-10 sm:min-w-0 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60";
 
 export const buttonSecondary =
-  "inline-flex items-center justify-center gap-2 h-10 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
+  "inline-flex items-center justify-center gap-2 h-11 min-w-11 sm:h-10 sm:min-w-0 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
 
 export const field =
-  "box-border block h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm placeholder:text-zinc-400 focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
+  "box-border block h-11 sm:h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-base sm:text-sm text-zinc-900 shadow-sm placeholder:text-zinc-400 focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
 
 export const textarea =
-  "box-border block min-h-24 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm placeholder:text-zinc-400 focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
+  "box-border block min-h-24 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-base sm:text-sm text-zinc-900 shadow-sm placeholder:text-zinc-400 focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500";
 
 export const label =
   "mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300";
@@ -23,6 +26,9 @@ export const muted = "text-zinc-500 dark:text-zinc-400";
 
 export const link =
   "rounded font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400";
+
+/** "← Media" style back links: a 44px-tall hit area on phones. */
+export const backLink = `${link} inline-flex min-h-11 items-center pr-3 sm:min-h-0`;
 
 export const worldBadge = (world: string): string =>
   [

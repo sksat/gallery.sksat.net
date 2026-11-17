@@ -67,7 +67,7 @@ export const FileBrowser = component$<Props>(
             aria-current={selected ? "location" : undefined}
             title={node.path}
             class={[
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+              "flex items-center gap-2 rounded-md px-2 py-2.5 text-sm sm:py-1.5",
               selected
                 ? "bg-sky-100 font-semibold text-sky-900 dark:bg-sky-950 dark:text-sky-100"
                 : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
@@ -146,7 +146,7 @@ export const FileBrowser = component$<Props>(
                   ) : (
                     <Link
                       href={href(c.path)}
-                      class="rounded font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
+                      class="inline-flex min-h-11 items-center rounded px-1 font-medium text-sky-700 underline-offset-4 hover:underline sm:min-h-0 sm:px-0 dark:text-sky-400"
                     >
                       {c.name || ROOT_LABEL}
                     </Link>
