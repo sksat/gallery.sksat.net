@@ -52,22 +52,24 @@ test("gallery: view and navigate photos within the filter", async ({ page }) => 
   await expect(chip(page, "night")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByLabel("どれかを含む")).toBeChecked();
 
-  // Click first image → overlay appears, URL keeps the filter
+  // Click first image (newest first: photo 3) → overlay appears, URL keeps
+  // the filter.
   // dispatchEvent bypasses DOM hit testing (metadata overlay covers tiny test images)
   await images.first().dispatchEvent("click");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible();
-  await expect(page).toHaveURL(/\/photo\/0\?tag=Real&tag=night&mode=or$/);
+  await expect(page).toHaveURL(/\/photo\/3\?tag=Real&tag=night&mode=or$/);
 
-  // ArrowRight walks the filtered set (0 → 2 → 3), skipping photo 1
+  // ArrowRight walks the filtered set in display order (3 → 2 → 0),
+  // skipping photo 1
   await page.keyboard.press("ArrowRight");
   await expect(page).toHaveURL(/\/photo\/2\?/);
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/3\?/);
+  await expect(page).toHaveURL(/\/photo\/0\?/);
 
   // At the boundary → stays on the same photo
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/3\?/);
+  await expect(page).toHaveURL(/\/photo\/0\?/);
 
   // ArrowLeft → back
   await page.keyboard.press("ArrowLeft");
@@ -99,7 +101,7 @@ test("gallery: browser Back closes the photo without reloading", async ({
   await images.first().dispatchEvent("click");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible();
-  await expect(page).toHaveURL(/\/photo\/1\?tag=VRChat$/);
+  await expect(page).toHaveURL(/\/photo\/4\?tag=VRChat$/);
 
   // ArrowRight replaces the entry, so one Back returns to the list.
   await page.keyboard.press("ArrowRight");
@@ -159,9 +161,44 @@ test("gallery: arrows still work on a photo outside the filter", async ({
   await page.goto("/photo/1?tag=Real");
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
 
+  // Browses all photos in display order (newest first: 4, 3, 2, 1, 0).
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/2\?tag=Real$/);
+  await expect(page).toHaveURL(/\/photo\/0\?tag=Real$/);
   await expect(page.getByTestId("overlay")).toBeVisible();
+});
+
+test("gallery: sort order is selectable and kept in the URL", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const images = page.getByTestId("gallery-image");
+  await expect(images).toHaveCount(5, { timeout: 10000 });
+  const order = () =>
+    images.evaluateAll((els) => els.map((el) => el.getAttribute("src")));
+  const select = page.getByTestId("sort-select");
+
+  // Default: newest first (fixture dates run 12-01 … 12-05 by index).
+  await expect(select).toHaveValue("new");
+  const newest = await order();
+  expect(newest[0]).toContain("vrchat3");
+
+  await select.selectOption("old");
+  await expect(page).toHaveURL(/\/\?sort=old$/);
+  await expect.poll(order).toEqual([...newest].reverse());
+
+  // Random: a seed goes into the URL, and reloading keeps the same order.
+  await select.selectOption("random");
+  await expect(page).toHaveURL(/\/\?sort=random&seed=\d+$/);
+  const shuffled = await order();
+  expect([...shuffled].sort()).toEqual([...newest].sort());
+  await page.reload();
+  await expect(select).toHaveValue("random");
+  await expect.poll(order).toEqual(shuffled);
+  await expect(page.getByTestId("reshuffle")).toBeVisible();
+
+  // Opening a photo keeps the sort in the photo URL too.
+  await images.first().dispatchEvent("click");
+  await expect(page).toHaveURL(/\/photo\/\d+\?sort=random&seed=\d+$/);
 });
 
 test("gallery: direct navigation to /photo/{id}", async ({ page }) => {

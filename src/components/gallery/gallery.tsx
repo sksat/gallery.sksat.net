@@ -22,6 +22,13 @@ import {
 } from "./images";
 import { PhotoOverlay } from "./photo-overlay";
 import {
+  parseSort,
+  SORT_LABELS,
+  sortMedia,
+  type SortKind,
+  type SortOrder,
+} from "./sort";
+import {
   filterMediaByTags,
   parseTagFilter,
   tagCounts,
@@ -37,9 +44,17 @@ const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
 interface GalleryState {
   selectedImageId: null | number;
   filter: TagFilter;
-  mediaCount: number;
+  sort: SortOrder;
+  /** Every photo's index in display (sorted) order. */
+  allIndices: number[];
+  /** The filtered photos' indices in display order. */
   filteredIndices: number[];
 }
+
+const SORT_KINDS: SortKind[] = ["new", "old", "random"];
+
+// A fresh seed for "random"; kept out of the pure sort code.
+const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 
 const MODE_LABELS: Record<TagMatchMode, string> = {
   and: "すべて含む",
@@ -47,14 +62,15 @@ const MODE_LABELS: Record<TagMatchMode, string> = {
 };
 
 /**
- * Photo and filter as encoded in a URL. `?imageId=` is the old share format
- * and is still honoured on `/`.
+ * Photo, filter and sort order as encoded in a URL. `?imageId=` is the old
+ * share format and is still honoured on `/`.
  */
 const stateFromUrl = (url: URL) => ({
   selectedImageId:
     photoIdFromPath(url.pathname) ??
     photoIdFromPath(`/photo/${url.searchParams.get("imageId")}`),
   filter: parseTagFilter(url.searchParams),
+  sort: parseSort(url.searchParams),
 });
 
 export default component$(() => {
@@ -76,18 +92,27 @@ export default component$(() => {
 
   const state = useStore<GalleryState>({
     ...stateFromUrl(location.url),
-    mediaCount: 0,
+    allIndices: [],
     filteredIndices: [],
   });
 
-  // Filter changes replace the history entry instead of pushing one, so Back
-  // leaves the gallery rather than undoing each tag click.
+  // Filter and sort changes replace the history entry instead of pushing
+  // one, so Back leaves the gallery rather than undoing each click.
   const setFilter = $((filter: TagFilter) => {
     state.filter = filter;
     window.history.replaceState(
       null,
       "",
-      galleryUrl(state.selectedImageId, filter),
+      galleryUrl(state.selectedImageId, filter, state.sort),
+    );
+  });
+
+  const setSort = $((sort: SortOrder) => {
+    state.sort = sort;
+    window.history.replaceState(
+      null,
+      "",
+      galleryUrl(state.selectedImageId, state.filter, sort),
     );
   });
 
@@ -98,13 +123,21 @@ export default component$(() => {
       (document.activeElement as HTMLElement | null)?.blur();
     }
     state.selectedImageId = imageId;
-    window.history.pushState(null, "", galleryUrl(imageId, state.filter));
+    window.history.pushState(
+      null,
+      "",
+      galleryUrl(imageId, state.filter, state.sort),
+    );
   });
 
   // Arrow keys replace the entry, so one Back returns to the list.
   const stepImage = $((imageId: number) => {
     state.selectedImageId = imageId;
-    window.history.replaceState(null, "", galleryUrl(imageId, state.filter));
+    window.history.replaceState(
+      null,
+      "",
+      galleryUrl(imageId, state.filter, state.sort),
+    );
   });
 
   // Back/Forward: restore the photo and filter from the URL we pushed.
@@ -123,7 +156,7 @@ export default component$(() => {
       // everything then instead of leaving the arrows dead.
       const indices = state.filteredIndices.includes(current)
         ? state.filteredIndices
-        : [...Array(state.mediaCount).keys()];
+        : state.allIndices;
       const direction = event.key === "ArrowRight" ? "next" : "prev";
       const nextId = navigateImage(current, indices, direction);
       if (nextId !== null) {
@@ -145,19 +178,93 @@ export default component$(() => {
       <Resource
         value={indexResource}
         onResolved={(media: MediaIndex) => {
-          const filteredMedia = filterMediaByTags(media, state.filter);
+          const allSorted = sortMedia(
+            media.map((value, index) => ({ index, value })),
+            state.sort,
+          );
+          const filteredMedia = sortMedia(
+            filterMediaByTags(media, state.filter),
+            state.sort,
+          );
           const selectedTags = state.filter.tags;
 
-          state.mediaCount = media.length;
+          state.allIndices = allSorted.map((m) => m.index);
           state.filteredIndices = filteredMedia.map((m) => m.index);
 
           return (
             <>
               <div class="mb-3 flex flex-col gap-3 px-1">
+                <div class="flex min-h-8 flex-wrap items-center gap-4 text-sm">
+                  <span
+                    data-testid="result-count"
+                    aria-live="polite"
+                    // Room for 3 digits, so the controls after it stay put.
+                    class="min-w-[4.5em] tabular-nums"
+                  >
+                    {filteredMedia.length} 枚
+                  </span>
+                  <span class="flex items-center gap-1">
+                    <select
+                      data-testid="sort-select"
+                      aria-label="並び順"
+                      // Fixed width so the control doesn't resize with the
+                      // selected label.
+                      class="w-32 rounded border border-white/30 bg-transparent px-2 py-1 [&>option]:bg-[var(--color-bg)]"
+                      onChange$={(_, el) => {
+                        const kind = el.value as SortKind;
+                        setSort({
+                          kind,
+                          seed: kind === "random" ? newSeed() : 0,
+                        });
+                      }}
+                    >
+                      {SORT_KINDS.map((kind) => (
+                        <option
+                          key={kind}
+                          value={kind}
+                          selected={state.sort.kind === kind}
+                        >
+                          {SORT_LABELS[kind]}
+                        </option>
+                      ))}
+                    </select>
+                    {state.sort.kind === "random" && (
+                      <button
+                        type="button"
+                        data-testid="reshuffle"
+                        aria-label="再シャッフル"
+                        title="再シャッフル"
+                        class="rounded p-1 opacity-80 hover:opacity-100"
+                        onClick$={() =>
+                          setSort({ kind: "random", seed: newSeed() })
+                        }
+                      >
+                        {/* Shuffle arrows */}
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="18"
+                          height="18"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M16 3h5v5" />
+                          <path d="M4 20 21 3" />
+                          <path d="M21 16v5h-5" />
+                          <path d="m15 15 6 6" />
+                          <path d="M4 4l5 5" />
+                        </svg>
+                      </button>
+                    )}
+                  </span>
+                </div>
                 <div
                   role="group"
                   aria-label="タグで絞り込む"
-                  class="flex flex-wrap gap-2"
+                  class="flex flex-wrap items-center gap-2"
                 >
                   {tagCounts(media).map(({ tag, count }) => {
                     const pressed = selectedTags.includes(tag);
@@ -187,13 +294,8 @@ export default component$(() => {
                       </button>
                     );
                   })}
-                </div>
-                <div class="flex min-h-8 flex-wrap items-center gap-4 text-sm">
-                  <span data-testid="result-count" aria-live="polite">
-                    {filteredMedia.length} 枚
-                  </span>
                   {selectedTags.length >= 2 && (
-                    <fieldset class="flex items-center gap-3">
+                    <fieldset class="ml-2 flex items-center gap-3 text-sm">
                       <legend class="sr-only">複数タグの条件</legend>
                       {(["and", "or"] as const).map((mode) => (
                         <label key={mode} class="flex items-center gap-1.5">
@@ -214,7 +316,7 @@ export default component$(() => {
                   {selectedTags.length > 0 && (
                     <button
                       type="button"
-                      class="underline opacity-80 hover:opacity-100"
+                      class="ml-2 text-sm underline opacity-80 hover:opacity-100"
                       onClick$={() =>
                         setFilter({ tags: [], mode: state.filter.mode })
                       }

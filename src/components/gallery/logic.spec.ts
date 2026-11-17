@@ -60,6 +60,18 @@ describe("galleryUrl", () => {
       "/?tag=%E5%A4%9C+%E6%99%AF%26",
     );
   });
+
+  it("appends a non-default sort order after the filter", () => {
+    expect(galleryUrl(null, none, { kind: "old", seed: 0 })).toBe("/?sort=old");
+    expect(
+      galleryUrl(
+        1,
+        { tags: ["VRChat"], mode: "and" },
+        { kind: "random", seed: 7 },
+      ),
+    ).toBe("/photo/1?tag=VRChat&sort=random&seed=7");
+    expect(galleryUrl(null, none, { kind: "new", seed: 0 })).toBe("/");
+  });
 });
 
 describe("photoIdFromPath", () => {
