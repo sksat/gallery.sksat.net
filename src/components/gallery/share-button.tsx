@@ -103,8 +103,9 @@ export const ShareButton = component$(() => {
           >
             <path d="M20 6 9 17l-5-5" />
           </svg>
-        ) : canShare.value ? (
-          // Box with an arrow out of it
+        ) : (
+          // Box with an arrow out of it, on every device; only the label
+          // says whether a tap shares or copies.
           <svg
             viewBox="0 0 24 24"
             width="20"
@@ -119,22 +120,6 @@ export const ShareButton = component$(() => {
             <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
             <path d="m16 6-4-4-4 4" />
             <path d="M12 2v13" />
-          </svg>
-        ) : (
-          // Chain link
-          <svg
-            viewBox="0 0 24 24"
-            width="20"
-            height="20"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
           </svg>
         )}
       </button>
