@@ -113,6 +113,13 @@ describe("getFileAccess", () => {
 
   it("refuses unlisted, private and unknown files", async () => {
     const db = setup();
+    // A private photo also listed as a camera picture stays private.
+    await db
+      .prepare(
+        "INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/x.png', 5)",
+      )
+      .all();
+    expect(await getFileAccess(db, "/x.png")).toBeNull();
     expect(await getFileAccess(db, "/u.png")).toBeNull();
     expect(await getFileAccess(db, "/x.png")).toBeNull();
     expect(await getFileAccess(db, "/none.png")).toBeNull();

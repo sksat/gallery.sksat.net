@@ -1,10 +1,9 @@
-// Resized image URLs from the image Worker (../../../workers/image in the
-// root project), mirrored from the public gallery's helper
-// (../../../src/components/gallery/images.ts). Kept duplicated so admin
-// remains independently buildable, like types.ts; review both when changing.
+// Thumbnail URLs: `<base>/<preset><file>`, where the base is the admin's
+// own /thumb route (src/routes/thumb), which asks the image Worker's
+// AdminImage entrypoint (../../../workers/image) for the resized image.
 //
 // Unlike the public gallery there is deliberately no fallback to the
-// originals (up to ~37MB PNGs in B2): without an image base URL the UI shows
+// originals (up to ~37MB PNGs in B2): without a thumbnail base the UI shows
 // a placeholder tile instead.
 
 /**
@@ -22,16 +21,6 @@ export const PRESETS = [
 ] as const;
 
 export type PresetName = (typeof PRESETS)[number];
-
-/**
- * Normalise the IMAGE_BASE_URL var: trimmed, no trailing slash, http(s)
- * only. Null (thumbnails off) when unset, empty or malformed.
- */
-export const normalizeImageBase = (v: unknown): string | null => {
-  if (typeof v !== "string") return null;
-  const s = v.trim().replace(/\/+$/, "");
-  return /^https?:\/\/[^/]/.test(s) ? s : null;
-};
 
 /** `<base>/<preset><file>`; `file` starts with "/" like media rows do. */
 export const imageUrl = (

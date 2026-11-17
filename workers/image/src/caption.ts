@@ -1,15 +1,15 @@
 /**
  * Caption text for the `og` card (tested with Vitest).
  *
- * The Worker looks the requested file up in media.json and turns its entry
- * into two short lines that Cloudflare draws as text overlays:
+ * The Worker looks the photo up through the API Worker and turns its
+ * metadata into two short lines that Cloudflare draws as text overlays:
  *
  *   2023-12-16 23:12 JST
  *   logilabo VirtualLens2 · #VRChat
  *
- * Only files listed in media.json get a card, and the text comes from
- * media.json alone (never from the URL), so a request cannot put arbitrary
- * text on a gallery.sksat.net image or mint new transformations.
+ * Only public and unlisted photos get a card, and the text comes from the
+ * API alone (never from the URL), so a request cannot put arbitrary text on
+ * a gallery.sksat.net image or mint new transformations.
  */
 
 export type Caption = {
@@ -19,41 +19,16 @@ export type Caption = {
   secondary?: string;
 };
 
-/** The media.json fields the caption uses. */
+/** The photo fields the caption uses (a subset of the API's photo). */
 export type CaptionSource = {
   world: string;
   timestamp: string | null;
-  camera: { make: string; model: string } | null;
+  camera: {
+    name: string;
+    manufacturer: string | null;
+    model: string | null;
+  } | null;
   tags: string[];
-};
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null;
-
-const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
-
-/**
- * The entry for `file` in a parsed media.json, or null if it is not listed.
- * Malformed fields are dropped rather than trusted.
- */
-export const findCaptionSource = (
-  index: unknown,
-  file: string,
-): CaptionSource | null => {
-  if (!Array.isArray(index)) return null;
-  const entry: unknown = index.find((e) => isRecord(e) && e.file === file);
-  if (!isRecord(entry)) return null;
-  const camera = isRecord(entry.camera) ? entry.camera : null;
-  const make = str(camera?.make);
-  const model = str(camera?.model);
-  return {
-    world: str(entry.world) ?? "",
-    timestamp: str(entry.timestamp),
-    camera: make !== null && model !== null ? { make, model } : null,
-    tags: Array.isArray(entry.tags)
-      ? entry.tags.filter((t): t is string => typeof t === "string")
-      : [],
-  };
 };
 
 /** Characters the bundled font subset has (printable ASCII, "·", "…"). */
@@ -87,7 +62,14 @@ export const formatJst = (timestamp: string | null): string | null => {
 };
 
 export const captionFor = (m: CaptionSource): Caption => {
-  const camera = m.camera ? clean(`${m.camera.make} ${m.camera.model}`) : "";
+  // "Manufacturer Model" (e.g. "logilabo VirtualLens2"); the camera's
+  // display name when neither is set.
+  const camera = m.camera
+    ? clean(
+        [m.camera.manufacturer, m.camera.model].filter(Boolean).join(" ") ||
+          m.camera.name,
+      )
+    : "";
   // The world is a tag too (as in the gallery's tag filter), listed first.
   // Spaces inside a tag become "_" so "#night sky" doesn't read as two.
   const tags = [

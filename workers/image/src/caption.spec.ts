@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   captionFor,
-  findCaptionSource,
   formatJst,
   MAX_LINE_LENGTH,
 } from "./caption";
@@ -10,7 +9,11 @@ const vrchat = {
   file: "/VRChat/2023-12/a.png",
   world: "VRChat",
   timestamp: "2023-12-16T23:12:25.684+09:00",
-  camera: { make: "logilabo", model: "VirtualLens2" },
+  camera: {
+    name: "VirtualLens2",
+    manufacturer: "logilabo",
+    model: "VirtualLens2",
+  },
   tags: ["VRChat"],
 };
 const real = {
@@ -20,39 +23,6 @@ const real = {
   camera: null,
   tags: ["film"],
 };
-
-describe("findCaptionSource", () => {
-  it("finds a listed file", () => {
-    expect(findCaptionSource([real, vrchat], vrchat.file)).toEqual({
-      world: "VRChat",
-      timestamp: vrchat.timestamp,
-      camera: vrchat.camera,
-      tags: ["VRChat"],
-    });
-  });
-
-  it("is null for unlisted files and non-array indexes", () => {
-    expect(findCaptionSource([real], "/other.png")).toBeNull();
-    expect(findCaptionSource({ file: real.file }, real.file)).toBeNull();
-    expect(findCaptionSource(null, real.file)).toBeNull();
-  });
-
-  it("drops malformed fields", () => {
-    const odd = {
-      file: "/x.png",
-      world: 1,
-      timestamp: 2,
-      camera: { make: "a" },
-      tags: ["ok", 3, null],
-    };
-    expect(findCaptionSource([null, odd], "/x.png")).toEqual({
-      world: "",
-      timestamp: null,
-      camera: null,
-      tags: ["ok"],
-    });
-  });
-});
 
 describe("formatJst", () => {
   it("formats in JST whatever the offset", () => {
@@ -74,6 +44,15 @@ describe("captionFor", () => {
       primary: "2023-12-16 23:12 JST",
       secondary: "logilabo VirtualLens2 · #VRChat",
     });
+  });
+
+  it("uses the camera name without manufacturer and model", () => {
+    expect(
+      captionFor({
+        ...real,
+        camera: { name: "PENTAX SP", manufacturer: null, model: null },
+      }),
+    ).toEqual({ secondary: "PENTAX SP · #Real #film" });
   });
 
   it("omits the date and camera when unknown", () => {

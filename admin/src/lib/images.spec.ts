@@ -6,7 +6,6 @@ import {
   dimensionsFromFile,
   fileExtension,
   imageUrl,
-  normalizeImageBase,
   srcSet,
 } from "./images";
 
@@ -23,24 +22,6 @@ describe("PRESETS", () => {
     for (const [p] of [...LIST_CANDIDATES, ...PREVIEW_CANDIDATES]) {
       expect(PRESETS).toContain(p);
     }
-  });
-});
-
-describe("normalizeImageBase", () => {
-  it("accepts an http(s) URL and strips trailing slashes", () => {
-    expect(normalizeImageBase(BASE)).toBe(BASE);
-    expect(normalizeImageBase(` ${BASE}// `)).toBe(BASE);
-    expect(normalizeImageBase("http://127.0.0.1:8787/img")).toBe(
-      "http://127.0.0.1:8787/img",
-    );
-  });
-
-  it("is null when unset, empty or not a URL", () => {
-    expect(normalizeImageBase(undefined)).toBeNull();
-    expect(normalizeImageBase("")).toBeNull();
-    expect(normalizeImageBase("   ")).toBeNull();
-    expect(normalizeImageBase("gallery.sksat.net/img")).toBeNull();
-    expect(normalizeImageBase(42)).toBeNull();
   });
 });
 

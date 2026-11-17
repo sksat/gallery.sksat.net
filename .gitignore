@@ -57,6 +57,8 @@ lerna-debug.log*
 # Cloudflare
 functions/**/*.js
 .wrangler/
+# Local D1 behind the API Worker in E2E
+.wrangler-e2e/
 
 # pnpm store created when running pnpm inside the Playwright container (VRT baseline regeneration)
 .pnpm-store/
