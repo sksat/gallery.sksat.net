@@ -1,7 +1,7 @@
 import { component$, type JSXOutput } from "@builder.io/qwik";
 import { Link } from "@builder.io/qwik-city";
 import { ancestors, isWithin, type FolderNode } from "~/lib/folders";
-import { mediaListHref } from "~/lib/format";
+import { mediaEditHref, mediaListHref } from "~/lib/format";
 import type { MediaWorld, Visibility } from "~/lib/types";
 import { StatePanel } from "./state-panel";
 import { Thumb } from "./thumb";
@@ -194,7 +194,7 @@ export const FileBrowser = component$<Props>(
                 return (
                   <li key={f.id}>
                     <Link
-                      href={`/media/${f.id}/`}
+                      href={mediaEditHref(f.id, href(dir))}
                       data-testid="file-tile"
                       title={f.file}
                       class={[

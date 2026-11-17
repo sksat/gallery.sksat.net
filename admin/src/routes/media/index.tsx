@@ -37,6 +37,7 @@ import {
 import {
   formatJst,
   lastPage,
+  mediaEditHref,
   mediaListHref,
   parseView,
   splitPath,
@@ -271,6 +272,8 @@ export default component$(() => {
   const dir = files?.dir ?? "/";
   const pageUrl = (p: number) =>
     mediaListHref({ world, visibility, q, page: p });
+  // This list's own URL, so an edit page can link back to it.
+  const back = pageUrl(page);
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = (page - 1) * PAGE_SIZE + rows.length;
   // Switching keeps the filter; the folder is remembered only in files view.
@@ -570,7 +573,7 @@ export default component$(() => {
                     </td>
                     <td class="px-4 py-3">
                       <Link
-                        href={`/media/${row.id}/`}
+                        href={mediaEditHref(row.id, back)}
                         title={row.file}
                         class="block min-w-0 rounded after:absolute after:inset-0 after:content-['']"
                       >
@@ -626,7 +629,7 @@ export default component$(() => {
                   class="mt-4 ml-4 shrink-0"
                 />
                 <Link
-                  href={`/media/${row.id}/`}
+                  href={mediaEditHref(row.id, back)}
                   title={row.file}
                   class="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 active:bg-sky-50 dark:active:bg-sky-950/30"
                 >

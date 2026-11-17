@@ -43,7 +43,8 @@ test("media list: the whole row opens the edit page", async ({ page }) => {
   const box = await cell.boundingBox();
   if (!box) throw new Error("Status cell not rendered");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(page).toHaveURL(/\/media\/2\/$/);
+  // The edit page remembers the filtered list for its "← Media" link.
+  await expect(page).toHaveURL(/\/media\/2\/\?back=%2Fmedia%2F%3Fq%3Dvrchat1$/);
   await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
 });
 

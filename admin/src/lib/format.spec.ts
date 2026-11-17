@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   formatJst,
   lastPage,
+  mediaEditHref,
   mediaListHref,
   parseView,
   publicPhotoUrl,
+  safeBackHref,
   splitPath,
 } from "./format";
 
@@ -21,6 +23,31 @@ describe("publicPhotoUrl", () => {
     expect(publicPhotoUrl("abcdefghjk")).toBe(
       "https://gallery.sksat.net/photo/abcdefghjk/",
     );
+  });
+});
+
+describe("mediaEditHref / safeBackHref", () => {
+  it("keeps the list URL so the edit page can go back to it", () => {
+    const back = "/media/?view=files&dir=/VRChat/2023-12";
+    const href = mediaEditHref(3, back);
+    expect(href).toBe(
+      "/media/3/?back=%2Fmedia%2F%3Fview%3Dfiles%26dir%3D%2FVRChat%2F2023-12",
+    );
+    const raw = new URL(href, "https://admin.example").searchParams.get("back");
+    expect(safeBackHref(raw)).toBe(back);
+  });
+
+  it("omits back for the list root", () => {
+    expect(mediaEditHref(3, "/media/")).toBe("/media/3/");
+  });
+
+  it("falls back to the list root for anything but a /media list URL", () => {
+    expect(safeBackHref(null)).toBe("/media/");
+    expect(safeBackHref("https://evil.example/media/")).toBe("/media/");
+    expect(safeBackHref("//evil.example/media/")).toBe("/media/");
+    expect(safeBackHref("/camera/")).toBe("/media/");
+    expect(safeBackHref("/media/3/")).toBe("/media/");
+    expect(safeBackHref("/media/?page=2")).toBe("/media/?page=2");
   });
 });
 

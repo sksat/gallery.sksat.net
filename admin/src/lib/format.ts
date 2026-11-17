@@ -74,6 +74,23 @@ export const PUBLIC_SITE_URL = "https://gallery.sksat.net";
 export const publicPhotoUrl = (publicId: string): string =>
   `${PUBLIC_SITE_URL}/photo/${publicId}/`;
 
+/**
+ * Edit page URL that remembers the list it was opened from (`?back=`), so
+ * "← Media" returns to the same view, folder, filter and page.
+ */
+export const mediaEditHref = (id: number, back: string): string =>
+  back === "/media/"
+    ? `/media/${id}/`
+    : `/media/${id}/?back=${encodeURIComponent(back)}`;
+
+/**
+ * The list URL to go back to from an edit page: `?back=` when it is a
+ * /media list URL on this site, otherwise the list root (never an
+ * arbitrary or external URL).
+ */
+export const safeBackHref = (raw: string | null): string =>
+  raw !== null && /^\/media\/(\?[^#]*)?$/.test(raw) ? raw : "/media/";
+
 /** Number of the last page (1-based); 1 when there are no rows. */
 export const lastPage = (total: number, pageSize: number): number =>
   Math.max(1, Math.ceil(total / pageSize));

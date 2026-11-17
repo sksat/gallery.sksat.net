@@ -4,6 +4,7 @@ import {
   Link,
   routeAction$,
   routeLoader$,
+  useLocation,
   zod$,
   z,
   type DocumentHead,
@@ -24,7 +25,12 @@ import {
 import { getCamera, getMedia, listCameras, updateMedia } from "~/lib/db";
 import { Thumb } from "~/components/thumb";
 import { getDB, getImageBase } from "~/lib/env";
-import { formatJst, publicPhotoUrl, splitPath } from "~/lib/format";
+import {
+  formatJst,
+  publicPhotoUrl,
+  safeBackHref,
+  splitPath,
+} from "~/lib/format";
 import { VISIBILITIES, type MediaRow, type Visibility } from "~/lib/types";
 import {
   parseCameraIdInput,
@@ -139,6 +145,8 @@ const VISIBILITY_HELP: Record<Visibility, string> = {
 export default component$(() => {
   const media = useMedia();
   const action = useUpdateMedia();
+  // The list this page was opened from (view, folder, filter, page).
+  const backHref = safeBackHref(useLocation().url.searchParams.get("back"));
 
   if (media.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/media/" />;
@@ -180,7 +188,7 @@ export default component$(() => {
     <div class="mx-auto max-w-3xl space-y-6">
       <div>
         <nav aria-label="Breadcrumb" class="text-sm">
-          <Link href="/media/" class={link}>
+          <Link href={backHref} class={link}>
             ← Media
           </Link>
         </nav>
