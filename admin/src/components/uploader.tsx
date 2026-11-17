@@ -11,7 +11,11 @@ import {
 import { MAX_BULK_IDS } from "~/lib/db";
 import { formatBytes, UPLOAD_ACCEPT } from "~/lib/upload";
 import type { IncompleteUpload } from "~/lib/db-upload";
-import { browserDeps, type PickedFile } from "~/lib/upload-client";
+import {
+  browserDeps,
+  completeUploadRequest,
+  type PickedFile,
+} from "~/lib/upload-client";
 import {
   createUploadQueue,
   summarize,
@@ -33,8 +37,10 @@ export type Uploader = {
   queue: Signal<NoSerialize<UploadQueue<PickedFile>>>;
   /** Queue picked files for `dir`. */
   add: QRL<(dir: string, files: PickedFile[]) => void>;
-  /** Drop finished rows from the panel. */
+  /** Drop finished (and failed) rows from the panel. */
   clear: QRL<() => void>;
+  /** Reload the page data. */
+  refresh: QRL<() => unknown>;
 };
 
 /** Phones upload two at a time (each file is hashed in memory first). */
@@ -71,6 +77,8 @@ export const useUploader = (refresh: QRL<() => unknown>): Uploader => {
   const clear = $(() => {
     queue.value?.clearFinished();
     shownDone.value = 0;
+    // Failed rows move to the folder's incomplete uploads: show them.
+    void refresh();
   });
 
   // While anything is in flight: keep the screen on (a phone that sleeps
@@ -110,7 +118,7 @@ export const useUploader = (refresh: QRL<() => unknown>): Uploader => {
     });
   });
 
-  return { items, queue, add, clear };
+  return { items, queue, add, clear, refresh };
 };
 
 const UploadIcon = () => (
@@ -161,16 +169,40 @@ export const UploadButton = component$<{ uploader: Uploader; dir: string }>(
 
 /**
  * Uploads in this folder that never completed (their rows reserve the
- * path, but they are not photos). Picking the same file again resumes
- * one; Delete forgets it.
+ * path, but they are not photos). 「確認」 asks for the completion again:
+ * when the PUT went through but the check did not, that is all it takes,
+ * without uploading again. Picking the same file again resumes one;
+ * Delete forgets it.
  */
 export const IncompleteUploads = component$<{
   rows: IncompleteUpload[];
   uploader: Uploader;
   /** Delete one (the page's action; it reloads the data). */
   onDelete$: QRL<(id: number) => Promise<unknown>>;
+  /** Report the result of 「確認」. */
+  onChecked$: QRL<(ready: number, failures: string[]) => void>;
 }>((props) => {
   const busy = useSignal<number | null>(null);
+  const checking = useSignal(false);
+  const check = $(async (ids: number[]) => {
+    checking.value = true;
+    let ready = 0;
+    const failures: string[] = [];
+    try {
+      for (const id of ids) {
+        try {
+          await completeUploadRequest(id);
+          ready++;
+        } catch (err) {
+          failures.push(err instanceof Error ? err.message : String(err));
+        }
+      }
+      if (ready > 0) await props.uploader.refresh();
+    } finally {
+      checking.value = false;
+    }
+    await props.onChecked$(ready, failures);
+  });
   // Not the ones the upload panel already shows (in flight or failed).
   const inFlight = new Set(
     props.uploader.items.value
@@ -188,9 +220,19 @@ export const IncompleteUploads = component$<{
       <h2 class="font-semibold text-amber-900 dark:text-amber-200">
         未完了のアップロード ({rows.length})
       </h2>
-      <p class="text-amber-900/80 dark:text-amber-200/80">
-        同じファイルをもう一度アップロードすると続きから登録します。
-      </p>
+      <div class="flex flex-wrap items-center gap-2">
+        <p class="mr-auto text-amber-900/80 dark:text-amber-200/80">
+          ファイルが届いていれば「確認」で登録できます。届いていなければ同じファイルをもう一度アップロードしてください。
+        </p>
+        <button
+          type="button"
+          disabled={checking.value || busy.value !== null}
+          onClick$={() => check(rows.map((r) => r.id))}
+          class={buttonSecondary}
+        >
+          {checking.value ? "確認中…" : "すべて確認"}
+        </button>
+      </div>
       <ul class="divide-y divide-amber-200 dark:divide-amber-900">
         {rows.map((r) => (
           <li
@@ -208,7 +250,16 @@ export const IncompleteUploads = component$<{
             )}
             <button
               type="button"
-              disabled={busy.value !== null}
+              disabled={checking.value || busy.value !== null}
+              aria-label={`${r.file} を確認`}
+              onClick$={() => check([r.id])}
+              class="h-11 shrink-0 rounded-lg px-2 font-medium text-sky-700 disabled:opacity-60 sm:h-auto dark:text-sky-400"
+            >
+              確認
+            </button>
+            <button
+              type="button"
+              disabled={checking.value || busy.value !== null}
               aria-label={`${r.file} の未完了のアップロードを削除`}
               onClick$={async () => {
                 busy.value = r.id;

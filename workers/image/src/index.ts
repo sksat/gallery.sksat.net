@@ -297,6 +297,14 @@ export class AdminImage extends WorkerEntrypoint<Env> {
     }
     // Any resize preset: only the path rules matter here.
     if (!parseAdminImage("h240", file)) return { ok: false, status: 404 };
-    return { ok: true, stat: await statObject(this.env, file) };
+    try {
+      const stat = await statObject(this.env, file);
+      console.log(`AdminImage.stat ${file}: ${stat ? stat.size : "none"}`);
+      return { ok: true, stat };
+    } catch (err) {
+      // A plain error result (502) instead of an exception across the RPC.
+      console.error(`AdminImage.stat ${file} failed:`, err);
+      return { ok: false, status: 502 };
+    }
   }
 }

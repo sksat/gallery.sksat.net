@@ -185,13 +185,17 @@ describe("AdminImage", () => {
     expect(transforms).toHaveLength(2);
   });
 
-  it("stat HEADs the object and refuses bad paths", async () => {
+  it("stat reads the object's first byte and refuses bad paths", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         transforms.push(`${init?.method} ${url}`);
-        return new Response(null, {
-          headers: { "content-length": "42", "x-amz-meta-sha256": "ab" },
+        return new Response("x", {
+          status: 206,
+          headers: {
+            "content-range": "bytes 0-0/42",
+            "x-amz-meta-sha256": "ab",
+          },
         });
       }),
     );
@@ -200,7 +204,7 @@ describe("AdminImage", () => {
       ok: true,
       stat: { size: 42, etag: null, sha256: "ab" },
     });
-    expect(transforms[0]).toMatch(/^HEAD https:\/\/s3\.example\/bucket\//);
+    expect(transforms[0]).toMatch(/^GET https:\/\/s3\.example\/bucket\//);
     expect(await admin.stat("jwt", "/../media.json")).toEqual({
       ok: false,
       status: 404,

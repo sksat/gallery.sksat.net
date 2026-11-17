@@ -7,8 +7,14 @@
  * whether the object exists with the size and SHA-256 metadata it
  * announced, before it marks the photo ready.
  *
- * A HEAD through a short-lived presigned URL (credentials), or on the public
- * bucket URL (none). Never cached.
+ * A GET of the first byte (`Range: bytes=0-0`) through a short-lived
+ * presigned URL (credentials), or on the public bucket URL (none): the size
+ * comes from Content-Range, the metadata from the headers, and the one-byte
+ * body is read so nothing is left open. Not a HEAD: in production every
+ * `stat` call ended with the runtime reporting the Worker as hung, and its
+ * only subrequest was that HEAD (an empty body with a non-zero
+ * Content-Length), while `image`'s GETs work. A timeout turns any other
+ * stall into an error the admin can retry.
  */
 import { AwsClient } from "aws4fetch";
 import type { OriginEnv } from "./origin";
@@ -20,10 +26,13 @@ export type ObjectStat = {
   sha256: string | null;
 };
 
-/** How long the HEAD URL is valid. */
+/** How long the URL is valid. */
 export const STAT_EXPIRES_SECONDS = 60;
 
-/** URL to HEAD `file` (a validated bucket path starting with "/"). */
+/** Give up on the bucket after this long. */
+export const STAT_TIMEOUT_MS = 10_000;
+
+/** URL to GET `file` (a validated bucket path starting with "/"). */
 export const statUrl = async (
   env: OriginEnv,
   file: string,
@@ -48,11 +57,29 @@ export const statUrl = async (
     region: env.B2_REGION,
   });
   const datetime = new Date(nowMs).toISOString().replace(/[:-]|\.\d{3}/g, "");
+  // Only `host` is signed: the Range header may be added freely.
   const signed = await client.sign(url.toString(), {
-    method: "HEAD",
+    method: "GET",
     aws: { signQuery: true, datetime },
   });
   return signed.url;
+};
+
+/**
+ * Total size from a ranged response: "bytes 0-0/3500000" → 3500000; a
+ * full (200) response's Content-Length; null when neither says.
+ */
+export const sizeOf = (res: Response): number | null => {
+  const range = res.headers.get("content-range");
+  // "bytes */0" is an empty object's answer to a range (416).
+  const m = range ? /^bytes (?:\d+-\d+|\*)\/(\d+)$/.exec(range.trim()) : null;
+  const raw = m
+    ? m[1]
+    : res.status === 200
+      ? res.headers.get("content-length")
+      : null;
+  const n = raw === null ? NaN : Number(raw);
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
 };
 
 /** The object at `file`, null if there is none; throws on other errors. */
@@ -61,20 +88,30 @@ export const statObject = async (
   file: string,
   fetchFn: typeof fetch = fetch,
   nowMs: number = Date.now(),
+  timeoutMs: number = STAT_TIMEOUT_MS,
 ): Promise<ObjectStat | null> => {
-  // HEAD responses are not cached by Cloudflare, and the URL is new each time.
   const res = await fetchFn(await statUrl(env, file, nowMs), {
-    method: "HEAD",
+    method: "GET",
+    headers: { Range: "bytes=0-0" },
+    signal: AbortSignal.timeout(timeoutMs),
   });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`HEAD ${file}: ${res.status}`);
-  const size = Number(res.headers.get("content-length"));
-  if (!Number.isSafeInteger(size) || size < 0) {
-    throw new Error(`HEAD ${file}: no content-length`);
+  // Drain the (one-byte) body either way; a 200 from a server that ignored
+  // the range is cancelled instead of read.
+  const settle = () =>
+    res.status === 200 ? res.body?.cancel() : res.arrayBuffer();
+  try {
+    if (res.status === 404) return null;
+    if (res.status !== 206 && res.status !== 200 && res.status !== 416) {
+      throw new Error(`GET ${file} (range): ${res.status}`);
+    }
+    const size = sizeOf(res);
+    if (size === null) throw new Error(`GET ${file}: no size`);
+    return {
+      size,
+      etag: res.headers.get("etag"),
+      sha256: res.headers.get("x-amz-meta-sha256"),
+    };
+  } finally {
+    await Promise.resolve(settle()).catch(() => {});
   }
-  return {
-    size,
-    etag: res.headers.get("etag"),
-    sha256: res.headers.get("x-amz-meta-sha256"),
-  };
 };

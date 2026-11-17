@@ -233,6 +233,41 @@ test("an incomplete upload can be deleted", async ({ page }) => {
   ).toBeVisible();
 });
 
+// Regression for production: the PUT went through but the completion check
+// failed. Closing the panel must work, and 「確認」 must register the photo
+// without uploading it again.
+test("a stored upload whose check failed is registered by 確認", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await newFolder(page, "/mock", "up-check");
+  await page.route(/\/api\/upload\/\d+$/, (route) => route.abort("failed"));
+  await page.getByTestId("upload-input").setInputFiles([png("c.png", "q")]);
+  const panel = page.getByTestId("upload-panel");
+  await expect(panel.getByRole("heading")).toHaveText("1 件が失敗しました", {
+    timeout: 15_000,
+  });
+  await page.unroute(/\/api\/upload\/\d+$/);
+
+  await panel.getByRole("button", { name: "閉じる" }).click();
+  await expect(panel).toHaveCount(0);
+  const incomplete = page.getByTestId("incomplete-uploads");
+  await expect(incomplete.getByTestId("incomplete-row")).toHaveText(/c\.png/);
+
+  await incomplete
+    .getByRole("button", { name: "/mock/up-check/c.png を確認" })
+    .click();
+  await expect(page.getByRole("status")).toContainText("1 件を登録しました");
+  await expect(page.getByTestId("file-tile")).toHaveCount(1);
+  await expect(incomplete).toHaveCount(0);
+  // Uploaded once.
+  expect(
+    (await uploadedKeys(page)).filter((k) => k === "/mock/up-check/c.png"),
+  ).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
+
 test.describe("on a phone", () => {
   test.use({
     viewport: { width: 390, height: 844 },
