@@ -2,11 +2,8 @@ import {
   CAMERA_KINDS,
   type CameraImageRow,
   type CameraInput,
-  type CameraJSON,
   type CameraKind,
   type CameraRow,
-  type MediaCamera,
-  type MediaInfoJSON,
   type MediaPatch,
   type MediaRow,
   type MediaWorld,
@@ -96,64 +93,6 @@ export const rowToCamera = (raw: RawCameraRow): CameraRow => {
     description: raw.description,
     product_url: raw.product_url,
     updated_at: raw.updated_at,
-  };
-};
-
-/**
- * One item of cameras.json (the row minus admin-only fields, camelCase
- * keys). `images` must already be in display order.
- */
-export const cameraToJson = (
-  c: CameraRow,
-  images: readonly CameraImageRow[] = [],
-): CameraJSON => ({
-  slug: c.slug,
-  name: c.name,
-  manufacturer: c.manufacturer,
-  manufacturerUrl: c.manufacturer_url,
-  model: c.model,
-  kind: c.kind,
-  description: c.description,
-  productUrl: c.product_url,
-  images: images.map(({ file, caption }) => ({ file, caption })),
-});
-
-/**
- * The `camera` object embedded in a media.json item. The legacy
- * `make`/`model` stay non-null strings so gallery builds that predate
- * cameras.json (they render `${make} ${model}`) keep working: `make` is the
- * manufacturer ("" when unset), and a camera without a model falls back to
- * its display name.
- */
-export const mediaCameraJson = (c: CameraRow): MediaCamera => ({
-  make: c.manufacturer ?? "",
-  model: c.model ?? c.name,
-  slug: c.slug,
-  name: c.name,
-});
-
-export const rowToMediaJson = (
-  row: MediaRow,
-  cameras: ReadonlyMap<number, CameraRow>,
-): MediaInfoJSON => {
-  let camera: MediaCamera | null = null;
-  if (row.camera_id !== null) {
-    const c = cameras.get(row.camera_id);
-    // The FK makes this unreachable; fail loudly rather than publish a
-    // photo that silently lost its camera.
-    if (!c) {
-      throw new Error(
-        `media ${row.id} references missing camera ${row.camera_id}`,
-      );
-    }
-    camera = mediaCameraJson(c);
-  }
-  return {
-    file: row.file,
-    world: row.world,
-    timestamp: row.timestamp,
-    camera,
-    tags: row.tags,
   };
 };
 
@@ -502,73 +441,4 @@ export const moveCameraImage = async (
     ),
   );
   return true;
-};
-
-// Cap on rows pulled in a single export query. D1 caps result sets at ~10 MB;
-// at ~200 bytes/row this leaves plenty of headroom but trips a clear error
-// before we hit the opaque platform limit. Switch to cursor-based batching
-// here if the gallery ever approaches this scale.
-//
-// Note: the check fires *after* `.all()` materialises the rows. If the result
-// set blows the D1 size limit the platform error surfaces first; this guard
-// is only useful for catching the "you forgot to add cursor batching" case
-// while still under the hard cap. A `SELECT COUNT(*)` pre-flight would catch
-// it earlier but doubles the publish-path queries.
-// TODO: switch to cursor-based batching when the gallery approaches ~5k rows.
-const MAX_EXPORT_ROWS = 50_000;
-
-export type ExportSnapshot = {
-  media: MediaInfoJSON[];
-  cameras: CameraJSON[];
-};
-
-/**
- * media.json + cameras.json from already-loaded rows. Media keep the given
- * order; cameras are sorted by slug so the file diffs cleanly, and each
- * camera's images by position.
- */
-export const buildExport = (
-  mediaRows: MediaRow[],
-  cameraRows: CameraRow[],
-  imageRows: CameraImageRow[] = [],
-): ExportSnapshot => {
-  const byId = new Map(cameraRows.map((c) => [c.id, c]));
-  const imagesOf = new Map<number, CameraImageRow[]>();
-  for (const img of [...imageRows].sort(
-    (a, b) => a.position - b.position || a.id - b.id,
-  )) {
-    imagesOf.set(img.camera_id, [...(imagesOf.get(img.camera_id) ?? []), img]);
-  }
-  return {
-    media: mediaRows.map((r) => rowToMediaJson(r, byId)),
-    cameras: [...cameraRows]
-      .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
-      .map((c) => cameraToJson(c, imagesOf.get(c.id))),
-  };
-};
-
-export const exportSnapshot = async (
-  db: D1Database,
-): Promise<ExportSnapshot> => {
-  // One batch = one transaction, so media never references a camera the
-  // cameras query did not see. Only public photos are exported: media.json
-  // is a list, and unlisted photos must not appear in lists.
-  const [mediaRes, cameraRes, imageRes] = await db.batch([
-    db.prepare(
-      "SELECT * FROM media WHERE visibility = 'public' ORDER BY timestamp IS NULL, timestamp DESC, id DESC",
-    ),
-    db.prepare("SELECT * FROM camera"),
-    db.prepare("SELECT * FROM camera_image"),
-  ]);
-  const rows = (mediaRes.results ?? []) as RawRow[];
-  if (rows.length > MAX_EXPORT_ROWS) {
-    throw new Error(
-      `media export exceeded ${MAX_EXPORT_ROWS} rows (got ${rows.length}); switch to cursor-based batching`,
-    );
-  }
-  return buildExport(
-    rows.map(rowToMedia),
-    ((cameraRes.results ?? []) as RawCameraRow[]).map(rowToCamera),
-    (imageRes.results ?? []) as CameraImageRow[],
-  );
 };

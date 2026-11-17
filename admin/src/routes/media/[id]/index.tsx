@@ -350,8 +350,8 @@ export default component$(() => {
               class={field}
             />
             <p id="edit-tags-help" class={["mt-1 text-xs", muted]}>
-              e.g. <code>VRChat, night</code>. Saved to D1 immediately; publish
-              from the dashboard to update the public gallery.
+              e.g. <code>VRChat, night</code>. Saved to D1 immediately; the
+              public gallery shows it within about a minute.
             </p>
           </div>
         </fieldset>
