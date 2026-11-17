@@ -45,9 +45,7 @@ jobs:
       - run: pnpm run fmt.check
 
   e2e:
-    # Pinned: ubuntu-latest moved to 26.04, which Playwright 1.59.1 cannot
-    # install chromium on. Revisit when bumping @playwright/test.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
@@ -77,11 +75,14 @@ jobs:
     # system fonts differ and text-heavy screenshots exceed the 1% threshold.
     # Keep the tag in sync with @playwright/test in package.json.
     container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - run: corepack enable
+      # The Playwright image ships Node.js 26, which no longer bundles
+      # corepack (and `npm i -g corepack` collides with its preinstalled
+      # yarn), so install the pnpm pinned in packageManager directly.
+      - run: npm install -g "$(node -p 'require("./package.json").packageManager')"
 
       # Same manual pnpm store cache as admin-e2e.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -151,14 +152,15 @@ jobs:
     # to the environment used for VRT baseline generation (`podman run … mcr.microsoft.com/playwright:vX-noble`).
     # Keep the tag in sync with @playwright/test in admin/package.json.
     container:
-      image: mcr.microsoft.com/playwright:v1.59.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
     defaults:
       run:
         working-directory: admin
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - run: corepack enable
+      # See the vrt job: Node.js 26 in the image has no bundled corepack.
+      - run: npm install -g "$(node -p 'require("./package.json").packageManager')"
 
       # Cache pnpm store. We cannot use pnpm/action-setup or actions/setup-node's
       # built-in pnpm cache here because they require Node 20+ and the
