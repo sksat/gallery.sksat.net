@@ -2,3 +2,6 @@
 # Production values are set via `wrangler secret put`.
 B2_ACCESS_KEY_ID=
 B2_SECRET_ACCESS_KEY=
+# Local `pnpm serve` has no Cloudflare Access in front of it; skip the JWT
+# check (src/lib/access.ts). Never set this in production.
+ACCESS_DISABLED=1

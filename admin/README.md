@@ -156,7 +156,9 @@ Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, `ca
 
 > **Prerequisite before first Publish**: enable Object Lock / file versioning on the B2 bucket. Publish overwrites the entire `media.json` from a single D1 SELECT — there is no diff or dry-run, so a corrupted D1 (failed seed, partial import, accidental DELETE) would otherwise destructively replace the live index. Versioning gives a one-click rollback.
 
-> **Dev caveat**: `pnpm serve` (and the test server in `e2e/start-test-server.sh`) binds locally with no auth — Cloudflare Access only fronts production. Do not expose the dev port (5175 / 8788) on a public network interface; CSRF is the only thing keeping a malicious page from POSTing to your local D1.
+> **Access JWT check**: `src/routes/plugin@access.ts` rejects any request without a valid Cloudflare Access JWT (`ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` in `wrangler.jsonc`). It is what protects the production `admin-gallery-sksat-net.pages.dev` hostname, which no Access application covers. Local `pnpm serve` needs `ACCESS_DISABLED=1` in `.dev.vars` (see `.dev.vars.example`).
+>
+> **Dev caveat**: `pnpm serve` (and the test server in `e2e/start-test-server.sh`) binds locally with no auth because `ACCESS_DISABLED=1` is set (honoured only on `localhost` / `127.0.0.1`) — Cloudflare Access only fronts production. Do not expose the dev port (5175 / 8788) on a public network interface; CSRF is the only thing keeping a malicious page from POSTing to your local D1.
 
 > **No publish concurrency guard**: there is no server-side in-flight lock on `/api/publish`. Two simultaneous publishes (e.g. double-click, two tabs) issue independent D1 SELECTs and B2 PUTs — whichever PUT finishes last wins. Single-admin use makes this low risk; if the admin gets multi-user, add an in-flight flag (or a `429`) in `api/publish/index.ts`.
 
