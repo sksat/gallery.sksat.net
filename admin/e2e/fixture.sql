@@ -21,3 +21,10 @@ INSERT INTO camera_image (id, camera_id, file, position, caption) VALUES
   (1, 1, '/camera/virtuallens2/front.png', 0, 'Front'),
   (2, 1, '/camera/virtuallens2/ui.png',    1, NULL);
 INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES ('media', 5), ('camera', 2), ('camera_image', 2);
+-- Sizes for the dashboard's 容量 card: 30.0 MB in all; public 12.0 MB,
+-- unlisted 12.0 MB, private 6.00 MB.
+UPDATE media SET size = 2500000  WHERE id = 1;
+UPDATE media SET size = 8000000  WHERE id = 2;
+UPDATE media SET size = 1500000  WHERE id = 3;
+UPDATE media SET size = 12000000 WHERE id = 4;
+UPDATE media SET size = 6000000  WHERE id = 5;
