@@ -1,4 +1,4 @@
-import { component$, type JSXOutput } from "@builder.io/qwik";
+import { component$, Slot, type JSXOutput } from "@builder.io/qwik";
 import { Link } from "@builder.io/qwik-city";
 import { ancestors, isWithin, type FolderNode } from "~/lib/folders";
 import { mediaEditHref, mediaListHref } from "~/lib/format";
@@ -133,32 +133,36 @@ export const FileBrowser = component$<Props>(
         </details>
 
         <section aria-label="Folder contents" class="min-w-0 space-y-4">
-          <nav aria-label="Folder path" class="text-sm">
-            <ol class="flex flex-wrap items-center gap-1">
-              {crumbs.map((c, i) => (
-                <li key={c.path} class="flex items-center gap-1">
-                  {i > 0 && (
-                    <span aria-hidden="true" class={muted}>
-                      /
-                    </span>
-                  )}
-                  {i === crumbs.length - 1 ? (
-                    <span aria-current="location" class="font-semibold">
-                      {c.name || ROOT_LABEL}
-                    </span>
-                  ) : (
-                    <Link
-                      key={href(c.path)}
-                      href={href(c.path)}
-                      class="inline-flex min-h-11 items-center rounded px-1 font-medium text-sky-700 underline-offset-4 hover:underline sm:min-h-0 sm:px-0 dark:text-sky-400"
-                    >
-                      {c.name || ROOT_LABEL}
-                    </Link>
-                  )}
-                </li>
-              ))}
-            </ol>
-          </nav>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <nav aria-label="Folder path" class="text-sm">
+              <ol class="flex flex-wrap items-center gap-1">
+                {crumbs.map((c, i) => (
+                  <li key={c.path} class="flex items-center gap-1">
+                    {i > 0 && (
+                      <span aria-hidden="true" class={muted}>
+                        /
+                      </span>
+                    )}
+                    {i === crumbs.length - 1 ? (
+                      <span aria-current="location" class="font-semibold">
+                        {c.name || ROOT_LABEL}
+                      </span>
+                    ) : (
+                      <Link
+                        key={href(c.path)}
+                        href={href(c.path)}
+                        class="inline-flex min-h-11 items-center rounded px-1 font-medium text-sky-700 underline-offset-4 hover:underline sm:min-h-0 sm:px-0 dark:text-sky-400"
+                      >
+                        {c.name || ROOT_LABEL}
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </nav>
+            {/* Folder actions (new folder, upload) from the page. */}
+            <Slot name="toolbar" />
+          </div>
 
           {!folder ? (
             <StatePanel
@@ -170,6 +174,12 @@ export const FileBrowser = component$<Props>(
               <p>
                 No {world || q ? "matching " : ""}media lives under{" "}
                 <code>{dir}</code>.
+              </p>
+            </StatePanel>
+          ) : folder.children.length === 0 && files.length === 0 ? (
+            <StatePanel tone="empty" level={2} title="This folder is empty">
+              <p>
+                <code>{dir}</code> has no photos or folders yet.
               </p>
             </StatePanel>
           ) : (

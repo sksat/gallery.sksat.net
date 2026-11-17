@@ -4,7 +4,8 @@
 DELETE FROM media;
 DELETE FROM camera_image;
 DELETE FROM camera;
-DELETE FROM sqlite_sequence WHERE name IN ('media', 'camera', 'camera_image');
+DELETE FROM folder;
+DELETE FROM sqlite_sequence WHERE name IN ('media', 'camera', 'camera_image', 'folder');
 INSERT INTO camera (id, slug, name, manufacturer, manufacturer_url, model, kind, description, product_url, updated_at) VALUES
   (1, 'virtuallens2', 'VirtualLens2', 'logilabo', 'https://example.com/logilabo', 'VirtualLens2', 'virtual', 'Virtual camera for VRChat.', 'https://example.com/virtuallens2', '2024-01-01T00:00:00.000Z'),
   (2, 'pentax-sp',    'PENTAX SP',    'Asahi',    NULL,                           'Pentax SP',    'film',    NULL,                         NULL,                               '2024-01-01T00:00:00.000Z');

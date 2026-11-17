@@ -29,8 +29,7 @@ export type AccessConfig = {
 };
 
 export type AccessResult =
-  | { ok: true }
-  | { ok: false; status: 403 | 500 | 503; reason: string };
+  { ok: true } | { ok: false; status: 403 | 500 | 503; reason: string };
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 

@@ -99,8 +99,80 @@ test("media files: an unknown folder says so", async ({ page }) => {
   ).toBeVisible();
 });
 
+// Folders made here stay in the shared D1 for later spec files, so they are
+// created inside /mock (nothing else counts the folder tiles there).
+test("media files: create an empty folder", async ({ page }) => {
+  await page.goto("/media/?view=files&dir=/mock");
+  await page.getByRole("button", { name: "New folder" }).click();
+  const form = page.getByRole("form", { name: "New folder" });
+  await form.getByLabel("Folder name").fill(" new-1 ");
+  await form.getByRole("button", { name: "Create" }).click();
+
+  // Opened right away, empty, and in the tree with no files.
+  await expect(page).toHaveURL(/\/media\/\?view=files&dir=\/mock\/new-1$/);
+  await expect(
+    page.getByRole("heading", { name: "This folder is empty" }),
+  ).toBeVisible();
+  const tree = page.getByRole("navigation", { name: "Folders" });
+  await expect(tree.getByRole("link", { name: /^new-1/ })).toHaveAttribute(
+    "aria-current",
+    "location",
+  );
+  await expect(tree.getByRole("link", { name: /^new-1/ })).toContainText("0");
+
+  // Survives a reload, and is a folder tile in its parent.
+  await page.goto("/media/?view=files&dir=/mock");
+  await expect(
+    page.getByTestId("folder-tile").filter({ hasText: "new-1" }),
+  ).toHaveText(/new-1\s*0/);
+  await expect(page.getByTestId("file-tile")).toHaveCount(5);
+
+  // Again: refused, with the reason in the toast.
+  await page.getByRole("button", { name: "New folder" }).click();
+  await form.getByLabel("Folder name").fill("new-1");
+  await form.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "/mock/new-1 はすでにあります",
+  );
+  await expect(page).toHaveURL(/dir=\/mock$/);
+});
+
+test("media files: a folder name is checked on the server too", async ({
+  page,
+}) => {
+  await page.goto("/media/?view=files&dir=/mock");
+  await page.getByRole("button", { name: "New folder" }).click();
+  const input = page.getByLabel("Folder name");
+  // Skip the browser's own pattern check to reach the action.
+  await input.evaluate((el) => el.removeAttribute("pattern"));
+  await input.fill("../etc");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("alert")).toContainText("英数字");
+  await expect(page).toHaveURL(/dir=\/mock$/);
+});
+
 test.describe("media files on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
+
+  test("create a folder", async ({ page }) => {
+    await page.goto("/media/?view=files&dir=/mock");
+    const button = page.getByRole("button", { name: "New folder" });
+    // Full width, a comfortable tap target.
+    expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await button.click();
+    await page.getByLabel("Folder name").fill("phone-1");
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page).toHaveURL(/dir=\/mock\/phone-1$/);
+    await expect(
+      page.getByRole("heading", { name: "This folder is empty" }),
+    ).toBeVisible();
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
+    expect(overflow).toBe(0);
+  });
 
   test("the tree is collapsed behind a disclosure", async ({ page }) => {
     await page.goto("/media/?view=files");

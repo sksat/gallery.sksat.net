@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { filesQuery, listMediaFiles } from "./db-files";
+import {
+  createFolder,
+  filesQuery,
+  listFolders,
+  listMediaFiles,
+} from "./db-files";
+import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 describe("filesQuery", () => {
   it("selects only what the files view needs, by file, one past the limit", () => {
     expect(filesQuery({ limit: 10 })).toEqual({
-      sql: "SELECT id, file, world FROM media ORDER BY file LIMIT ?",
+      sql: "SELECT id, file, world FROM media WHERE status = 'ready' ORDER BY file LIMIT ?",
       args: [11],
     });
   });
 
   it("applies the world filter and an escaped substring", () => {
     expect(filesQuery({ world: "VRChat", q: "50%_x", limit: 5 })).toEqual({
-      sql: "SELECT id, file, world FROM media WHERE world = ? AND file LIKE ? ESCAPE '\\' ORDER BY file LIMIT ?",
+      sql: "SELECT id, file, world FROM media WHERE status = 'ready' AND world = ? AND file LIKE ? ESCAPE '\\' ORDER BY file LIMIT ?",
       args: ["VRChat", "%50\\%\\_x%", 6],
     });
   });
@@ -38,5 +44,46 @@ describe("listMediaFiles", () => {
       limit: 2,
     });
     expect(r).toEqual({ rows: [row(1), row(2)], truncated: true });
+  });
+});
+
+describe("folders (on the real schema)", () => {
+  const setup = () => {
+    const db = migratedSqlite();
+    db.exec(`INSERT INTO media (file, world) VALUES ('/VRChat/2023-12/a.png', 'VRChat');
+      INSERT INTO media (file, world, status) VALUES ('/up/b.png', 'Real', 'uploading');`);
+    return sqliteD1(db);
+  };
+
+  it("creates a folder once and lists it", async () => {
+    const db = setup();
+    expect(await createFolder(db, "/VRChat/2026-11")).toBe(true);
+    expect(await createFolder(db, "/VRChat/2026-11")).toBe(false);
+    expect(await createFolder(db, "/new")).toBe(true);
+    // Plus the folder of the upload that has not completed.
+    expect(await listFolders(db)).toEqual(["/VRChat/2026-11", "/new", "/up"]);
+  });
+
+  it("refuses a folder that already exists through a created subfolder", async () => {
+    const db = setup();
+    expect(await createFolder(db, "/a/b")).toBe(true);
+    expect(await createFolder(db, "/a")).toBe(false);
+  });
+
+  it("refuses a folder that already exists through its files", async () => {
+    const db = setup();
+    expect(await createFolder(db, "/VRChat")).toBe(false);
+    expect(await createFolder(db, "/VRChat/2023-12")).toBe(false);
+    // Even if the only file is still being uploaded.
+    expect(await createFolder(db, "/up")).toBe(false);
+    // A prefix of a folder name is another folder.
+    expect(await createFolder(db, "/VRCha")).toBe(true);
+    expect(await createFolder(db, "/VRChat/2023-1")).toBe(true);
+  });
+
+  it("lists only ready photos in the files view", async () => {
+    const db = setup();
+    const { rows } = await listMediaFiles(db, { limit: 10 });
+    expect(rows.map((r) => r.file)).toEqual(["/VRChat/2023-12/a.png"]);
   });
 });

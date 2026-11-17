@@ -1,7 +1,6 @@
 // Runtime accessors for Cloudflare Pages bindings (D1, vars and secrets).
 // Pages' platform.env is typed as Record<string, any>; we narrow it here.
 
-
 export const getDB = (
   platform: { env?: Record<string, unknown> } | undefined,
 ): D1Database => {
@@ -44,4 +43,3 @@ export const getImageBase = (
   platform?.env?.THUMBNAILS === "1" && getAdminImages(platform)
     ? THUMB_BASE
     : null;
-

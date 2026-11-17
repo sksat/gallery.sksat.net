@@ -4,7 +4,8 @@
  *
  * - lists contain `public` photos only;
  * - a single photo (by public id or legacy index) may also be `unlisted`;
- * - `private` photos are never returned.
+ * - `private` photos are never returned;
+ * - nor are photos whose upload has not completed (`status <> 'ready'`).
  */
 import type {
   CameraImageJSON,
@@ -52,8 +53,17 @@ const MEDIA_SELECT = `
          c.manufacturer AS camera_manufacturer, c.model AS camera_model
   FROM media m LEFT JOIN camera c ON c.id = m.camera_id`;
 
-/** Visibilities a photo may have to be opened by its URL. */
-const VIEWABLE = "m.visibility IN ('public', 'unlisted')";
+/**
+ * A photo whose upload has completed (admin migration 0004). Rows still
+ * `uploading` reserve a path but may have no file yet: never served.
+ */
+const READY = "m.status = 'ready'";
+
+/** Photos that are listed. */
+const LISTED = `${READY} AND m.visibility = 'public'`;
+
+/** Photos that may be opened by their URL. */
+const VIEWABLE = `${READY} AND m.visibility IN ('public', 'unlisted')`;
 
 const CAMERA_KINDS: readonly string[] = ["digital", "film", "phone", "virtual"];
 
@@ -112,7 +122,7 @@ export const listPublicMedia = async (
 ): Promise<MediaItemJSON[]> => {
   const res = await db
     .prepare(
-      `${MEDIA_SELECT} WHERE m.visibility = 'public'
+      `${MEDIA_SELECT} WHERE ${LISTED}
        ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
     )
     .all<MediaJoinRow>();
@@ -145,12 +155,10 @@ export const getFileAccess = async (
   file: string,
 ): Promise<FileAccess | null> => {
   const [photos, images] = await db.batch([
-    db
-      .prepare(`${MEDIA_SELECT} WHERE m.file = ? AND m.visibility = 'public'`)
-      .bind(file),
+    db.prepare(`${MEDIA_SELECT} WHERE m.file = ? AND ${LISTED}`).bind(file),
     // A camera picture that is also a photo row follows the photo's
-    // visibility: listing a private photo as a camera picture must not
-    // publish it by path.
+    // visibility and status: listing a private photo (or one still being
+    // uploaded) as a camera picture must not publish it by path.
     db
       .prepare(
         `SELECT 1 AS found FROM camera_image WHERE file = ?1
@@ -195,7 +203,7 @@ const cameraUsed = (visibility: string) =>
 export const listCameras = async (db: D1Database): Promise<CameraJSON[]> => {
   const [cameras, images] = await db.batch([
     db.prepare(
-      `SELECT c.* FROM camera c WHERE ${cameraUsed("m.visibility = 'public'")} ORDER BY c.slug`,
+      `SELECT c.* FROM camera c WHERE ${cameraUsed(LISTED)} ORDER BY c.slug`,
     ),
     db.prepare("SELECT * FROM camera_image"),
   ]);
