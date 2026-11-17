@@ -233,23 +233,56 @@ export default component$(() => {
                         onClick$={() => selectImage(null)}
                         class="bg-opacity-50 fixed inset-0 z-10 flex items-center justify-center bg-black"
                       >
-                        <img
-                          src={imageUrl(
-                            S3_BASE,
-                            media[state.selectedImageId].file,
-                            IMAGE_BASE,
-                            "w2560",
-                          )}
-                          srcset={srcSet(
-                            S3_BASE,
-                            media[state.selectedImageId].file,
-                            IMAGE_BASE,
-                            OVERLAY_CANDIDATES,
-                          )}
-                          sizes="90vw"
-                          decoding="async"
-                          class="max-w-90% max-h-90%"
-                        ></img>
+                        {/*
+                          Progressive: the grid thumbnail (same srcset as the
+                          grid, so the browser reuses the cached file) shows
+                          at once, scaled up. The full-size image is stacked
+                          on top; an <img> paints nothing until it has loaded,
+                          so the thumbnail shows through until then. No JS on
+                          purpose: an onLoad$ handler can miss the event when
+                          the overlay is server-rendered (/photo/N) and the
+                          image loads before Qwik resumes. Keyed by photo so
+                          stepping to the next one starts from its thumbnail.
+                        */}
+                        <div
+                          key={state.selectedImageId}
+                          class="relative flex h-[90vh] w-[90vw] items-center justify-center"
+                        >
+                          <img
+                            aria-hidden="true"
+                            src={imageUrl(
+                              S3_BASE,
+                              media[state.selectedImageId].file,
+                              IMAGE_BASE,
+                              "h240",
+                            )}
+                            srcset={srcSet(
+                              S3_BASE,
+                              media[state.selectedImageId].file,
+                              IMAGE_BASE,
+                              GRID_CANDIDATES,
+                            )}
+                            class="absolute inset-0 h-full w-full object-contain"
+                          />
+                          <img
+                            data-testid="overlay-image"
+                            src={imageUrl(
+                              S3_BASE,
+                              media[state.selectedImageId].file,
+                              IMAGE_BASE,
+                              "w2560",
+                            )}
+                            srcset={srcSet(
+                              S3_BASE,
+                              media[state.selectedImageId].file,
+                              IMAGE_BASE,
+                              OVERLAY_CANDIDATES,
+                            )}
+                            sizes="90vw"
+                            decoding="async"
+                            class="absolute inset-0 h-full w-full object-contain"
+                          />
+                        </div>
                       </div>
                     )
                 }

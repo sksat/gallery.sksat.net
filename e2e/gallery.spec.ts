@@ -171,5 +171,12 @@ test("gallery: direct navigation to /photo/{id}", async ({ page }) => {
   // Overlay should appear with the image
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible({ timeout: 10000 });
-  await expect(overlay.locator("img")).toBeVisible();
+  // The full-size image is stacked over the thumbnail and loads.
+  await expect
+    .poll(() =>
+      overlay
+        .getByTestId("overlay-image")
+        .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth),
+    )
+    .toBeGreaterThan(0);
 });
