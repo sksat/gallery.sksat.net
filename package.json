@@ -13,7 +13,7 @@
     "build.preview": "vite build --ssr src/entry.preview.tsx",
     "build.server": "vite build -c adapters/cloudflare-pages/vite.config.ts",
     "build.types": "tsc --incremental --noEmit",
-    "deploy": "wrangler pages publish ./dist",
+    "deploy": "wrangler pages deploy ./dist --project-name gallery-sksat-net",
     "dev": "vite --mode ssr",
     "dev.debug": "node --inspect-brk ./node_modules/vite/bin/vite.js --mode ssr --force",
     "fmt": "prettier --write .",
@@ -55,7 +55,7 @@
     "vite": "^7.0.0",
     "vite-tsconfig-paths": "^5.0.0",
     "vitest": "^3.2.4",
-    "wrangler": "^3.0.0"
+    "wrangler": "^4.164.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
