@@ -26,6 +26,13 @@
     "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
     "B2_BUCKET": "sksat-gallery",
     "B2_REGION": "us-west-002",
+    // D1 usage on the dashboard (src/lib/d1-usage.ts) through Cloudflare's
+    // GraphQL Analytics API, with the production secret
+    // CF_ANALYTICS_API_TOKEN (an account API token with only "Account
+    // Analytics: Read"). Without the secret only the database size shows.
+    // Identifiers, not credentials. Production only (not in env.preview).
+    "CF_ACCOUNT_ID": "84a8852ca830f37f2d2e5bcfa7148d14",
+    "D1_DATABASE_ID": "70d6bc59-9937-48e0-90bb-0ef8a2a53bcd",
   },
   // The image Worker's AdminImage entrypoint (workers/image): resized
   // thumbnails of any photo, private included, for the /thumb route. It
