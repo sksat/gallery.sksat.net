@@ -8,8 +8,13 @@
  * headers need to be forwarded. Without credentials, the public bucket URL
  * is used as before.
  *
- * The signature changes on every request, so the transformation cache is
- * keyed on the bucket and file only (`cacheKey`).
+ * Image Transformations caches resized images under the source URL, and a
+ * new source URL is a new transformation. `cf.cacheKey` cannot change that:
+ * it is Enterprise-only and ignored on this plan. So the presigned URL has
+ * to stay the same between requests: it is signed at the start of a fixed
+ * window (`PRESIGN_WINDOW_SECONDS`) and stays valid past the window's end.
+ * Each new window is a new source URL, i.e. one more resize per
+ * (file, preset) every few days instead of one per request.
  */
 import { AwsClient } from "aws4fetch";
 
@@ -25,15 +30,14 @@ export type OriginEnv = {
   B2_APPLICATION_KEY?: string;
 };
 
-/** How long a presigned URL is valid. Only the transformation uses it. */
-export const PRESIGN_EXPIRES_SECONDS = 300;
+/** How long a presigned URL is valid: SigV4's maximum, 7 days. */
+export const PRESIGN_EXPIRES_SECONDS = 7 * 24 * 60 * 60;
 
-export type Origin = {
-  /** URL to fetch the original from. */
-  url: string;
-  /** Cache key for the transformation: never includes a signature. */
-  cacheKey: string;
-};
+/**
+ * How long one presigned URL is used. Shorter than its validity, so a URL
+ * signed at the start of a window still has a day left at the window's end.
+ */
+export const PRESIGN_WINDOW_SECONDS = 6 * 24 * 60 * 60;
 
 const hasCredentials = (env: OriginEnv): boolean =>
   Boolean(
@@ -44,17 +48,24 @@ const hasCredentials = (env: OriginEnv): boolean =>
     env.B2_REGION,
   );
 
+/** Start of the signing window containing `nowMs`, as YYYYMMDDTHHMMSSZ. */
+export const signingDatetime = (nowMs: number): string => {
+  const windowMs = PRESIGN_WINDOW_SECONDS * 1000;
+  const start = new Date(Math.floor(nowMs / windowMs) * windowMs);
+  return start.toISOString().replace(/[:-]|\.\d{3}/g, "");
+};
+
 /**
- * The original of `file` (a bucket path starting with "/", already
- * validated by parseImagePath). `datetime` (YYYYMMDDTHHMMSSZ) is for tests.
+ * URL of the original of `file` (a bucket path starting with "/", already
+ * validated by parseImagePath). The same for every request within a
+ * signing window. `nowMs` is for tests.
  */
 export const originFor = async (
   env: OriginEnv,
   file: string,
-  datetime?: string,
-): Promise<Origin> => {
-  const publicUrl = env.ORIGIN_BASE_URL + file;
-  if (!hasCredentials(env)) return { url: publicUrl, cacheKey: publicUrl };
+  nowMs: number = Date.now(),
+): Promise<string> => {
+  if (!hasCredentials(env)) return env.ORIGIN_BASE_URL + file;
 
   const endpoint = env.B2_ENDPOINT!.replace(/\/$/, "");
   // Path-style: <endpoint>/<bucket>/<file>.
@@ -68,9 +79,7 @@ export const originFor = async (
   });
   const signed = await client.sign(url.toString(), {
     method: "GET",
-    aws: { signQuery: true, ...(datetime ? { datetime } : {}) },
+    aws: { signQuery: true, datetime: signingDatetime(nowMs) },
   });
-  // The same key whether the bucket is reached publicly or signed, so the
-  // cache survives the switch.
-  return { url: signed.url, cacheKey: publicUrl };
+  return signed.url;
 };

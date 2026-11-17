@@ -1,6 +1,22 @@
 import { AwsClient } from "aws4fetch";
 import { describe, expect, it } from "vitest";
-import { originFor, PRESIGN_EXPIRES_SECONDS } from "./origin";
+import {
+  originFor,
+  PRESIGN_EXPIRES_SECONDS,
+  PRESIGN_WINDOW_SECONDS,
+  signingDatetime,
+} from "./origin";
+
+/** A fixed "now" (2026-11-18T12:34:56Z); never Date.now(). */
+const NOW = Date.UTC(2026, 10, 18, 12, 34, 56);
+
+/** signingDatetime as epoch milliseconds. */
+const windowStartMs = (now: number): number => {
+  const d = signingDatetime(now);
+  return Date.parse(
+    `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 11)}:${d.slice(11, 13)}:${d.slice(13)}`,
+  );
+};
 
 const PUBLIC = "https://sksat-gallery.s3.us-west-002.backblazeb2.com";
 const FILE = "/VRChat/2023-12/a.png";
@@ -35,22 +51,17 @@ describe("aws4fetch query signing", () => {
 
 describe("originFor", () => {
   it("uses the public bucket URL without credentials", async () => {
-    expect(await originFor({ ORIGIN_BASE_URL: PUBLIC }, FILE)).toEqual({
-      url: PUBLIC + FILE,
-      cacheKey: PUBLIC + FILE,
-    });
+    expect(await originFor({ ORIGIN_BASE_URL: PUBLIC }, FILE)).toBe(
+      PUBLIC + FILE,
+    );
     // Half-configured counts as unset.
     expect(
-      (await originFor({ ...signedEnv, B2_APPLICATION_KEY: "" }, FILE)).url,
+      await originFor({ ...signedEnv, B2_APPLICATION_KEY: "" }, FILE),
     ).toBe(PUBLIC + FILE);
   });
 
-  it("presigns a path-style GET with a short expiry", async () => {
-    const { url, cacheKey } = await originFor(
-      signedEnv,
-      FILE,
-      "20261118T000000Z",
-    );
+  it("presigns a path-style GET at the start of the signing window", async () => {
+    const url = await originFor(signedEnv, FILE, NOW);
     const u = new URL(url);
     expect(u.origin + u.pathname).toBe(
       "https://s3.us-west-002.backblazeb2.com/sksat-gallery/VRChat/2023-12/a.png",
@@ -58,23 +69,57 @@ describe("originFor", () => {
     const q = u.searchParams;
     expect(q.get("X-Amz-Algorithm")).toBe("AWS4-HMAC-SHA256");
     expect(q.get("X-Amz-Credential")).toBe(
-      "key-id/20261118/us-west-002/s3/aws4_request",
+      "key-id/20261115/us-west-002/s3/aws4_request",
     );
-    expect(q.get("X-Amz-Date")).toBe("20261118T000000Z");
+    // 2026-11-15 is the start of the 6-day window (counted from the epoch).
+    expect(q.get("X-Amz-Date")).toBe("20261115T000000Z");
     expect(q.get("X-Amz-Expires")).toBe(String(PRESIGN_EXPIRES_SECONDS));
     expect(q.get("X-Amz-SignedHeaders")).toBe("host");
     expect(q.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
-    // The cache key carries no signature, and is the same as unsigned.
-    expect(cacheKey).toBe(PUBLIC + FILE);
   });
 
-  it("signs the same request the same way, another file differently", async () => {
-    const a = await originFor(signedEnv, FILE, "20261118T000000Z");
-    const b = await originFor(signedEnv, FILE, "20261118T000000Z");
-    const c = await originFor(signedEnv, "/b.png", "20261118T000000Z");
-    expect(a.url).toBe(b.url);
-    expect(new URL(c.url).searchParams.get("X-Amz-Signature")).not.toBe(
-      new URL(a.url).searchParams.get("X-Amz-Signature"),
+  it("keeps the URL stable within a window, another file differently", async () => {
+    const start = windowStartMs(NOW);
+    const a = await originFor(signedEnv, FILE, start);
+    const b = await originFor(
+      signedEnv,
+      FILE,
+      start + PRESIGN_WINDOW_SECONDS * 1000 - 1,
     );
+    const c = await originFor(signedEnv, "/b.png", start);
+    expect(a).toBe(b);
+    expect(new URL(c).searchParams.get("X-Amz-Signature")).not.toBe(
+      new URL(a).searchParams.get("X-Amz-Signature"),
+    );
+  });
+
+  it("signs anew in the next window", async () => {
+    const start = windowStartMs(NOW);
+    const a = await originFor(signedEnv, FILE, start);
+    const next = await originFor(
+      signedEnv,
+      FILE,
+      start + PRESIGN_WINDOW_SECONDS * 1000,
+    );
+    expect(next).not.toBe(a);
+  });
+});
+
+describe("signingDatetime", () => {
+  it("is never in the future and leaves a day of validity at the window's end", () => {
+    for (const now of [NOW, windowStartMs(NOW), windowStartMs(NOW) - 1]) {
+      const signedAt = windowStartMs(now);
+      expect(signedAt).toBeLessThanOrEqual(now);
+      // Valid until signedAt + expiry; the URL is used until the window ends.
+      const lastUse = signedAt + PRESIGN_WINDOW_SECONDS * 1000;
+      expect(
+        signedAt + PRESIGN_EXPIRES_SECONDS * 1000 - lastUse,
+      ).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000);
+    }
+    expect(PRESIGN_EXPIRES_SECONDS).toBeLessThanOrEqual(604800); // SigV4 max
+  });
+
+  it("formats as an ISO 8601 basic datetime", () => {
+    expect(signingDatetime(Date.UTC(1970, 0, 7, 12))).toBe("19700107T000000Z");
   });
 });

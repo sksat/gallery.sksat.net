@@ -21,11 +21,15 @@
  * The originals are never served as-is. With B2 credentials the Worker
  * fetches them through presigned URLs (origin.ts), so the bucket can be
  * private.
+ *
+ * The public handler keeps its finished images in the edge cache
+ * (cache.ts) once access is checked; `AdminImage` never touches it.
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { parseAccessConfig, verifyAdminToken } from "./admin-auth";
+import { edgeCacheKey, withEdgeCache } from "./cache";
 import { captionFor, type Caption, type CaptionSource } from "./caption";
-import { originFor, type Origin, type OriginEnv } from "./origin";
+import { originFor, type OriginEnv } from "./origin";
 import {
   isCardPreset,
   parseAdminImage,
@@ -85,14 +89,15 @@ const photoById = async (env: Env, id: string): Promise<Photo | null> => {
   return photo;
 };
 
-const transform = (origin: Origin, image: TransformOptions) =>
-  fetch(origin.url, {
+const transform = (originUrl: string, image: TransformOptions) =>
+  fetch(originUrl, {
     cf: {
       // workers-types does not know `draw` text entries yet (documented at
       // https://developers.cloudflare.com/images/optimization/draw-overlays/).
       image: image as RequestInitCfPropertiesImage,
-      // A presigned URL changes on every request; cache by the file.
-      cacheKey: origin.cacheKey,
+      // No `cacheKey`: it is Enterprise-only and ignored here, so the
+      // resized image is cached under `originUrl`, which originFor keeps
+      // stable.
     },
   });
 
@@ -147,7 +152,11 @@ const respond = (
 
 /** The public route: public (and, by id, unlisted) photos only. */
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed", {
         status: 405,
@@ -199,22 +208,37 @@ export default {
       }
     }
 
-    const { upstream, degraded } = await render(
-      env,
-      file,
-      parsed.preset,
-      request.headers.get("Accept"),
-      url.origin,
-      caption,
-    );
-    return respond(
-      upstream,
-      parsed.preset,
-      degraded
-        ? "public, max-age=300"
-        : // A photo made private stops resolving at once, but browsers may
-          // keep a copy for up to an hour.
-          "public, max-age=3600",
+    const accept = request.headers.get("Accept");
+    const produce = async () => {
+      const { upstream, degraded } = await render(
+        env,
+        file,
+        parsed.preset,
+        accept,
+        url.origin,
+        caption,
+      );
+      const response = respond(
+        upstream,
+        parsed.preset,
+        degraded
+          ? "public, max-age=300"
+          : // A photo made private stops resolving at once (the edge cache
+            // is consulted only after the check above), but browsers may
+            // keep a copy for up to an hour.
+            "public, max-age=3600",
+      );
+      // A card without its caption is retried on the next request instead.
+      return { response, store: !degraded };
+    };
+    // HEAD is rare (link checkers); it skips the cache.
+    if (request.method !== "GET") return (await produce()).response;
+    return withEdgeCache(
+      caches.default,
+      edgeCacheKey(url.origin, parsed.preset, file, accept, caption),
+      variesByAccept(parsed.preset) ? "Accept" : null,
+      (promise) => ctx.waitUntil(promise),
+      produce,
     );
   },
 } satisfies ExportedHandler<Env>;
@@ -223,7 +247,9 @@ export default {
  * The admin's thumbnails, private photos included. Reachable only through a
  * service binding that names this entrypoint, and even then only with the
  * admin request's Cloudflare Access JWT, which is verified here (fail
- * closed). Resize presets only; responses must not be shared by caches.
+ * closed). Resize presets only; responses must not be shared by caches, so
+ * this path never uses the edge cache (cache.ts), only `private` browser
+ * caching.
  */
 export class AdminImage extends WorkerEntrypoint<Env> {
   async image(
