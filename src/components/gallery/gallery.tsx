@@ -15,6 +15,12 @@ import {
 } from "./types";
 import { galleryUrl, navigateImage, photoIdFromPath } from "./logic";
 import {
+  GRID_CANDIDATES,
+  imageUrl,
+  OVERLAY_CANDIDATES,
+  srcSet,
+} from "./images";
+import {
   filterMediaByTags,
   parseTagFilter,
   tagCounts,
@@ -22,6 +28,10 @@ import {
   type TagFilter,
   type TagMatchMode,
 } from "./tags";
+
+const S3_BASE = import.meta.env.VITE_S3_BASE_URL;
+// Image Worker base (workers/image); unset in dev/tests to use the originals.
+const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
 
 interface GalleryState {
   selectedImageId: null | number;
@@ -224,10 +234,20 @@ export default component$(() => {
                         class="bg-opacity-50 fixed inset-0 z-10 flex items-center justify-center bg-black"
                       >
                         <img
-                          src={
-                            import.meta.env.VITE_S3_BASE_URL +
-                            media[state.selectedImageId].file
-                          }
+                          src={imageUrl(
+                            S3_BASE,
+                            media[state.selectedImageId].file,
+                            IMAGE_BASE,
+                            "w2560",
+                          )}
+                          srcset={srcSet(
+                            S3_BASE,
+                            media[state.selectedImageId].file,
+                            IMAGE_BASE,
+                            OVERLAY_CANDIDATES,
+                          )}
+                          sizes="90vw"
+                          decoding="async"
                           class="max-w-90% max-h-90%"
                         ></img>
                       </div>
@@ -241,7 +261,20 @@ export default component$(() => {
                         data-testid="gallery-image"
                         class="max-h-60"
                         onClick$={() => selectImage(m.index)}
-                        src={import.meta.env.VITE_S3_BASE_URL + m.value.file}
+                        src={imageUrl(
+                          S3_BASE,
+                          m.value.file,
+                          IMAGE_BASE,
+                          "h240",
+                        )}
+                        srcset={srcSet(
+                          S3_BASE,
+                          m.value.file,
+                          IMAGE_BASE,
+                          GRID_CANDIDATES,
+                        )}
+                        loading="lazy"
+                        decoding="async"
                       />
                       <div class="pointer-events-none absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-hover:opacity-100">
                         <div>{m.value.timestamp?.toLocaleString("ja-JP")}</div>

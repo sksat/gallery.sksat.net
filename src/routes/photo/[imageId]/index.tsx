@@ -41,7 +41,12 @@ export const useFetchImageUrl = routeLoader$<string>(async (event) => {
   }
 
   const media = await response.json();
-  const url = getOgImageUrl(import.meta.env.VITE_S3_BASE_URL, media, imageId);
+  const url = getOgImageUrl(
+    import.meta.env.VITE_S3_BASE_URL,
+    media,
+    imageId,
+    import.meta.env.VITE_IMAGE_BASE_URL,
+  );
 
   if (url === null) {
     throw event.error(404, "Image not found");
