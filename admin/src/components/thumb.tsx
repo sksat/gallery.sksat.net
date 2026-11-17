@@ -1,13 +1,13 @@
 import { component$ } from "@builder.io/qwik";
 import {
   LIST_CANDIDATES,
-  PREVIEW_CANDIDATES,
   dimensionsFromFile,
   fileExtension,
   imageUrl,
   srcSet,
 } from "~/lib/images";
 import type { MediaWorld } from "~/lib/types";
+import { ProgressivePreview } from "./preview";
 
 // Photo thumbnail from the image Worker, in a fixed 16:9 box so rows and
 // the preview never jump while images load. Without an image base URL
@@ -19,7 +19,10 @@ type Props = {
   file: string;
   world: MediaWorld;
   imageBase: string | null;
-  /** "list": h240/h480 by density; "preview": w1200/w1920 by width. */
+  /**
+   * "list": h240/h480 by density; "preview": the list thumbnail first, then
+   * w1200/w1920 by width with a progress bar (see ProgressivePreview).
+   */
   variant: "list" | "preview";
   /** Box size/rounding; the aspect ratio is fixed here. */
   class?: string;
@@ -59,27 +62,22 @@ export const Thumb = component$<Props>(
         </div>
       );
     }
-    const preview = variant === "preview";
+    if (variant === "preview") {
+      return (
+        <ProgressivePreview file={file} imageBase={imageBase} class={box} />
+      );
+    }
     return (
       <div class={[box, "bg-zinc-100 dark:bg-zinc-800"]}>
         <img
-          src={imageUrl(imageBase, file, preview ? "w1200" : "h240")}
-          srcset={srcSet(
-            imageBase,
-            file,
-            preview ? PREVIEW_CANDIDATES : LIST_CANDIDATES,
-          )}
-          // The edit page caps the preview at max-w-3xl (48rem).
-          sizes={preview ? "(min-width: 48rem) 48rem, 100vw" : undefined}
+          src={imageUrl(imageBase, file, "h240")}
+          srcset={srcSet(imageBase, file, LIST_CANDIDATES)}
           {...dimensionsFromFile(file)}
-          // Decorative in the list (the file name is right next to it).
-          alt={preview ? `Preview of ${file}` : ""}
-          loading={preview ? "eager" : "lazy"}
+          // Decorative (the file name is right next to it).
+          alt=""
+          loading="lazy"
           decoding="async"
-          class={[
-            "absolute inset-0 h-full w-full",
-            preview ? "object-contain" : "object-cover",
-          ]}
+          class="absolute inset-0 h-full w-full object-cover"
         />
       </div>
     );
