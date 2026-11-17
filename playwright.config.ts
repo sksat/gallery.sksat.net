@@ -1,18 +1,23 @@
 import { defineConfig } from "@playwright/test";
 
 const port = 5174;
+// An explicit IPv4 address rather than "localhost": inside the Playwright
+// container (CI vrt job) vite listened on ::1 while the SSR fetch of
+// media.json went to 127.0.0.1 and was refused.
+const host = "127.0.0.1";
+const origin = `http://${host}:${port}`;
 
 export default defineConfig({
   testDir: "./e2e",
   use: {
-    baseURL: `http://localhost:${port}`,
+    baseURL: origin,
   },
   webServer: {
-    command: `npx vite --mode ssr --port ${port}`,
-    url: `http://localhost:${port}`,
+    command: `npx vite --mode ssr --host ${host} --port ${port}`,
+    url: origin,
     reuseExistingServer: !process.env.CI,
     env: {
-      VITE_S3_BASE_URL: `http://localhost:${port}/test-media/`,
+      VITE_S3_BASE_URL: `${origin}/test-media/`,
     },
   },
   expect: {

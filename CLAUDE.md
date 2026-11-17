@@ -129,7 +129,7 @@ Pure functions live in `src/components/gallery/logic.ts` and `src/components/gal
 
 ### Fixture rules
 
-- E2E and VRT both read `public/test-media/media.json` via `VITE_S3_BASE_URL=http://localhost:5174/test-media/` (set in `playwright.config.ts`). Never point tests at the production S3 URL.
+- E2E and VRT both read `public/test-media/media.json` via `VITE_S3_BASE_URL=http://127.0.0.1:5174/test-media/` (set in `playwright.config.ts`). Never point tests at the production S3 URL.
 - Fixture timestamps are fixed ISO strings (`2023-12-0X`). When adding a media entry, use a deterministic timestamp; do not use `new Date().toISOString()`.
 - Do not call `Date.now()` / `Math.random()` / external `fetch` from code under test without injection — pass them as arguments or mock at the boundary.
 - See [public/test-media/README.md](public/test-media/README.md) for the canonical fixture inventory.
