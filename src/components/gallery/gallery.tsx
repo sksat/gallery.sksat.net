@@ -229,14 +229,21 @@ export default component$(() => {
                   })}
                 </div>
                 <div class="flex min-h-8 flex-wrap items-center gap-4 text-sm">
-                  <span data-testid="result-count" aria-live="polite">
+                  <span
+                    data-testid="result-count"
+                    aria-live="polite"
+                    // Room for 3 digits, so the controls after it stay put.
+                    class="min-w-[4.5em] tabular-nums"
+                  >
                     {filteredMedia.length} 枚
                   </span>
                   <span class="flex items-center gap-1">
                     <select
                       data-testid="sort-select"
                       aria-label="並び順"
-                      class="rounded border border-white/30 bg-transparent px-2 py-1 [&>option]:bg-[var(--color-bg)]"
+                      // Fixed width so the control doesn't resize with the
+                      // selected label.
+                      class="w-32 rounded border border-white/30 bg-transparent px-2 py-1 [&>option]:bg-[var(--color-bg)]"
                       onChange$={(_, el) => {
                         const kind = el.value as SortKind;
                         setSort({
