@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 
 pnpm run build
 
-rm -rf "$PERSIST_DIR"
+rm -rf "$PERSIST_DIR" "${PERSIST_DIR}-noauth"
 pnpm exec wrangler d1 migrations apply gallery-admin \
   --local --persist-to "$PERSIST_DIR"
 
@@ -26,6 +26,22 @@ pnpm exec wrangler d1 execute gallery-admin \
   --local --persist-to "$PERSIST_DIR" \
   --file=e2e/fixture.sql
 
-exec pnpm exec wrangler pages dev ./dist \
+# A second server on PORT+1 WITHOUT the Access bypass, so e2e/access.spec.ts
+# can prove the JWT check (src/routes/plugin@access.ts) is actually wired in.
+# It has its own persist dir and never reaches D1 (requests are rejected).
+NOAUTH_PORT=$((PORT + 1))
+pnpm exec wrangler pages dev ./dist \
+  --persist-to "${PERSIST_DIR}-noauth" \
+  --inspector-port $((NOAUTH_PORT + 4000)) \
+  --ip 127.0.0.1 --port "$NOAUTH_PORT" &
+NOAUTH_PID=$!
+trap 'kill "$NOAUTH_PID" 2>/dev/null || true' EXIT INT TERM
+
+# ACCESS_DISABLED=1: there is no Cloudflare Access in front of the local
+# server, so skip JWT verification for the functional E2E server only.
+# (Honoured only for loopback hostnames — see src/lib/access.ts.)
+pnpm exec wrangler pages dev ./dist \
   --persist-to "$PERSIST_DIR" \
-  --ip 127.0.0.1 --port "$PORT"
+  --binding ACCESS_DISABLED=1 \
+  --ip 127.0.0.1 --port "$PORT" &
+wait $!

@@ -6,7 +6,7 @@ Admin panel for gallery.sksat.net. This is a separate Qwik/QwikCity project unde
 
 - **Dev port**: `5175` (root uses `5174` for Playwright). Avoids conflicts when both projects' dev servers are running.
 - **Routing**: Currently a single `/` dashboard (`src/routes/index.tsx`). No fixture data needed yet.
-- **Auth**: Production is behind Cloudflare Access. Local dev has no auth — `pnpm dev` serves the dashboard at `http://localhost:5175` (use `pnpm start` if you want it to auto-open in a browser).
+- **Auth**: Production is behind Cloudflare Access, and every SSR/API request (static assets under `/build/*` etc. are served without it) is additionally checked by `src/routes/plugin@access.ts` (verifies the `Cf-Access-Jwt-Assertion` JWT against `ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` in `wrangler.jsonc`; fails closed). This matters because the production `*.pages.dev` hostname is not covered by Access. The check is skipped only under `pnpm dev` (Vite) and when `ACCESS_DISABLED=1` is bound on a loopback hostname (`.dev.vars` for `pnpm serve`, `e2e/start-test-server.sh` for E2E). If you add an Access application, append its AUD tag to `ACCESS_AUD`.
 - **Bindings**: D1 `DB` (metadata source of truth, see [migrations/](migrations/)). R2 (Phase 3+) and image upload (Phase 4) are not wired yet. Tests run against a real local D1 (sequenced via `e2e/start-test-server.sh` so wrangler dev opens the file _after_ seeding).
 - **Publish path**: D1 → JSON dump → B2 S3-compatible `PUT /media.json` via `aws4fetch`. The public gallery still reads the static `media.json`; the admin's "Publish" button is the only writer.
 
@@ -33,6 +33,7 @@ pnpm import-media && pnpm db.seed.local
 ## Test layout
 
 - `e2e/smoke.spec.ts` — `/` returns 200 and renders the dashboard heading
+- `e2e/access.spec.ts` — the Access JWT check is wired in (hits a second server on PORT+1 started without the bypass; expects 403)
 - `e2e/media-list.spec.ts`, `e2e/media-edit.spec.ts` — `/media` flows
 - `e2e/vrt/*.vrt.spec.ts` — visual baselines (`/`, `/media`)
 - `src/**/*.spec.ts` — pure-function unit tests (`db.ts`, `validate.ts`)
