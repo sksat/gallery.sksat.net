@@ -100,6 +100,13 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 - The card presets make og:image (chosen in `src/components/ogp.ts`): a 1200×630 JPEG crop with `public/og-badge.png` drawn on top via `cf.image.draw`. `og` (photo pages) also draws the photo's date/camera/tags as `draw` text entries; the Worker looks the file up in `media.json` (unlisted files get 404) and builds the ASCII-only caption in `workers/image/src/caption.ts`. Cloudflare rasterizes the text, so the Worker itself does no text rendering. `og-site` (top page) has just the badge. Regenerate the badge, the caption shade and the font subset with `workers/image/og-assets.sh`.
 - Deployed from `main` by `.github/workflows/deploy-image-worker.yaml` with a Workers Scripts:Edit-only token (repo secrets `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_APP_DEPLOY_TOKEN`). Manual deploy: `pnpm run deploy.image`.
 
+### API Worker (`workers/api/`)
+
+- Read-only JSON API over the admin's D1 database (`gallery-admin`), served at `gallery.sksat.net/api/*` (Worker shell `gallery-api` and route managed by Terraform outside this repo; no `routes` in `wrangler.jsonc`, `workers_dev = false`). The schema belongs to `admin/migrations`; this Worker only runs SELECTs.
+- `GET /api/media` (public photos), `/api/media/<public_id>` (public or unlisted), `/api/media/legacy/<N>` (`{ id }` for an old `/photo/<N>`), `/api/camera`, `/api/camera/<slug>`. Private photos are never returned; the visibility filter lives in the SQL in `workers/api/src/query.ts`. Cameras are listed only when a public photo uses them (opened by slug when a public or unlisted one does). Responses are cached for 60 s at the edge (Cache API, keyed by path) and 10 s in browsers.
+- Other Workers can call its RPC method `fileAccess(file)` (may this bucket path be served by name: a public photo or a camera picture) through a service binding; it is not reachable over HTTP.
+- Tests: `workers/api/src/*.spec.ts` run the queries on node:sqlite with the admin migrations applied. Deployed from `main` by `.github/workflows/deploy-api-worker.yaml` (`pnpm run deploy.api`).
+
 ### Styling
 
 - **Tailwind CSS** configured (scans `src/**/*.{js,ts,jsx,tsx,mdx}`)
