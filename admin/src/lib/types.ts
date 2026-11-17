@@ -10,8 +10,8 @@ export type CameraKind = (typeof CAMERA_KINDS)[number];
 
 /**
  * `camera` on a media.json item. `make`/`model` are the original fields
- * (older gallery builds read only these); `slug`/`name` link the photo to
- * its entry in cameras.json.
+ * (older gallery builds read only these; `make` is the manufacturer);
+ * `slug`/`name` link the photo to its entry in cameras.json.
  */
 export type MediaCamera = {
   make: string;
@@ -32,11 +32,14 @@ export type MediaInfoJSON = {
 export type CameraInput = {
   slug: string;
   name: string;
-  make: string | null;
+  /** Manufacturer / creator name. */
+  manufacturer: string | null;
+  /** The manufacturer's website (http/https). */
+  manufacturer_url: string | null;
   model: string | null;
   kind: CameraKind | null;
   description: string | null;
-  /** The maker's / shop's product page (http/https). */
+  /** The camera's product page (http/https). */
   product_url: string | null;
 };
 
@@ -61,7 +64,8 @@ export type CameraImageRow = CameraImageJSON & {
 export type CameraJSON = {
   slug: string;
   name: string;
-  make: string | null;
+  manufacturer: string | null;
+  manufacturerUrl: string | null;
   model: string | null;
   kind: CameraKind | null;
   description: string | null;

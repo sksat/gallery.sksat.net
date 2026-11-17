@@ -23,9 +23,13 @@ export const CAMERA_KIND_LABELS: Record<CameraKind, string> = {
 export const cameraFormSchema = {
   slug: z.string().max(MAX_CAMERA_SLUG_LEN + 50),
   name: z.string().max(MAX_CAMERA_FIELD_LEN + 50),
-  make: z
+  manufacturer: z
     .string()
     .max(MAX_CAMERA_FIELD_LEN + 50)
+    .default(""),
+  manufacturer_url: z
+    .string()
+    .max(MAX_CAMERA_URL_LEN + 50)
     .default(""),
   model: z
     .string()
@@ -45,7 +49,8 @@ export const cameraFormSchema = {
 export type CameraFieldValues = {
   slug: string;
   name: string;
-  make: string | null;
+  manufacturer: string | null;
+  manufacturer_url: string | null;
   model: string | null;
   kind: CameraKind | null;
   product_url: string | null;
@@ -116,19 +121,33 @@ export const CameraFields = component$<{ values?: CameraFieldValues }>(
       </fieldset>
 
       <fieldset class="space-y-3">
-        <legend class={legend}>Maker</legend>
+        <legend class={legend}>Manufacturer and model</legend>
         <div class="grid gap-3 sm:grid-cols-2">
           <div>
-            <label for="camera-make" class={label}>
-              Make
+            <label for="camera-manufacturer" class={label}>
+              メーカー
             </label>
             <input
-              id="camera-make"
+              id="camera-manufacturer"
               type="text"
-              name="make"
-              value={values?.make ?? ""}
+              name="manufacturer"
+              value={values?.manufacturer ?? ""}
               placeholder="e.g. logilabo"
               maxLength={MAX_CAMERA_FIELD_LEN}
+              class={field}
+            />
+          </div>
+          <div>
+            <label for="camera-manufacturer-url" class={label}>
+              メーカーの Web サイト
+            </label>
+            <input
+              id="camera-manufacturer-url"
+              type="url"
+              name="manufacturer_url"
+              value={values?.manufacturer_url ?? ""}
+              placeholder="https://"
+              maxLength={MAX_CAMERA_URL_LEN}
               class={field}
             />
           </div>

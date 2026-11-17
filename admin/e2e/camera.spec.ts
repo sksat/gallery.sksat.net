@@ -33,7 +33,10 @@ test("cameras: create, then edit the new camera", async ({ page }) => {
   await page.getByLabel("Name").fill("E2E Phone");
   await page.getByLabel("Slug").fill(slug);
   await page.getByLabel("Kind").selectOption("phone");
-  await page.getByLabel("Make").fill("Google");
+  await page.getByLabel("メーカー", { exact: true }).fill("Google");
+  await page
+    .getByLabel("メーカーの Web サイト")
+    .fill("https://store.google.com/");
   await page.getByLabel("Model").fill("Pixel 9");
   await page.getByRole("button", { name: "Create" }).click();
 
@@ -41,6 +44,9 @@ test("cameras: create, then edit the new camera", async ({ page }) => {
   await expect(page.getByText("Camera created.")).toBeVisible();
   await expect(page.getByLabel("Slug")).toHaveValue(slug);
   await expect(page.getByLabel("Kind")).toHaveValue("phone");
+  await expect(page.getByLabel("メーカーの Web サイト")).toHaveValue(
+    "https://store.google.com/",
+  );
 
   await page.getByLabel("Description").fill("Edited by E2E");
   await page.getByLabel("製品ページ").fill("https://example.com/pixel");

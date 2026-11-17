@@ -26,7 +26,8 @@ type RawCameraRow = {
   id: number;
   slug: string;
   name: string;
-  make: string | null;
+  manufacturer: string | null;
+  manufacturer_url: string | null;
   model: string | null;
   kind: string | null;
   description: string | null;
@@ -77,7 +78,8 @@ export const rowToCamera = (raw: RawCameraRow): CameraRow => {
     id: raw.id,
     slug: raw.slug,
     name: raw.name,
-    make: raw.make,
+    manufacturer: raw.manufacturer,
+    manufacturer_url: raw.manufacturer_url,
     model: raw.model,
     kind: raw.kind,
     description: raw.description,
@@ -96,7 +98,8 @@ export const cameraToJson = (
 ): CameraJSON => ({
   slug: c.slug,
   name: c.name,
-  make: c.make,
+  manufacturer: c.manufacturer,
+  manufacturerUrl: c.manufacturer_url,
   model: c.model,
   kind: c.kind,
   description: c.description,
@@ -105,13 +108,14 @@ export const cameraToJson = (
 });
 
 /**
- * The `camera` object embedded in a media.json item. `make`/`model` stay
- * non-null strings so gallery builds that predate cameras.json (they
- * render `${make} ${model}`) keep working: a camera without a model falls
- * back to its display name.
+ * The `camera` object embedded in a media.json item. The legacy
+ * `make`/`model` stay non-null strings so gallery builds that predate
+ * cameras.json (they render `${make} ${model}`) keep working: `make` is the
+ * manufacturer ("" when unset), and a camera without a model falls back to
+ * its display name.
  */
 export const mediaCameraJson = (c: CameraRow): MediaCamera => ({
-  make: c.make ?? "",
+  make: c.manufacturer ?? "",
   model: c.model ?? c.name,
   slug: c.slug,
   name: c.name,
@@ -244,7 +248,7 @@ export const listCameras = async (
   const res = await db
     .prepare(
       `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id) AS photo_count
-       FROM cameras c ORDER BY c.name COLLATE NOCASE, c.id`,
+       FROM camera c ORDER BY c.name COLLATE NOCASE, c.id`,
     )
     .all<RawCameraRow & { photo_count: number }>();
   return (res.results ?? []).map((r) => ({
@@ -258,7 +262,7 @@ export const getCamera = async (
   id: number,
 ): Promise<CameraRow | null> => {
   const raw = await db
-    .prepare("SELECT * FROM cameras WHERE id = ?")
+    .prepare("SELECT * FROM camera WHERE id = ?")
     .bind(id)
     .first<RawCameraRow>();
   return raw ? rowToCamera(raw) : null;
@@ -274,12 +278,13 @@ export class SlugConflictError extends Error {
 
 const isSlugConflict = (err: unknown): boolean =>
   err instanceof Error &&
-  /UNIQUE constraint failed: cameras\.slug/.test(err.message);
+  /UNIQUE constraint failed: camera\.slug/.test(err.message);
 
 const cameraArgs = (input: CameraInput) => [
   input.slug,
   input.name,
-  input.make,
+  input.manufacturer,
+  input.manufacturer_url,
   input.model,
   input.kind,
   input.description,
@@ -293,12 +298,12 @@ export const createCamera = async (
   try {
     const raw = await db
       .prepare(
-        `INSERT INTO cameras (slug, name, make, model, kind, description, product_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        `INSERT INTO camera (slug, name, manufacturer, manufacturer_url, model, kind, description, product_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       )
       .bind(...cameraArgs(input))
       .first<RawCameraRow>();
-    if (!raw) throw new Error("INSERT INTO cameras returned no row");
+    if (!raw) throw new Error("INSERT INTO camera returned no row");
     return rowToCamera(raw);
   } catch (err) {
     if (isSlugConflict(err)) throw new SlugConflictError(input.slug);
@@ -314,7 +319,7 @@ export const updateCamera = async (
   try {
     const raw = await db
       .prepare(
-        `UPDATE cameras SET slug = ?, name = ?, make = ?, model = ?, kind = ?,
+        `UPDATE camera SET slug = ?, name = ?, manufacturer = ?, manufacturer_url = ?, model = ?, kind = ?,
            description = ?, product_url = ?,
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE id = ? RETURNING *`,
@@ -335,7 +340,7 @@ export const listCameraImages = async (
 ): Promise<CameraImageRow[]> => {
   const res = await db
     .prepare(
-      "SELECT * FROM camera_images WHERE camera_id = ? ORDER BY position, id",
+      "SELECT * FROM camera_image WHERE camera_id = ? ORDER BY position, id",
     )
     .bind(cameraId)
     .all<CameraImageRow>();
@@ -359,19 +364,19 @@ export const addCameraImage = async (
   try {
     const row = await db
       .prepare(
-        `INSERT INTO camera_images (camera_id, file, caption, position)
+        `INSERT INTO camera_image (camera_id, file, caption, position)
          VALUES (?1, ?2, ?3,
-           (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_images WHERE camera_id = ?1))
+           (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_image WHERE camera_id = ?1))
          RETURNING *`,
       )
       .bind(cameraId, image.file, image.caption)
       .first<CameraImageRow>();
-    if (!row) throw new Error("INSERT INTO camera_images returned no row");
+    if (!row) throw new Error("INSERT INTO camera_image returned no row");
     return row;
   } catch (err) {
     if (
       err instanceof Error &&
-      /UNIQUE constraint failed: camera_images\./.test(err.message)
+      /UNIQUE constraint failed: camera_image\./.test(err.message)
     ) {
       throw new DuplicateImageError(image.file);
     }
@@ -387,7 +392,7 @@ export const updateCameraImageCaption = async (
 ): Promise<boolean> => {
   const res = await db
     .prepare(
-      "UPDATE camera_images SET caption = ? WHERE id = ? AND camera_id = ?",
+      "UPDATE camera_image SET caption = ? WHERE id = ? AND camera_id = ?",
     )
     .bind(caption, imageId, cameraId)
     .run();
@@ -400,7 +405,7 @@ export const removeCameraImage = async (
   imageId: number,
 ): Promise<boolean> => {
   const res = await db
-    .prepare("DELETE FROM camera_images WHERE id = ? AND camera_id = ?")
+    .prepare("DELETE FROM camera_image WHERE id = ? AND camera_id = ?")
     .bind(imageId, cameraId)
     .run();
   return (res.meta.changes ?? 0) > 0;
@@ -441,7 +446,7 @@ export const moveCameraImage = async (
     order.map((id, position) =>
       db
         .prepare(
-          "UPDATE camera_images SET position = ? WHERE id = ? AND camera_id = ?",
+          "UPDATE camera_image SET position = ? WHERE id = ? AND camera_id = ?",
         )
         .bind(position, id, cameraId),
     ),
@@ -501,8 +506,8 @@ export const exportSnapshot = async (
     db.prepare(
       "SELECT * FROM media ORDER BY timestamp IS NULL, timestamp DESC, id DESC",
     ),
-    db.prepare("SELECT * FROM cameras"),
-    db.prepare("SELECT * FROM camera_images"),
+    db.prepare("SELECT * FROM camera"),
+    db.prepare("SELECT * FROM camera_image"),
   ]);
   const rows = (mediaRes.results ?? []) as RawRow[];
   if (rows.length > MAX_EXPORT_ROWS) {

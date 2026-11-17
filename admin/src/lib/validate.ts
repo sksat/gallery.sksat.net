@@ -155,8 +155,8 @@ export const validateCamera = (input: unknown): ValidateCameraResult => {
     };
   }
 
-  const make = optionalText(obj, "make", MAX_CAMERA_FIELD_LEN);
-  if (!make.ok) return make;
+  const manufacturer = optionalText(obj, "manufacturer", MAX_CAMERA_FIELD_LEN);
+  if (!manufacturer.ok) return manufacturer;
   const model = optionalText(obj, "model", MAX_CAMERA_FIELD_LEN);
   if (!model.ok) return model;
   const description = optionalText(
@@ -165,12 +165,21 @@ export const validateCamera = (input: unknown): ValidateCameraResult => {
     MAX_CAMERA_DESCRIPTION_LEN,
   );
   if (!description.ok) return description;
+  // Both URLs are rendered as links on the public site: only http(s),
+  // never javascript: or data:.
   const productUrl = optionalText(obj, "product_url", MAX_CAMERA_URL_LEN);
   if (!productUrl.ok) return productUrl;
-  // Rendered as a link on the public site: only http(s), never
-  // javascript: or data:.
   if (productUrl.value !== null && !isHttpUrl(productUrl.value)) {
     return { ok: false, error: "product_url must be an http(s) URL" };
+  }
+  const manufacturerUrl = optionalText(
+    obj,
+    "manufacturer_url",
+    MAX_CAMERA_URL_LEN,
+  );
+  if (!manufacturerUrl.ok) return manufacturerUrl;
+  if (manufacturerUrl.value !== null && !isHttpUrl(manufacturerUrl.value)) {
+    return { ok: false, error: "manufacturer_url must be an http(s) URL" };
   }
 
   let kind: CameraKind | null = null;
@@ -189,7 +198,8 @@ export const validateCamera = (input: unknown): ValidateCameraResult => {
     camera: {
       slug,
       name,
-      make: make.value,
+      manufacturer: manufacturer.value,
+      manufacturer_url: manufacturerUrl.value,
       model: model.value,
       kind,
       description: description.value,

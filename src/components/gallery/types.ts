@@ -2,6 +2,7 @@
 export type MediaWorld = "VRChat" | "Real";
 
 export type MediaCamera = {
+  /** Legacy: the manufacturer's name ("" when unknown). */
   make: string;
   model: string;
   /** Key into cameras.json (`/camera/<slug>/`). Absent in older media.json. */
@@ -16,11 +17,14 @@ export type CameraKind = "digital" | "film" | "phone" | "virtual";
 export type CameraJSON = {
   slug: string;
   name: string;
-  make: string | null;
+  /** Manufacturer / creator name. */
+  manufacturer: string | null;
+  /** The manufacturer's website (http/https). */
+  manufacturerUrl: string | null;
   model: string | null;
   kind: CameraKind | null;
   description: string | null;
-  /** The maker's / shop's product page (http/https). */
+  /** The camera's product page (http/https). */
   productUrl: string | null;
   /** Pictures of the camera itself, in display order (bucket paths). */
   images: CameraImageJSON[];

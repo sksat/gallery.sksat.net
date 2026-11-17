@@ -92,7 +92,7 @@ for (const item of items) {
       );
     }
   }
-  // A camera is identified by its make + model pair (one cameras row each).
+  // A camera is identified by its make + model pair (one camera row each).
   if (item.camera != null) {
     if (
       typeof item.camera.make !== "string" ||
@@ -111,7 +111,7 @@ for (const item of items) {
       cameras.set(key, { make, model, onlyVRChat: true });
     }
     if (item.world !== "VRChat") cameras.get(key)!.onlyVRChat = false;
-    cameraId = `(SELECT id FROM cameras WHERE make = ${sqlString(make)} AND model = ${sqlString(model)})`;
+    cameraId = `(SELECT id FROM camera WHERE manufacturer = ${sqlString(make)} AND model = ${sqlString(model)})`;
   }
   const cols = [
     sqlString(item.file),
@@ -126,8 +126,8 @@ for (const item of items) {
 }
 
 // Cameras go first so the media rows' camera_id subqueries resolve. Same
-// naming rule as the backfill in migrations/0002_cameras.sql. A camera that
-// already exists (same make + model) is reused; INSERT OR IGNORE also skips
+// naming rule as the backfill in migrations/0002_camera.sql. A camera that
+// already exists (same manufacturer + model) is reused; INSERT OR IGNORE also skips
 // one whose slug is taken, in which case its photos are imported without a
 // camera — fix them up in the admin.
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -147,9 +147,9 @@ for (const { make, model, onlyVRChat } of sortedCameras) {
   for (let n = 2; usedSlugs.has(slug); n++) slug = `${base}-${n}`;
   usedSlugs.add(slug);
   lines.push(
-    `INSERT OR IGNORE INTO cameras (slug, name, make, model, kind) ` +
-      `SELECT ${sqlString(slug)}, ${sqlString(`${make} ${model}`)}, ${sqlString(make)}, ${sqlString(model)}, ${onlyVRChat ? "'virtual'" : "NULL"} ` +
-      `WHERE NOT EXISTS (SELECT 1 FROM cameras WHERE make = ${sqlString(make)} AND model = ${sqlString(model)});`,
+    `INSERT OR IGNORE INTO camera (slug, name, manufacturer, model, kind) ` +
+      `SELECT ${sqlString(slug)}, ${sqlString(model)}, ${sqlString(make)}, ${sqlString(model)}, ${onlyVRChat ? "'virtual'" : "NULL"} ` +
+      `WHERE NOT EXISTS (SELECT 1 FROM camera WHERE manufacturer = ${sqlString(make)} AND model = ${sqlString(model)});`,
   );
 }
 lines.push(...mediaLines);

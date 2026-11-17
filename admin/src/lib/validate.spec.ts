@@ -98,7 +98,8 @@ describe("validateCamera", () => {
   const base = {
     slug: "virtuallens2",
     name: "VirtualLens2",
-    make: "logilabo",
+    manufacturer: "logilabo",
+    manufacturer_url: "https://logilabo.booth.pm/",
     model: "VirtualLens2",
     kind: "virtual",
     description: "VRChat camera gimmick",
@@ -114,7 +115,8 @@ describe("validateCamera", () => {
     const r = validateCamera({
       slug: " pentax-sp ",
       name: " PENTAX SP ",
-      make: "  ",
+      manufacturer: "  ",
+      manufacturer_url: "",
       model: "",
       kind: "",
       description: "",
@@ -123,7 +125,8 @@ describe("validateCamera", () => {
     expect(r.ok && r.camera).toEqual({
       slug: "pentax-sp",
       name: "PENTAX SP",
-      make: null,
+      manufacturer: null,
+      manufacturer_url: null,
       model: null,
       kind: null,
       description: null,
@@ -133,7 +136,11 @@ describe("validateCamera", () => {
 
   it("treats missing optional fields as null", () => {
     const r = validateCamera({ slug: "x", name: "X" });
-    expect(r.ok && r.camera).toMatchObject({ make: null, kind: null });
+    expect(r.ok && r.camera).toMatchObject({
+      manufacturer: null,
+      manufacturer_url: null,
+      kind: null,
+    });
   });
 
   it.each([
@@ -166,6 +173,13 @@ describe("validateCamera", () => {
     },
   );
 
+  it.each(["javascript:alert(1)", "data:text/html,x", "not a url"])(
+    "rejects manufacturer_url %j",
+    (manufacturer_url) => {
+      expect(validateCamera({ ...base, manufacturer_url }).ok).toBe(false);
+    },
+  );
+
   it("rejects over-long fields", () => {
     expect(
       validateCamera({
@@ -181,7 +195,7 @@ describe("validateCamera", () => {
   });
 
   it("rejects non-string optional fields", () => {
-    expect(validateCamera({ ...base, make: 1 }).ok).toBe(false);
+    expect(validateCamera({ ...base, manufacturer: 1 }).ok).toBe(false);
   });
 });
 

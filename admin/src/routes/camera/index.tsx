@@ -24,8 +24,8 @@ export const useCameraList = routeLoader$<CameraListResult>(
   },
 );
 
-const makeModel = (c: CameraListItem): string | null =>
-  [c.make, c.model].filter(Boolean).join(" ") || null;
+const manufacturerModel = (c: CameraListItem): string | null =>
+  [c.manufacturer, c.model].filter(Boolean).join(" ") || null;
 
 export default component$(() => {
   const data = useCameraList();
@@ -68,7 +68,7 @@ export default component$(() => {
                   <span class="truncate font-medium">{c.name}</span>
                   <span class={["truncate text-xs", muted]}>
                     <code>{c.slug}</code>
-                    {makeModel(c) && <> · {makeModel(c)}</>}
+                    {manufacturerModel(c) && <> · {manufacturerModel(c)}</>}
                   </span>
                 </span>
                 {c.kind && (

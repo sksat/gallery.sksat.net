@@ -14,7 +14,8 @@ const vl2: CameraRow = {
   id: 1,
   slug: "virtuallens2",
   name: "VirtualLens2",
-  make: "logilabo",
+  manufacturer: "logilabo",
+  manufacturer_url: "https://logilabo.booth.pm/",
   model: "VirtualLens2",
   kind: "virtual",
   description: null,
@@ -26,7 +27,8 @@ const film: CameraRow = {
   id: 2,
   slug: "pentax-sp",
   name: "PENTAX SP",
-  make: null,
+  manufacturer: null,
+  manufacturer_url: null,
   model: null,
   kind: "film",
   description: "35mm SLR",
@@ -136,7 +138,7 @@ describe("rowToMediaJson", () => {
     [film.id, film],
   ]);
 
-  it("embeds the camera's make/model plus slug and name", () => {
+  it("embeds the manufacturer as the legacy make, plus slug and name", () => {
     const json = rowToMediaJson(
       media({ camera_id: 1, tags: ["VRChat"] }),
       cameras,
@@ -204,7 +206,8 @@ describe("buildExport", () => {
       {
         slug: "pentax-sp",
         name: "PENTAX SP",
-        make: null,
+        manufacturer: null,
+        manufacturerUrl: null,
         model: null,
         kind: "film",
         description: "35mm SLR",
@@ -214,7 +217,8 @@ describe("buildExport", () => {
       {
         slug: "virtuallens2",
         name: "VirtualLens2",
-        make: "logilabo",
+        manufacturer: "logilabo",
+        manufacturerUrl: "https://logilabo.booth.pm/",
         model: "VirtualLens2",
         kind: "virtual",
         description: null,
