@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Public, read-only API over the admin's D1 database (see src/index.ts).
+  // Deployed from main by .github/workflows/deploy-api-worker.yaml.
+  //
+  // The Worker shell and its route (gallery.sksat.net/api/*) are managed by
+  // Terraform outside this repo. Do not add "routes" here: the deploy token
+  // can only edit Worker scripts, and routes in two places would drift.
+  "name": "gallery-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "d1_databases": [
+    {
+      // Same database as admin/wrangler.jsonc. The admin owns the schema
+      // (admin/migrations); this Worker only runs SELECTs.
+      "binding": "DB",
+      "database_name": "gallery-admin",
+      "database_id": "70d6bc59-9937-48e0-90bb-0ef8a2a53bcd",
+    },
+  ],
+}
