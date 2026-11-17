@@ -6,6 +6,7 @@ import {
   validateCameraImage,
   validateImageFile,
   validateBulkVisibility,
+  validateRestoreVisibility,
   validatePatch,
 } from "./validate";
 
@@ -20,6 +21,48 @@ describe("validatePatch visibility", () => {
   it("rejects anything else", () => {
     expect(validatePatch({ visibility: "hidden" }).ok).toBe(false);
     expect(validatePatch({ visibility: null }).ok).toBe(false);
+  });
+});
+
+describe("validateRestoreVisibility", () => {
+  it("groups ids by their previous visibility", () => {
+    expect(
+      validateRestoreVisibility(
+        [
+          { id: 3, visibility: "public" },
+          { id: 1, visibility: "private" },
+          { id: 2, visibility: "public" },
+          { id: 3, visibility: "unlisted" },
+        ],
+        100,
+      ),
+    ).toEqual({
+      ok: true,
+      groups: [
+        { visibility: "private", ids: [1] },
+        { visibility: "public", ids: [3, 2] },
+      ],
+    });
+  });
+
+  it("rejects empty, malformed and oversized input", () => {
+    expect(validateRestoreVisibility([], 100).ok).toBe(false);
+    expect(validateRestoreVisibility("x", 100).ok).toBe(false);
+    expect(
+      validateRestoreVisibility([{ id: "1", visibility: "public" }], 100).ok,
+    ).toBe(false);
+    expect(
+      validateRestoreVisibility([{ id: 1, visibility: "secret" }], 100).ok,
+    ).toBe(false);
+    expect(
+      validateRestoreVisibility(
+        [
+          { id: 1, visibility: "public" },
+          { id: 2, visibility: "public" },
+        ],
+        1,
+      ),
+    ).toEqual({ ok: false, error: "at most 1 photos at a time" });
   });
 });
 
@@ -51,7 +94,10 @@ describe("validateBulkVisibility", () => {
     for (const input of bad) {
       expect(validateBulkVisibility(input, 100).ok).toBe(false);
     }
-    expect(validateBulkVisibility({ ids: ["1", "2", "3"], visibility: "public" }, 2).ok).toBe(false);
+    expect(
+      validateBulkVisibility({ ids: ["1", "2", "3"], visibility: "public" }, 2)
+        .ok,
+    ).toBe(false);
   });
 });
 

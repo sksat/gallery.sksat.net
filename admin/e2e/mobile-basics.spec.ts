@@ -75,11 +75,12 @@ test("save: busy button, then a toast in view", async ({ page }) => {
 });
 
 test("an error toast stays until dismissed", async ({ page }) => {
-  await page.goto("/media/");
-  // Nothing ticked: the action refuses.
-  await page.getByRole("button", { name: "Apply" }).tap();
+  await page.goto("/camera/1/");
+  // Already one of this camera's images: the action refuses.
+  await page.getByLabel("Image path").fill("/camera/virtuallens2/front.png");
+  await page.getByRole("button", { name: "Add image" }).tap();
   const alert = page.getByRole("alert");
-  await expect(alert).toHaveText("select at least one photo");
+  await expect(alert).toContainText("already added");
   await expect(alert).toBeInViewport();
   await page.getByRole("button", { name: "Dismiss" }).tap();
   await expect(alert).toHaveCount(0);

@@ -50,6 +50,9 @@
 
   body {
     @apply min-h-dvh bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+    /* viewport-fit=cover (root.tsx): keep content clear of the notch in
+       landscape. Fixed bars pad themselves. */
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
   }
 
   /* One focus style for every interactive element (links, buttons, inputs). */
@@ -59,5 +62,19 @@
 
   code {
     @apply rounded bg-zinc-100 px-1 py-0.5 font-mono text-[0.9em] dark:bg-zinc-800;
+  }
+}
+
+/* Phones: a fixed bar at the bottom (data-bottom-bar, e.g. the media
+   selection bar) lifts the toast above it and pads the page so the last
+   rows can scroll clear of it. Outside @layer so it overrides the
+   utilities on <main>. */
+@media (width < 40rem) {
+  :root:has([data-bottom-bar]) {
+    /* The selection bar's height (two 44px rows + padding); keep in sync. */
+    --bottom-ui: 7.5rem;
+  }
+  body:has([data-bottom-bar]) main {
+    padding-bottom: calc(var(--bottom-ui) + env(safe-area-inset-bottom) + 1rem);
   }
 }

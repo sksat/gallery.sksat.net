@@ -1,4 +1,5 @@
-import { component$, useSignal, useTask$ } from "@builder.io/qwik";
+import { $, component$, useSignal, useTask$ } from "@builder.io/qwik";
+import { isBrowser } from "@builder.io/qwik/build";
 import {
   Form,
   Link,
@@ -22,7 +23,13 @@ import {
   visibilityBadge,
   worldBadge,
 } from "~/components/ui";
-import { listMedia, MAX_BULK_IDS, setVisibility } from "~/lib/db";
+import {
+  listMedia,
+  MAX_BULK_IDS,
+  restoreVisibility,
+  setVisibility,
+  type VisibilityChange,
+} from "~/lib/db";
 import { listMediaFiles } from "~/lib/db-files";
 import { FileBrowser, type FileTile } from "~/components/file-browser";
 import { SubmitButton } from "~/components/submit-button";
@@ -52,7 +59,10 @@ import {
   type MediaWorld,
   type Visibility,
 } from "~/lib/types";
-import { validateBulkVisibility } from "~/lib/validate";
+import {
+  validateBulkVisibility,
+  validateRestoreVisibility,
+} from "~/lib/validate";
 
 // One page is also the most a bulk change can touch.
 const PAGE_SIZE = MAX_BULK_IDS;
@@ -190,12 +200,14 @@ export const useBulkVisibility = routeAction$(
       console.error("/media bulk action: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
-    const changed = await setVisibility(db, v.ids, v.visibility);
+    const { changed, previous } = await setVisibility(db, v.ids, v.visibility);
     return {
       ok: true,
       selected: v.ids.length,
       changed,
       visibility: v.visibility,
+      /** What 「元に戻す」 restores. */
+      previous,
     };
   },
   zod$({
@@ -205,6 +217,35 @@ export const useBulkVisibility = routeAction$(
       .max(2 * MAX_BULK_IDS)
       .default([]),
     visibility: z.string().max(20),
+  }),
+);
+
+/** Undo of a bulk change: each photo back to its previous visibility. */
+export const useRestoreVisibility = routeAction$(
+  async (data, { platform, fail }) => {
+    const v = validateRestoreVisibility(data.changes, MAX_BULK_IDS);
+    if (!v.ok) return fail(400, { message: v.error });
+    // The visibility the bulk change set: only rows still at it go back.
+    if (!isVisibility(data.from)) {
+      return fail(400, { message: "invalid from" });
+    }
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      console.error("/media restore action: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
+    }
+    return {
+      ok: true,
+      changed: await restoreVisibility(db, data.from, v.groups),
+    };
+  },
+  zod$({
+    from: z.string().max(20),
+    changes: z
+      .array(z.object({ id: z.number(), visibility: z.string().max(20) }))
+      .max(2 * MAX_BULK_IDS),
   }),
 );
 
@@ -219,6 +260,23 @@ const selectAll = (toggle: HTMLInputElement, layout: "table" | "phone") => {
       `input[name="ids[]"][data-layout="${layout}"]`,
     )
     .forEach((cb) => (cb.checked = toggle.checked));
+};
+
+const BULK_FORM_ID = "bulk-form";
+
+/** Phone card checkboxes of the bulk form. */
+const phoneBoxes = (form: HTMLFormElement) =>
+  Array.from(
+    form.querySelectorAll<HTMLInputElement>(
+      'input[name="ids[]"][data-layout="phone"]',
+    ),
+  );
+
+/** Short labels for the phone selection bar. */
+const VISIBILITY_LABELS_JA: Record<Visibility, string> = {
+  private: "非公開",
+  unlisted: "限定公開",
+  public: "公開",
 };
 
 // Folder (muted) + basename. Rendered as two adjacent text nodes so the
@@ -264,16 +322,78 @@ const Tags = component$<{ tags: string[] }>(({ tags }) =>
 export default component$(() => {
   const data = useMediaList();
   const bulk = useBulkVisibility();
+  const restore = useRestoreVisibility();
   const toast = useSignal<ToastState | null>(null);
+  /** The last bulk change (its target and previous visibilities), for undo. */
+  const lastChange = useSignal<{
+    from: Visibility;
+    changes: VisibilityChange[];
+  } | null>(null);
+  // Phones: ticked cards, selection mode (a tap on a card ticks it) and the
+  // visibility picked in the bottom bar ("" = none yet).
+  const selectedCount = useSignal(0);
+  const selecting = useSignal(false);
+  const phoneVisibility = useSignal<Visibility | "">("");
+  /** `<view>:<page>` the selection state belongs to. */
+  const shownPage = useSignal(
+    data.value.kind === "ok" ? `${data.value.view}:${data.value.page}` : "",
+  );
+
   useTask$(({ track }) => {
     const v = track(() => bulk.value);
     if (!v) return;
+    if (v.failed) {
+      toast.value = {
+        tone: "error",
+        message: v.message ?? "Bulk change failed",
+      };
+      return;
+    }
+    lastChange.value = { from: v.visibility, changes: v.previous };
+    toast.value = {
+      tone: "success",
+      message: `${v.selected} selected, ${v.changed} changed to ${VISIBILITY_LABELS[v.visibility]}.`,
+      actionLabel: v.previous.length > 0 ? "元に戻す" : undefined,
+    };
+  });
+  useTask$(({ track }) => {
+    const v = track(() => restore.value);
+    if (!v) return;
     toast.value = v.failed
-      ? { tone: "error", message: v.message ?? "Bulk change failed" }
-      : {
-          tone: "success",
-          message: `${v.selected} selected, ${v.changed} changed to ${VISIBILITY_LABELS[v.visibility]}.`,
-        };
+      ? { tone: "error", message: `Undo failed: ${v.message ?? "error"}` }
+      : { tone: "success", message: "元に戻しました。" };
+  });
+  const undo = $(async () => {
+    const last = lastChange.value;
+    if (!last || last.changes.length === 0) return;
+    lastChange.value = null;
+    await restore.submit(last);
+  });
+
+  /** Sync the phone selection state with the ticked boxes. */
+  const recount = $((form: HTMLFormElement | null) => {
+    const n = form ? phoneBoxes(form).filter((b) => b.checked).length : 0;
+    selectedCount.value = n;
+    if (n === 0) phoneVisibility.value = "";
+  });
+  const setAllPhone = $((form: HTMLFormElement | null, checked: boolean) => {
+    if (form) for (const b of phoneBoxes(form)) b.checked = checked;
+    return recount(form);
+  });
+  // Another page or a reloaded list (e.g. after an undo) renders other
+  // boxes: recount once they are in the DOM, and leave selection mode when
+  // the page changed.
+  useTask$(({ track }) => {
+    const list = track(() => data.value);
+    if (!isBrowser) return;
+    const page = list.kind === "ok" ? `${list.view}:${list.page}` : "";
+    if (page !== shownPage.value) {
+      shownPage.value = page;
+      selecting.value = false;
+    }
+    requestAnimationFrame(() =>
+      recount(document.getElementById(BULK_FORM_ID) as HTMLFormElement | null),
+    );
   });
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
@@ -287,6 +407,35 @@ export default component$(() => {
     mediaListHref({ world, visibility, q, page: p });
   // This list's own URL, so an edit page can link back to it.
   const back = pageUrl(page);
+  // Phones: once something is ticked, a tap on a card ticks it too.
+  const selectionMode = selecting.value || selectedCount.value > 0;
+  const cardBody = (row: MediaRow) => (
+    <>
+      <Thumb
+        file={row.file}
+        world={row.world}
+        imageBase={imageBase}
+        variant="list"
+        class="w-24 rounded-md"
+      />
+      <div class="flex min-w-0 flex-1 flex-col gap-2">
+        <div class="flex items-start justify-between gap-3">
+          <FileName file={row.file} stacked />
+          <span class={["shrink-0 text-xs tabular-nums", muted]}>
+            #{row.id}
+          </span>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span class={worldBadge(row.world)}>{row.world}</span>
+          <span class={visibilityBadge(row.visibility)}>
+            {VISIBILITY_LABELS[row.visibility]}
+          </span>
+          <span class="tabular-nums">{formatJst(row.timestamp) ?? "—"}</span>
+          {row.tags.length > 0 && <Tags tags={row.tags} />}
+        </div>
+      </div>
+    </>
+  );
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = (page - 1) * PAGE_SIZE + rows.length;
   // Switching keeps the filter; the folder is remembered only in files view.
@@ -469,27 +618,41 @@ export default component$(() => {
         // Bulk change: tick photos (table rows or phone cards), pick a
         // visibility, Apply. Both layouts carry the checkboxes; the hidden
         // layout's stay unticked (each "select all" only touches its own
-        // layout), and the action deduplicates the ids anyway.
-        <Form action={bulk} aria-busy={bulk.isRunning} class="space-y-3">
+        // layout), and the action deduplicates the ids anyway. sm and up use
+        // the bar above the table; phones the bar fixed at the bottom.
+        <Form
+          id={BULK_FORM_ID}
+          action={bulk}
+          aria-busy={bulk.isRunning}
+          onChange$={(_, form) => recount(form)}
+          // Applied: start over with nothing ticked.
+          onSubmitCompleted$={(ev, form) => {
+            const { value } = ev.detail as { value?: { ok?: boolean } };
+            if (!value?.ok) return;
+            form.reset();
+            selectedCount.value = 0;
+            selecting.value = false;
+            phoneVisibility.value = "";
+          }}
+          class="space-y-3"
+        >
           <div
             class={[
               card,
-              "flex flex-wrap items-center gap-3 px-4 py-3 text-sm",
+              "hidden flex-wrap items-center gap-3 px-4 py-3 text-sm sm:flex",
             ]}
           >
-            <label class="flex min-h-11 items-center gap-2 sm:hidden">
-              <input
-                type="checkbox"
-                data-testid="select-all-phone"
-                onChange$={(_, el) => selectAll(el, "phone")}
-              />
-              Select all
-            </label>
             <label for="bulk-visibility" class="font-medium">
               Set visibility of selected to
             </label>
             <div class="w-36">
-              <select id="bulk-visibility" name="visibility" class={field}>
+              <select
+                id="bulk-visibility"
+                name="visibility"
+                // The phone bar's choice is submitted instead.
+                disabled={phoneVisibility.value !== ""}
+                class={field}
+              >
                 {VISIBILITIES.map((v) => (
                   <option key={v} value={v}>
                     {VISIBILITY_LABELS[v]}
@@ -615,57 +778,126 @@ export default component$(() => {
             </table>
           </div>
 
-          {/* Below sm: stacked cards, no horizontal overflow. */}
+          {/* Below sm: stacked cards, no horizontal overflow. The whole left
+              column of a card is the checkbox's hit area, so a tap meant
+              for it never opens the photo. In selection mode a tap anywhere
+              on the card ticks it instead. */}
+          <div class="flex items-center justify-between gap-3 sm:hidden">
+            <p class={["text-sm", muted]}>
+              {selectionMode ? "タップして選択" : "左端のチェックで選択"}
+            </p>
+            <button
+              type="button"
+              onClick$={(_, el) => {
+                if (selectionMode) {
+                  setAllPhone(el.form, false);
+                  selecting.value = false;
+                } else {
+                  selecting.value = true;
+                }
+              }}
+              class={buttonSecondary}
+            >
+              {selectionMode ? "完了" : "選択"}
+            </button>
+          </div>
           <ul
             class={[
               card,
-              "divide-y divide-zinc-100 sm:hidden dark:divide-zinc-800",
+              "divide-y divide-zinc-100 overflow-hidden sm:hidden dark:divide-zinc-800",
             ]}
           >
             {rows.map((row) => (
-              <li key={row.id} class="flex items-start">
-                <input
-                  type="checkbox"
-                  name="ids[]"
-                  data-layout="phone"
-                  value={String(row.id)}
-                  aria-label={`Select #${row.id}`}
-                  class="mt-4 ml-4 shrink-0"
-                />
-                <Link
-                  href={mediaEditHref(row.id, back)}
-                  title={row.file}
-                  class="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 active:bg-sky-50 dark:active:bg-sky-950/30"
-                >
-                  <Thumb
-                    file={row.file}
-                    world={row.world}
-                    imageBase={imageBase}
-                    variant="list"
-                    class="w-24 rounded-md"
+              <li
+                key={row.id}
+                data-testid="media-card"
+                class="flex items-stretch has-checked:bg-sky-50 has-checked:ring-2 has-checked:ring-sky-500 has-checked:ring-inset dark:has-checked:bg-sky-950/40"
+              >
+                <label class="flex w-14 shrink-0 cursor-pointer items-start justify-center pt-3.5 pl-1">
+                  <input
+                    type="checkbox"
+                    id={`pick-${row.id}`}
+                    name="ids[]"
+                    data-layout="phone"
+                    value={String(row.id)}
+                    aria-label={`Select #${row.id}`}
+                    class="size-5 accent-sky-600"
                   />
-                  <div class="flex min-w-0 flex-1 flex-col gap-2">
-                    <div class="flex items-start justify-between gap-3">
-                      <FileName file={row.file} stacked />
-                      <span class={["shrink-0 text-xs tabular-nums", muted]}>
-                        #{row.id}
-                      </span>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                      <span class={worldBadge(row.world)}>{row.world}</span>
-                      <span class={visibilityBadge(row.visibility)}>
-                        {VISIBILITY_LABELS[row.visibility]}
-                      </span>
-                      <span class="tabular-nums">
-                        {formatJst(row.timestamp) ?? "—"}
-                      </span>
-                      {row.tags.length > 0 && <Tags tags={row.tags} />}
-                    </div>
-                  </div>
-                </Link>
+                </label>
+                {selectionMode ? (
+                  <label
+                    for={`pick-${row.id}`}
+                    title={row.file}
+                    class="flex min-w-0 flex-1 cursor-pointer items-start gap-3 py-3 pr-4 pl-1 select-none"
+                  >
+                    {cardBody(row)}
+                  </label>
+                ) : (
+                  <Link
+                    href={mediaEditHref(row.id, back)}
+                    title={row.file}
+                    class="flex min-w-0 flex-1 items-start gap-3 py-3 pr-4 pl-1 active:bg-sky-50 dark:active:bg-sky-950/30"
+                  >
+                    {cardBody(row)}
+                  </Link>
+                )}
               </li>
             ))}
           </ul>
+
+          {selectedCount.value > 0 && (
+            <div
+              data-bottom-bar
+              role="region"
+              aria-label="選択した写真"
+              class="fixed inset-x-0 bottom-0 z-30 space-y-2 border-t border-zinc-200 bg-white/95 pt-3 pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] shadow-[0_-4px_12px_rgb(0_0_0/0.06)] backdrop-blur sm:hidden dark:border-zinc-800 dark:bg-zinc-900/95"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-sm font-semibold" data-testid="selection-count">
+                  {selectedCount.value} 件選択
+                </p>
+                <button
+                  type="button"
+                  onClick$={(_, el) =>
+                    setAllPhone(el.form, selectedCount.value < rows.length)
+                  }
+                  class="h-11 rounded-lg px-2 text-sm font-medium text-sky-700 dark:text-sky-400"
+                >
+                  {selectedCount.value < rows.length
+                    ? "すべて選択"
+                    : "選択解除"}
+                </button>
+              </div>
+              <div class="flex items-stretch gap-2">
+                <fieldset class="grid min-w-0 flex-1 grid-cols-3 rounded-lg border border-zinc-300 p-0.5 dark:border-zinc-700">
+                  <legend class="sr-only">公開範囲</legend>
+                  {VISIBILITIES.map((v) => (
+                    <label
+                      key={v}
+                      class="grid h-10 cursor-pointer place-items-center rounded-md text-sm font-medium text-zinc-700 has-checked:bg-zinc-900 has-checked:text-white has-focus-visible:outline-2 has-focus-visible:outline-sky-500 dark:text-zinc-300 dark:has-checked:bg-zinc-100 dark:has-checked:text-zinc-900"
+                    >
+                      <input
+                        type="radio"
+                        name="visibility"
+                        value={v}
+                        checked={phoneVisibility.value === v}
+                        onChange$={() => (phoneVisibility.value = v)}
+                        class="sr-only"
+                      />
+                      {VISIBILITY_LABELS_JA[v]}
+                    </label>
+                  ))}
+                </fieldset>
+                <SubmitButton
+                  running={bulk.isRunning}
+                  disabled={phoneVisibility.value === ""}
+                  class={buttonPrimary}
+                >
+                  適用
+                </SubmitButton>
+              </div>
+            </div>
+          )}
         </Form>
       )}
 
@@ -691,7 +923,7 @@ export default component$(() => {
           </div>
         </nav>
       )}
-      <Toast toast={toast} />
+      <Toast toast={toast} onAction$={undo} />
     </div>
   );
 });
