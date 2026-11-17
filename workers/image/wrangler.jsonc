@@ -1,14 +1,16 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   // Resizes gallery photos with Cloudflare Image Transformations (see
-  // src/index.ts). Deployed from main by Cloudflare Workers Builds; a manual
-  // deploy is `pnpm run deploy.image` from the repo root.
+  // src/index.ts). Deployed from main by .github/workflows/deploy-image-worker.yaml.
+  //
+  // The Worker shell and its route (gallery.sksat.net/img/*) are managed by
+  // Terraform outside this repo. Do not add
+  // "routes" here: the deploy token can only edit Worker scripts, and routes
+  // in two places would drift.
   "name": "gallery-image",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
-  "routes": [
-    { "pattern": "gallery.sksat.net/img/*", "zone_name": "sksat.net" },
-  ],
+  "workers_dev": false,
   "vars": {
     "ORIGIN_BASE_URL": "https://sksat-gallery.s3.us-west-002.backblazeb2.com",
   },
