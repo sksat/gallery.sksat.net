@@ -115,7 +115,9 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
         // Kept in the layout (invisible when done) so the photo doesn't
         // jump when the bar disappears.
         class={[
-          "h-1 w-48 max-w-[60vw] overflow-hidden rounded-full bg-white/20 transition-opacity duration-300",
+          // Wide enough to read the progress at a glance, but narrower
+          // than the photo box (90vw) so it reads as part of the photo.
+          "h-1 w-[min(60vw,48rem)] overflow-hidden rounded-full bg-white/20 transition-opacity duration-300",
           progress.value === undefined ? "opacity-0" : "opacity-100",
         ]}
       >
