@@ -179,9 +179,6 @@ importers:
 
   .:
     dependencies:
-      aws4fetch:
-        specifier: ^1.0.20
-        version: 1.0.20
       jose:
         specifier: ^6.2.17
         version: 6.2.17
@@ -993,9 +990,6 @@ packages:
   astring@1.9.0:
     resolution: {integrity: sha512-LElXdjswlqjWrPpJFg1Fx4wpkOCxj1TDHlSV4PlaRxHGWko024xICaa97ZkMfs6DRKlCguiAI+rbXv5GWwXIkg==}
     hasBin: true
-
-  aws4fetch@1.0.20:
-    resolution: {integrity: sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g==}
 
   bail@2.0.2:
     resolution: {integrity: sha512-0xO6mYd7JB2YesxDKplafRpsiOzPt9V02ddPCLbY1xYGPOX24NTyN50qnUxgCPcSoYMhKpAuBTjQoRZCAkUDRw==}
@@ -2415,8 +2409,6 @@ snapshots:
   assertion-error@2.0.1: {}
 
   astring@1.9.0: {}
-
-  aws4fetch@1.0.20: {}
 
   bail@2.0.2: {}
 

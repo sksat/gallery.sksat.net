@@ -117,16 +117,11 @@ admin/
 
 ## Environment Variables
 
-Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler pages secret put <NAME> --project-name admin-gallery-sksat-net --env production` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials. Set B2 secrets for **production only**: preview deployments run unreviewed code (e.g. Renovate PRs) and must not be able to write to the bucket.
+Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler pages secret put <NAME> --project-name admin-gallery-sksat-net --env production` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials. Set secrets for **production only**: preview deployments run unreviewed code (e.g. Renovate PRs).
 
-| Var                    | Where            | Used by                                             |
-| ---------------------- | ---------------- | --------------------------------------------------- |
-| `B2_REGION`            | `vars`           | publish                                             |
-| `B2_BUCKET`            | `vars`           | publish                                             |
-| `B2_ENDPOINT`          | `vars`           | publish                                             |
-| `B2_ACCESS_KEY_ID`     | secret/.dev.vars | publish                                             |
-| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars | publish                                             |
-| `THUMBNAILS`           | `vars`           | `1` = thumbnails via `/thumb`; empty = placeholders |
+| Var          | Where  | Used by                                             |
+| ------------ | ------ | --------------------------------------------------- |
+| `THUMBNAILS` | `vars` | `1` = thumbnails via `/thumb`; empty = placeholders |
 
 Bindings:
 
@@ -135,7 +130,7 @@ Bindings:
 
 ## D1 setup (Phase 1)
 
-The metadata that backs `media.json` lives in a D1 database. Production rollout:
+The photo and camera metadata lives in a D1 database, which the public site reads through the API Worker (`workers/api`). Production rollout:
 
 ```bash
 # 1. Create the D1 database (one-time) and put the printed database_id in
@@ -158,21 +153,17 @@ pnpm db.seed.remote      # apply to production
 pnpm db.seed.local       # apply to local
 ```
 
-Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, the camera, and `tags`, `/camera` registers cameras (name, slug, kind, manufacturer and its website, model, product page URL, description, and pictures of the camera itself), and the dashboard's **Publish** button regenerates `cameras.json` and `media.json` from D1 and PUTs them to the B2 bucket.
+Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, the camera, and `tags`, `/camera` registers cameras (name, slug, kind, manufacturer and its website, model, product page URL, description, and pictures of the camera itself). Edits are live on the public site once the API's cache expires (about a minute); there is no publish step.
 
 > **Migration `0002_camera.sql`** creates `camera` and `camera_image`, makes one camera per distinct `(camera_make, camera_model)` pair already in `media` (named after the model with the make as its `manufacturer`; slug from the model, e.g. `virtuallens2`; kind `virtual` when only VRChat photos use it), points `media.camera_id` at it, and rebuilds `media` without the old `camera_make`/`camera_model` columns. Review the generated names/slugs in `/camera` after `pnpm db.migrate.remote`. `pnpm import-media` emits cameras the same way.
 
-> **Migration `0003_visibility.sql`** adds `visibility` (`private` / `unlisted` / `public`; existing rows that are in the production media.json become `public`, other existing rows and new rows are `private`), a random `public_id` per photo for public URLs, and `legacy_index` (each photo's position in the production media.json when the migration was written, for redirecting old `/photo/<N>` URLs). `pnpm import-media` imports photos as `public` with a fresh `public_id` but no `legacy_index` (only the migration sets it, for rows already in D1). Change visibility on a photo's edit page, or tick several rows on `/media` and use **Set visibility of selected**. Only `public` photos are written to media.json on Publish.
+> **Migration `0003_visibility.sql`** adds `visibility` (`private` / `unlisted` / `public`; existing rows that are in the production media.json become `public`, other existing rows and new rows are `private`), a random `public_id` per photo for public URLs, and `legacy_index` (each photo's position in the production media.json when the migration was written, for redirecting old `/photo/<N>` URLs). `pnpm import-media` imports photos as `public` with a fresh `public_id` but no `legacy_index` (only the migration sets it, for rows already in D1). Change visibility on a photo's edit page, or tick several rows on `/media` and use **Set visibility of selected**.
 
 > **Camera pictures** (`camera_image`, several per camera, ordered) are referenced by bucket path, by convention `/camera/<slug>/<name>.png`, e.g. `/camera/virtuallens2/front.png` (png/jpg/jpeg, `[A-Za-z0-9._-]` segments; the prefix is only a convention, nothing depends on it). The admin has no upload yet: **upload the file to the B2 bucket by hand first**, then add its path on the camera's edit page. Thumbnails and the public page only use the image Worker presets, never the original.
 
-> **Prerequisite before first Publish**: enable Object Lock / file versioning on the B2 bucket. Publish overwrites the entire `media.json` from a single D1 SELECT — there is no diff or dry-run, so a corrupted D1 (failed seed, partial import, accidental DELETE) would otherwise destructively replace the live index. Versioning gives a one-click rollback.
-
 > **Access JWT check**: `src/routes/plugin@access.ts` rejects any request without a valid Cloudflare Access JWT (`ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` in `wrangler.jsonc`). It is what protects the production `admin-gallery-sksat-net.pages.dev` hostname, which no Access application covers. Local `pnpm serve` needs `ACCESS_DISABLED=1` in `.dev.vars` (see `.dev.vars.example`).
 >
-> **Dev caveat**: `pnpm serve` (and the test server in `e2e/start-test-server.sh`) binds locally with no auth because `ACCESS_DISABLED=1` is set (honoured only on `localhost` / `127.0.0.1`) — Cloudflare Access only fronts production. Do not expose the dev port (5175 / 8788) on a public network interface; CSRF is the only thing keeping a malicious page from POSTing to your local D1.
-
-> **No publish concurrency guard**: there is no server-side in-flight lock on `/api/publish`. Two simultaneous publishes (e.g. double-click, two tabs) issue independent D1 SELECTs and B2 PUTs — whichever PUT finishes last wins. Single-admin use makes this low risk; if the admin gets multi-user, add an in-flight flag (or a `429`) in `api/publish/index.ts`.
+> **Dev caveat**: `pnpm serve` (and the test server in `e2e/start-test-server.sh`) binds locally with no auth because `ACCESS_DISABLED=1` is set (honoured only on `localhost` / `127.0.0.1`) — Cloudflare Access only fronts production. Do not expose the dev port (5175 / 8788) on a public network interface; the Origin checks are the only thing keeping a malicious page from writing to your local D1.
 
 ## Next Steps
 

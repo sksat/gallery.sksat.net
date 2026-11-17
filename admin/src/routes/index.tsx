@@ -1,6 +1,5 @@
 import { component$ } from "@builder.io/qwik";
 import { Link, type DocumentHead } from "@builder.io/qwik-city";
-import { PublishButton } from "~/components/publish-button";
 import { buttonSecondary, card, muted } from "~/components/ui";
 
 export default component$(() => {
@@ -20,8 +19,9 @@ export default component$(() => {
         <section class={[card, "flex flex-col p-5"]}>
           <h2 class="text-base font-semibold">Media</h2>
           <p class={["mt-1 flex-1 text-sm", muted]}>
-            Browse every photo in D1 and edit its world, camera and tags. Edits
-            are saved to D1 immediately.
+            Browse every photo in D1 and edit its visibility, world, camera and
+            tags. The public site reads D1 through the API Worker, so saved
+            edits show up there within about a minute.
           </p>
           <div class="mt-4">
             <Link href="/media/" class={buttonSecondary}>
@@ -31,14 +31,15 @@ export default component$(() => {
         </section>
 
         <section class={[card, "flex flex-col p-5"]}>
-          <h2 class="text-base font-semibold">Publish</h2>
+          <h2 class="text-base font-semibold">Cameras</h2>
           <p class={["mt-1 flex-1 text-sm", muted]}>
-            Regenerate <code>media.json</code> and <code>cameras.json</code>{" "}
-            from D1 and upload them to the public bucket. The public gallery
-            only sees edits after this step.
+            Register cameras with their manufacturer, product page and pictures,
+            and link photos to them.
           </p>
           <div class="mt-4">
-            <PublishButton />
+            <Link href="/camera/" class={buttonSecondary}>
+              Manage cameras →
+            </Link>
           </div>
         </section>
       </div>

@@ -38,11 +38,15 @@ test("Access: a forged token is 403", async ({ request }) => {
   expect(res.status()).toBe(403);
 });
 
-test("Access: same-origin POST /api/publish without a token is 403", async ({
+test("Access: same-origin PATCH /api/media/[id] without a token is 403", async ({
   request,
 }) => {
-  const res = await request.post(`${base}/api/publish/`, {
-    headers: { origin: base },
+  const res = await request.fetch(`${base}/api/media/1/`, {
+    method: "PATCH",
+    headers: { origin: base, "content-type": "application/json" },
+    data: JSON.stringify({ tags: ["x"] }),
   });
   expect(res.status()).toBe(403);
+  // From the Access plugin, not the API's Origin check (which answers JSON).
+  expect(await res.text()).toBe("Forbidden");
 });

@@ -182,7 +182,7 @@ It is not a replacement for Vitest / Playwright — prefer adding a deterministi
 
 ### Hard rules
 
-- Do not edit `media.json` (the production index, not the fixture). It is synced from S3 out-of-band.
+- Do not write to the production D1 (`gallery-admin`) or apply migrations to it from a dev session; the admin is the only writer, and migrations are applied on purpose by the owner.
 - Do not bypass git hooks (`--no-verify`, `--no-gpg-sign`).
 - Do not blindly accept snapshot updates. Open the diff first and confirm the change is intentional.
 

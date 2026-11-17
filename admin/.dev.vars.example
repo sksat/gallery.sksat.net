@@ -1,9 +1,7 @@
 # Copy to .dev.vars for local development. Never commit .dev.vars.
 # Production values are set via
 #   wrangler pages secret put <NAME> --project-name admin-gallery-sksat-net --env production
-# (production only — never give preview deployments B2 credentials).
-B2_ACCESS_KEY_ID=
-B2_SECRET_ACCESS_KEY=
+# (production only — preview deployments run unreviewed code).
 # Local `pnpm serve` has no Cloudflare Access in front of it; skip the JWT
 # check (src/lib/access.ts). Never set this in production.
 ACCESS_DISABLED=1

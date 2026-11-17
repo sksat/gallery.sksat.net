@@ -8,9 +8,6 @@
   // overrides them for preview deployments.
   "pages_build_output_dir": "./dist",
   "vars": {
-    "B2_REGION": "us-west-002",
-    "B2_BUCKET": "sksat-gallery",
-    "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
     // Cloudflare Access JWT verification (src/lib/access.ts). Not secrets:
     // the team domain is public and AUD tags only identify Access apps.
     // Production accepts only the custom-domain app (admin.gallery.sksat.net).
@@ -46,9 +43,6 @@
       // `vars` and `d1_databases` are not inherited by environments, so they
       // are restated here.
       "vars": {
-        "B2_REGION": "us-west-002",
-        "B2_BUCKET": "sksat-gallery",
-        "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
         "ACCESS_TEAM_DOMAIN": "https://sksat.cloudflareaccess.com",
         // Preview deployments app (*.admin-gallery-sksat-net.pages.dev).
         "ACCESS_AUD": "eba20c113f589a0b3a11d2fd46268f17ead1732f1f5e01cbc6ef0da525d8ac8a",
