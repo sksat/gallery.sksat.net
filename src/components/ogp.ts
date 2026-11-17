@@ -53,16 +53,18 @@ export const formatJst = (d: Date): { date: string; time: string } => {
 };
 
 /**
- * Card image for a photo: the Worker's 1200x630 `og` preset, or the original
- * when the Worker is not configured (its size is then known only from VRChat
- * file names).
+ * Card image for a photo: one of the Worker's 1200x630 card presets (`og`
+ * adds the photo's date, camera and tags; `og-site` has just the badge), or
+ * the original when the Worker is not configured (its size is then known
+ * only from VRChat file names).
  */
 export const ogImage = (
   { s3Base, imageBase }: ImageBases,
   file: string,
   alt: string,
+  preset: "og" | "og-site",
 ): OgImage => ({
-  url: imageUrl(s3Base, file, imageBase, "og"),
+  url: imageUrl(s3Base, file, imageBase, preset),
   alt,
   ...(imageBase ? OG_CARD_SIZE : dimensionsFromFile(file)),
 });
@@ -96,7 +98,12 @@ export const topOgp = (bases: ImageBases, media: MediaInfoJSON[]): Ogp => {
     image:
       newest === null
         ? null
-        : ogImage(bases, media[newest].file, `${SITE_NAME} の最新の写真`),
+        : ogImage(
+            bases,
+            media[newest].file,
+            `${SITE_NAME} の最新の写真`,
+            "og-site",
+          ),
   };
 };
 
@@ -129,7 +136,7 @@ export const photoOgp = (
     // Qwik City redirects /photo/<id> to the trailing-slash form.
     url: `${SITE_URL}/photo/${id}/`,
     type: "article",
-    image: ogImage(bases, m.file, subject),
+    image: ogImage(bases, m.file, subject, "og"),
   };
 };
 

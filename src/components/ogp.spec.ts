@@ -117,7 +117,7 @@ describe("topOgp", () => {
     expect(ogp.type).toBe("website");
     expect(ogp.title).toBe("sksat gallery");
     expect(ogp.image?.url).toBe(
-      "https://gallery.sksat.net/img/og" + vrchat.file,
+      "https://gallery.sksat.net/img/og-site" + vrchat.file,
     );
   });
 
