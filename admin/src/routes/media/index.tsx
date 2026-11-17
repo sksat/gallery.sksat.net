@@ -993,18 +993,6 @@ export default component$(() => {
                 rows={files.incomplete}
                 uploader={uploader}
                 onDelete$={deleteIncompleteUpload$}
-                onChecked$={(ready, failures) => {
-                  toast.value =
-                    failures.length === 0
-                      ? {
-                          tone: "success",
-                          message: `${ready} 件を登録しました。`,
-                        }
-                      : {
-                          tone: "error",
-                          message: `${ready} 件を登録、${failures.length} 件は登録できませんでした: ${failures[0]}`,
-                        };
-                }}
               />
             </div>
           </FileBrowser>

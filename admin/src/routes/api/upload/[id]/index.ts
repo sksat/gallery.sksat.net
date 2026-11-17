@@ -57,7 +57,7 @@ export const onPost: RequestHandler = withErrorHandler(
     } catch (err) {
       if (!(err instanceof StatError)) throw err;
       console.error("POST /api/upload/[id]: stat failed:", err);
-      json(503, { error: "バケットを確認できませんでした" });
+      json(503, { error: "確認できませんでした（時間をおいて再読み込み）" });
       return;
     }
     switch (outcome.kind) {
@@ -65,10 +65,10 @@ export const onPost: RequestHandler = withErrorHandler(
         json(200, { id, status: "ready" });
         return;
       case "not-found":
-        json(404, { error: "not found" });
+        json(404, { error: "このアップロードはもうありません（再読み込み）" });
         return;
       case "missing":
-        json(409, { error: "バケットにファイルがありません" });
+        json(409, { error: "B2 にファイルがありません" });
         return;
       case "mismatch":
         json(422, { error: outcome.message });

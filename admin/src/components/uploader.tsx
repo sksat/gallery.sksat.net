@@ -19,10 +19,12 @@ import {
 import {
   createUploadQueue,
   summarize,
+  UploadError,
   type UploadItem,
   type UploadQueue,
   type UploadStatus,
 } from "~/lib/upload-queue";
+import { dirOf } from "~/lib/folders";
 import type { Visibility } from "~/lib/types";
 import { buttonPrimary, buttonSecondary, card, muted } from "./ui";
 
@@ -167,42 +169,74 @@ export const UploadButton = component$<{ uploader: Uploader; dir: string }>(
   ),
 );
 
+/** What an incomplete row's failed completion means, in plain words. */
+const completionProblem = (err: unknown): string =>
+  err instanceof UploadError && !err.retryable
+    ? err.message
+    : "確認できませんでした（時間をおいて再読み込み）";
+
+/** Completion checks run at once when a page lists incomplete uploads. */
+const CHECKS_AT_ONCE = 2;
+
 /**
  * Uploads in this folder that never completed (their rows reserve the
- * path, but they are not photos). 「確認」 asks for the completion again:
- * when the PUT went through but the check did not, that is all it takes,
- * without uploading again. Picking the same file again resumes one;
- * Delete forgets it.
+ * path, but they are not photos). Each is checked again on its own once
+ * per page view (the completion, POST /api/upload/<id>): when the PUT went
+ * through but the check did not, that registers it without uploading
+ * again. Only the ones that still fail stay, with the reason, and can be
+ * uploaded again (the same file resumes the row) or deleted.
  */
 export const IncompleteUploads = component$<{
   rows: IncompleteUpload[];
   uploader: Uploader;
   /** Delete one (the page's action; it reloads the data). */
   onDelete$: QRL<(id: number) => Promise<unknown>>;
-  /** Report the result of 「確認」. */
-  onChecked$: QRL<(ready: number, failures: string[]) => void>;
 }>((props) => {
   const busy = useSignal<number | null>(null);
-  const checking = useSignal(false);
-  const check = $(async (ids: number[]) => {
-    checking.value = true;
-    let ready = 0;
-    const failures: string[] = [];
-    try {
-      for (const id of ids) {
-        try {
-          await completeUploadRequest(id);
-          ready++;
-        } catch (err) {
-          failures.push(err instanceof Error ? err.message : String(err));
+  /** Rows already checked in this page view, with the reason they failed. */
+  const problems = useSignal<Record<number, string>>({});
+  /** Rows being checked. */
+  const checking = useSignal<number[]>([]);
+  // Document-ready: the section renders nothing until there are rows, so
+  // there may be no element to become visible.
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(
+    async ({ track }) => {
+      const rows = track(() => props.rows);
+      const inPanel = new Set(props.uploader.items.value.map((i) => i.mediaId));
+      const todo = rows
+        .map((r) => r.id)
+        .filter(
+          (id) =>
+            !(id in problems.value) &&
+            !checking.value.includes(id) &&
+            !inPanel.has(id),
+        );
+      if (todo.length === 0) return;
+      checking.value = [...checking.value, ...todo];
+      let ready = 0;
+      const queue = [...todo];
+      const worker = async () => {
+        for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+          try {
+            await completeUploadRequest(id);
+            ready++;
+          } catch (err) {
+            problems.value = {
+              ...problems.value,
+              [id]: completionProblem(err),
+            };
+          }
+          checking.value = checking.value.filter((x) => x !== id);
         }
-      }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(CHECKS_AT_ONCE, todo.length) }, worker),
+      );
       if (ready > 0) await props.uploader.refresh();
-    } finally {
-      checking.value = false;
-    }
-    await props.onChecked$(ready, failures);
-  });
+    },
+    { strategy: "document-ready" },
+  );
   // Not the ones the upload panel already shows (in flight or failed).
   const inFlight = new Set(
     props.uploader.items.value
@@ -220,25 +254,12 @@ export const IncompleteUploads = component$<{
       <h2 class="font-semibold text-amber-900 dark:text-amber-200">
         未完了のアップロード ({rows.length})
       </h2>
-      <div class="flex flex-wrap items-center gap-2">
-        <p class="mr-auto text-amber-900/80 dark:text-amber-200/80">
-          ファイルが届いていれば「確認」で登録できます。届いていなければ同じファイルをもう一度アップロードしてください。
-        </p>
-        <button
-          type="button"
-          disabled={checking.value || busy.value !== null}
-          onClick$={() => check(rows.map((r) => r.id))}
-          class={buttonSecondary}
-        >
-          {checking.value ? "確認中…" : "すべて確認"}
-        </button>
-      </div>
       <ul class="divide-y divide-amber-200 dark:divide-amber-900">
         {rows.map((r) => (
           <li
             key={r.id}
             data-testid="incomplete-row"
-            class="flex items-center gap-3 py-1.5"
+            class="flex flex-wrap items-center gap-x-3 py-1.5"
           >
             <span class="min-w-0 flex-1 truncate" title={r.file}>
               {r.file.slice(r.file.lastIndexOf("/") + 1)}
@@ -248,18 +269,44 @@ export const IncompleteUploads = component$<{
                 {formatBytes(r.size)}
               </span>
             )}
-            <button
-              type="button"
-              disabled={checking.value || busy.value !== null}
-              aria-label={`${r.file} を確認`}
-              onClick$={() => check([r.id])}
-              class="h-11 shrink-0 rounded-lg px-2 font-medium text-sky-700 disabled:opacity-60 sm:h-auto dark:text-sky-400"
+            <label
+              class={[
+                "inline-flex h-11 shrink-0 cursor-pointer items-center rounded-lg px-2 font-medium text-sky-700 has-focus-visible:outline-2 has-focus-visible:outline-sky-500 sm:h-auto dark:text-sky-400",
+                checking.value.includes(r.id) &&
+                  "pointer-events-none opacity-60",
+              ]}
             >
-              確認
-            </button>
+              アップロードし直す
+              <input
+                type="file"
+                accept={UPLOAD_ACCEPT}
+                aria-label={`${r.file} をアップロードし直す`}
+                class="sr-only"
+                onChange$={(_, el) => {
+                  const f = el.files?.[0];
+                  el.value = "";
+                  if (!f) return;
+                  // Checked afresh if it comes back here.
+                  const rest = { ...problems.value };
+                  delete rest[r.id];
+                  problems.value = rest;
+                  // Under the row's own name: the same file resumes it.
+                  const name = r.file.slice(r.file.lastIndexOf("/") + 1);
+                  void props.uploader.add(dirOf(r.file), [
+                    {
+                      name: f.name,
+                      relativePath: name,
+                      size: f.size,
+                      type: f.type,
+                      blob: f,
+                    },
+                  ]);
+                }}
+              />
+            </label>
             <button
               type="button"
-              disabled={checking.value || busy.value !== null}
+              disabled={busy.value !== null || checking.value.includes(r.id)}
               aria-label={`${r.file} の未完了のアップロードを削除`}
               onClick$={async () => {
                 busy.value = r.id;
@@ -273,6 +320,14 @@ export const IncompleteUploads = component$<{
             >
               削除
             </button>
+            <p
+              data-testid="incomplete-reason"
+              class="basis-full text-xs text-amber-900/80 dark:text-amber-200/80"
+            >
+              {checking.value.includes(r.id)
+                ? "確認中…"
+                : (problems.value[r.id] ?? "")}
+            </p>
           </li>
         ))}
       </ul>
