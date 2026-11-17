@@ -33,8 +33,9 @@ export default component$(() => {
         <section class={[card, "flex flex-col p-5"]}>
           <h2 class="text-base font-semibold">Publish</h2>
           <p class={["mt-1 flex-1 text-sm", muted]}>
-            Regenerate <code>media.json</code> from D1 and upload it to the
-            public bucket. The public gallery only sees edits after this step.
+            Regenerate <code>media.json</code> and <code>cameras.json</code>{" "}
+            from D1 and upload them to the public bucket. The public gallery
+            only sees edits after this step.
           </p>
           <div class="mt-4">
             <PublishButton />

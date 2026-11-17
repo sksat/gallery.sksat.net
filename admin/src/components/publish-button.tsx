@@ -7,6 +7,7 @@ type Status =
   | {
       kind: "success";
       count: number;
+      cameraCount: number;
       bytes: number;
       uploadedAt: string;
       etag: string | null;
@@ -19,7 +20,9 @@ export const PublishButton = component$(() => {
   const onClick = $(async () => {
     if (status.value.kind === "loading") return;
     if (
-      !confirm("Regenerate media.json from D1 and upload to the public bucket?")
+      !confirm(
+        "Regenerate media.json and cameras.json from D1 and upload them to the public bucket?",
+      )
     ) {
       return;
     }
@@ -41,6 +44,7 @@ export const PublishButton = component$(() => {
       status.value = {
         kind: "success",
         count: Number(body.count) || 0,
+        cameraCount: Number(body.cameraCount) || 0,
         bytes: Number(body.bytes) || 0,
         uploadedAt: String(body.uploadedAt ?? ""),
         etag: typeof body.etag === "string" ? body.etag : null,
@@ -67,8 +71,8 @@ export const PublishButton = component$(() => {
       <div role="status" aria-live="polite">
         {status.value.kind === "success" && (
           <p class="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-            Published {status.value.count} items ({status.value.bytes} bytes) at{" "}
-            {status.value.uploadedAt}
+            Published {status.value.count} items ({status.value.bytes} bytes)
+            and {status.value.cameraCount} cameras at {status.value.uploadedAt}
             {status.value.etag ? ` — etag ${status.value.etag}` : ""}.
           </p>
         )}

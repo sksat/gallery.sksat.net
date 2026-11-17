@@ -4,6 +4,23 @@ export type MediaWorld = "VRChat" | "Real";
 export type MediaCamera = {
   make: string;
   model: string;
+  /** Key into cameras.json (`/camera/<slug>/`). Absent in older media.json. */
+  slug?: string;
+  /** Display name from cameras.json. Absent in older media.json. */
+  name?: string;
+};
+
+export type CameraKind = "digital" | "film" | "phone" | "virtual";
+
+/** One item of cameras.json (published next to media.json by the admin). */
+export type CameraJSON = {
+  slug: string;
+  name: string;
+  make: string | null;
+  model: string | null;
+  kind: CameraKind | null;
+  description: string | null;
+  url: string | null;
 };
 
 export type MediaInfoJSON = {

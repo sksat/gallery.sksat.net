@@ -1,6 +1,6 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
-import { getMedia, updateMedia } from "~/lib/db";
+import { getCamera, getMedia, updateMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
 import { validatePatch } from "~/lib/validate";
 
@@ -48,6 +48,13 @@ export const onPatch: RequestHandler = withErrorHandler(
       return;
     }
     const db = getDB(platform);
+    if (
+      res.patch.camera_id != null &&
+      !(await getCamera(db, res.patch.camera_id))
+    ) {
+      json(400, { error: "unknown camera_id" });
+      return;
+    }
     const updated = await updateMedia(db, id, res.patch);
     if (!updated) {
       json(404, { error: "not found" });

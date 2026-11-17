@@ -56,4 +56,34 @@ describe("transformMediaInfo", () => {
     const result = transformMediaInfo(input);
     expect(result.timestamp).toBeNull();
   });
+
+  it("keeps a camera from an older media.json (make/model only)", () => {
+    const input: MediaInfoJSON = {
+      file: "/VRChat/x.png",
+      world: "VRChat",
+      timestamp: null,
+      camera: { make: "logilabo", model: "VirtualLens2" },
+      tags: [],
+    };
+    expect(transformMediaInfo(input).camera).toEqual({
+      make: "logilabo",
+      model: "VirtualLens2",
+    });
+  });
+
+  it("keeps the camera slug and name published by the admin", () => {
+    const input: MediaInfoJSON = {
+      file: "/VRChat/x.png",
+      world: "VRChat",
+      timestamp: null,
+      camera: {
+        make: "logilabo",
+        model: "VirtualLens2",
+        slug: "virtuallens2",
+        name: "VirtualLens2",
+      },
+      tags: [],
+    };
+    expect(transformMediaInfo(input).camera?.slug).toBe("virtuallens2");
+  });
 });

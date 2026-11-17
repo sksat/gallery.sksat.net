@@ -1,5 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { rowToMedia, rowToMediaJson } from "./db";
+import { buildExport, rowToCamera, rowToMedia, rowToMediaJson } from "./db";
+import type { CameraRow, MediaRow } from "./types";
+
+const UPDATED = "2025-05-03T10:00:00.000Z";
+
+const vl2: CameraRow = {
+  id: 1,
+  slug: "virtuallens2",
+  name: "VirtualLens2",
+  make: "logilabo",
+  model: "VirtualLens2",
+  kind: "virtual",
+  description: null,
+  url: null,
+  updated_at: UPDATED,
+};
+
+const film: CameraRow = {
+  id: 2,
+  slug: "pentax-sp",
+  name: "PENTAX SP",
+  make: null,
+  model: null,
+  kind: "film",
+  description: "35mm SLR",
+  url: "https://example.com/sp",
+  updated_at: UPDATED,
+};
+
+const media = (over: Partial<MediaRow>): MediaRow => ({
+  id: 1,
+  file: "/x.png",
+  world: "VRChat",
+  timestamp: null,
+  camera_id: null,
+  tags: [],
+  updated_at: UPDATED,
+  ...over,
+});
 
 describe("rowToMedia", () => {
   it("parses tags JSON and preserves nullable fields", () => {
@@ -8,13 +46,12 @@ describe("rowToMedia", () => {
       file: "/VRChat/2023-12/x.png",
       world: "VRChat",
       timestamp: "2023-12-11T01:21:32.519+09:00",
-      camera_make: "logilabo",
-      camera_model: "VirtualLens2",
+      camera_id: 4,
       tags: '["VRChat","portrait"]',
-      updated_at: "2025-05-03T10:00:00.000Z",
+      updated_at: UPDATED,
     });
     expect(row.tags).toEqual(["VRChat", "portrait"]);
-    expect(row.camera_make).toBe("logilabo");
+    expect(row.camera_id).toBe(4);
     expect(row.timestamp).toBe("2023-12-11T01:21:32.519+09:00");
   });
 
@@ -24,13 +61,12 @@ describe("rowToMedia", () => {
       file: "/Real/x.jpg",
       world: "Real",
       timestamp: null,
-      camera_make: null,
-      camera_model: null,
+      camera_id: null,
       tags: "[]",
-      updated_at: "2025-05-03T10:00:00.000Z",
+      updated_at: UPDATED,
     });
     expect(row.tags).toEqual([]);
-    expect(row.camera_make).toBeNull();
+    expect(row.camera_id).toBeNull();
   });
 
   it("rejects unknown world value", () => {
@@ -40,10 +76,9 @@ describe("rowToMedia", () => {
         file: "x",
         world: "Mars",
         timestamp: null,
-        camera_make: null,
-        camera_model: null,
+        camera_id: null,
         tags: "[]",
-        updated_at: "2025-05-03T10:00:00.000Z",
+        updated_at: UPDATED,
       }),
     ).toThrow(/unknown world/);
   });
@@ -55,10 +90,9 @@ describe("rowToMedia", () => {
         file: "x",
         world: "Real",
         timestamp: null,
-        camera_make: null,
-        camera_model: null,
+        camera_id: null,
         tags: "[1,2,3]",
-        updated_at: "2025-05-03T10:00:00.000Z",
+        updated_at: UPDATED,
       }),
     ).toThrow(/tags column/);
   });
@@ -70,64 +104,104 @@ describe("rowToMedia", () => {
         file: "x",
         world: "Real",
         timestamp: null,
-        camera_make: null,
-        camera_model: null,
+        camera_id: null,
         tags: "not json",
-        updated_at: "2025-05-03T10:00:00.000Z",
+        updated_at: UPDATED,
       }),
     ).toThrow(/not valid JSON/);
   });
 });
 
+describe("rowToCamera", () => {
+  it("accepts a null kind", () => {
+    expect(rowToCamera({ ...vl2, kind: null }).kind).toBeNull();
+  });
+
+  it("rejects an unknown kind", () => {
+    expect(() => rowToCamera({ ...vl2, kind: "drone" })).toThrow(
+      /unknown camera kind/,
+    );
+  });
+});
+
 describe("rowToMediaJson", () => {
-  it("collapses make+model into camera object", () => {
-    const json = rowToMediaJson({
-      id: 1,
-      file: "/x.png",
-      world: "VRChat",
-      timestamp: null,
-      camera_make: "logilabo",
-      camera_model: "VirtualLens2",
-      tags: ["VRChat"],
-      updated_at: "2025-05-03T10:00:00.000Z",
-    });
+  const cameras = new Map([
+    [vl2.id, vl2],
+    [film.id, film],
+  ]);
+
+  it("embeds the camera's make/model plus slug and name", () => {
+    const json = rowToMediaJson(
+      media({ camera_id: 1, tags: ["VRChat"] }),
+      cameras,
+    );
     expect(json).toEqual({
       file: "/x.png",
       world: "VRChat",
       timestamp: null,
-      camera: { make: "logilabo", model: "VirtualLens2" },
+      camera: {
+        make: "logilabo",
+        model: "VirtualLens2",
+        slug: "virtuallens2",
+        name: "VirtualLens2",
+      },
       tags: ["VRChat"],
     });
   });
 
-  it("returns null camera when either part is missing", () => {
-    const json = rowToMediaJson({
-      id: 1,
-      file: "/x.png",
-      world: "Real",
-      timestamp: null,
-      camera_make: null,
-      camera_model: "VirtualLens2",
-      tags: [],
-      updated_at: "2025-05-03T10:00:00.000Z",
+  it("keeps make/model strings for a camera without them (old readers)", () => {
+    const json = rowToMediaJson(media({ camera_id: 2 }), cameras);
+    expect(json.camera).toEqual({
+      make: "",
+      model: "PENTAX SP",
+      slug: "pentax-sp",
+      name: "PENTAX SP",
     });
-    expect(json.camera).toBeNull();
   });
 
-  it("preserves an empty-string camera value rather than collapsing to null", () => {
-    // Defensive: validation normally converts "" to null, but if a raw SQL
-    // import ever leaks an empty string we want it surfaced in the export
-    // rather than silently dropped via truthiness.
-    const json = rowToMediaJson({
-      id: 1,
-      file: "/x.png",
-      world: "VRChat",
-      timestamp: null,
-      camera_make: "",
-      camera_model: "",
-      tags: [],
-      updated_at: "2025-05-03T10:00:00.000Z",
-    });
-    expect(json.camera).toEqual({ make: "", model: "" });
+  it("returns a null camera when the photo has none", () => {
+    expect(rowToMediaJson(media({}), cameras).camera).toBeNull();
+  });
+
+  it("throws on a dangling camera_id instead of dropping the camera", () => {
+    expect(() => rowToMediaJson(media({ camera_id: 99 }), cameras)).toThrow(
+      /missing camera 99/,
+    );
+  });
+});
+
+describe("buildExport", () => {
+  it("keeps media order and sorts cameras by slug, without admin fields", () => {
+    const out = buildExport(
+      [media({ id: 2, file: "/b.png" }), media({ id: 1, camera_id: 1 })],
+      [vl2, film],
+    );
+    expect(out.media.map((m) => m.file)).toEqual(["/b.png", "/x.png"]);
+    expect(out.cameras).toEqual([
+      {
+        slug: "pentax-sp",
+        name: "PENTAX SP",
+        make: null,
+        model: null,
+        kind: "film",
+        description: "35mm SLR",
+        url: "https://example.com/sp",
+      },
+      {
+        slug: "virtuallens2",
+        name: "VirtualLens2",
+        make: "logilabo",
+        model: "VirtualLens2",
+        kind: "virtual",
+        description: null,
+        url: null,
+      },
+    ]);
+  });
+
+  it("is a plain JSON array per file (media.json stays an array)", () => {
+    const out = buildExport([], []);
+    expect(Array.isArray(out.media)).toBe(true);
+    expect(Array.isArray(out.cameras)).toBe(true);
   });
 });

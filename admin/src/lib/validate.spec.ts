@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseTagsInput, validatePatch } from "./validate";
+import {
+  parseCameraIdInput,
+  parseTagsInput,
+  validateCamera,
+  validatePatch,
+} from "./validate";
 
 describe("validatePatch", () => {
   it("accepts a partial patch with only tags", () => {
@@ -30,45 +35,24 @@ describe("validatePatch", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("converts empty camera strings to null when both are present", () => {
-    const r = validatePatch({ camera_make: "", camera_model: "" });
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.patch.camera_make).toBeNull();
-      expect(r.patch.camera_model).toBeNull();
-    }
+  it("accepts a camera id and an explicit null", () => {
+    const r = validatePatch({ camera_id: 3 });
+    expect(r.ok && r.patch).toEqual({ camera_id: 3 });
+    const n = validatePatch({ camera_id: null });
+    expect(n.ok && n.patch).toEqual({ camera_id: null });
   });
 
-  it("rejects patching camera_make without camera_model", () => {
-    const r = validatePatch({ camera_make: "Canon" });
-    expect(r.ok).toBe(false);
+  it.each([0, -1, 1.5, "3", true])("rejects camera_id %j", (camera_id) => {
+    expect(validatePatch({ camera_id }).ok).toBe(false);
   });
 
-  it("rejects mixed null/non-null camera fields", () => {
-    const r = validatePatch({ camera_make: "Canon", camera_model: null });
-    expect(r.ok).toBe(false);
+  it("ignores the removed camera_make/camera_model fields", () => {
+    // Unknown keys are dropped; the camera is only set through camera_id.
+    const r = validatePatch({ camera_make: "Canon", camera_model: "EOS" });
+    expect(r.ok && r.patch).toEqual({});
   });
-
-  it("trims whitespace from non-empty camera values", () => {
-    const r = validatePatch({
-      camera_make: "  Canon  ",
-      camera_model: "\tEOS\n",
-    });
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.patch.camera_make).toBe("Canon");
-      expect(r.patch.camera_model).toBe("EOS");
-    }
-  });
-
   it("rejects array body", () => {
     const r = validatePatch([]);
-    expect(r.ok).toBe(false);
-  });
-
-  it("rejects camera fields longer than 200 chars", () => {
-    const long = "a".repeat(201);
-    const r = validatePatch({ camera_make: long, camera_model: long });
     expect(r.ok).toBe(false);
   });
 
@@ -90,5 +74,105 @@ describe("parseTagsInput", () => {
   });
   it("drops empties", () => {
     expect(parseTagsInput(",,a,,")).toEqual(["a"]);
+  });
+});
+
+describe("parseCameraIdInput", () => {
+  it("maps the empty option to null", () => {
+    expect(parseCameraIdInput("")).toBeNull();
+  });
+  it("parses a positive integer id", () => {
+    expect(parseCameraIdInput("12")).toBe(12);
+  });
+  it.each(["0", "-1", "1.5", "01", "abc", " 1", "99999999999999999999"])(
+    "returns undefined for %j",
+    (raw) => {
+      expect(parseCameraIdInput(raw)).toBeUndefined();
+    },
+  );
+});
+
+describe("validateCamera", () => {
+  const base = {
+    slug: "virtuallens2",
+    name: "VirtualLens2",
+    make: "logilabo",
+    model: "VirtualLens2",
+    kind: "virtual",
+    description: "VRChat camera gimmick",
+    url: "https://logilabo.booth.pm/items/2280136",
+  };
+
+  it("accepts a full record", () => {
+    const r = validateCamera(base);
+    expect(r.ok && r.camera).toEqual(base);
+  });
+
+  it("trims fields and turns empty optional ones into null", () => {
+    const r = validateCamera({
+      slug: " pentax-sp ",
+      name: " PENTAX SP ",
+      make: "  ",
+      model: "",
+      kind: "",
+      description: "",
+      url: "",
+    });
+    expect(r.ok && r.camera).toEqual({
+      slug: "pentax-sp",
+      name: "PENTAX SP",
+      make: null,
+      model: null,
+      kind: null,
+      description: null,
+      url: null,
+    });
+  });
+
+  it("treats missing optional fields as null", () => {
+    const r = validateCamera({ slug: "x", name: "X" });
+    expect(r.ok && r.camera).toMatchObject({ make: null, kind: null });
+  });
+
+  it.each([
+    "",
+    "VirtualLens2",
+    "virtual lens",
+    "-a",
+    "a-",
+    "a--b",
+    "a_b",
+    "カメラ",
+    "a".repeat(65),
+  ])("rejects slug %j", (slug) => {
+    expect(validateCamera({ ...base, slug }).ok).toBe(false);
+  });
+
+  it("requires a name", () => {
+    expect(validateCamera({ ...base, name: "  " }).ok).toBe(false);
+    expect(validateCamera({ ...base, name: undefined }).ok).toBe(false);
+  });
+
+  it("rejects an unknown kind", () => {
+    expect(validateCamera({ ...base, kind: "drone" }).ok).toBe(false);
+  });
+
+  it.each(["javascript:alert(1)", "data:text/html,x", "not a url"])(
+    "rejects url %j",
+    (url) => {
+      expect(validateCamera({ ...base, url }).ok).toBe(false);
+    },
+  );
+
+  it("rejects over-long fields", () => {
+    expect(validateCamera({ ...base, name: "a".repeat(201) }).ok).toBe(false);
+    expect(validateCamera({ ...base, model: "a".repeat(201) }).ok).toBe(false);
+    expect(
+      validateCamera({ ...base, description: "a".repeat(2001) }).ok,
+    ).toBe(false);
+  });
+
+  it("rejects non-string optional fields", () => {
+    expect(validateCamera({ ...base, make: 1 }).ok).toBe(false);
   });
 });
