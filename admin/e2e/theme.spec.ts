@@ -36,8 +36,11 @@ test("theme toggle cycles system → light → dark and persists across reload",
   await expect(toggle).toHaveAccessibleName("Theme: Dark (switch to System)");
   expect(await bodyBg(page)).not.toBe(lightBg);
 
-  // Back to system: follows the (light) OS preference again.
+  // Back to system: follows the (light) OS preference again. Wait for the
+  // click to be applied (Qwik loads the handler lazily and only then stores
+  // the choice) before reloading, or the reload can race it and keep "dark".
   await toggle.click();
+  await expect(html(page)).toHaveAttribute("data-theme", "system");
   await page.reload();
   await expect(html(page)).toHaveAttribute("data-theme", "system");
   expect(await bodyBg(page)).toBe(lightBg);
