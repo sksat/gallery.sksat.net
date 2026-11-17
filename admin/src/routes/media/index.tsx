@@ -1,4 +1,4 @@
-import { component$ } from "@builder.io/qwik";
+import { component$, useSignal, useTask$ } from "@builder.io/qwik";
 import {
   Form,
   Link,
@@ -25,7 +25,9 @@ import {
 import { listMedia, MAX_BULK_IDS, setVisibility } from "~/lib/db";
 import { listMediaFiles } from "~/lib/db-files";
 import { FileBrowser, type FileTile } from "~/components/file-browser";
+import { SubmitButton } from "~/components/submit-button";
 import { Thumb } from "~/components/thumb";
+import { Toast, type ToastState } from "~/components/toast";
 import { getDB, getImageBase } from "~/lib/env";
 import {
   buildFolderTree,
@@ -262,6 +264,17 @@ const Tags = component$<{ tags: string[] }>(({ tags }) =>
 export default component$(() => {
   const data = useMediaList();
   const bulk = useBulkVisibility();
+  const toast = useSignal<ToastState | null>(null);
+  useTask$(({ track }) => {
+    const v = track(() => bulk.value);
+    if (!v) return;
+    toast.value = v.failed
+      ? { tone: "error", message: v.message ?? "Bulk change failed" }
+      : {
+          tone: "success",
+          message: `${v.selected} selected, ${v.changed} changed to ${VISIBILITY_LABELS[v.visibility]}.`,
+        };
+  });
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
@@ -299,8 +312,8 @@ export default component$(() => {
         <div class="flex flex-wrap items-center gap-3">
           <p class={["text-sm", muted]}>
             {view === "files"
-              ? "Click a photo to edit its metadata."
-              : "Click a row to edit its metadata. Times are JST."}
+              ? "Open a photo to edit its metadata."
+              : "Open a photo to edit its metadata. Times are JST."}
           </p>
           <nav
             aria-label="View"
@@ -312,7 +325,7 @@ export default component$(() => {
                 href={t.href}
                 aria-current={t.view === view ? "page" : undefined}
                 class={[
-                  "rounded-md px-3 py-1 font-medium",
+                  "inline-flex h-11 items-center rounded-md px-4 font-medium sm:h-auto sm:px-3 sm:py-1",
                   t.view === view
                     ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                     : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
@@ -457,14 +470,14 @@ export default component$(() => {
         // visibility, Apply. Both layouts carry the checkboxes; the hidden
         // layout's stay unticked (each "select all" only touches its own
         // layout), and the action deduplicates the ids anyway.
-        <Form action={bulk} class="space-y-3">
+        <Form action={bulk} aria-busy={bulk.isRunning} class="space-y-3">
           <div
             class={[
               card,
               "flex flex-wrap items-center gap-3 px-4 py-3 text-sm",
             ]}
           >
-            <label class="flex items-center gap-2 sm:hidden">
+            <label class="flex min-h-11 items-center gap-2 sm:hidden">
               <input
                 type="checkbox"
                 data-testid="select-all-phone"
@@ -484,22 +497,13 @@ export default component$(() => {
                 ))}
               </select>
             </div>
-            <button type="submit" class={buttonSecondary}>
+            <SubmitButton
+              running={bulk.isRunning}
+              pendingLabel="適用中…"
+              class={buttonSecondary}
+            >
               Apply
-            </button>
-            <div role="status" aria-live="polite">
-              {bulk.value?.ok && (
-                <p class="text-emerald-700 dark:text-emerald-400">
-                  {bulk.value.selected} selected, {bulk.value.changed} changed
-                  to {VISIBILITY_LABELS[bulk.value.visibility]}.
-                </p>
-              )}
-            </div>
-            {bulk.value?.failed && (
-              <p role="alert" class="text-red-700 dark:text-red-400">
-                {bulk.value.message ?? "Bulk change failed"}
-              </p>
-            )}
+            </SubmitButton>
           </div>
 
           {/* sm and up: table. Every row is one link target (stretched link). */}
@@ -687,6 +691,7 @@ export default component$(() => {
           </div>
         </nav>
       )}
+      <Toast toast={toast} />
     </div>
   );
 });

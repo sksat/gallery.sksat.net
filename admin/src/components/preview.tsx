@@ -123,6 +123,10 @@ export const ProgressivePreview = component$<Props>((props) => {
         {...dimensionsFromFile(file)}
         alt={fullSrc.value ? "" : `Preview of ${file}`}
         decoding="async"
+        // No broken-image icon: the empty box stays instead.
+        onError$={(_, el) => {
+          el.hidden = true;
+        }}
         class="absolute inset-0 h-full w-full object-contain"
       />
       {fullSrc.value && (

@@ -32,6 +32,16 @@ type Props = {
 export const Thumb = component$<Props>(
   ({ file, world, imageBase, variant, class: boxClass }) => {
     const box = ["relative aspect-video shrink-0 overflow-hidden", boxClass];
+    const ext = (
+      <span
+        class={[
+          "font-semibold tracking-wider",
+          variant === "preview" ? "text-sm" : "text-[10px]",
+        ]}
+      >
+        {fileExtension(file) || "IMG"}
+      </span>
+    );
     if (!imageBase) {
       return (
         <div
@@ -48,14 +58,7 @@ export const Thumb = component$<Props>(
           aria-hidden="true"
         >
           <span class="flex flex-col items-center gap-1 text-center">
-            <span
-              class={[
-                "font-semibold tracking-wider",
-                variant === "preview" ? "text-sm" : "text-[10px]",
-              ]}
-            >
-              {fileExtension(file) || "IMG"}
-            </span>
+            {ext}
             {variant === "preview" && (
               <span class="text-xs opacity-80">
                 Preview off (thumbnails are not enabled)
@@ -71,8 +74,19 @@ export const Thumb = component$<Props>(
       );
     }
     return (
-      <div class={[box, "bg-zinc-100 dark:bg-zinc-800"]}>
+      // If the image fails (expired signature, Worker error, offline), it
+      // hides itself and the tile shows the file extension instead of a
+      // broken-image icon.
+      <div
+        class={[
+          box,
+          "grid place-items-center bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
+        ]}
+      >
         <img
+          onError$={(_, el) => {
+            el.hidden = true;
+          }}
           src={imageUrl(imageBase, file, "h240")}
           srcset={srcSet(imageBase, file, LIST_CANDIDATES)}
           {...dimensionsFromFile(file)}
@@ -80,8 +94,11 @@ export const Thumb = component$<Props>(
           alt=""
           loading="lazy"
           decoding="async"
-          class="absolute inset-0 h-full w-full object-cover"
+          class="peer absolute inset-0 h-full w-full object-cover"
         />
+        <span aria-hidden="true" class="hidden peer-[[hidden]]:inline">
+          {ext}
+        </span>
       </div>
     );
   },

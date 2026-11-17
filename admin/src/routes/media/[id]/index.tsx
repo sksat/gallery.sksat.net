@@ -1,4 +1,4 @@
-import { component$ } from "@builder.io/qwik";
+import { component$, useSignal, useTask$ } from "@builder.io/qwik";
 import {
   Form,
   Link,
@@ -11,7 +11,10 @@ import {
 } from "@builder.io/qwik-city";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { StatePanel } from "~/components/state-panel";
+import { SubmitButton } from "~/components/submit-button";
+import { Toast, type ToastState } from "~/components/toast";
 import {
+  backLink,
   buttonPrimary,
   card,
   field,
@@ -147,6 +150,20 @@ export default component$(() => {
   const action = useUpdateMedia();
   // The list this page was opened from (view, folder, filter, page).
   const backHref = safeBackHref(useLocation().url.searchParams.get("back"));
+  const toast = useSignal<ToastState | null>(null);
+  useTask$(({ track }) => {
+    const v = track(() => action.value);
+    if (!v) return;
+    toast.value = v.failed
+      ? {
+          tone: "error",
+          message: `Save failed: ${v.message ?? "unknown error"}`,
+        }
+      : {
+          tone: "success",
+          message: `Saved at ${formatJst(v.updated_at)} JST.`,
+        };
+  });
 
   if (media.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/media/" />;
@@ -188,7 +205,7 @@ export default component$(() => {
     <div class="mx-auto max-w-3xl space-y-6">
       <div>
         <nav aria-label="Breadcrumb" class="text-sm">
-          <Link href={backHref} class={link}>
+          <Link href={backHref} class={backLink}>
             ← Media
           </Link>
         </nav>
@@ -262,7 +279,11 @@ export default component$(() => {
         </dd>
       </dl>
 
-      <Form action={action} class={[card, "space-y-6 p-5"]}>
+      <Form
+        action={action}
+        aria-busy={action.isRunning}
+        class={[card, "space-y-6 p-5"]}
+      >
         <fieldset class="space-y-3">
           <legend class={legend}>Visibility</legend>
           <div class="grid gap-2 sm:grid-cols-3">
@@ -365,23 +386,16 @@ export default component$(() => {
         </fieldset>
 
         <div class="flex flex-wrap items-center gap-3 border-t border-zinc-200 pt-5 dark:border-zinc-800">
-          <button type="submit" class={buttonPrimary}>
+          <SubmitButton
+            running={action.isRunning}
+            pendingLabel="保存中…"
+            class={buttonPrimary}
+          >
             Save
-          </button>
-          <div role="status" aria-live="polite" class="text-sm">
-            {action.value?.ok && (
-              <p class="text-emerald-700 dark:text-emerald-400">
-                Saved at {formatJst(action.value.updated_at)} JST.
-              </p>
-            )}
-          </div>
-          {action.value?.failed && (
-            <p role="alert" class="text-sm text-red-700 dark:text-red-400">
-              Save failed: {action.value.message ?? "unknown error"}
-            </p>
-          )}
+          </SubmitButton>
         </div>
       </Form>
+      <Toast toast={toast} />
     </div>
   );
 });
