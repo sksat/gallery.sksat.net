@@ -45,6 +45,7 @@ import {
   type IncompleteUpload,
 } from "~/lib/db-upload";
 import { getUploadConfig } from "~/lib/b2";
+import { getObjectStat } from "~/lib/object-stat";
 import {
   IncompleteUploads,
   UploadButton,
@@ -129,7 +130,7 @@ type MediaListResult =
   | { kind: "missing-binding" };
 
 export const useMediaList = routeLoader$<MediaListResult>(
-  async ({ platform, query, status, redirect }) => {
+  async ({ platform, query, status, redirect, url }) => {
     let db: D1Database;
     try {
       db = getDB(platform);
@@ -177,7 +178,10 @@ export const useMediaList = routeLoader$<MediaListResult>(
           folder: findFolder(tree, dir),
           files: filesInDir(rows, dir),
           truncated,
-          uploadEnabled: getUploadConfig(platform) !== null,
+          // Both halves: the presigned PUT and the check that completes it.
+          uploadEnabled:
+            getUploadConfig(platform) !== null &&
+            getObjectStat(platform, url, null) !== null,
           incomplete: (await listIncompleteUploads(db)).filter(
             (u) => dirOf(u.file) === dir,
           ),

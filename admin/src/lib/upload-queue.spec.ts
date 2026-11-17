@@ -122,6 +122,49 @@ describe("createUploadQueue", () => {
     h.queue.add("/a", [src("IMG.png")]);
     await flush();
     expect(h.items()[0].file).toBe("/a/IMG-1.png");
+    expect(h.items()[0].message).toBe("/a/IMG-1.png として登録します");
+  });
+
+  it("asks for the original path again on a manual retry", async () => {
+    const h = harness({
+      maxAttempts: 1,
+      init: vi.fn(async (req) => ({
+        status: "upload" as const,
+        id: 7,
+        file: req.file.replace(".png", "-1.png"),
+        url: "https://b2.example/x",
+        headers: {},
+      })),
+    });
+    h.queue.add("/a", [src("IMG.png")]);
+    await flush();
+    h.puts[0].reject(new UploadError("e", true));
+    await flush();
+    h.queue.retry(h.items()[0].key);
+    await flush();
+    h.puts[1].resolve();
+    await flush();
+    expect(vi.mocked(h.deps.init).mock.calls.map(([r]) => r.file)).toEqual([
+      "/a/IMG.png",
+      "/a/IMG.png",
+    ]);
+    expect(h.items()[0]).toMatchObject({
+      status: "done",
+      message: "/a/IMG-1.png として登録します",
+    });
+  });
+
+  it("skips a file that prepare refuses for good", async () => {
+    const h = harness({
+      prepare: vi.fn(async () => {
+        throw new UploadError("PNG / JPEG ではありません", false);
+      }),
+    });
+    h.queue.add("/", [src("fake.png")]);
+    await flush();
+    expect(h.status()).toEqual(["fake.png:skipped"]);
+    expect(h.items()[0].message).toBe("PNG / JPEG ではありません");
+    expect(h.deps.init).not.toHaveBeenCalled();
   });
 
   it("prepares (hashes) one file at a time", async () => {

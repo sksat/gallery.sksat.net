@@ -3,8 +3,8 @@
 //
 // The key is a B2 application key restricted to the bucket with "Write
 // Only" access (writeFiles): it can upload, but cannot read, list or HEAD
-// objects. So the admin cannot check an upload itself; the browser reports
-// a successful PUT and the row is marked ready (see /api/upload/[id]).
+// objects. So the admin checks an upload through the image Worker's
+// AdminImage.stat, which has a read key (object-stat.ts, /api/upload/[id]).
 // Production secrets only: preview deployments run unreviewed code.
 
 import { amzDatetime, presign } from "./sigv4";

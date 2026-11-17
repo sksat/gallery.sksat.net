@@ -134,7 +134,8 @@ export const createUploadQueue = <S extends UploadSource>(
   const concurrency = deps.concurrency ?? DEFAULT_CONCURRENCY;
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const backoff = deps.backoffMs ?? defaultBackoff;
-  const entries: { item: UploadItem; source: S }[] = [];
+  /** `target`: the path asked for (item.file becomes where it went). */
+  const entries: { item: UploadItem; source: S; target: string }[] = [];
   let nextKey = 1;
   let active = 0;
   /** The last prepare() started; the next one waits for it. */
@@ -164,17 +165,31 @@ export const createUploadQueue = <S extends UploadSource>(
     }
   };
 
-  const upload = async (item: UploadItem, source: S): Promise<void> => {
+  const upload = async (
+    item: UploadItem,
+    source: S,
+    requested: string,
+  ): Promise<void> => {
     set(item, { status: "preparing", loaded: 0, message: null });
     // One file at a time: hashing reads the whole file into memory.
     const turn = preparing.then(() => deps.prepare(source));
     preparing = turn.catch(() => {});
-    const prepared = await turn;
+    let prepared: Prepared;
+    try {
+      prepared = await turn;
+    } catch (err) {
+      // Not uploadable as it is (e.g. a renamed HEIC): retrying won't help.
+      if (isRetryable(err)) throw err;
+      set(item, { status: "skipped", message: errorMessage(err) });
+      return;
+    }
+    /** Said when the server put it elsewhere (a numbered name, a resume). */
+    let note: string | null = null;
     // The media id once the file is in the bucket, null when skipped.
     const id = await withRetry(item, async (): Promise<number | null> => {
       set(item, { status: "uploading", loaded: 0 });
       const init = await deps.init({
-        file: item.file,
+        file: requested,
         size: item.size,
         ...prepared,
       });
@@ -183,13 +198,14 @@ export const createUploadQueue = <S extends UploadSource>(
           status: "skipped",
           mediaId: init.id,
           message:
-            init.file === item.file
+            init.file === requested
               ? "アップロード済みです"
               : `同じ写真が ${init.file} にあります`,
         });
         return null;
       }
-      set(item, { mediaId: init.id, file: init.file, message: null });
+      note = init.file === requested ? null : `${init.file} として登録します`;
+      set(item, { mediaId: init.id, file: init.file, message: note });
       await deps.put(init, source, (loaded) =>
         set(item, { loaded: Math.min(loaded, item.size) }),
       );
@@ -201,11 +217,11 @@ export const createUploadQueue = <S extends UploadSource>(
     set(item, {
       status: "completing",
       loaded: item.size,
-      message: null,
+      message: note,
       attempts: 0,
     });
     await withRetry(item, () => deps.complete(id));
-    set(item, { status: "done", message: null });
+    set(item, { status: "done", message: note });
   };
 
   const pump = () => {
@@ -215,7 +231,7 @@ export const createUploadQueue = <S extends UploadSource>(
       active++;
       // Marked before the first await so the loop does not pick it again.
       next.item.status = "preparing";
-      upload(next.item, next.source)
+      upload(next.item, next.source, next.target)
         .catch((err) =>
           set(next.item, { status: "failed", message: errorMessage(err) }),
         )
@@ -241,7 +257,7 @@ export const createUploadQueue = <S extends UploadSource>(
           mediaId: null,
           attempts: 0,
         };
-        entries.push({ item, source });
+        entries.push({ item, source, target: item.file });
       }
       changed();
       pump();

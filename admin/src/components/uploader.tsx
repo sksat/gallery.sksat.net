@@ -282,9 +282,14 @@ export const UploadPanel = component$<PanelProps>(
     const list = uploader.items.value;
     if (list.length === 0) return null;
     const { count, active, progress } = summarize(list);
-    const uploadedIds = list
-      .filter((i) => i.status === "done" && i.mediaId !== null)
-      .map((i) => i.mediaId as number);
+    // Unique: the same file picked twice resumes one row.
+    const uploadedIds = [
+      ...new Set(
+        list
+          .filter((i) => i.status === "done" && i.mediaId !== null)
+          .map((i) => i.mediaId as number),
+      ),
+    ];
     const total = list.length - count.skipped;
     const finished = count.done + count.failed;
     return (
