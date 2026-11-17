@@ -94,6 +94,9 @@ export const CameraFields = component$<{ values?: CameraFieldValues }>(
               placeholder="e.g. virtuallens2"
               maxLength={MAX_CAMERA_SLUG_LEN}
               pattern="[a-z0-9]+(-[a-z0-9]+)*"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellcheck={false}
               aria-describedby="camera-slug-help"
               class={field}
             />

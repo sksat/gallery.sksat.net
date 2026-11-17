@@ -543,6 +543,10 @@ export default component$(() => {
             name="q"
             value={q}
             placeholder="e.g. 2023-12"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellcheck={false}
+            enterKeyHint="search"
             class={field}
           />
         </div>

@@ -74,6 +74,10 @@
     /* The selection bar's height (two 44px rows + padding); keep in sync. */
     --bottom-ui: 7.5rem;
   }
+  /* One 44px row + padding (the edit page's save bar). */
+  :root:has([data-bottom-bar="short"]) {
+    --bottom-ui: 4.5rem;
+  }
   body:has([data-bottom-bar]) main {
     padding-bottom: calc(var(--bottom-ui) + env(safe-area-inset-bottom) + 1rem);
   }
