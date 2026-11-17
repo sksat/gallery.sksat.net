@@ -13,16 +13,48 @@ import {
   worldBadge,
 } from "~/components/ui";
 import { listMedia } from "~/lib/db";
+import { listMediaFiles } from "~/lib/db-files";
+import { FileBrowser, type FileTile } from "~/components/file-browser";
 import { Thumb } from "~/components/thumb";
 import { getDB, getImageBase } from "~/lib/env";
-import { formatJst, lastPage, mediaListHref, splitPath } from "~/lib/format";
+import {
+  buildFolderTree,
+  filesInDir,
+  findFolder,
+  normalizeDir,
+  type FolderNode,
+} from "~/lib/folders";
+import {
+  formatJst,
+  lastPage,
+  mediaListHref,
+  parseView,
+  splitPath,
+  type MediaView,
+} from "~/lib/format";
 import type { MediaRow, MediaWorld } from "~/lib/types";
 
 const PAGE_SIZE = 100;
+/**
+ * The files view builds its tree from every (filtered) row in one query of
+ * id/file/world. Far above today's size; past it the tree is incomplete
+ * (the alphabetically last paths are missing) and says so.
+ */
+const FILES_LIMIT = 10_000;
+
+type FilesData = {
+  tree: FolderNode;
+  dir: string;
+  folder: FolderNode | null;
+  files: FileTile[];
+  /** More rows matched than FILES_LIMIT. */
+  truncated: boolean;
+};
 
 type MediaListResult =
   | {
       kind: "ok";
+      view: MediaView;
       rows: MediaRow[];
       total: number;
       page: number;
@@ -30,6 +62,8 @@ type MediaListResult =
       q: string;
       /** Image Worker base URL, or null for placeholder tiles. */
       imageBase: string | null;
+      /** Only for view === "files". */
+      files: FilesData | null;
     }
   | { kind: "missing-binding" };
 
@@ -47,6 +81,35 @@ export const useMediaList = routeLoader$<MediaListResult>(
     const world: MediaWorld | undefined =
       worldRaw === "Real" || worldRaw === "VRChat" ? worldRaw : undefined;
     const q = query.get("q")?.trim() || undefined;
+    const imageBase = getImageBase(platform);
+
+    if (parseView(query.get("view")) === "files") {
+      const { rows, truncated } = await listMediaFiles(db, {
+        world,
+        q,
+        limit: FILES_LIMIT,
+      });
+      const dir = normalizeDir(query.get("dir"));
+      const tree = buildFolderTree(rows.map((r) => r.file));
+      return {
+        kind: "ok",
+        view: "files",
+        rows: [],
+        total: rows.length,
+        page: 1,
+        world: world ?? null,
+        q: q ?? "",
+        imageBase,
+        files: {
+          tree,
+          dir,
+          folder: findFolder(tree, dir),
+          files: filesInDir(rows, dir),
+          truncated,
+        },
+      };
+    }
+
     const pageRaw = Number(query.get("page") ?? "1");
     const page = Number.isInteger(pageRaw) && pageRaw > 0 ? pageRaw : 1;
     const offset = (page - 1) * PAGE_SIZE;
@@ -67,12 +130,14 @@ export const useMediaList = routeLoader$<MediaListResult>(
     }
     return {
       kind: "ok",
+      view: "list",
       rows,
       total,
       page,
       world: world ?? null,
       q: q ?? "",
-      imageBase: getImageBase(platform),
+      imageBase,
+      files: null,
     };
   },
 );
@@ -122,22 +187,56 @@ export default component$(() => {
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
-  const { rows, total, page, world, q, imageBase } = data.value;
+  const { view, rows, total, page, world, q, imageBase, files } = data.value;
   const pageCount = lastPage(total, PAGE_SIZE);
   const filtered = Boolean(world || q);
+  const dir = files?.dir ?? "/";
   const pageUrl = (p: number) => mediaListHref({ world, q, page: p });
   const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = (page - 1) * PAGE_SIZE + rows.length;
+  // Switching keeps the filter; the folder is remembered only in files view.
+  const viewTabs: { view: MediaView; label: string; href: string }[] = [
+    { view: "list", label: "List", href: mediaListHref({ world, q }) },
+    {
+      view: "files",
+      label: "Files",
+      href: mediaListHref({ view: "files", dir, world, q }),
+    },
+  ];
 
   return (
     <div class="space-y-6">
-      <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-3">
         <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">
           Media <span class={["font-normal", muted]}>({total})</span>
         </h1>
-        <p class={["text-sm", muted]}>
-          Click a row to edit its metadata. Times are JST.
-        </p>
+        <div class="flex flex-wrap items-center gap-3">
+          <p class={["text-sm", muted]}>
+            {view === "files"
+              ? "Click a photo to edit its metadata."
+              : "Click a row to edit its metadata. Times are JST."}
+          </p>
+          <nav
+            aria-label="View"
+            class="inline-flex rounded-lg border border-zinc-300 bg-white p-0.5 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {viewTabs.map((t) => (
+              <Link
+                key={t.view}
+                href={t.href}
+                aria-current={t.view === view ? "page" : undefined}
+                class={[
+                  "rounded-md px-3 py-1 font-medium",
+                  t.view === view
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                ]}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
       </div>
 
       <form
@@ -149,6 +248,12 @@ export default component$(() => {
           "grid gap-3 p-4 sm:grid-cols-[10rem_1fr_auto] sm:items-end",
         ]}
       >
+        {view === "files" && (
+          <>
+            <input type="hidden" name="view" value="files" />
+            {dir !== "/" && <input type="hidden" name="dir" value={dir} />}
+          </>
+        )}
         <div>
           <label for="filter-world" class={label}>
             World
@@ -183,20 +288,23 @@ export default component$(() => {
             Filter
           </button>
           {filtered && (
-            <Link href="/media/" class={buttonSecondary}>
+            <Link href={mediaListHref({ view, dir })} class={buttonSecondary}>
               Reset
             </Link>
           )}
         </div>
       </form>
 
-      {rows.length === 0 ? (
+      {total === 0 ? (
         filtered ? (
           <StatePanel
             tone="empty"
             level={2}
             title="No media match these filters"
-            action={{ href: "/media/", label: "Clear filters" }}
+            action={{
+              href: mediaListHref({ view, dir }),
+              label: "Clear filters",
+            }}
           >
             <p>
               Nothing in D1 matches
@@ -219,6 +327,24 @@ export default component$(() => {
             </p>
           </StatePanel>
         )
+      ) : view === "files" && files ? (
+        <>
+          {files.truncated && (
+            <p role="status" class="text-sm text-amber-700 dark:text-amber-400">
+              More than {FILES_LIMIT} files match: only the first {FILES_LIMIT}{" "}
+              by path are in the tree. Narrow the filter to see the rest.
+            </p>
+          )}
+          <FileBrowser
+            tree={files.tree}
+            dir={files.dir}
+            folder={files.folder}
+            files={files.files}
+            imageBase={imageBase}
+            world={world}
+            q={q}
+          />
+        </>
       ) : (
         <>
           {/* sm and up: table. Every row is one link target (stretched link). */}
@@ -346,7 +472,7 @@ export default component$(() => {
         </>
       )}
 
-      {total > 0 && (
+      {total > 0 && view === "list" && (
         <nav
           aria-label="Pagination"
           class="flex flex-wrap items-center justify-between gap-3 text-sm"

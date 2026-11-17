@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatJst, lastPage, mediaListHref, splitPath } from "./format";
+import {
+  formatJst,
+  lastPage,
+  mediaListHref,
+  parseView,
+  splitPath,
+} from "./format";
 
 describe("splitPath", () => {
   it("splits a nested path into folder and basename", () => {
@@ -67,6 +73,39 @@ describe("mediaListHref", () => {
 
   it("adds page beyond the first", () => {
     expect(mediaListHref({ q: "x", page: 3 })).toBe("/media/?q=x&page=3");
+  });
+
+  it("omits the default list view and ignores dir there", () => {
+    expect(mediaListHref({ view: "list", dir: "/VRChat" })).toBe("/media/");
+  });
+
+  it("keeps the files view, a readable dir and the filter, but no page", () => {
+    expect(
+      mediaListHref({
+        view: "files",
+        dir: "/VRChat/2023-12",
+        world: "VRChat",
+        page: 2,
+      }),
+    ).toBe("/media/?view=files&dir=/VRChat/2023-12&world=VRChat");
+    expect(mediaListHref({ view: "files", dir: "/" })).toBe(
+      "/media/?view=files",
+    );
+  });
+
+  it("still escapes other characters in dir", () => {
+    expect(mediaListHref({ view: "files", dir: "/a b&c" })).toBe(
+      "/media/?view=files&dir=/a+b%26c",
+    );
+  });
+});
+
+describe("parseView", () => {
+  it("is files only for exactly 'files'", () => {
+    expect(parseView("files")).toBe("files");
+    expect(parseView("list")).toBe("list");
+    expect(parseView(null)).toBe("list");
+    expect(parseView("FILES")).toBe("list");
   });
 });
 
