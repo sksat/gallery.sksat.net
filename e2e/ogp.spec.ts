@@ -33,8 +33,9 @@ test("photo page: card describing the photo", async ({ page }) => {
   expect(await meta(page, "og:type")).toBe("article");
   expect(await meta(page, "og:url")).toBe("https://gallery.sksat.net/photo/1/");
   expect(await meta(page, "og:title")).toBe(title);
+  // The camera's published display name (media.json `camera.name`).
   expect(await meta(page, "og:description")).toBe(
-    "2023年12月2日 09:00 撮影。タグ: VRChat。カメラ: logilabo VirtualLens2。",
+    "2023年12月2日 09:00 撮影。タグ: VRChat。カメラ: VirtualLens2。",
   );
   expect(await meta(page, "og:image")).toMatch(/\/test-media\/+mock\/vrchat1\.png$/);
   expect(await meta(page, "og:image:alt")).toBe("2023年12月2日の写真");

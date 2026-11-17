@@ -6,9 +6,15 @@
  */
 import type { DocumentHeadValue } from "@builder.io/qwik-city";
 
+import { cameraHref, cameraLabel, takenWith } from "./gallery/cameras";
 import { dimensionsFromFile, imageUrl } from "./gallery/images";
 import { mediaTags } from "./gallery/tags";
-import { parseMediaTimestamp, type MediaInfoJSON } from "./gallery/types";
+import {
+  parseMediaTimestamp,
+  transformMediaInfo,
+  type CameraJSON,
+  type MediaInfoJSON,
+} from "./gallery/types";
 
 export const SITE_URL = "https://gallery.sksat.net";
 export const SITE_NAME = "sksat gallery";
@@ -119,7 +125,7 @@ export const photoOgp = (
   const taken = parseMediaTimestamp(m.timestamp);
   const jst = taken && formatJst(taken);
   const tags = mediaTags({ ...m, timestamp: taken });
-  const camera = m.camera && `${m.camera.make} ${m.camera.model}`;
+  const camera = m.camera && cameraLabel(m.camera);
 
   const subject = jst ? `${jst.date}の写真` : `写真 #${id}`;
   const description = [
@@ -137,6 +143,32 @@ export const photoOgp = (
     url: `${SITE_URL}/photo/${id}/`,
     type: "article",
     image: ogImage(bases, m.file, subject, "og"),
+  };
+};
+
+/**
+ * Card for /camera/<slug>/: the camera's first picture, else the newest
+ * photo taken with it (both as the plain `og-site` card).
+ */
+export const cameraOgp = (
+  bases: ImageBases,
+  media: MediaInfoJSON[],
+  camera: CameraJSON,
+): Ogp => {
+  const own = media.filter((m) =>
+    takenWith(transformMediaInfo(m), camera.slug),
+  );
+  const newest = newestMediaIndex(own);
+  const file =
+    camera.images.at(0)?.file ?? (newest === null ? null : own[newest].file);
+  return {
+    title: `${camera.name} | ${SITE_NAME}`,
+    description:
+      camera.description?.split("\n")[0] ||
+      `${camera.name} で撮った写真 (${own.length} 枚)。`,
+    url: SITE_URL + cameraHref(camera.slug),
+    type: "website",
+    image: file === null ? null : ogImage(bases, file, camera.name, "og-site"),
   };
 };
 

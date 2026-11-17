@@ -59,7 +59,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - **File-based routing**: Routes defined in `src/routes/` directory
 - **Layout system**: `src/routes/layout.tsx` provides shared layout (Header/Footer) with caching configuration
-- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing
+- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing, `/camera/[slug]/` for a camera's details and its photos (data from `cameras.json`, falling back to the `camera` fields in `media.json`; see `src/components/gallery/cameras.ts`)
 - **Path alias**: `~/` maps to `./src/` (configured in tsconfig.json)
 
 ### Core Components
@@ -70,7 +70,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 - Fetches `media.json` index from S3 via `VITE_S3_BASE_URL` environment variable
 - State management: tag filter (AND/OR; `world` is treated as one more tag, see `tags.ts`), selected image overlay
 - Keyboard navigation: Arrow keys to browse within the filtered photos when an image is selected
-- URL history: the filter lives in the query (`?tag=a&tag=b&mode=or`, replaceState); selecting an image pushes `/photo/[imageId]?<same query>`
+- URL history: the filter lives in the query (`?tag=a&tag=b&mode=or`, replaceState); selecting an image pushes `/photo/[imageId]?<same query>`. On a camera page the same Gallery runs with a camera filter; a photo opened there carries `?camera=<slug>` so closing it returns to `/camera/<slug>/`
 
 **Media Data Flow**
 

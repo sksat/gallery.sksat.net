@@ -9,11 +9,26 @@ import { useLocation } from "@builder.io/qwik-city";
 
 import {
   transformMediaInfo,
+  type CameraJSON,
   type MediaInfo,
   type MediaInfoJSON,
   type MediaIndex,
 } from "./types";
-import { galleryUrl, navigateImage, photoIdFromPath } from "./logic";
+import {
+  galleryUrl,
+  navigateImage,
+  photoIdFromPath,
+  visibleMedia,
+} from "./logic";
+import {
+  cameraHref,
+  cameraLabel,
+  cameraSlug,
+  cameraSlugFromPath,
+  findCamera,
+  parseCameras,
+} from "./cameras";
+import { CameraHeader } from "./camera-header";
 import {
   dimensionsFromFile,
   GRID_CANDIDATES,
@@ -29,7 +44,6 @@ import {
   type SortOrder,
 } from "./sort";
 import {
-  filterMediaByTags,
   parseTagFilter,
   tagCounts,
   toggleTag,
@@ -45,7 +59,9 @@ interface GalleryState {
   selectedImageId: null | number;
   filter: TagFilter;
   sort: SortOrder;
-  /** Every photo's index in display (sorted) order. */
+  /** Camera slug on a camera page, else null. */
+  camera: null | string;
+  /** Every photo's (on a camera page: the camera's) index in display order. */
   allIndices: number[];
   /** The filtered photos' indices in display order. */
   filteredIndices: number[];
@@ -62,8 +78,9 @@ const MODE_LABELS: Record<TagMatchMode, string> = {
 };
 
 /**
- * Photo, filter and sort order as encoded in a URL. `?imageId=` is the old
- * share format and is still honoured on `/`.
+ * Photo, filter, sort order and camera as encoded in a URL. `?imageId=` is
+ * the old share format and is still honoured on `/`. The camera comes from
+ * a `/camera/<slug>/` path, or `?camera=` on a photo opened from one.
  */
 const stateFromUrl = (url: URL) => ({
   selectedImageId:
@@ -71,29 +88,54 @@ const stateFromUrl = (url: URL) => ({
     photoIdFromPath(`/photo/${url.searchParams.get("imageId")}`),
   filter: parseTagFilter(url.searchParams),
   sort: parseSort(url.searchParams),
+  camera:
+    cameraSlugFromPath(url.pathname) ??
+    (url.searchParams.get("camera") || null),
 });
+
+type GalleryData = {
+  media: MediaIndex;
+  /** cameras.json, or null when it is not published (yet). */
+  cameras: CameraJSON[] | null;
+};
+
+const loadMedia = (): Promise<MediaIndex> =>
+  fetch(S3_BASE + "/media.json")
+    .then((res) => {
+      if (!res.ok) {
+        throw new Error(`Failed to fetch media.json: ${res.status}`);
+      }
+      return res.json();
+    })
+    .then((data: MediaInfoJSON[]) => data.map(transformMediaInfo))
+    .catch((error) => {
+      console.error("Failed to load media index:", error);
+      return [] as MediaInfo[];
+    });
+
+// Optional: without it the camera header falls back to media.json.
+const loadCameras = (): Promise<CameraJSON[] | null> =>
+  fetch(S3_BASE + "/cameras.json")
+    .then((res) => (res.ok ? res.json().then(parseCameras) : null))
+    .catch(() => null);
 
 export default component$(() => {
   const location = useLocation();
-  const indexResource = useResource$(() => {
-    return fetch(import.meta.env.VITE_S3_BASE_URL + "/media.json")
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`Failed to fetch media.json: ${res.status}`);
-        }
-        return res.json();
-      })
-      .then((data: MediaInfoJSON[]) => data.map(transformMediaInfo))
-      .catch((error) => {
-        console.error("Failed to load media index:", error);
-        return [] as MediaInfo[];
-      });
-  });
-
   const state = useStore<GalleryState>({
     ...stateFromUrl(location.url),
     allIndices: [],
     filteredIndices: [],
+  });
+  // The camera never changes within one page load (Back/Forward only moves
+  // between a camera page and its photos), so it is read once, untracked.
+  const onCameraPage = state.camera !== null;
+  const indexResource = useResource$<GalleryData>(async () => {
+    // cameras.json is only needed for a camera page's header.
+    const [media, cameras] = await Promise.all([
+      loadMedia(),
+      onCameraPage ? loadCameras() : Promise.resolve(null),
+    ]);
+    return { media, cameras };
   });
 
   // Filter and sort changes replace the history entry instead of pushing
@@ -103,7 +145,7 @@ export default component$(() => {
     window.history.replaceState(
       null,
       "",
-      galleryUrl(state.selectedImageId, filter, state.sort),
+      galleryUrl(state.selectedImageId, filter, state.sort, state.camera),
     );
   });
 
@@ -112,7 +154,7 @@ export default component$(() => {
     window.history.replaceState(
       null,
       "",
-      galleryUrl(state.selectedImageId, state.filter, sort),
+      galleryUrl(state.selectedImageId, state.filter, sort, state.camera),
     );
   });
 
@@ -126,7 +168,7 @@ export default component$(() => {
     window.history.pushState(
       null,
       "",
-      galleryUrl(imageId, state.filter, state.sort),
+      galleryUrl(imageId, state.filter, state.sort, state.camera),
     );
   });
 
@@ -136,7 +178,7 @@ export default component$(() => {
     window.history.replaceState(
       null,
       "",
-      galleryUrl(imageId, state.filter, state.sort),
+      galleryUrl(imageId, state.filter, state.sort, state.camera),
     );
   });
 
@@ -177,13 +219,24 @@ export default component$(() => {
     >
       <Resource
         value={indexResource}
-        onResolved={(media: MediaIndex) => {
-          const allSorted = sortMedia(
-            media.map((value, index) => ({ index, value })),
-            state.sort,
+        onResolved={({ media, cameras }: GalleryData) => {
+          // An unknown `?camera=` on a photo link is ignored (an unknown
+          // /camera/<slug>/ is already a 404 from its route loader).
+          const cameraInfo =
+            state.camera === null
+              ? null
+              : findCamera(cameras, media, state.camera);
+          const camera = cameraInfo === null ? null : state.camera;
+          // On a camera page, "every photo" means every photo taken with
+          // that camera: the tag counts and the arrow-key fallback use it.
+          const scope = visibleMedia(
+            media,
+            { tags: [], mode: state.filter.mode },
+            camera,
           );
+          const allSorted = sortMedia(scope, state.sort);
           const filteredMedia = sortMedia(
-            filterMediaByTags(media, state.filter),
+            visibleMedia(media, state.filter, camera),
             state.sort,
           );
           const selectedTags = state.filter.tags;
@@ -193,6 +246,13 @@ export default component$(() => {
 
           return (
             <>
+              {camera !== null && (
+                <CameraHeader
+                  slug={camera}
+                  camera={cameraInfo}
+                  count={scope.length}
+                />
+              )}
               <div class="mb-3 flex flex-col gap-3 px-1">
                 <div class="flex min-h-8 flex-wrap items-center gap-4 text-sm">
                   <span
@@ -266,34 +326,36 @@ export default component$(() => {
                   aria-label="タグで絞り込む"
                   class="flex flex-wrap items-center gap-2"
                 >
-                  {tagCounts(media).map(({ tag, count }) => {
-                    const pressed = selectedTags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        data-testid="tag-chip"
-                        aria-pressed={pressed}
-                        onClick$={() =>
-                          setFilter({
-                            tags: toggleTag(state.filter.tags, tag),
-                            mode: state.filter.mode,
-                          })
-                        }
-                        class={[
-                          "rounded-full border px-3 py-1.5 text-sm transition-colors",
-                          pressed
-                            ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-bg)]"
-                            : "border-white/30 hover:border-white/70",
-                        ]}
-                      >
-                        {tag}
-                        <span class="ml-1.5 tabular-nums opacity-70">
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
+                  {tagCounts(scope.map((m) => m.value)).map(
+                    ({ tag, count }) => {
+                      const pressed = selectedTags.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          data-testid="tag-chip"
+                          aria-pressed={pressed}
+                          onClick$={() =>
+                            setFilter({
+                              tags: toggleTag(state.filter.tags, tag),
+                              mode: state.filter.mode,
+                            })
+                          }
+                          class={[
+                            "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                            pressed
+                              ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-bg)]"
+                              : "border-white/30 hover:border-white/70",
+                          ]}
+                        >
+                          {tag}
+                          <span class="ml-1.5 tabular-nums opacity-70">
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    },
+                  )}
                   {selectedTags.length >= 2 && (
                     <fieldset class="ml-2 flex items-center gap-3 text-sm">
                       <legend class="sr-only">複数タグの条件</legend>
@@ -351,6 +413,7 @@ export default component$(() => {
                   filteredMedia.map((m) => (
                     <div
                       key={m.index}
+                      data-testid="gallery-tile"
                       // Row height steps with the width so a 16:9 photo
                       // sits about 2-3 per row and is cropped little.
                       class="group relative h-24 grow overflow-hidden sm:h-32 md:h-40 lg:h-48 xl:h-60"
@@ -375,11 +438,22 @@ export default component$(() => {
                         loading="lazy"
                         decoding="async"
                       />
-                      <div class="pointer-events-none absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-hover:opacity-100">
+                      <div class="pointer-events-none absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100">
                         <div>{m.value.timestamp?.toLocaleString("ja-JP")}</div>
                         {m.value.camera && (
                           <div>
-                            {m.value.camera.make} {m.value.camera.model}
+                            {/*
+                              Clickable only while the caption shows, so a
+                              click on an unhovered tile still opens the
+                              photo. Plain <a>: see layout/header.tsx.
+                            */}
+                            <a
+                              data-testid="camera-link"
+                              href={cameraHref(cameraSlug(m.value.camera))}
+                              class="pointer-events-none text-white underline decoration-white/50 underline-offset-2 group-focus-within:pointer-events-auto group-hover:pointer-events-auto hover:decoration-white"
+                            >
+                              {cameraLabel(m.value.camera)}
+                            </a>
                           </div>
                         )}
                         <div class="flex gap-2">

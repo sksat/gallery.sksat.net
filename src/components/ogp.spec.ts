@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { MediaInfoJSON } from "./gallery/types";
+import type { CameraJSON, MediaInfoJSON } from "./gallery/types";
 import {
+  cameraOgp,
   fallbackOgp,
   formatJst,
   newestMediaIndex,
@@ -107,6 +108,48 @@ describe("photoOgp", () => {
   it("is null for an id out of range", () => {
     expect(photoOgp(worker, [real], 1)).toBeNull();
     expect(photoOgp(worker, [real], -1)).toBeNull();
+  });
+});
+
+describe("cameraOgp", () => {
+  const vl2: CameraJSON = {
+    slug: "virtuallens2",
+    name: "VirtualLens2",
+    make: "logilabo",
+    model: "VirtualLens2",
+    kind: "virtual",
+    description: null,
+    productUrl: null,
+    images: [],
+  };
+
+  it("uses the camera's first picture as the card", () => {
+    const ogp = cameraOgp(worker, [vrchat, real], {
+      ...vl2,
+      description: "First line\nsecond line",
+      images: [
+        { file: "/cameras/a.png", caption: null },
+        { file: "/cameras/b.png", caption: null },
+      ],
+    });
+    expect(ogp.title).toBe("VirtualLens2 | sksat gallery");
+    expect(ogp.description).toBe("First line");
+    expect(ogp.url).toBe("https://gallery.sksat.net/camera/virtuallens2/");
+    expect(ogp.image?.url).toBe(
+      "https://gallery.sksat.net/img/og-site/cameras/a.png",
+    );
+  });
+
+  it("falls back to the newest photo taken with it", () => {
+    const ogp = cameraOgp(worker, [vrchat, real], vl2);
+    expect(ogp.description).toBe("VirtualLens2 で撮った写真 (1 枚)。");
+    expect(ogp.image?.url).toBe(
+      "https://gallery.sksat.net/img/og-site" + vrchat.file,
+    );
+  });
+
+  it("has no image when there is nothing to show", () => {
+    expect(cameraOgp(worker, [real], vl2).image).toBeNull();
   });
 });
 

@@ -3,7 +3,12 @@
     "file": "/mock/real1.png",
     "world": "Real",
     "timestamp": "2023-12-01T00:00:00Z",
-    "camera": null,
+    "camera": {
+      "make": "Asahi",
+      "model": "Pentax SP",
+      "slug": "pentax-sp",
+      "name": "PENTAX SP"
+    },
     "tags": ["film"]
   },
   {
@@ -12,7 +17,9 @@
     "timestamp": "2023-12-02T00:00:00Z",
     "camera": {
       "make": "logilabo",
-      "model": "VirtualLens2"
+      "model": "VirtualLens2",
+      "slug": "virtuallens2",
+      "name": "VirtualLens2"
     },
     "tags": ["VRChat"]
   },
@@ -34,7 +41,10 @@
     "file": "/mock/vrchat3.png",
     "world": "VRChat",
     "timestamp": "2023-12-05T00:00:00Z",
-    "camera": null,
+    "camera": {
+      "make": "logilabo",
+      "model": "VirtualLens2"
+    },
     "tags": ["VRChat"]
   }
 ]
