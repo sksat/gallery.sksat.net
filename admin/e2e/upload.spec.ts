@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 // Uploads from the Files view into a fake bucket (e2e/fake-b2.mjs on
@@ -290,6 +293,84 @@ test("閉じる after a failure clears the panel and completes stored files", as
   expect(await putCount(page, "/mock/up-close/d.png")).toBe(1);
 });
 
+test("upload a folder: its subfolders are created under the open one", async ({
+  page,
+}) => {
+  const root = mkdtempSync(join(tmpdir(), "admin-upload-"));
+  const trip = join(root, "Trip 1");
+  mkdirSync(join(trip, "day1"), { recursive: true });
+  writeFileSync(join(trip, "b.jpg"), jpeg("b.jpg", "n").buffer);
+  writeFileSync(join(trip, "day1", "a.png"), png("a.png", "o").buffer);
+  writeFileSync(join(trip, ".DS_Store"), "x");
+  writeFileSync(join(trip, "notes.txt"), "hello");
+
+  await newFolder(page, "/mock", "up-dir");
+  await expect(page.getByTestId("upload-folder")).toBeVisible();
+  await page.getByTestId("upload-folder-input").setInputFiles(trip);
+
+  const panel = page.getByTestId("upload-panel");
+  // The hidden file is left out; the text file is skipped.
+  await expect(rows(page)).toHaveCount(3);
+  await expect(panel.getByRole("heading")).toHaveText(
+    "2 件アップロードしました",
+  );
+  await expect(rows(page).filter({ hasText: "notes.txt" })).toHaveAttribute(
+    "data-status",
+    "skipped",
+  );
+  expect(await uploadedKeys(page)).toEqual(
+    expect.arrayContaining([
+      "/mock/up-dir/Trip_1/b.jpg",
+      "/mock/up-dir/Trip_1/day1/a.png",
+    ]),
+  );
+  // The new folders are in the tree.
+  await expect(page.getByTestId("folder-tile")).toHaveText(/Trip_1\s*2/);
+});
+
+test("drop files on the Files view to upload them", async ({ page }) => {
+  await newFolder(page, "/mock", "up-drop");
+  const zone = page.getByTestId("drop-zone");
+  const dt = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    const bytes = new Uint8Array(2048).fill(7);
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    d.items.add(new File([bytes], "dropped.png", { type: "image/png" }));
+    return d;
+  });
+  await zone.dispatchEvent("dragenter", { dataTransfer: dt });
+  await expect(zone).toContainText(
+    "ここにドロップして /mock/up-drop にアップロード",
+  );
+  await zone.dispatchEvent("dragover", { dataTransfer: dt });
+  await zone.dispatchEvent("drop", { dataTransfer: dt });
+  await expect(rows(page)).toHaveAttribute("data-status", "done");
+  await expect(zone).not.toContainText("ここにドロップして");
+  expect(await uploadedKeys(page)).toContain("/mock/up-drop/dropped.png");
+  await expect(page.getByTestId("file-tile")).toHaveCount(1);
+});
+
+test.describe("on an iPhone", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+  });
+
+  test("there is no folder upload (Safari cannot pick folders)", async ({
+    page,
+  }) => {
+    await page.goto("/media/?view=files&dir=/mock");
+    await expect(page.locator("label", { hasText: /^Upload$/ })).toBeVisible();
+    // The support check has run, and left it hidden.
+    const folder = page.getByTestId("upload-folder");
+    await expect(folder).toHaveAttribute("data-checked", "");
+    await expect(folder).toBeHidden();
+  });
+});
+
 test.describe("on a phone", () => {
   test.use({
     viewport: { width: 390, height: 844 },
@@ -299,8 +380,14 @@ test.describe("on a phone", () => {
 
   test("upload photos", async ({ page }) => {
     await newFolder(page, "/mock", "up-phone");
-    const button = page.locator("label", { hasText: "Upload" });
-    expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    for (const button of [
+      page.locator("label", { hasText: /^Upload$/ }),
+      // Android: folders can be picked too.
+      page.getByTestId("upload-folder"),
+    ]) {
+      await expect(button).toBeVisible();
+      expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    }
     await page
       .getByTestId("upload-input")
       .setInputFiles([png("p1.png", "i"), png("p2.png", "j")]);
