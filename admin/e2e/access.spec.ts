@@ -19,7 +19,12 @@ test.beforeAll(async ({ request }) => {
     .not.toBe(0);
 });
 
-for (const path of ["/", "/media/", "/api/media/"]) {
+for (const path of [
+  "/",
+  "/media/",
+  "/api/media/",
+  "/thumb/h240/mock/real1.png",
+]) {
   test(`Access: GET ${path} without a token is 403`, async ({ request }) => {
     const res = await request.get(`${base}${path}`);
     expect(res.status()).toBe(403);

@@ -9,9 +9,9 @@ import {
 import type { MediaWorld } from "~/lib/types";
 import { ProgressivePreview } from "./preview";
 
-// Photo thumbnail from the image Worker, in a fixed 16:9 box so rows and
-// the preview never jump while images load. Without an image base URL
-// (E2E/VRT, or IMAGE_BASE_URL unset) the same box shows a deterministic
+// Photo thumbnail (the /thumb route), in a fixed 16:9 box so rows and the
+// preview never jump while images load. Without a thumbnail base (E2E/VRT,
+// THUMBNAILS off, or no image Worker binding) the same box shows a deterministic
 // placeholder: world-tinted tile with the file extension. The originals
 // are never requested.
 
@@ -58,7 +58,7 @@ export const Thumb = component$<Props>(
             </span>
             {variant === "preview" && (
               <span class="text-xs opacity-80">
-                Preview off (IMAGE_BASE_URL is not set)
+                Preview off (thumbnails are not enabled)
               </span>
             )}
           </span>

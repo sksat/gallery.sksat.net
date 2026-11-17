@@ -119,18 +119,19 @@ admin/
 
 Configured in `wrangler.jsonc` (`vars`) for non-secret values, and via `wrangler pages secret put <NAME> --project-name admin-gallery-sksat-net --env production` (or `.dev.vars` locally — see `.dev.vars.example`) for credentials. Set B2 secrets for **production only**: preview deployments run unreviewed code (e.g. Renovate PRs) and must not be able to write to the bucket.
 
-| Var                    | Where            | Used by                                         |
-| ---------------------- | ---------------- | ----------------------------------------------- |
-| `B2_REGION`            | `vars`           | publish                                         |
-| `B2_BUCKET`            | `vars`           | publish                                         |
-| `B2_ENDPOINT`          | `vars`           | publish                                         |
-| `B2_ACCESS_KEY_ID`     | secret/.dev.vars | publish                                         |
-| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars | publish                                         |
-| `IMAGE_BASE_URL`       | `vars`           | thumbnails (image Worker; empty = placeholders) |
+| Var                    | Where            | Used by                                             |
+| ---------------------- | ---------------- | --------------------------------------------------- |
+| `B2_REGION`            | `vars`           | publish                                             |
+| `B2_BUCKET`            | `vars`           | publish                                             |
+| `B2_ENDPOINT`          | `vars`           | publish                                             |
+| `B2_ACCESS_KEY_ID`     | secret/.dev.vars | publish                                             |
+| `B2_SECRET_ACCESS_KEY` | secret/.dev.vars | publish                                             |
+| `THUMBNAILS`           | `vars`           | `1` = thumbnails via `/thumb`; empty = placeholders |
 
 Bindings:
 
 - `DB` — D1 database `gallery-admin` (metadata source of truth)
+- `IMAGES` — the image Worker's `AdminImage` entrypoint (service `gallery-image`), for `/thumb/<preset>/<file>`. Deploy the image Worker with that entrypoint before the admin, or the Pages deploy fails.
 
 ## D1 setup (Phase 1)
 

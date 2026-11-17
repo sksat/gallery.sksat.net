@@ -148,8 +148,14 @@ export const getFileAccess = async (
     db
       .prepare(`${MEDIA_SELECT} WHERE m.file = ? AND m.visibility = 'public'`)
       .bind(file),
+    // A camera picture that is also a photo row follows the photo's
+    // visibility: listing a private photo as a camera picture must not
+    // publish it by path.
     db
-      .prepare("SELECT 1 AS found FROM camera_image WHERE file = ? LIMIT 1")
+      .prepare(
+        `SELECT 1 AS found FROM camera_image WHERE file = ?1
+           AND NOT EXISTS (SELECT 1 FROM media WHERE file = ?1) LIMIT 1`,
+      )
       .bind(file),
   ]);
   const row = (photos.results ?? [])[0] as MediaJoinRow | undefined;

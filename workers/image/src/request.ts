@@ -24,11 +24,20 @@ export const PRESETS = {
 
 export type PresetName = keyof typeof PRESETS;
 
-export type ImageRequest = {
-  preset: PresetName;
-  /** Path of the original under the bucket, starting with "/". */
-  file: string;
-};
+export type ImageRequest =
+  | {
+      preset: PresetName;
+      /** A photo by its public id; the API resolves it to a file. */
+      id: string;
+    }
+  | {
+      preset: PresetName;
+      /** Path of the original under the bucket, starting with "/". */
+      file: string;
+    };
+
+/** A photo's public id (workers/api/src/route.ts, admin migration 0003). */
+export const PUBLIC_ID_RE = /^[23456789abcdefghjkmnpqrstuvwxyz]{10}$/;
 
 const SEGMENT = /^[A-Za-z0-9._-]+$/;
 const IMAGE_EXTENSION = /\.(png|jpe?g)$/i;
@@ -36,12 +45,19 @@ const IMAGE_EXTENSION = /\.(png|jpe?g)$/i;
 const isPreset = (name: string): name is PresetName =>
   Object.prototype.hasOwnProperty.call(PRESETS, name);
 
-/** Parse `/img/<preset>/<file>`; null for anything else. */
+/**
+ * Parse `/img/<preset>/<public_id>` (gallery photos: the API checks the
+ * photo may be shown) or `/img/<preset>/<file>` (a bucket path: the admin's
+ * thumbnails, camera pictures, and URLs from before public ids); null for
+ * anything else. A file path always has an image extension, so the two
+ * never overlap.
+ */
 export const parseImagePath = (pathname: string): ImageRequest | null => {
   const match = /^\/img\/([^/]+)(\/.+)$/.exec(pathname);
   if (!match) return null;
   const [, preset, file] = match;
   if (!isPreset(preset)) return null;
+  if (PUBLIC_ID_RE.test(file.slice(1))) return { preset, id: file.slice(1) };
   const segments = file.slice(1).split("/");
   if (
     segments.some((s) => s === "." || s === ".." || !SEGMENT.test(s)) ||
@@ -107,6 +123,24 @@ export type TransformOptions = {
 /** Presets that render a social card (always JPEG, 1200x630). */
 export const isCardPreset = (preset: PresetName): boolean =>
   preset === "og" || preset === "og-site";
+
+/**
+ * Arguments of the AdminImage entrypoint: a bucket path (any photo or
+ * camera picture, private included) and a resize preset. Validated with the
+ * same rules as public bucket paths; cards are public-only. Null otherwise.
+ */
+export const parseAdminImage = (
+  preset: unknown,
+  file: unknown,
+): { preset: PresetName; file: string } | null => {
+  if (typeof preset !== "string" || typeof file !== "string") return null;
+  if (preset.includes("/") || !file.startsWith("/")) return null;
+  const parsed = parseImagePath(`/img/${preset}${file}`);
+  if (!parsed || !("file" in parsed) || isCardPreset(parsed.preset)) {
+    return null;
+  }
+  return parsed;
+};
 
 /**
  * Overlays for a card: the badge bottom-left and, if given, the caption

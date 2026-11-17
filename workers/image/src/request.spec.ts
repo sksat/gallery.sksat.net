@@ -1,11 +1,41 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseAdminImage,
   parseImagePath,
   pickFormat,
   transformFailed,
   transformOptions,
   variesByAccept,
 } from "./request";
+
+describe("parseAdminImage", () => {
+  it("accepts a resize preset and a bucket path", () => {
+    expect(parseAdminImage("h240", "/VRChat/2023-12/a.png")).toEqual({
+      preset: "h240",
+      file: "/VRChat/2023-12/a.png",
+    });
+    expect(parseAdminImage("w1920", "/camera/vl2/front.png")).toEqual({
+      preset: "w1920",
+      file: "/camera/vl2/front.png",
+    });
+  });
+
+  it.each([
+    ["a card preset", "og", "/a.png"],
+    ["an unknown preset", "h241", "/a.png"],
+    ["a preset with a slash", "h240/x", "/a.png"],
+    ["a public id instead of a file", "h240", "/abcdefghjk"],
+    ["a relative file", "h240", "a.png"],
+    ["a dot-dot segment", "h240", "/a/../b.png"],
+    ["a literal percent sign", "h240", "/a%2Fb.png"],
+    ["a decoded traversal", "h240", "/a/../../b.png"],
+    ["an empty segment", "h240", "/a//b.png"],
+    ["not an image", "h240", "/media.json"],
+    ["a non-string", "h240", 3],
+  ])("rejects %s", (_, preset, file) => {
+    expect(parseAdminImage(preset, file)).toBeNull();
+  });
+});
 
 describe("parseImagePath", () => {
   it("parses a preset and a nested file", () => {
@@ -21,7 +51,16 @@ describe("parseImagePath", () => {
     });
   });
 
+  it("parses a photo's public id", () => {
+    expect(parseImagePath("/img/og/abcdefghjk")).toEqual({
+      preset: "og",
+      id: "abcdefghjk",
+    });
+  });
+
   it.each([
+    ["malformed public id", "/img/h240/abcdefghjo"],
+    ["public id with a trailing slash", "/img/h240/abcdefghjk/"],
     ["unknown preset", "/img/h241/a.png"],
     ["prototype key as preset", "/img/toString/a.png"],
     ["no file", "/img/h240/"],

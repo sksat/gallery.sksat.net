@@ -76,7 +76,7 @@ test("cameras: the fixture camera lists its images in order", async ({
   await expect(images.nth(0)).toContainText("/camera/virtuallens2/front.png");
   await expect(caption(page, 1)).toHaveValue("Front");
   await expect(images.nth(1)).toContainText("/camera/virtuallens2/ui.png");
-  // IMAGE_BASE_URL is blank in E2E: placeholders, never the originals.
+  // Thumbnails are off in E2E: placeholders, never the originals.
   await expect(images.getByTestId("thumb-placeholder")).toHaveCount(2);
 });
 

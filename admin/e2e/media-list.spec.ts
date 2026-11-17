@@ -67,10 +67,10 @@ test.describe("media list on a phone", () => {
   });
 });
 
-test("thumbnails: without IMAGE_BASE_URL, placeholders and no image requests", async ({
+test("thumbnails: when off, placeholders and no image requests", async ({
   page,
 }) => {
-  // start-test-server.sh blanks IMAGE_BASE_URL. The list and the edit page
+  // start-test-server.sh blanks THUMBNAILS. The list and the edit page
   // must then show placeholder tiles and never fetch any image (in
   // particular not the multi-MB originals).
   const imageRequests: string[] = [];
@@ -87,4 +87,13 @@ test("thumbnails: without IMAGE_BASE_URL, placeholders and no image requests", a
   await expect(page.getByTestId("thumb-placeholder")).toHaveCount(1);
   await expect(page.getByText("Preview off")).toBeVisible();
   expect(imageRequests).toEqual([]);
+});
+
+test("thumbnails: /thumb is a 404 when thumbnails are off", async ({
+  request,
+}) => {
+  // The route exists (behind Access like every other); without the image
+  // Worker it serves nothing, and never an original.
+  const res = await request.get("/thumb/h240/mock/real1.png");
+  expect(res.status()).toBe(404);
 });
