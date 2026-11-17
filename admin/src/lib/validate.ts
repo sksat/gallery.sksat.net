@@ -87,6 +87,53 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
   return { ok: true, patch };
 };
 
+export type ValidateRestoreResult =
+  | { ok: true; groups: { visibility: Visibility; ids: number[] }[] }
+  | { ok: false; error: string };
+
+/**
+ * Undo of a bulk change: each photo's previous visibility, grouped so the
+ * restore is one setVisibility per visibility. The first entry for an id
+ * wins; at most `maxIds` distinct ids.
+ */
+export const validateRestoreVisibility = (
+  changes: unknown,
+  maxIds: number,
+): ValidateRestoreResult => {
+  if (!Array.isArray(changes) || changes.length === 0) {
+    return { ok: false, error: "nothing to restore" };
+  }
+  const seen = new Set<number>();
+  const byVisibility = new Map<Visibility, number[]>();
+  for (const c of changes) {
+    const { id, visibility } = (c ?? {}) as Record<string, unknown>;
+    if (!Number.isSafeInteger(id) || (id as number) <= 0) {
+      return { ok: false, error: "ids must be positive integers" };
+    }
+    if (!isVisibility(visibility)) {
+      return {
+        ok: false,
+        error: `visibility must be one of ${VISIBILITIES.join(", ")}`,
+      };
+    }
+    if (seen.has(id as number)) continue;
+    seen.add(id as number);
+    const ids = byVisibility.get(visibility) ?? [];
+    ids.push(id as number);
+    byVisibility.set(visibility, ids);
+  }
+  if (seen.size > maxIds) {
+    return { ok: false, error: `at most ${maxIds} photos at a time` };
+  }
+  return {
+    ok: true,
+    groups: VISIBILITIES.filter((v) => byVisibility.has(v)).map((v) => ({
+      visibility: v,
+      ids: byVisibility.get(v)!,
+    })),
+  };
+};
+
 export type ValidateBulkResult =
   | { ok: true; ids: number[]; visibility: Visibility }
   | { ok: false; error: string };
@@ -114,7 +161,8 @@ export const validateBulkVisibility = (
     }
     if (!ids.includes(n as number)) ids.push(n as number);
   }
-  if (ids.length === 0) return { ok: false, error: "select at least one photo" };
+  if (ids.length === 0)
+    return { ok: false, error: "select at least one photo" };
   if (ids.length > maxIds) {
     return { ok: false, error: `at most ${maxIds} photos at a time` };
   }

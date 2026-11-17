@@ -14,7 +14,10 @@ export default component$(() => {
     <QwikCityProvider>
       <head>
         <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
         {/* Runs before <body> is parsed, so a stored theme never flashes. */}
         <script dangerouslySetInnerHTML={themeInitScript} />
         <link rel="manifest" href="/manifest.json" />

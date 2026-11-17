@@ -202,31 +202,75 @@ export const updateMedia = async (
 /** Most ids one bulk visibility change accepts (one /media page). */
 export const MAX_BULK_IDS = 100;
 
+// One JSON parameter instead of one per id: D1 caps bound parameters at
+// 100 per statement.
+const SET_VISIBILITY_SQL = `UPDATE media SET visibility = ?1,
+   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+ WHERE id IN (SELECT value FROM json_each(?2)) AND visibility <> ?1`;
+
+const checkBulkSize = (n: number) => {
+  if (n > MAX_BULK_IDS) {
+    throw new Error(`too many ids (${n} > ${MAX_BULK_IDS})`);
+  }
+};
+
+export type VisibilityChange = { id: number; visibility: Visibility };
+
 /**
  * Set the visibility of several photos at once. Rows that already have it
  * are left alone (their updated_at does not move). Returns the number of
- * rows changed.
+ * rows changed and, for undo, the previous visibility of each of them
+ * (read in the same batch, so it is exactly what the update replaced).
  */
 export const setVisibility = async (
   db: D1Database,
   ids: readonly number[],
   visibility: Visibility,
+): Promise<{ changed: number; previous: VisibilityChange[] }> => {
+  if (ids.length === 0) return { changed: 0, previous: [] };
+  checkBulkSize(ids.length);
+  const json = JSON.stringify(ids);
+  const [before, update] = await db.batch([
+    db
+      .prepare(
+        `SELECT id, visibility FROM media
+         WHERE id IN (SELECT value FROM json_each(?2)) AND visibility <> ?1
+         ORDER BY id`,
+      )
+      .bind(visibility, json),
+    db.prepare(SET_VISIBILITY_SQL).bind(visibility, json),
+  ]);
+  return {
+    changed: update.meta.changes ?? 0,
+    previous: (before.results as VisibilityChange[]).map((r) => ({
+      id: r.id,
+      visibility: r.visibility,
+    })),
+  };
+};
+
+/**
+ * Undo of a bulk change to `from`: put each group of photos back to its
+ * visibility, all in one batch (a D1 batch is a transaction). Rows that no
+ * longer have `from` (changed again since, e.g. in another tab) are left
+ * alone. Returns the number of rows changed.
+ */
+export const restoreVisibility = async (
+  db: D1Database,
+  from: Visibility,
+  groups: readonly { visibility: Visibility; ids: readonly number[] }[],
 ): Promise<number> => {
-  if (ids.length === 0) return 0;
-  if (ids.length > MAX_BULK_IDS) {
-    throw new Error(`too many ids (${ids.length} > ${MAX_BULK_IDS})`);
-  }
-  // One JSON parameter instead of one per id: D1 caps bound parameters
-  // at 100 per statement.
-  const res = await db
-    .prepare(
-      `UPDATE media SET visibility = ?1,
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE id IN (SELECT value FROM json_each(?2)) AND visibility <> ?1`,
-    )
-    .bind(visibility, JSON.stringify(ids))
-    .run();
-  return res.meta.changes ?? 0;
+  const nonEmpty = groups.filter((g) => g.ids.length > 0);
+  if (nonEmpty.length === 0) return 0;
+  checkBulkSize(nonEmpty.reduce((n, g) => n + g.ids.length, 0));
+  const results = await db.batch(
+    nonEmpty.map((g) =>
+      db
+        .prepare(`${SET_VISIBILITY_SQL} AND visibility = ?3`)
+        .bind(g.visibility, JSON.stringify(g.ids), from),
+    ),
+  );
+  return results.reduce((n, r) => n + (r.meta.changes ?? 0), 0);
 };
 
 export type CameraListItem = CameraRow & { photo_count: number };
