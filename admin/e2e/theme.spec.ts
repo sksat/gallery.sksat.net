@@ -15,22 +15,25 @@ test("theme toggle cycles system → light → dark and persists across reload",
   const toggle = page.getByRole("button", { name: /^Theme:/ });
 
   await expect(html(page)).toHaveAttribute("data-theme", "system");
-  await expect(toggle).toHaveAccessibleName("Theme: System");
+  await expect(toggle).toHaveAccessibleName("Theme: System (switch to Light)");
+  await expect(toggle).toHaveAttribute("title", "Theme: System (switch to Light)");
+  // Icon only: no visible text in the button.
+  await expect(toggle).toHaveText("");
   const lightBg = await bodyBg(page);
 
   await toggle.click();
   await expect(html(page)).toHaveAttribute("data-theme", "light");
-  await expect(toggle).toHaveAccessibleName("Theme: Light");
+  await expect(toggle).toHaveAccessibleName("Theme: Light (switch to Dark)");
 
   await toggle.click();
   await expect(html(page)).toHaveAttribute("data-theme", "dark");
-  await expect(toggle).toHaveAccessibleName("Theme: Dark");
+  await expect(toggle).toHaveAccessibleName("Theme: Dark (switch to System)");
   expect(await bodyBg(page)).not.toBe(lightBg);
 
   // Applied by the inline <head> script before first paint on the next load.
   await page.reload();
   await expect(html(page)).toHaveAttribute("data-theme", "dark");
-  await expect(toggle).toHaveAccessibleName("Theme: Dark");
+  await expect(toggle).toHaveAccessibleName("Theme: Dark (switch to System)");
   expect(await bodyBg(page)).not.toBe(lightBg);
 
   // Back to system: follows the (light) OS preference again.

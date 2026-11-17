@@ -16,6 +16,32 @@ export const parseTheme = (v: unknown): Theme =>
 export const nextTheme = (t: Theme): Theme =>
   THEMES[(THEMES.indexOf(t) + 1) % THEMES.length];
 
+const THEME_NAMES: Record<Theme, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
+
+/**
+ * aria-label / title of the icon-only toggle: the current mode and what a
+ * click does, e.g. "Theme: Dark (switch to System)".
+ */
+export const themeToggleLabel = (t: Theme): string =>
+  `Theme: ${THEME_NAMES[t]} (switch to ${THEME_NAMES[nextTheme(t)]})`;
+
+/**
+ * Inline script placed right after the toggle button: sync its label with
+ * the theme the <head> script applied (SSR cannot know the stored choice).
+ * Labels are precomputed so the script stays tiny.
+ */
+export const themeToggleLabelScript = `(function(){var b=document.currentScript&&document.currentScript.previousElementSibling,l=${JSON.stringify(
+  {
+    system: themeToggleLabel("system"),
+    light: themeToggleLabel("light"),
+    dark: themeToggleLabel("dark"),
+  },
+)},t=document.documentElement.getAttribute("data-theme"),s=l[t]||l.system;if(b){b.setAttribute("aria-label",s);b.setAttribute("title",s)}})()`;
+
 /**
  * Inline <head> script: apply the stored choice before first paint so a
  * forced theme does not flash the OS one. localStorage can throw (blocked

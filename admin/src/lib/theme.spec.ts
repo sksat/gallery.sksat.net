@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { nextTheme, parseTheme, themeInitScript } from "./theme";
+import {
+  nextTheme,
+  parseTheme,
+  themeInitScript,
+  themeToggleLabel,
+  themeToggleLabelScript,
+} from "./theme";
 
 describe("parseTheme", () => {
   it("keeps the explicit choices", () => {
@@ -20,6 +26,46 @@ describe("nextTheme", () => {
     expect(nextTheme("system")).toBe("light");
     expect(nextTheme("light")).toBe("dark");
     expect(nextTheme("dark")).toBe("system");
+  });
+});
+
+describe("themeToggleLabel", () => {
+  it("names the current mode and the next one", () => {
+    expect(themeToggleLabel("system")).toBe(
+      "Theme: System (switch to Light)",
+    );
+    expect(themeToggleLabel("dark")).toBe("Theme: Dark (switch to System)");
+  });
+});
+
+describe("themeToggleLabelScript", () => {
+  const run = (theme: string | null, hasButton = true) => {
+    const attrs: Record<string, string> = {};
+    const button = {
+      setAttribute: (k: string, v: string) => (attrs[k] = v),
+    };
+    const fakeDocument = {
+      currentScript: { previousElementSibling: hasButton ? button : null },
+      documentElement: { getAttribute: () => theme },
+    };
+    new Function("document", themeToggleLabelScript)(fakeDocument);
+    return attrs;
+  };
+
+  it("labels the button with the applied theme", () => {
+    expect(run("light")).toEqual({
+      "aria-label": "Theme: Light (switch to Dark)",
+      title: "Theme: Light (switch to Dark)",
+    });
+  });
+
+  it("treats a missing or unknown attribute as system", () => {
+    expect(run(null)["aria-label"]).toBe("Theme: System (switch to Light)");
+    expect(run("bogus")["aria-label"]).toBe("Theme: System (switch to Light)");
+  });
+
+  it("does nothing without a button", () => {
+    expect(run("dark", false)).toEqual({});
   });
 });
 
