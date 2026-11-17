@@ -2,7 +2,8 @@
   {
     "slug": "pentax-sp",
     "name": "PENTAX SP",
-    "make": "Asahi",
+    "manufacturer": "Asahi",
+    "manufacturerUrl": null,
     "model": "Pentax SP",
     "kind": "film",
     "description": null,
@@ -12,7 +13,8 @@
   {
     "slug": "virtuallens2",
     "name": "VirtualLens2",
-    "make": "logilabo",
+    "manufacturer": "logilabo",
+    "manufacturerUrl": "https://example.com/logilabo",
     "model": "VirtualLens2",
     "kind": "virtual",
     "description": "Virtual camera for VRChat.\nSecond line of the description.",

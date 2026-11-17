@@ -1,5 +1,7 @@
 import { component$ } from "@builder.io/qwik";
 
+import { CAMERA_LIST_HREF } from "~/components/gallery/cameras";
+
 // The avatar with its grey square corners made transparent (the same
 // source as public/favicon.ico), so only the round icon shows on the header.
 import LogoSksat from "~/media/sksat-round.png?jsx";
@@ -13,6 +15,15 @@ export default component$(() => {
         style="object-position: 0% 50%;"
         alt="生活(@m2__z)さんに描いていただいたイラスト: https://skeb.jp/@m2__z/works/12"
       />
+      <nav aria-label="サイト" class="absolute top-2 right-3 z-20 text-sm">
+        {/* Plain <a> for the same reason as the title link below. */}
+        <a
+          href={CAMERA_LIST_HREF}
+          class="rounded bg-black/40 px-2 py-1 text-white hover:bg-black/60"
+        >
+          カメラ
+        </a>
+      </nav>
       <div class="relative z-10 flex h-full items-center justify-center">
         <div>
           {/* A plain <a>, not <Link>: the gallery rewrites the URL with

@@ -59,7 +59,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - **File-based routing**: Routes defined in `src/routes/` directory
 - **Layout system**: `src/routes/layout.tsx` provides shared layout (Header/Footer) with caching configuration
-- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing, `/camera/[slug]/` for a camera's details and its photos (data from `cameras.json`, falling back to the `camera` fields in `media.json`; see `src/components/gallery/cameras.ts`)
+- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing, `/camera/` (list of cameras with photos) and `/camera/[slug]/` for a camera's details and its photos (route paths are singular; data from `cameras.json`, falling back to the `camera` fields in `media.json`; see `src/components/gallery/cameras.ts`)
 - **Path alias**: `~/` maps to `./src/` (configured in tsconfig.json)
 
 ### Core Components

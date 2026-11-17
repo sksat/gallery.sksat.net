@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CameraJSON, MediaInfoJSON } from "./gallery/types";
 import {
+  cameraListOgp,
   cameraOgp,
   fallbackOgp,
   formatJst,
@@ -115,7 +116,8 @@ describe("cameraOgp", () => {
   const vl2: CameraJSON = {
     slug: "virtuallens2",
     name: "VirtualLens2",
-    make: "logilabo",
+    manufacturer: "logilabo",
+    manufacturerUrl: null,
     model: "VirtualLens2",
     kind: "virtual",
     description: null,
@@ -150,6 +152,17 @@ describe("cameraOgp", () => {
 
   it("has no image when there is nothing to show", () => {
     expect(cameraOgp(worker, [real], vl2).image).toBeNull();
+  });
+});
+
+describe("cameraListOgp", () => {
+  it("is the site badge card with its own title and URL", () => {
+    const ogp = cameraListOgp(worker, [vrchat, real]);
+    expect(ogp.title).toBe("カメラ | sksat gallery");
+    expect(ogp.url).toBe("https://gallery.sksat.net/camera/");
+    expect(ogp.image?.url).toBe(
+      "https://gallery.sksat.net/img/og-site" + vrchat.file,
+    );
   });
 });
 

@@ -29,9 +29,12 @@ export const cameraLabel = (camera: MediaCamera): string =>
 export const cameraHref = (slug: string): string =>
   `/camera/${encodeURIComponent(slug)}/`;
 
+/** The camera list page. */
+export const CAMERA_LIST_HREF = "/camera/";
+
 /**
  * Minimal camera records from media.json alone, for when cameras.json is
- * not published (yet): one per slug, name/make/model only.
+ * not published (yet): one per slug, name/manufacturer/model only.
  */
 export const camerasFromMedia = (media: MediaIndex): CameraJSON[] => {
   const bySlug = new Map<string, CameraJSON>();
@@ -42,7 +45,8 @@ export const camerasFromMedia = (media: MediaIndex): CameraJSON[] => {
     bySlug.set(slug, {
       slug,
       name: cameraLabel(camera),
-      make: camera.make || null,
+      manufacturer: camera.make || null,
+      manufacturerUrl: null,
       model: camera.model || null,
       kind: null,
       description: null,
@@ -55,14 +59,21 @@ export const camerasFromMedia = (media: MediaIndex): CameraJSON[] => {
 
 const KINDS: readonly CameraKind[] = ["digital", "film", "phone", "virtual"];
 
+const str = (v: unknown): string | null =>
+  typeof v === "string" && v !== "" ? v : null;
+
+// Rendered as a link: only http(s), never javascript: or data:.
+const httpUrl = (v: unknown): string | null => {
+  const s = str(v);
+  return s !== null && /^https?:\/\//i.test(s) ? s : null;
+};
+
 /**
  * Parse cameras.json, dropping malformed entries rather than failing the
  * page. Returns null when the payload is not an array at all.
  */
 export const parseCameras = (data: unknown): CameraJSON[] | null => {
   if (!Array.isArray(data)) return null;
-  const str = (v: unknown): string | null =>
-    typeof v === "string" && v !== "" ? v : null;
   const out: CameraJSON[] = [];
   for (const item of data) {
     if (!item || typeof item !== "object") continue;
@@ -73,16 +84,14 @@ export const parseCameras = (data: unknown): CameraJSON[] | null => {
     out.push({
       slug,
       name,
-      make: str(o.make),
+      manufacturer: str(o.manufacturer),
+      manufacturerUrl: httpUrl(o.manufacturerUrl),
       model: str(o.model),
       kind: KINDS.includes(o.kind as CameraKind)
         ? (o.kind as CameraKind)
         : null,
       description: str(o.description),
-      // Rendered as a link: only http(s).
-      productUrl: /^https?:\/\//i.test(str(o.productUrl) ?? "")
-        ? str(o.productUrl)
-        : null,
+      productUrl: httpUrl(o.productUrl),
       images: Array.isArray(o.images)
         ? o.images.flatMap((img) => {
             if (!img || typeof img !== "object") return [];
@@ -123,6 +132,61 @@ export const findCamera = (
 /** Whether a photo was taken with the camera `slug`. */
 export const takenWith = (m: MediaInfo, slug: string): boolean =>
   m.camera !== null && cameraSlug(m.camera) === slug;
+
+export type CameraSummary = {
+  camera: CameraJSON;
+  /** Photos taken with it. */
+  count: number;
+  /** Card image: the camera's first picture, else its newest photo. */
+  cover: string | null;
+};
+
+/**
+ * Cards for the camera list: every camera with at least one photo, most
+ * photos first, then by name (Japanese order) and slug. Cameras with no
+ * photos are left out — their page would be an empty grid.
+ */
+export const cameraSummaries = (
+  media: MediaIndex,
+  cameras: CameraJSON[] | null,
+): CameraSummary[] => {
+  const photos = new Map<string, MediaInfo[]>();
+  for (const m of media) {
+    if (!m.camera) continue;
+    const slug = cameraSlug(m.camera);
+    const own = photos.get(slug);
+    if (own) own.push(m);
+    else photos.set(slug, [m]);
+  }
+  const bySlug = new Map(
+    [...camerasFromMedia(media), ...(cameras ?? [])].map((c) => [c.slug, c]),
+  );
+  const out: CameraSummary[] = [];
+  for (const [slug, own] of photos) {
+    // cameras.json wins over what media.json alone says (later in the map).
+    const camera = bySlug.get(slug);
+    if (!camera) continue;
+    // Newest by timestamp; undated photos only when nothing is dated.
+    let newest: MediaInfo | null = null;
+    for (const m of own) {
+      const t = m.timestamp?.getTime() ?? -Infinity;
+      if (newest === null || t > (newest.timestamp?.getTime() ?? -Infinity)) {
+        newest = m;
+      }
+    }
+    out.push({
+      camera,
+      count: own.length,
+      cover: camera.images.at(0)?.file ?? newest?.file ?? null,
+    });
+  }
+  return out.sort(
+    (a, b) =>
+      b.count - a.count ||
+      a.camera.name.localeCompare(b.camera.name, "ja") ||
+      (a.camera.slug < b.camera.slug ? -1 : 1),
+  );
+};
 
 export const CAMERA_KIND_LABELS: Record<CameraKind, string> = {
   digital: "デジタルカメラ",

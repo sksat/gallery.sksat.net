@@ -1,6 +1,6 @@
 import { component$, useSignal } from "@builder.io/qwik";
 
-import { CAMERA_KIND_LABELS } from "./cameras";
+import { CAMERA_KIND_LABELS, CAMERA_LIST_HREF } from "./cameras";
 import { GRID_CANDIDATES, imageUrl, srcSet, type PresetName } from "./images";
 import { PhotoOverlay } from "./photo-overlay";
 import type { CameraImageJSON, CameraJSON } from "./types";
@@ -13,6 +13,34 @@ const MAIN_CANDIDATES: [PresetName, string][] = [
   ["h480", "1x"],
   ["w1200", "2x"],
 ];
+
+/** The manufacturer's name, linking to its website when there is one. */
+export const Manufacturer = component$<{ camera: CameraJSON }>(({ camera }) =>
+  camera.manufacturerUrl ? (
+    <a
+      href={camera.manufacturerUrl}
+      rel="noopener noreferrer"
+      target="_blank"
+      class="underline-offset-4 hover:underline"
+    >
+      {camera.manufacturer}
+    </a>
+  ) : (
+    <>{camera.manufacturer}</>
+  ),
+);
+
+// Plain <a>s: see the note in components/layout/header.tsx.
+const BackLinks = component$(() => (
+  <nav aria-label="戻る" class="flex gap-4 text-sm">
+    <a href={CAMERA_LIST_HREF} class="opacity-80 hover:opacity-100">
+      ← カメラ一覧
+    </a>
+    <a href="/" class="opacity-80 hover:opacity-100">
+      すべての写真
+    </a>
+  </nav>
+));
 
 const alt = (camera: CameraJSON, img: CameraImageJSON) =>
   img.caption ? `${camera.name}: ${img.caption}` : camera.name;
@@ -33,10 +61,7 @@ export const CameraHeader = component$<{
   if (!camera) {
     return (
       <section data-testid="camera-header" class="mb-4 px-1">
-        {/* Plain <a>: see the note in components/layout/header.tsx. */}
-        <a href="/" class="text-sm opacity-80 hover:opacity-100">
-          ← すべての写真
-        </a>
+        <BackLinks />
         <h1 class="mt-2 text-xl font-semibold">
           カメラ「{slug}」は見つかりません
         </h1>
@@ -44,7 +69,6 @@ export const CameraHeader = component$<{
     );
   }
 
-  const makeModel = [camera.make, camera.model].filter(Boolean).join(" ");
   const main = camera.images.at(0);
   const rest = camera.images.slice(1);
 
@@ -105,10 +129,7 @@ export const CameraHeader = component$<{
         </div>
       )}
       <div class="min-w-0">
-        {/* Plain <a>: see the note in components/layout/header.tsx. */}
-        <a href="/" class="text-sm opacity-80 hover:opacity-100">
-          ← すべての写真
-        </a>
+        <BackLinks />
         <h1
           id="camera-name"
           class="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl"
@@ -122,10 +143,18 @@ export const CameraHeader = component$<{
               <dd>{CAMERA_KIND_LABELS[camera.kind]}</dd>
             </div>
           )}
-          {makeModel && makeModel !== camera.name && (
+          {camera.manufacturer && (
+            <div class="flex gap-2">
+              <dt class="opacity-60">メーカー</dt>
+              <dd>
+                <Manufacturer camera={camera} />
+              </dd>
+            </div>
+          )}
+          {camera.model && camera.model !== camera.name && (
             <div class="flex gap-2">
               <dt class="opacity-60">機種</dt>
-              <dd>{makeModel}</dd>
+              <dd>{camera.model}</dd>
             </div>
           )}
           <div class="flex gap-2">

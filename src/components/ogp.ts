@@ -6,7 +6,12 @@
  */
 import type { DocumentHeadValue } from "@builder.io/qwik-city";
 
-import { cameraHref, cameraLabel, takenWith } from "./gallery/cameras";
+import {
+  CAMERA_LIST_HREF,
+  cameraHref,
+  cameraLabel,
+  takenWith,
+} from "./gallery/cameras";
 import { dimensionsFromFile, imageUrl } from "./gallery/images";
 import { mediaTags } from "./gallery/tags";
 import {
@@ -171,6 +176,17 @@ export const cameraOgp = (
     image: file === null ? null : ogImage(bases, file, camera.name, "og-site"),
   };
 };
+
+/** Card for the camera list (/camera/): the site badge card, like the top. */
+export const cameraListOgp = (
+  bases: ImageBases,
+  media: MediaInfoJSON[],
+): Ogp => ({
+  ...topOgp(bases, media),
+  title: `カメラ | ${SITE_NAME}`,
+  description: `${SITE_NAME} の写真を撮ったカメラの一覧です。`,
+  url: SITE_URL + CAMERA_LIST_HREF,
+});
 
 /** Fallback when media.json could not be read: text-only card. */
 export const fallbackOgp = (path: string): Ogp => ({

@@ -33,7 +33,12 @@ test("camera: the caption links a photo to its camera page", async ({
     header.getByRole("heading", { name: "VirtualLens2" }),
   ).toBeVisible();
   await expect(header).toContainText("バーチャルカメラ");
-  await expect(header).toContainText("logilabo VirtualLens2");
+  const manufacturer = header.getByRole("link", { name: "logilabo" });
+  await expect(manufacturer).toHaveAttribute(
+    "href",
+    "https://example.com/logilabo",
+  );
+  await expect(manufacturer).toHaveAttribute("rel", "noopener noreferrer");
   await expect(header).toContainText("Virtual camera for VRChat.");
   const product = header.getByRole("link", { name: "製品ページ" });
   await expect(product).toHaveAttribute(
@@ -138,12 +143,54 @@ test("camera: a tag filter on a camera page stays in its URL", async ({
 
 test("camera: the back link returns to every photo", async ({ page }) => {
   await page.goto("/camera/pentax-sp/");
-  await page.getByRole("link", { name: "← すべての写真" }).click();
+  await page.getByRole("link", { name: "すべての写真" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByTestId("gallery-image")).toHaveCount(5, {
     timeout: 10000,
   });
   await expect(page.getByTestId("camera-header")).toHaveCount(0);
+});
+
+test("camera list: header link, cards and navigation to a camera", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "カメラ", exact: true }).click();
+  await expect(page).toHaveURL(/\/camera\/$/);
+  await expect(page).toHaveTitle("カメラ | sksat gallery");
+
+  // Most photos first: VirtualLens2 (photos 1, 4), then PENTAX SP (photo 0).
+  const cards = page.getByTestId("camera-card");
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toContainText("VirtualLens2");
+  await expect(cards.nth(0)).toContainText("バーチャルカメラ");
+  await expect(cards.nth(0)).toContainText("2 枚");
+  await expect(cards.nth(1)).toContainText("PENTAX SP");
+  await expect(cards.nth(1)).toContainText("1 枚");
+  // Covers: the camera's first picture, else its newest photo.
+  await expect(cards.nth(0).locator("img")).toHaveAttribute(
+    "src",
+    /\/cameras\/virtuallens2-front\.png$/,
+  );
+  await expect(cards.nth(1).locator("img")).toHaveAttribute(
+    "src",
+    /\/mock\/real1\.png$/,
+  );
+  // The manufacturer's site is its own link, above the card's link.
+  await expect(
+    cards.nth(0).getByRole("link", { name: "logilabo" }),
+  ).toHaveAttribute("href", "https://example.com/logilabo");
+
+  // The whole card is the link: click on its cover image area.
+  await cards.nth(1).click({ position: { x: 20, y: 20 } });
+  await expect(page).toHaveURL(/\/camera\/pentax-sp\/$/);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(1, {
+    timeout: 10000,
+  });
+
+  // And back to the list from the camera page.
+  await page.getByRole("link", { name: "← カメラ一覧" }).click();
+  await expect(page).toHaveURL(/\/camera\/$/);
 });
 
 test("camera: an unknown ?camera= on a photo link is ignored", async ({

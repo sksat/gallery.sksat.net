@@ -5,6 +5,7 @@ import {
   cameraSlug,
   cameraSlugFromPath,
   camerasFromMedia,
+  cameraSummaries,
   findCamera,
   isImagePath,
   parseCameras,
@@ -73,7 +74,8 @@ describe("camerasFromMedia", () => {
       {
         slug: "virtuallens2",
         name: "logilabo VirtualLens2",
-        make: "logilabo",
+        manufacturer: "logilabo",
+        manufacturerUrl: null,
         model: "VirtualLens2",
         kind: null,
         description: null,
@@ -97,6 +99,8 @@ describe("parseCameras", () => {
           slug: "a",
           name: "A",
           kind: "film",
+          manufacturer: "Asahi",
+          manufacturerUrl: "https://asahi.example",
           productUrl: "https://a.example",
           images: [
             { file: "/cameras/a.png", caption: "Front" },
@@ -112,7 +116,8 @@ describe("parseCameras", () => {
           name: "C",
           kind: "drone",
           productUrl: "javascript:alert(1)",
-          make: "",
+          manufacturer: "",
+          manufacturerUrl: "data:text/html,x",
           images: "nope",
         },
       ]),
@@ -120,7 +125,8 @@ describe("parseCameras", () => {
       {
         slug: "a",
         name: "A",
-        make: null,
+        manufacturer: "Asahi",
+        manufacturerUrl: "https://asahi.example",
         model: null,
         kind: "film",
         description: null,
@@ -133,7 +139,8 @@ describe("parseCameras", () => {
       {
         slug: "c",
         name: "C",
-        make: null,
+        manufacturer: null,
+        manufacturerUrl: null,
         model: null,
         kind: null,
         description: null,
@@ -171,7 +178,8 @@ describe("findCamera", () => {
   const published: CameraJSON = {
     slug: "virtuallens2",
     name: "VirtualLens2",
-    make: "logilabo",
+    manufacturer: "logilabo",
+    manufacturerUrl: null,
     model: "VirtualLens2",
     kind: "virtual",
     description: "desc",
@@ -202,5 +210,83 @@ describe("takenWith", () => {
     expect(takenWith(photo(vl2Old), "virtuallens2")).toBe(true);
     expect(takenWith(photo(null), "virtuallens2")).toBe(false);
     expect(takenWith(photo(vl2New), "pentax-sp")).toBe(false);
+  });
+});
+
+describe("cameraSummaries", () => {
+  const at = (
+    file: string,
+    camera: MediaInfo["camera"],
+    iso: string | null,
+  ): MediaInfo => ({
+    file,
+    world: "VRChat",
+    timestamp: iso === null ? null : new Date(iso),
+    camera,
+    tags: [],
+  });
+  const sp = { make: "Asahi", model: "Pentax SP", slug: "pentax-sp", name: "PENTAX SP" };
+  const a1 = { make: "A", model: "A1", slug: "a1", name: "A1" };
+  const media = [
+    at("/v-old.png", vl2Old, "2023-12-01T00:00:00Z"),
+    at("/v-new.png", vl2New, "2023-12-05T00:00:00Z"),
+    at("/v-undated.png", vl2New, null),
+    at("/sp.png", sp, "2023-12-02T00:00:00Z"),
+    at("/a1.png", a1, null),
+    at("/none.png", null, "2023-12-03T00:00:00Z"),
+  ];
+  const published: CameraJSON[] = [
+    {
+      slug: "pentax-sp",
+      name: "PENTAX SP",
+      manufacturer: "Asahi",
+      manufacturerUrl: null,
+      model: "Pentax SP",
+      kind: "film",
+      description: null,
+      productUrl: null,
+      images: [{ file: "/cameras/sp.png", caption: null }],
+    },
+    // No photos: left out of the list.
+    { ...published0(), slug: "unused", name: "Unused" },
+  ];
+
+  function published0(): CameraJSON {
+    return {
+      slug: "",
+      name: "",
+      manufacturer: null,
+      manufacturerUrl: null,
+      model: null,
+      kind: null,
+      description: null,
+      productUrl: null,
+      images: [],
+    };
+  }
+
+  it("lists cameras with photos, most photos first, then by name", () => {
+    const list = cameraSummaries(media, published);
+    expect(list.map((s) => [s.camera.slug, s.count])).toEqual([
+      ["virtuallens2", 3],
+      ["a1", 1],
+      ["pentax-sp", 1],
+    ]);
+  });
+
+  it("uses the first camera picture, else the newest photo, as the cover", () => {
+    const list = cameraSummaries(media, published);
+    const cover = (slug: string) =>
+      list.find((s) => s.camera.slug === slug)?.cover;
+    expect(cover("pentax-sp")).toBe("/cameras/sp.png");
+    expect(cover("virtuallens2")).toBe("/v-new.png");
+    expect(cover("a1")).toBe("/a1.png");
+  });
+
+  it("falls back to media.json for the camera details", () => {
+    const list = cameraSummaries(media, null);
+    expect(list.find((s) => s.camera.slug === "pentax-sp")?.camera).toMatchObject(
+      { name: "PENTAX SP", manufacturer: "Asahi", images: [] },
+    );
   });
 });
