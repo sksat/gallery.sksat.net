@@ -1,4 +1,4 @@
-import { component$, useSignal, useTask$ } from "@builder.io/qwik";
+import { $, component$, useSignal, useTask$ } from "@builder.io/qwik";
 import {
   Form,
   Link,
@@ -16,6 +16,7 @@ import { SubmitButton } from "~/components/submit-button";
 import { Toast, type ToastState } from "~/components/toast";
 import {
   backLink,
+  buttonSecondary,
   buttonPrimary,
   card,
   field,
@@ -39,6 +40,7 @@ import { imageUrl, PREVIEW_CANDIDATES, srcSet } from "~/lib/images";
 import {
   formatJst,
   publicPhotoUrl,
+  mediaAnchor,
   safeBackHref,
   splitPath,
 } from "~/lib/format";
@@ -324,8 +326,45 @@ export default component$(() => {
     // only gets the browser's own dialog.
     return url ? !confirm(UNSAVED_CONFIRM) : true;
   });
-  // Phones: File / Public URL / Last updated are folded away.
+  // Phones: File / Last updated are folded away.
   const showMeta = useSignal(false);
+  // 「リンクをコピー」: the share sheet on touch devices that have one,
+  // else the clipboard; if that is refused, a selected field to copy from.
+  const copyFallback = useSignal(false);
+  const copyField = useSignal<HTMLInputElement>();
+  useTask$(({ track }) => {
+    // Another photo or visibility: its own link, not the old field.
+    track(() =>
+      media.value.kind === "ok"
+        ? `${media.value.row.id}:${media.value.row.visibility}`
+        : null,
+    );
+    copyFallback.value = false;
+  });
+  const shareLink = $(async (url: string) => {
+    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+      try {
+        await navigator.share({ url });
+        return;
+      } catch (err) {
+        // Closed by the user: done. Anything else: fall back to copying.
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      copyFallback.value = false;
+      toast.value = { tone: "success", message: "コピーしました" };
+    } catch {
+      copyFallback.value = true;
+      toast.value = {
+        tone: "error",
+        message: "コピーできませんでした。選択したリンクをコピーしてください。",
+      };
+      // Once the field is rendered.
+      requestAnimationFrame(() => copyField.value?.focus());
+    }
+  });
   const fullscreen = useSignal<HTMLDialogElement>();
 
   if (media.value.kind === "missing-binding") {
@@ -363,6 +402,7 @@ export default component$(() => {
   const { row, cameras, neighbors } = media.value;
   const { dir, base } = splitPath(row.file);
   const previewBase = media.value.imageBase;
+  const publicUrl = publicPhotoUrl(row.public_id);
   // Folded on phones unless opened ("max-sm": below sm only).
   const meta = showMeta.value ? "" : "max-sm:hidden";
 
@@ -373,7 +413,8 @@ export default component$(() => {
           aria-label="Breadcrumb"
           class="flex items-center justify-between gap-3 text-sm"
         >
-          <Link href={backHref} class={backLink}>
+          {/* The list scrolls back to this photo (#m-<id>). */}
+          <Link href={backHref + mediaAnchor(row.id)} class={backLink}>
             ← Media
           </Link>
           {neighbors && (
@@ -465,29 +506,50 @@ export default component$(() => {
               <span class={muted}>(none)</span>
             )}
           </dd>
+          <dt class={["font-medium", muted]}>Public URL</dt>
+          <dd class="min-w-0 break-all">
+            {/* Private photos have no working public URL; show it as text. */}
+            {row.visibility === "private" ? (
+              <span data-testid="public-url" class={muted}>
+                {publicUrl}
+              </span>
+            ) : (
+              <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <a
+                  data-testid="public-url"
+                  href={publicUrl}
+                  target="_blank"
+                  rel="noopener"
+                  class={link}
+                >
+                  {publicUrl}
+                </a>
+                <button
+                  type="button"
+                  onClick$={() => shareLink(publicUrl)}
+                  class={buttonSecondary}
+                >
+                  リンクをコピー
+                </button>
+              </span>
+            )}
+            {copyFallback.value && (
+              // Clipboard refused: the link selected, to copy by hand.
+              <input
+                ref={copyField}
+                type="text"
+                readOnly
+                value={publicUrl}
+                aria-label="Public URL"
+                onFocus$={(_, el) => el.select()}
+                class={[field, "mt-2"]}
+              />
+            )}
+          </dd>
           <dt class={["font-medium", muted, meta]}>File</dt>
           <dd class={["min-w-0", meta]} title={row.file}>
             <span class="block font-medium break-all">{base}</span>
             <span class={["block text-xs break-all", muted]}>{dir}</span>
-          </dd>
-          <dt class={["font-medium", muted, meta]}>Public URL</dt>
-          <dd class={["min-w-0 break-all", meta]}>
-            {/* Private photos have no working public URL; show it as text. */}
-            {row.visibility === "private" ? (
-              <span data-testid="public-url" class={muted}>
-                {publicPhotoUrl(row.public_id)}
-              </span>
-            ) : (
-              <a
-                data-testid="public-url"
-                href={publicPhotoUrl(row.public_id)}
-                target="_blank"
-                rel="noopener"
-                class={link}
-              >
-                {publicPhotoUrl(row.public_id)}
-              </a>
-            )}
           </dd>
           <dt class={["font-medium", muted, meta]}>Last updated</dt>
           <dd title={row.updated_at} class={["tabular-nums", meta]}>
@@ -511,7 +573,7 @@ export default component$(() => {
           >
             ›
           </span>
-          {showMeta.value ? "詳細を閉じる" : "ファイル・公開 URL・更新日時"}
+          {showMeta.value ? "詳細を閉じる" : "ファイル・更新日時"}
         </button>
       </div>
 

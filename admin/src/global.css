@@ -65,11 +65,29 @@
   }
 }
 
-/* Phones: a fixed bar at the bottom (data-bottom-bar, e.g. the media
-   selection bar) lifts the toast above it and pads the page so the last
-   rows can scroll clear of it. Outside @layer so it overrides the
-   utilities on <main>. */
+/* The /media row, card or tile just returned to from its edit page. */
+@keyframes media-flash {
+  from {
+    background-color: rgb(14 165 233 / 0.25);
+  }
+}
+[data-flash] {
+  animation: media-flash 1.6s ease-out;
+}
+
+/* Phones: the tab bar (data-tab-bar) or a page's own bar in its place
+   (data-bottom-bar, e.g. the media selection bar, which hides the tab bar)
+   is fixed at the bottom: lift the toast above it and pad the page so the
+   last rows can scroll clear of it. Outside @layer so it overrides the
+   utilities on <main> and the tab bar. */
 @media (width < 40rem) {
+  :root {
+    /* The tab bar: one 56px row. */
+    --bottom-ui: 3.5rem;
+  }
+  :root:has([data-bottom-bar]) [data-tab-bar] {
+    display: none;
+  }
   :root:has([data-bottom-bar]) {
     /* The selection bar's height (two 44px rows + padding); keep in sync. */
     --bottom-ui: 7.5rem;
@@ -78,7 +96,7 @@
   :root:has([data-bottom-bar="short"]) {
     --bottom-ui: 4.5rem;
   }
-  body:has([data-bottom-bar]) main {
+  main {
     padding-bottom: calc(var(--bottom-ui) + env(safe-area-inset-bottom) + 1rem);
   }
 }

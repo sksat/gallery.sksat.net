@@ -55,7 +55,8 @@ test("media files: switch view, choose a folder, open a photo", async ({
   // and folder instead of dropping back to the list.
   await tiles.filter({ hasText: "vrchat1.png" }).click();
   await page.getByRole("link", { name: "← Media" }).click();
-  await expect(page).toHaveURL(/\/media\/\?view=files&dir=\/mock$/);
+  // (#m-2: the list scrolls back to the photo.)
+  await expect(page).toHaveURL(/\/media\/\?view=files&dir=\/mock#m-2$/);
   await expect(page.getByTestId("file-tile")).toHaveCount(5);
 });
 

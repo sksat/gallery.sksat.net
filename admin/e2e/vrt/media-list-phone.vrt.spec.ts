@@ -12,6 +12,13 @@ test("admin: media list (phone)", async ({ page }) => {
   });
 });
 
+test("admin: media list filter sheet (phone)", async ({ page }) => {
+  await page.goto("/media/?world=VRChat");
+  await page.getByRole("button", { name: "絞り込み (1)" }).click();
+  await expect(page.getByRole("search", { name: "Filter" })).toBeVisible();
+  await expect(page).toHaveScreenshot("admin-media-list-phone-filter.png");
+});
+
 test("admin: media list selection bar (phone)", async ({ page }) => {
   await page.goto("/media/");
   await page.getByRole("checkbox", { name: "Select #5", exact: true }).check();

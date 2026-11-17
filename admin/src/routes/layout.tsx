@@ -1,5 +1,6 @@
 import { component$, Slot } from "@builder.io/qwik";
 import { Link, useLocation } from "@builder.io/qwik-city";
+import { TabBar } from "~/components/tab-bar";
 import { ThemeToggle } from "~/components/theme-toggle";
 
 const NAV = [
@@ -16,14 +17,23 @@ const NAV = [
   },
 ];
 
+// sm and up: one header with the nav and the theme toggle. Phones: a slim
+// top bar (badge, section name, a menu holding the theme toggle) and the
+// sections as a tab bar at the bottom, in thumb reach.
 export default component$(() => {
   const loc = useLocation();
   const path = loc.url.pathname;
+  const items = NAV.map(({ href, label, match }) => ({
+    href,
+    label,
+    active: match(path),
+  }));
+  const section = items.find((i) => i.active && i.href !== "/");
 
   return (
     <>
       <header class="sticky top-0 z-20 border-b border-zinc-200 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/85">
-        <div class="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
+        <div class="mx-auto flex h-12 max-w-6xl items-center gap-3 px-4 sm:h-14 sm:gap-6 sm:px-6">
           <Link
             href="/"
             class="flex shrink-0 items-center gap-2 rounded font-semibold tracking-tight"
@@ -34,35 +44,69 @@ export default component$(() => {
             >
               GA
             </span>
-            {/* Phones: badge only, so three nav links still fit. */}
-            <span class="sr-only sm:not-sr-only">Gallery Admin</span>
+            <span class={section ? "sr-only sm:not-sr-only" : undefined}>
+              Gallery Admin
+            </span>
           </Link>
-          <nav aria-label="Main" class="flex items-center gap-1 text-sm">
-            {NAV.map((item) => {
-              const active = item.match(path);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  class={[
-                    "inline-flex h-11 items-center rounded-md px-3 font-medium transition-colors sm:h-auto sm:py-1.5",
-                    active
-                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
-                  ]}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
+          {section && (
+            <span
+              aria-hidden="true"
+              class="truncate text-base font-semibold sm:hidden"
+            >
+              {section.label}
+            </span>
+          )}
+          <nav
+            aria-label="Main"
+            class="hidden items-center gap-1 text-sm sm:flex"
+          >
+            {items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={item.active ? "page" : undefined}
+                class={[
+                  "inline-flex items-center rounded-md px-3 py-1.5 font-medium transition-colors",
+                  item.active
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+                ]}
+              >
+                {item.label}
+              </Link>
+            ))}
           </nav>
-          <ThemeToggle />
+          <div class="ml-auto hidden sm:block">
+            <ThemeToggle />
+          </div>
+          {/* Phones: settings behind a small menu. */}
+          {/* Keyed by path: closed again after moving to another page. */}
+          <details key={path} class="relative ml-auto sm:hidden">
+            <summary
+              aria-label="Menu"
+              class="grid size-11 cursor-pointer list-none place-items-center rounded-md text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 [&::-webkit-details-marker]:hidden"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                class="size-5"
+              >
+                <circle cx="5" cy="12" r="1.75" />
+                <circle cx="12" cy="12" r="1.75" />
+                <circle cx="19" cy="12" r="1.75" />
+              </svg>
+            </summary>
+            <div class="absolute top-full right-0 z-30 mt-1 w-56 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+              <ThemeToggle menu />
+            </div>
+          </details>
         </div>
       </header>
       <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         <Slot />
       </main>
+      <TabBar items={items} />
     </>
   );
 });

@@ -1,10 +1,18 @@
-import { $, component$, useSignal, useTask$ } from "@builder.io/qwik";
+import {
+  $,
+  component$,
+  useSignal,
+  useTask$,
+  useVisibleTask$,
+} from "@builder.io/qwik";
 import { isBrowser } from "@builder.io/qwik/build";
 import {
   Form,
   Link,
   routeAction$,
   routeLoader$,
+  useLocation,
+  useNavigate,
   z,
   zod$,
   type DocumentHead,
@@ -47,7 +55,9 @@ import {
   formatJst,
   lastPage,
   mediaEditHref,
+  filterChips,
   mediaListHref,
+  parseMediaAnchor,
   parseView,
   splitPath,
   type MediaView,
@@ -323,6 +333,48 @@ export default component$(() => {
   const data = useMediaList();
   const bulk = useBulkVisibility();
   const restore = useRestoreVisibility();
+  const nav = useNavigate();
+  const loc = useLocation();
+  // Back from an edit page (#m-<id>): bring that photo's row, card or tile
+  // (whichever layout is shown) into view and flash it.
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(({ track }) => {
+    const id = parseMediaAnchor(track(() => loc.url.hash));
+    if (id === null) return;
+    // After the router's own scroll handling for the navigation.
+    requestAnimationFrame(() => {
+      const el = Array.from(
+        document.querySelectorAll<HTMLElement>(`[data-media-id="${id}"]`),
+      ).find((e) => e.getClientRects().length > 0);
+      if (!el) return;
+      el.scrollIntoView({ block: "center" });
+      el.dataset.flash = "";
+      setTimeout(() => delete el.dataset.flash, 1600);
+    });
+  });
+  // Phones: the filter form as a bottom sheet.
+  const sheetOpen = useSignal(false);
+  /**
+   * Apply the filter form in place. A select applies as soon as it
+   * changes (the sheet stays open for the next one); submitting (Filter,
+   * or Enter in the search box) also closes the sheet.
+   */
+  const applyFilter = $(async (form: HTMLFormElement, close = false) => {
+    const get = (name: string) => {
+      const v = new FormData(form).get(name);
+      return typeof v === "string" ? v.trim() : "";
+    };
+    await nav(
+      mediaListHref({
+        view: parseView(get("view")),
+        dir: get("dir") || null,
+        world: get("world") || null,
+        visibility: get("visibility") || null,
+        q: get("q") || null,
+      }),
+    );
+    if (close) sheetOpen.value = false;
+  });
   const toast = useSignal<ToastState | null>(null);
   /** The last bulk change (its target and previous visibilities), for undo. */
   const lastChange = useSignal<{
@@ -402,6 +454,14 @@ export default component$(() => {
     data.value;
   const pageCount = lastPage(total, PAGE_SIZE);
   const filtered = Boolean(world || visibility || q);
+  const chips = filterChips({
+    view,
+    dir: files?.dir ?? "/",
+    world,
+    visibility,
+    q,
+    visibilityLabel: (v) => (isVisibility(v) ? VISIBILITY_LABELS[v] : v),
+  });
   const dir = files?.dir ?? "/";
   const pageUrl = (p: number) =>
     mediaListHref({ world, visibility, q, page: p });
@@ -470,7 +530,10 @@ export default component$(() => {
           >
             {viewTabs.map((t) => (
               <Link
-                key={t.view}
+                // Keyed by href: Qwik City's Link keeps the href it was
+                // first rendered with, and filters apply without leaving
+                // this route.
+                key={t.href}
                 href={t.href}
                 aria-current={t.view === view ? "page" : undefined}
                 class={[
@@ -487,15 +550,73 @@ export default component$(() => {
         </div>
       </div>
 
+      {/* Phones: the filter form is a bottom sheet behind this chip, and
+          the active filters are chips that each remove themselves. */}
+      <div class="-mx-4 flex items-center gap-2 overflow-x-auto px-4 sm:hidden">
+        <button
+          type="button"
+          aria-expanded={sheetOpen.value}
+          aria-controls="media-filter"
+          onClick$={() => (sheetOpen.value = true)}
+          class={[
+            buttonSecondary,
+            "shrink-0 rounded-full",
+            chips.length > 0 &&
+              "border-sky-500 text-sky-800 dark:border-sky-500 dark:text-sky-300",
+          ]}
+        >
+          絞り込み{chips.length > 0 && ` (${chips.length})`}
+        </button>
+        {chips.map((c) => (
+          <Link
+            key={c.href}
+            href={c.href}
+            aria-label={`${c.label} の絞り込みを外す`}
+            class="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-sky-100 pr-3 pl-4 text-sm font-medium text-sky-900 dark:bg-sky-950 dark:text-sky-100"
+          >
+            {c.label}
+            <span aria-hidden="true" class="opacity-60">
+              ✕
+            </span>
+          </Link>
+        ))}
+      </div>
+      {sheetOpen.value && (
+        <div
+          aria-hidden="true"
+          onClick$={() => (sheetOpen.value = false)}
+          // m-0: no margin from the space-y-* stack it sits in.
+          class="fixed inset-0 z-30 m-0 bg-black/40 sm:hidden"
+        />
+      )}
       <form
+        id="media-filter"
         method="get"
         action="/media/"
         role="search"
+        aria-label="Filter"
+        // With JS: apply in place (no full reload) and close the sheet.
+        preventdefault:submit
+        onSubmit$={(_, form) => applyFilter(form, true)}
         class={[
           card,
           "grid gap-3 p-4 sm:grid-cols-[10rem_10rem_1fr_auto] sm:items-end",
+          sheetOpen.value
+            ? "max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:m-0 max-sm:max-h-[85dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:pb-[calc(1rem+env(safe-area-inset-bottom))] max-sm:shadow-2xl"
+            : "max-sm:hidden",
         ]}
       >
+        <div class="flex items-center justify-between sm:hidden">
+          <h2 class="text-base font-semibold">絞り込み</h2>
+          <button
+            type="button"
+            aria-label="閉じる"
+            onClick$={() => (sheetOpen.value = false)}
+            class="-mr-2 grid size-11 place-items-center rounded-lg"
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
+        </div>
         {view === "files" && (
           <>
             <input type="hidden" name="view" value="files" />
@@ -506,7 +627,12 @@ export default component$(() => {
           <label for="filter-world" class={label}>
             World
           </label>
-          <select id="filter-world" name="world" class={field}>
+          <select
+            id="filter-world"
+            name="world"
+            onChange$={(_, el) => el.form && applyFilter(el.form)}
+            class={field}
+          >
             <option value="" selected={world === null}>
               (any)
             </option>
@@ -522,7 +648,12 @@ export default component$(() => {
           <label for="filter-visibility" class={label}>
             Visibility
           </label>
-          <select id="filter-visibility" name="visibility" class={field}>
+          <select
+            id="filter-visibility"
+            name="visibility"
+            onChange$={(_, el) => el.form && applyFilter(el.form)}
+            class={field}
+          >
             <option value="" selected={visibility === null}>
               (any)
             </option>
@@ -555,7 +686,11 @@ export default component$(() => {
             Filter
           </button>
           {filtered && (
-            <Link href={mediaListHref({ view, dir })} class={buttonSecondary}>
+            <Link
+              key={mediaListHref({ view, dir })}
+              href={mediaListHref({ view, dir })}
+              class={buttonSecondary}
+            >
               Reset
             </Link>
           )}
@@ -719,6 +854,7 @@ export default component$(() => {
                 {rows.map((row) => (
                   <tr
                     key={row.id}
+                    data-media-id={row.id}
                     class="relative align-middle transition-colors hover:bg-sky-50/60 has-[a:focus-visible]:bg-sky-50/60 dark:hover:bg-sky-950/30 dark:has-[a:focus-visible]:bg-sky-950/30"
                   >
                     <td class="py-3 pl-4">
@@ -744,6 +880,7 @@ export default component$(() => {
                     </td>
                     <td class="px-4 py-3">
                       <Link
+                        key={back}
                         href={mediaEditHref(row.id, back)}
                         title={row.file}
                         class="block min-w-0 rounded after:absolute after:inset-0 after:content-['']"
@@ -815,6 +952,7 @@ export default component$(() => {
               <li
                 key={row.id}
                 data-testid="media-card"
+                data-media-id={row.id}
                 class="flex items-stretch has-checked:bg-sky-50 has-checked:ring-2 has-checked:ring-sky-500 has-checked:ring-inset dark:has-checked:bg-sky-950/40"
               >
                 <label class="flex w-14 shrink-0 cursor-pointer items-start justify-center pt-3.5 pl-1">
@@ -838,6 +976,7 @@ export default component$(() => {
                   </label>
                 ) : (
                   <Link
+                    key={back}
                     href={mediaEditHref(row.id, back)}
                     title={row.file}
                     class="flex min-w-0 flex-1 items-start gap-3 py-3 pr-4 pl-1 active:bg-sky-50 dark:active:bg-sky-950/30"
@@ -915,12 +1054,20 @@ export default component$(() => {
           </p>
           <div class="flex gap-2">
             {page > 1 && (
-              <Link href={pageUrl(page - 1)} class={buttonSecondary}>
+              <Link
+                key={pageUrl(page - 1)}
+                href={pageUrl(page - 1)}
+                class={buttonSecondary}
+              >
                 ← Prev
               </Link>
             )}
             {page < pageCount && (
-              <Link href={pageUrl(page + 1)} class={buttonSecondary}>
+              <Link
+                key={pageUrl(page + 1)}
+                href={pageUrl(page + 1)}
+                class={buttonSecondary}
+              >
                 Next →
               </Link>
             )}

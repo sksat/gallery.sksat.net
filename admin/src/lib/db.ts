@@ -432,16 +432,25 @@ export const updateCameraImageCaption = async (
   return (res.meta.changes ?? 0) > 0;
 };
 
+/**
+ * Remove a picture. Returns what undo needs (its file, caption and index
+ * in the order), or null when this camera has no such picture.
+ */
 export const removeCameraImage = async (
   db: D1Database,
   cameraId: number,
   imageId: number,
-): Promise<boolean> => {
+): Promise<{ file: string; caption: string | null; index: number } | null> => {
+  const images = await listCameraImages(db, cameraId);
+  const index = images.findIndex((img) => img.id === imageId);
+  if (index === -1) return null;
   const res = await db
     .prepare("DELETE FROM camera_image WHERE id = ? AND camera_id = ?")
     .bind(imageId, cameraId)
     .run();
-  return (res.meta.changes ?? 0) > 0;
+  if ((res.meta.changes ?? 0) === 0) return null;
+  const { file, caption } = images[index];
+  return { file, caption, index };
 };
 
 /**
@@ -475,6 +484,16 @@ export const moveCameraImage = async (
   if (!ids.includes(imageId)) return false;
   const order = reorderedIds(ids, imageId, direction);
   if (!order) return true;
+  await setImageOrder(db, cameraId, order);
+  return true;
+};
+
+/** Positions 0..n-1 in `order`, in one batch. */
+const setImageOrder = async (
+  db: D1Database,
+  cameraId: number,
+  order: readonly number[],
+): Promise<void> => {
   await db.batch(
     order.map((id, position) =>
       db
@@ -484,5 +503,32 @@ export const moveCameraImage = async (
         .bind(position, id, cameraId),
     ),
   );
-  return true;
+};
+
+/** `ids` with `id` moved to `index` (clamped); unchanged if it is absent. */
+export const movedTo = (
+  ids: readonly number[],
+  id: number,
+  index: number,
+): number[] => {
+  const rest = ids.filter((x) => x !== id);
+  if (rest.length === ids.length) return [...ids];
+  const at = Math.max(0, Math.min(index, rest.length));
+  return [...rest.slice(0, at), id, ...rest.slice(at)];
+};
+
+/**
+ * Undo of a removal: add the picture back at `index` (0-based) of the
+ * current order. Throws DuplicateImageError if the file was added again
+ * meanwhile.
+ */
+export const restoreCameraImage = async (
+  db: D1Database,
+  cameraId: number,
+  image: { file: string; caption: string | null },
+  index: number,
+): Promise<void> => {
+  const added = await addCameraImage(db, cameraId, image);
+  const ids = (await listCameraImages(db, cameraId)).map((img) => img.id);
+  await setImageOrder(db, cameraId, movedTo(ids, added.id, index));
 };

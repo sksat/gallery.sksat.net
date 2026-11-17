@@ -5,6 +5,7 @@ import {
   validateCamera,
   validateCameraImage,
   validateImageFile,
+  resolveCameraImagePath,
   validateBulkVisibility,
   validateRestoreVisibility,
   validatePatch,
@@ -21,6 +22,22 @@ describe("validatePatch visibility", () => {
   it("rejects anything else", () => {
     expect(validatePatch({ visibility: "hidden" }).ok).toBe(false);
     expect(validatePatch({ visibility: null }).ok).toBe(false);
+  });
+});
+
+describe("resolveCameraImagePath", () => {
+  it("puts a bare file name in the camera's folder", () => {
+    expect(resolveCameraImagePath(" front.png ", "vl2")).toBe(
+      "/camera/vl2/front.png",
+    );
+    expect(resolveCameraImagePath("sub/a.png", "vl2")).toBe(
+      "/camera/vl2/sub/a.png",
+    );
+  });
+
+  it("keeps an absolute path and an empty input", () => {
+    expect(resolveCameraImagePath("/other/a.png", "vl2")).toBe("/other/a.png");
+    expect(resolveCameraImagePath("  ", "vl2")).toBe("");
   });
 });
 

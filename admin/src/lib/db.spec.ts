@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  reorderedIds,
-  rowToCamera,
-  rowToMedia,
-} from "./db";
+import { movedTo, reorderedIds, rowToCamera, rowToMedia } from "./db";
 import type { CameraRow } from "./types";
 
 const UPDATED = "2025-05-03T10:00:00.000Z";
@@ -129,6 +125,20 @@ describe("rowToCamera", () => {
     expect(() => rowToCamera({ ...vl2, kind: "drone" })).toThrow(
       /unknown camera kind/,
     );
+  });
+});
+
+describe("movedTo", () => {
+  it("puts the id at the index", () => {
+    expect(movedTo([1, 2, 3, 9], 9, 1)).toEqual([1, 9, 2, 3]);
+    expect(movedTo([1, 2, 3], 1, 2)).toEqual([2, 3, 1]);
+    expect(movedTo([9, 1], 9, 0)).toEqual([9, 1]);
+  });
+
+  it("clamps the index and ignores an absent id", () => {
+    expect(movedTo([1, 2, 9], 9, 10)).toEqual([1, 2, 9]);
+    expect(movedTo([1, 2, 9], 9, -1)).toEqual([9, 1, 2]);
+    expect(movedTo([1, 2], 9, 0)).toEqual([1, 2]);
   });
 });
 

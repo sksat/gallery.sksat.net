@@ -110,10 +110,10 @@ test("cameras: add, reorder, caption and remove images", async ({ page }) => {
   ).toBeDisabled();
 
   await caption(page, 1).fill("B side");
-  // Wait for the action to land before reloading.
+  // Saved on leaving the field; wait for it before reloading.
   await Promise.all([
     page.waitForResponse((r) => r.request().method() === "POST"),
-    page.getByRole("button", { name: "Save caption of image 1" }).click(),
+    caption(page, 1).blur(),
   ]);
 
   await page.reload();

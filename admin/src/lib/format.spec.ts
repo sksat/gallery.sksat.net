@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterChips,
   formatJst,
   lastPage,
+  mediaAnchor,
   mediaEditHref,
   mediaListHref,
+  parseMediaAnchor,
   parseView,
   publicPhotoUrl,
   safeBackHref,
@@ -23,6 +26,65 @@ describe("publicPhotoUrl", () => {
     expect(publicPhotoUrl("abcdefghjk")).toBe(
       "https://gallery.sksat.net/photo/abcdefghjk/",
     );
+  });
+});
+
+describe("mediaAnchor / parseMediaAnchor", () => {
+  it("round-trips a photo id", () => {
+    expect(mediaAnchor(12)).toBe("#m-12");
+    expect(parseMediaAnchor(mediaAnchor(12))).toBe(12);
+  });
+
+  it("ignores anything else", () => {
+    for (const h of ["", "#", "#m-", "#m-0", "#m-01", "#m-1x", "#x-1"]) {
+      expect(parseMediaAnchor(h)).toBeNull();
+    }
+  });
+});
+
+describe("filterChips", () => {
+  const label = (v: string) => v.toUpperCase();
+
+  it("has one chip per active filter, each dropping only itself", () => {
+    expect(
+      filterChips({
+        view: "files",
+        dir: "/a",
+        world: "VRChat",
+        visibility: "private",
+        q: "x",
+        visibilityLabel: label,
+      }),
+    ).toEqual([
+      {
+        key: "world",
+        label: "VRChat",
+        href: "/media/?view=files&dir=/a&visibility=private&q=x",
+      },
+      {
+        key: "visibility",
+        label: "PRIVATE",
+        href: "/media/?view=files&dir=/a&world=VRChat&q=x",
+      },
+      {
+        key: "q",
+        label: "“x”",
+        href: "/media/?view=files&dir=/a&world=VRChat&visibility=private",
+      },
+    ]);
+  });
+
+  it("is empty without filters", () => {
+    expect(
+      filterChips({
+        view: "list",
+        dir: "/",
+        world: null,
+        visibility: null,
+        q: "",
+        visibilityLabel: label,
+      }),
+    ).toEqual([]);
   });
 });
 
