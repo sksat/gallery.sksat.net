@@ -40,7 +40,23 @@ export const srcSet = (
     .join(", ");
 };
 
-/** Grid rows are 240 CSS px tall; 2x for high-density screens. */
+/**
+ * Pixel size encoded in the file name, as VRChat names its screenshots
+ * (`VRChat_2023-12-11_01-21-32.519_7680x4320.png`). Passed to <img> as
+ * width/height so the browser reserves the tile's aspect ratio before the
+ * image loads. Empty when the name carries no size.
+ */
+export const dimensionsFromFile = (
+  file: string,
+): { width: number; height: number } | Record<string, never> => {
+  const match = /_(\d+)x(\d+)\.[A-Za-z]+$/.exec(file);
+  if (!match) return {};
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return width > 0 && height > 0 ? { width, height } : {};
+};
+
+/** Grid rows are at most 240 CSS px tall; 2x for high-density screens. */
 export const GRID_CANDIDATES: [PresetName, string][] = [
   ["h240", "1x"],
   ["h480", "2x"],

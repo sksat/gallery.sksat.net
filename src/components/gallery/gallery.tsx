@@ -15,6 +15,7 @@ import {
 } from "./types";
 import { galleryUrl, navigateImage, photoIdFromPath } from "./logic";
 import {
+  dimensionsFromFile,
   GRID_CANDIDATES,
   imageUrl,
   OVERLAY_CANDIDATES,
@@ -137,7 +138,7 @@ export default component$(() => {
   // every keydown ran twice and ArrowRight skipped a photo.
   return (
     <div
-      class="container mx-auto px-5 py-2 lg:px-32 lg:pt-12"
+      class="px-1 py-2 sm:px-2"
       window:onPopState$={onPopState}
       document:onKeyDown$={onKeyDown}
     >
@@ -152,7 +153,7 @@ export default component$(() => {
 
           return (
             <>
-              <div class="mb-6 flex flex-col gap-3">
+              <div class="mb-3 flex flex-col gap-3 px-1">
                 <div
                   role="group"
                   aria-label="タグで絞り込む"
@@ -223,7 +224,13 @@ export default component$(() => {
                   )}
                 </div>
               </div>
-              <div class="flex flex-wrap gap-4">
+              {/*
+                Justified rows: every tile has the row height and grows to
+                fill the line; the image covers the tile, so it is cropped
+                only by the few pixels the row was stretched. The trailing
+                filler soaks up the last row so it is not stretched.
+              */}
+              <div data-testid="gallery-grid" class="flex flex-wrap gap-1">
                 {
                   // 選択した画像をオーバーレイ表示
                   state.selectedImageId !== null &&
@@ -231,7 +238,10 @@ export default component$(() => {
                       <div
                         data-testid="overlay"
                         onClick$={() => selectImage(null)}
-                        class="bg-opacity-50 fixed inset-0 z-10 flex items-center justify-center bg-black"
+                        // Translucent so the grid stays visible behind the
+                        // photo. (bg-opacity-* was removed in Tailwind v4,
+                        // which had made this an opaque black.)
+                        class="fixed inset-0 z-10 flex items-center justify-center bg-black/70 backdrop-blur-sm"
                       >
                         {/*
                           Progressive: the grid thumbnail (same srcset as the
@@ -289,10 +299,16 @@ export default component$(() => {
                 {
                   // 画像の一覧表示
                   filteredMedia.map((m) => (
-                    <div key={m.index} class="group relative">
+                    <div
+                      key={m.index}
+                      // Row height steps with the width so a 16:9 photo
+                      // sits about 2-3 per row and is cropped little.
+                      class="group relative h-24 grow overflow-hidden sm:h-32 md:h-40 lg:h-48 xl:h-60"
+                    >
                       <img
                         data-testid="gallery-image"
-                        class="max-h-60"
+                        class="h-full w-auto min-w-full cursor-pointer object-cover align-bottom"
+                        {...dimensionsFromFile(m.value.file)}
                         onClick$={() => selectImage(m.index)}
                         src={imageUrl(
                           S3_BASE,
@@ -325,6 +341,7 @@ export default component$(() => {
                     </div>
                   ))
                 }
+                <div aria-hidden="true" class="grow-[10]" />
               </div>
             </>
           );
