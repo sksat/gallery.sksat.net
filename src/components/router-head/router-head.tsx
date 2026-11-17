@@ -2,6 +2,10 @@ import { useDocumentHead, useLocation } from "@builder.io/qwik-city";
 
 import { component$ } from "@builder.io/qwik";
 
+// Public value (it appears in every page's HTML).
+const CF_BEACON_TOKEN: string | undefined = import.meta.env
+  .VITE_CF_BEACON_TOKEN;
+
 /**
  * The RouterHead component is placed inside of the document `<head>` element.
  */
@@ -19,6 +23,16 @@ export const RouterHead = component$(() => {
       <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
       <link rel="icon" type="image/png" href="/icon-192.png" sizes="192x192" />
       <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+      {/* Cloudflare Web Analytics (cookieless). Production only: the token
+          is set in .env.production, so dev and tests send no beacons. */}
+      {CF_BEACON_TOKEN && (
+        <script
+          type="module"
+          src="https://static.cloudflareinsights.com/beacon.min.js"
+          data-cf-beacon={JSON.stringify({ token: CF_BEACON_TOKEN })}
+        />
+      )}
 
       {head.meta.map((m) => (
         <meta key={m.key} {...m} />
