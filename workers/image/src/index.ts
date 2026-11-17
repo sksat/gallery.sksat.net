@@ -6,7 +6,7 @@
  * done by Cloudflare Image Transformations through `fetch(..., { cf: { image } })`;
  * this Worker only maps a fixed set of presets to transformation options.
  */
-import { parseImagePath, pickFormat, PRESETS } from "./request";
+import { parseImagePath, transformOptions, variesByAccept } from "./request";
 
 interface Env {
   /** Base URL of the originals, without a trailing slash. */
@@ -22,18 +22,22 @@ export default {
       });
     }
 
-    const parsed = parseImagePath(new URL(request.url).pathname);
+    const url = new URL(request.url);
+    const parsed = parseImagePath(url.pathname);
     if (!parsed) return new Response("Not Found", { status: 404 });
 
-    const format = pickFormat(request.headers.get("Accept"));
     const upstream = await fetch(env.ORIGIN_BASE_URL + parsed.file, {
       cf: {
-        image: { ...PRESETS[parsed.preset], fit: "scale-down", format },
+        image: transformOptions(
+          parsed.preset,
+          request.headers.get("Accept"),
+          url.origin,
+        ),
       },
     });
 
     const headers = new Headers(upstream.headers);
-    headers.set("Vary", "Accept");
+    if (variesByAccept(parsed.preset)) headers.set("Vary", "Accept");
     if (upstream.ok) {
       headers.set(
         "Cache-Control",

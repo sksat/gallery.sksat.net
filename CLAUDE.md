@@ -97,6 +97,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - Serves resized photos at `gallery.sksat.net/img/<preset>/<file>`. The Worker shell and that route are managed by Terraform outside this repo; do not add `routes` to `workers/image/wrangler.jsonc`. It fetches the original from B2 with `cf.image`, so Cloudflare Image Transformations does the resize; the Worker itself cannot decode the 8K PNGs within 128MB / 10ms CPU (Free plan).
 - Only the presets in `workers/image/src/request.ts` exist. Each distinct (file, preset) counts toward the free tier of 5,000 unique transformations per month; past it, new ones fail with error 9422 (no charge). Do not add a preset per call site — reuse the existing ones.
+- The `og` preset is the social card (og:image, built in `src/components/ogp.ts`): a 1200×630 JPEG crop with `public/og-badge.png` drawn on top via `cf.image.draw`. The badge text is baked into the PNG (no text rendering in the Worker); regenerate it with `workers/image/og-badge.sh`.
 - Deployed from `main` by `.github/workflows/deploy-image-worker.yaml` with a Workers Scripts:Edit-only token (repo secrets `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_APP_DEPLOY_TOKEN`). Manual deploy: `pnpm run deploy.image`.
 
 ### Styling
