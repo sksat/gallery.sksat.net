@@ -3,13 +3,8 @@ import type { DocumentHead } from "@builder.io/qwik-city";
 
 import Gallery from "~/components/gallery/gallery";
 
-export default component$(() => {
-  return (
-    <>
-      <Gallery selectedWorld={null} selectedImageId={null} />
-    </>
-  );
-});
+// The gallery reads the photo and tag filter from the URL itself.
+export default component$(() => <Gallery />);
 
 export const head: DocumentHead = {
   title: "sksat gallery",

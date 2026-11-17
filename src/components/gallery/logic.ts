@@ -1,19 +1,4 @@
-import type { MediaIndex, MediaInfo, MediaWorld } from "./types";
-
-/**
- * Filter media by world and preserve original indices.
- *
- * @param media - Full media array
- * @param world - World to filter by ("Real" or "VRChat")
- * @returns Array of { index, value } where index is the original position in media
- */
-export const filterMediaByWorld = (
-  media: MediaIndex,
-  world: MediaWorld,
-): { index: number; value: MediaInfo }[] =>
-  media
-    .map((value, index) => ({ index, value }))
-    .filter((entry) => entry.value.world === world);
+import { serializeTagFilter, type TagFilter } from "./tags";
 
 /**
  * Navigate to the next or previous image within a filtered set.
@@ -40,4 +25,23 @@ export const navigateImage = (
     const prevIndex = currentFilteredIndex - 1;
     return prevIndex >= 0 ? filteredIndices[prevIndex] : null;
   }
+};
+
+/**
+ * URL for a gallery state: `/` or `/photo/{id}`, with the tag filter kept in
+ * the query so closing or sharing a photo preserves the current selection.
+ */
+export const galleryUrl = (
+  imageId: number | null,
+  filter: TagFilter,
+): string => {
+  const path = imageId === null ? "/" : `/photo/${imageId}`;
+  const query = serializeTagFilter(filter);
+  return query === "" ? path : `${path}?${query}`;
+};
+
+/** Photo id from a `/photo/{id}` path (trailing slash allowed), else null. */
+export const photoIdFromPath = (pathname: string): number | null => {
+  const match = /^\/photo\/(\d+)\/?$/.exec(pathname);
+  return match ? Number(match[1]) : null;
 };

@@ -1,19 +1,13 @@
 import { component$ } from "@builder.io/qwik";
-import { useLocation, routeLoader$ } from "@builder.io/qwik-city";
+import { routeLoader$ } from "@builder.io/qwik-city";
 import type { DocumentHead } from "@builder.io/qwik-city";
 
 import Gallery from "~/components/gallery/gallery";
 import { parseImageId, getOgImageUrl } from "./logic";
 
+// The gallery reads the photo id (from the path) and tag filter itself.
 export default component$(() => {
-  const location = useLocation();
-  const imageId = location.params.imageId;
-
-  return (
-    <>
-      <Gallery selectedWorld={null} selectedImageId={parseInt(imageId, 10)} />
-    </>
-  );
+  return <Gallery />;
 });
 
 export const head: DocumentHead = ({ resolveValue }) => {

@@ -8,15 +8,15 @@ In tests, `playwright.config.ts` sets `VITE_S3_BASE_URL=http://127.0.0.1:5174/te
 
 `media.json` defines five entries with fixed timestamps. Indices match the `imageId` used in `/photo/[imageId]` routes (0-indexed by position in the array).
 
-| imageId | file                | world  | timestamp              | camera                  | tags   |
-| ------- | ------------------- | ------ | ---------------------- | ----------------------- | ------ |
-| 0       | `/mock/real1.png`   | Real   | `2023-12-01T00:00:00Z` | —                       | —      |
-| 1       | `/mock/vrchat1.png` | VRChat | `2023-12-02T00:00:00Z` | logilabo / VirtualLens2 | VRChat |
-| 2       | `/mock/real2.png`   | Real   | `2023-12-03T00:00:00Z` | —                       | —      |
-| 3       | `/mock/vrchat2.png` | VRChat | `2023-12-04T00:00:00Z` | —                       | VRChat |
-| 4       | `/mock/vrchat3.png` | VRChat | `2023-12-05T00:00:00Z` | —                       | VRChat |
+| imageId | file                | world  | timestamp              | camera                  | tags          |
+| ------- | ------------------- | ------ | ---------------------- | ----------------------- | ------------- |
+| 0       | `/mock/real1.png`   | Real   | `2023-12-01T00:00:00Z` | —                       | film          |
+| 1       | `/mock/vrchat1.png` | VRChat | `2023-12-02T00:00:00Z` | logilabo / VirtualLens2 | VRChat        |
+| 2       | `/mock/real2.png`   | Real   | `2023-12-03T00:00:00Z` | —                       | night         |
+| 3       | `/mock/vrchat2.png` | VRChat | `2023-12-04T00:00:00Z` | —                       | VRChat, night |
+| 4       | `/mock/vrchat3.png` | VRChat | `2023-12-05T00:00:00Z` | —                       | VRChat        |
 
-Counts: **2 Real**, **3 VRChat** (relied on by `e2e/gallery.spec.ts`).
+The gallery treats `world` as one more tag, so the tag counts are **VRChat 3**, **Real 2**, **night 2**, **film 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = photo 2, `Real` OR `night` = photos 0, 2, 3.
 
 ## Rules when modifying
 
