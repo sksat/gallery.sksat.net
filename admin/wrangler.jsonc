@@ -2,6 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "gallery-admin",
   "compatibility_date": "2025-04-01",
+  // With `pages_build_output_dir` set, Cloudflare Pages treats this file as
+  // the source of truth for bindings and ignores the dashboard. Top-level
+  // settings are the production deployment (and local dev); `env.preview`
+  // overrides them for preview deployments.
   "pages_build_output_dir": "./dist",
   "vars": {
     "B2_REGION": "us-west-002",
@@ -9,20 +13,36 @@
     "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
     // Cloudflare Access JWT verification (src/lib/access.ts). Not secrets:
     // the team domain is public and AUD tags only identify Access apps.
-    // ACCESS_AUD = custom domain app, preview deployments app.
+    // Production accepts only the custom-domain app (admin.gallery.sksat.net).
     "ACCESS_TEAM_DOMAIN": "https://sksat.cloudflareaccess.com",
-    "ACCESS_AUD": "e5ff448257acbe43d36fecf57eb2a1e2f133d21c13c46315b5d61b08f332d93a,eba20c113f589a0b3a11d2fd46268f17ead1732f1f5e01cbc6ef0da525d8ac8a",
+    "ACCESS_AUD": "e5ff448257acbe43d36fecf57eb2a1e2f133d21c13c46315b5d61b08f332d93a",
   },
   "d1_databases": [
     {
-      // Override `database_id` locally after running `pnpm db.create`. The
-      // committed value is a syntactically valid all-zero UUID so Cloudflare
-      // Pages preview validation passes; production binding is configured via
-      // the Pages dashboard.
+      // Production D1 (`pnpm db.create`). A database id is an identifier,
+      // not a credential: access still requires Cloudflare account auth.
       "binding": "DB",
       "database_name": "gallery-admin",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "70d6bc59-9937-48e0-90bb-0ef8a2a53bcd",
       "migrations_dir": "migrations",
     },
   ],
+  "env": {
+    "preview": {
+      // `vars` and `d1_databases` are not inherited by environments, so they
+      // are restated here.
+      "vars": {
+        "B2_REGION": "us-west-002",
+        "B2_BUCKET": "sksat-gallery",
+        "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
+        "ACCESS_TEAM_DOMAIN": "https://sksat.cloudflareaccess.com",
+        // Preview deployments app (*.admin-gallery-sksat-net.pages.dev).
+        "ACCESS_AUD": "eba20c113f589a0b3a11d2fd46268f17ead1732f1f5e01cbc6ef0da525d8ac8a",
+      },
+      // Previews (incl. Renovate PRs) run unreviewed code, so they get no
+      // database: the UI shows the missing-binding notice instead of being
+      // able to read or rewrite production metadata.
+      "d1_databases": [],
+    },
+  },
 }
