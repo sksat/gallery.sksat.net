@@ -2,24 +2,20 @@ import { test, expect } from "@playwright/test";
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
-test("home: Real filter (default)", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByTestId("gallery-image").first()).toBeVisible({
-    timeout: 10000,
-  });
-  await expect(page).toHaveScreenshot("home-real.png", { fullPage: true });
-});
-
-test("home: VRChat filter", async ({ page }) => {
+test("home: no tag selected", async ({ page }) => {
   await page.goto("/");
   const images = page.getByTestId("gallery-image");
-  await expect(images.first()).toBeVisible({ timeout: 10000 });
-  await page.locator("label[for='VRChat']").click();
-  await expect(page.locator("input#VRChat")).toBeChecked();
-  // Wait for the filter to actually take effect — Real (2) → VRChat (3).
-  // Without this, toHaveScreenshot can race against the in-flight re-render.
-  await expect(images).toHaveCount(3);
-  await expect(page).toHaveScreenshot("home-vrchat.png", { fullPage: true });
+  await expect(images).toHaveCount(5, { timeout: 10000 });
+  await expect(page).toHaveScreenshot("home-all.png", { fullPage: true });
+});
+
+test("home: two tags selected (OR)", async ({ page }) => {
+  // Two tags so the AND/OR switch and the clear button are visible.
+  await page.goto("/?tag=Real&tag=night&mode=or");
+  await expect(page.getByTestId("gallery-image")).toHaveCount(3, {
+    timeout: 10000,
+  });
+  await expect(page).toHaveScreenshot("home-tags-or.png", { fullPage: true });
 });
 
 test("photo overlay: direct navigation", async ({ page }) => {

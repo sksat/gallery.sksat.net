@@ -68,9 +68,9 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - Main UI component managing photo display and navigation
 - Fetches `media.json` index from S3 via `VITE_S3_BASE_URL` environment variable
-- State management: world selection (Real/VRChat), selected image overlay
-- Keyboard navigation: Arrow keys to browse when image selected
-- URL history: Updates route when selecting images (`/photo/[imageId]`)
+- State management: tag filter (AND/OR; `world` is treated as one more tag, see `tags.ts`), selected image overlay
+- Keyboard navigation: Arrow keys to browse within the filtered photos when an image is selected
+- URL history: the filter lives in the query (`?tag=a&tag=b&mode=or`, replaceState); selecting an image pushes `/photo/[imageId]?<same query>`
 
 **Media Data Flow**
 
@@ -125,7 +125,7 @@ The default loop is **failing test → minimal implementation → green → refa
 | User flow across components / routing / keyboard              | `e2e/*.spec.ts` (Playwright)                            |
 | Visual layout / styling / regression of look                  | `e2e/vrt/*.vrt.spec.ts` (Playwright `toHaveScreenshot`) |
 
-Pure functions live in `src/components/gallery/logic.ts` and `src/components/gallery/types.ts`. Add new pure logic there before reaching for component-level state — it keeps Vitest as the fast feedback loop.
+Pure functions live in `src/components/gallery/logic.ts`, `tags.ts` and `types.ts`. Add new pure logic there before reaching for component-level state — it keeps Vitest as the fast feedback loop.
 
 ### Fixture rules
 

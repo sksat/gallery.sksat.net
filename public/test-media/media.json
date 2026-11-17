@@ -4,13 +4,16 @@
     "world": "Real",
     "timestamp": "2023-12-01T00:00:00Z",
     "camera": null,
-    "tags": []
+    "tags": ["film"]
   },
   {
     "file": "/mock/vrchat1.png",
     "world": "VRChat",
     "timestamp": "2023-12-02T00:00:00Z",
-    "camera": { "make": "logilabo", "model": "VirtualLens2" },
+    "camera": {
+      "make": "logilabo",
+      "model": "VirtualLens2"
+    },
     "tags": ["VRChat"]
   },
   {
@@ -18,14 +21,14 @@
     "world": "Real",
     "timestamp": "2023-12-03T00:00:00Z",
     "camera": null,
-    "tags": []
+    "tags": ["night"]
   },
   {
     "file": "/mock/vrchat2.png",
     "world": "VRChat",
     "timestamp": "2023-12-04T00:00:00Z",
     "camera": null,
-    "tags": ["VRChat"]
+    "tags": ["VRChat", "night"]
   },
   {
     "file": "/mock/vrchat3.png",

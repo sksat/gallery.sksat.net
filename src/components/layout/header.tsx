@@ -13,6 +13,10 @@ export default component$(() => {
       />
       <div class="relative z-10 flex h-full items-center justify-center">
         <div>
+          {/* A plain <a>, not <Link>: the gallery rewrites the URL with
+              history.pushState/replaceState, which Qwik City's SPA router does
+              not track. Keeping the router inactive avoids it acting on a
+              stale URL (e.g. a <Link> to "/" being ignored as "same page"). */}
           <a href="/" title="" class="flex items-center">
             <LogoSksat class="mr-4" style={{ width: 50, height: 50 }} />
             <h2 style="color: white; text-shadow: 2px 2px 0px grey;">
