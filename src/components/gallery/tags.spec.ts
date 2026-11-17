@@ -10,6 +10,7 @@ import {
 import type { MediaInfo } from "./types";
 
 const media = (world: MediaInfo["world"], tags: string[]): MediaInfo => ({
+  id: "abcdefghjk",
   file: `/m/${world}-${tags.join("-")}.jpg`,
   world,
   timestamp: null,

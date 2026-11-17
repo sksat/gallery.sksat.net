@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseMediaTimestamp, transformMediaInfo } from "./types";
+import {
+  parseMediaItem,
+  parseMediaList,
+  parseMediaTimestamp,
+  transformMediaInfo,
+} from "./types";
 import type { MediaInfoJSON } from "./types";
 
 describe("parseMediaTimestamp", () => {
@@ -17,73 +22,72 @@ describe("parseMediaTimestamp", () => {
   });
 });
 
+const item: MediaInfoJSON = {
+  id: "abcdefghjk",
+  file: "/media/test.jpg",
+  world: "Real",
+  timestamp: "2023-12-01T00:00:00Z",
+  camera: null,
+  tags: [],
+};
+
 describe("transformMediaInfo", () => {
   it("should transform timestamp string to Date", () => {
-    const input: MediaInfoJSON = {
-      file: "/media/test.jpg",
-      world: "Real",
-      timestamp: "2023-12-01T00:00:00Z",
-      camera: null,
-      tags: [],
-    };
-
-    const result = transformMediaInfo(input);
-    expect(result.timestamp).toBeInstanceOf(Date);
+    expect(transformMediaInfo(item).timestamp).toBeInstanceOf(Date);
   });
 
   it("should preserve null timestamp", () => {
-    const input: MediaInfoJSON = {
-      file: "/media/test.jpg",
-      world: "VRChat",
-      timestamp: null,
-      camera: null,
-      tags: [],
-    };
-
-    const result = transformMediaInfo(input);
-    expect(result.timestamp).toBeNull();
+    expect(
+      transformMediaInfo({ ...item, timestamp: null }).timestamp,
+    ).toBeNull();
   });
 
   it("should handle invalid timestamp by returning null", () => {
-    const input: MediaInfoJSON = {
-      file: "/media/test.jpg",
-      world: "Real",
-      timestamp: "not-a-date",
-      camera: null,
-      tags: [],
-    };
-
-    const result = transformMediaInfo(input);
-    expect(result.timestamp).toBeNull();
+    expect(
+      transformMediaInfo({ ...item, timestamp: "not-a-date" }).timestamp,
+    ).toBeNull();
   });
+});
 
-  it("keeps a camera from an older media.json (make/model only)", () => {
-    const input: MediaInfoJSON = {
-      file: "/VRChat/x.png",
-      world: "VRChat",
-      timestamp: null,
-      camera: { make: "logilabo", model: "VirtualLens2" },
-      tags: [],
-    };
-    expect(transformMediaInfo(input).camera).toEqual({
-      make: "logilabo",
+describe("parseMediaItem", () => {
+  it("accepts a photo from the API", () => {
+    const camera = {
+      slug: "virtuallens2",
+      name: "VirtualLens2",
+      manufacturer: "logilabo",
       model: "VirtualLens2",
+    };
+    expect(parseMediaItem({ ...item, camera, tags: ["a"] })).toEqual({
+      ...item,
+      camera,
+      tags: ["a"],
     });
   });
 
-  it("keeps the camera slug and name published by the admin", () => {
-    const input: MediaInfoJSON = {
-      file: "/VRChat/x.png",
-      world: "VRChat",
-      timestamp: null,
-      camera: {
-        make: "logilabo",
-        model: "VirtualLens2",
-        slug: "virtuallens2",
-        name: "VirtualLens2",
-      },
-      tags: [],
-    };
-    expect(transformMediaInfo(input).camera?.slug).toBe("virtuallens2");
+  it("rejects ids and files that would not be safe in a URL", () => {
+    expect(parseMediaItem({ ...item, id: "../x" })).toBeNull();
+    expect(parseMediaItem({ ...item, id: "abcdefghjo" })).toBeNull();
+    expect(parseMediaItem({ ...item, file: "/a/../b.png" })).toBeNull();
+    expect(parseMediaItem({ ...item, file: "https://x/a.png" })).toBeNull();
+    expect(parseMediaItem({ ...item, world: "Mars" })).toBeNull();
+    expect(parseMediaItem(null)).toBeNull();
+  });
+
+  it("drops malformed optional fields", () => {
+    expect(
+      parseMediaItem({
+        ...item,
+        timestamp: 3,
+        camera: { name: "no slug" },
+        tags: ["a", 1],
+      }),
+    ).toEqual({ ...item, timestamp: null, camera: null, tags: ["a"] });
+  });
+});
+
+describe("parseMediaList", () => {
+  it("keeps the valid photos of an array", () => {
+    expect(parseMediaList([item, { id: 1 }])).toEqual([item]);
+    expect(parseMediaList({ media: [] })).toEqual([]);
   });
 });

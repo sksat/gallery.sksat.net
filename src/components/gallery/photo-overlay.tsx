@@ -5,7 +5,7 @@ import {
   type QRL,
 } from "@builder.io/qwik";
 
-import { GRID_CANDIDATES, imageUrl, srcSet } from "./images";
+import { GRID_CANDIDATES, imageUrl, srcSet, type ImageSource } from "./images";
 import { pickOverlayPreset, readWithProgress } from "./progress";
 import { ShareButton } from "./share-button";
 
@@ -16,7 +16,8 @@ const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
 const BOX_WIDTH_RATIO = 0.9;
 
 interface PhotoOverlayProps {
-  file: string;
+  /** A photo (by public id) or a camera picture (by bucket path). */
+  src: ImageSource;
   onClose$: QRL<() => void>;
   /** Show the share button (default); off where the URL is not the photo's. */
   share?: boolean;
@@ -43,7 +44,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
   // an async fetch, so it does not block the main thread.
   // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ track, cleanup }) => {
-    const file = track(() => props.file);
+    const src = track(() => props.src);
     fullSrc.value = undefined;
     progress.value = 0;
 
@@ -51,7 +52,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
       window.innerWidth * BOX_WIDTH_RATIO,
       window.devicePixelRatio || 1,
     );
-    const url = imageUrl(S3_BASE, file, IMAGE_BASE, preset);
+    const url = imageUrl(S3_BASE, src, IMAGE_BASE, preset);
     const controller = new AbortController();
     let objectUrl: string | undefined;
 
@@ -96,8 +97,8 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
       <div class="relative flex h-[85vh] w-[90vw] items-center justify-center">
         <img
           aria-hidden="true"
-          src={imageUrl(S3_BASE, props.file, IMAGE_BASE, "h240")}
-          srcset={srcSet(S3_BASE, props.file, IMAGE_BASE, GRID_CANDIDATES)}
+          src={imageUrl(S3_BASE, props.src, IMAGE_BASE, "h240")}
+          srcset={srcSet(S3_BASE, props.src, IMAGE_BASE, GRID_CANDIDATES)}
           class="absolute inset-0 h-full w-full object-contain"
         />
         {fullSrc.value && (

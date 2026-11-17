@@ -12,7 +12,7 @@ export const DEFAULT_TAG_MODE: TagMatchMode = "and";
 
 /**
  * Tags of a photo, with `world` treated as just another tag.
- * media.json keeps `world` as a separate field (and VRChat entries also carry
+ * The data keeps `world` as a separate field (and VRChat entries also carry
  * a "VRChat" tag), so merge and de-duplicate here instead of in the data.
  */
 export const mediaTags = (m: MediaInfo): string[] => [

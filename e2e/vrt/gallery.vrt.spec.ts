@@ -19,7 +19,7 @@ test("home: two tags selected (OR)", async ({ page }) => {
 });
 
 test("photo overlay: direct navigation", async ({ page }) => {
-  await page.goto("/photo/1");
+  await page.goto("/photo/vrcxxxxxxa");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible({ timeout: 10000 });
   // Wait until the full-size image (stacked over the thumbnail) has loaded.
