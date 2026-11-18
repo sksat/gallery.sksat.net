@@ -15,6 +15,7 @@ import {
   worldUrl,
 } from "~/lib/photo-data";
 import type { MediaRow } from "~/lib/types";
+import { LocationPicker } from "./location-picker";
 import { field, label, link, muted } from "./ui";
 import { VISIBILITY_STYLE, VisibilityIcon } from "./visibility-style";
 
@@ -308,6 +309,11 @@ export const PhotoDataFields = ({
           </span>
         ) : (
           <None />
+        )}
+        {/* A VRChat photo has no real-world place (the public site never
+            shows one): no map unless a position is already set. */}
+        {(row.platform !== "VRChat" || hasLocation) && (
+          <LocationPicker latitude={row.latitude} longitude={row.longitude} />
         )}
       </Row>
     </div>

@@ -30,3 +30,7 @@ UPDATE media SET size = 8000000  WHERE id = 2;
 UPDATE media SET size = 1500000  WHERE id = 3;
 UPDATE media SET size = 12000000 WHERE id = 4;
 UPDATE media SET size = 6000000  WHERE id = 5;
+-- Positions (the map): photo 1 (public) at Tokyo Station, photo 5
+-- (private) in Osaka; the others have none.
+UPDATE media SET latitude = 35.681236, longitude = 139.767125, location_source = 'exif' WHERE id = 1;
+UPDATE media SET latitude = 34.702485, longitude = 135.495951, location_source = 'manual' WHERE id = 5;

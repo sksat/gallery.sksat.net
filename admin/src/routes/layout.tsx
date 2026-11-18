@@ -20,6 +20,11 @@ const NAV = [
     label: "Calendar",
     match: (p: string) => p.startsWith("/calendar"),
   },
+  {
+    href: "/map/",
+    label: "Map",
+    match: (p: string) => p.startsWith("/map"),
+  },
   { href: "/tag/", label: "Tags", match: (p: string) => p.startsWith("/tag") },
   {
     href: "/setting/",
