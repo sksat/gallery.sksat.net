@@ -219,7 +219,7 @@ export const AccessCard = component$<{
                   >
                     <Thumb
                       file={p.row.file}
-                      world={p.row.world}
+                      platform={p.row.platform}
                       imageBase={imageBase}
                       variant="list"
                       class="w-20 rounded-md"

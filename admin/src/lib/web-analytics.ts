@@ -341,7 +341,7 @@ export type PhotoMediaRow = {
   id: number;
   public_id: string;
   file: string;
-  world: "Real" | "VRChat";
+  platform: "Real" | "VRChat";
 };
 
 /** The public ids of the photo pages, to look the rows up. */
@@ -393,7 +393,7 @@ export const photoRowsFor = async (
     const part = publicIds.slice(i, i + CHUNK);
     const r = await db
       .prepare(
-        `SELECT id, public_id, file, world FROM media WHERE status = 'ready' AND public_id IN (${part.map(() => "?").join(", ")})`,
+        `SELECT id, public_id, file, platform FROM media WHERE status = 'ready' AND public_id IN (${part.map(() => "?").join(", ")})`,
       )
       .bind(...part)
       .all<PhotoMediaRow>();
