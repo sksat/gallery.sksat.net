@@ -1,5 +1,15 @@
-import { component$, Slot, type JSXOutput } from "@builder.io/qwik";
-import { Link } from "@builder.io/qwik-city";
+import {
+  $,
+  component$,
+  Slot,
+  sync$,
+  useOnDocument,
+  useSignal,
+  useTask$,
+  type JSXOutput,
+  type QRL,
+} from "@builder.io/qwik";
+import { Link, useNavigate } from "@builder.io/qwik-city";
 import {
   ancestors,
   folderTotals,
@@ -7,8 +17,21 @@ import {
   type FolderNode,
 } from "~/lib/folders";
 import { mediaEditHref, mediaListHref } from "~/lib/format";
+import {
+  clickItem,
+  EMPTY_SELECTION,
+  folderKey,
+  keepShown,
+  photoKey,
+  selectAll,
+  splitSelection,
+  type Selection,
+  type SelKey,
+} from "~/lib/selection";
+import type { MetadataLevels, MetadataOverrides } from "~/lib/metadata";
 import { formatDecimalBytes } from "~/lib/storage";
 import type { MediaPlatform, Visibility } from "~/lib/types";
+import { SelectionBar, type SelectionAction } from "./selection-bar";
 import { StatePanel } from "./state-panel";
 import { Thumb } from "./thumb";
 import { VisibilityBadge } from "./visibility-badge";
@@ -29,6 +52,8 @@ export type FileTile = {
   platform: MediaPlatform;
   visibility: Visibility;
   size: number | null;
+  /** Its public metadata overrides (for a bulk change). */
+  metadata: MetadataOverrides;
 };
 
 type Props = {
@@ -43,9 +68,45 @@ type Props = {
   platform: MediaPlatform | null;
   visibility: Visibility | null;
   q: string;
+  /** The site's metadata levels (what 既定 is in a bulk change). */
+  siteDefaults: MetadataLevels;
+  /**
+   * Runs an action on the selection (move / visibility / trash); resolves
+   * true when it succeeded, so the selection is cleared. Without it the
+   * tiles cannot be selected.
+   */
+  onSelection$?: QRL<
+    (a: SelectionAction, items: SelectedItems) => Promise<boolean>
+  >;
 };
 
+export type SelectedItems = { photos: number[]; folders: string[] };
+
 const ROOT_LABEL = "All files";
+
+/** A tile's tick box (the label is the tile's name). */
+const TickBox = ({
+  checked,
+  name,
+  selKey,
+  order,
+  onPick,
+}: {
+  checked: boolean;
+  name: string;
+  selKey: SelKey;
+  order: SelKey[];
+  onPick: QRL<(key: SelKey, e: MouseEvent, order: SelKey[]) => void>;
+}) => (
+  <input
+    type="checkbox"
+    checked={checked}
+    aria-label={`${name} を選ぶ`}
+    data-testid="tile-check"
+    onClick$={$((e: MouseEvent) => onPick(selKey, e, order))}
+    class="absolute top-1 right-1 z-10 size-11 cursor-pointer appearance-none rounded-lg before:absolute before:inset-2.5 before:rounded-md before:border-2 before:border-white before:bg-black/30 before:shadow checked:before:border-sky-600 checked:before:bg-sky-600 focus-visible:outline-2 focus-visible:outline-sky-500 sm:size-8 sm:before:inset-1.5 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:checked:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100 [[data-selecting]_&]:opacity-100"
+  />
+);
 
 const FolderIcon = () => (
   <svg
@@ -94,9 +155,135 @@ const VISIBILITY_TABS: { label: string; value: Visibility | null }[] = [
 ];
 
 export const FileBrowser = component$<Props>(
-  ({ tree, dir, folder, files, imageBase, platform, visibility, q }) => {
+  ({
+    tree,
+    dir,
+    folder,
+    files,
+    imageBase,
+    platform,
+    visibility,
+    q,
+    siteDefaults,
+    onSelection$,
+  }) => {
     const href = (path: string) =>
       mediaListHref({ view: "files", dir: path, platform, visibility, q });
+
+    // Selection: folders, then photos, in the order shown.
+    const sel = useSignal<Selection>(EMPTY_SELECTION);
+    const busy = useSignal(false);
+    const order: SelKey[] = [
+      ...(folder?.children ?? []).map((c) => folderKey(c.path)),
+      ...files.map((f) => photoKey(f.id)),
+    ];
+    useTask$(({ track }) => {
+      // Another folder, filter or a reload: keep what is still shown.
+      // The props are getters on the page's data: when the page leaves the
+      // Files view they throw for a moment before this component goes.
+      const shown = track(() => {
+        try {
+          return { folders: folder?.children ?? [], files };
+        } catch {
+          return null;
+        }
+      });
+      if (!shown) return;
+      const { folders: shownFolders, files: shownFiles } = shown;
+      sel.value = keepShown(
+        [
+          ...shownFolders.map((c) => folderKey(c.path)),
+          ...shownFiles.map((f) => photoKey(f.id)),
+        ],
+        sel.value,
+      );
+    });
+    const selectable = onSelection$ !== undefined;
+    const selected = new Set(sel.value.keys);
+    const picked = splitSelection(sel.value.keys);
+    const pickedPhotos = files.filter((f) => selected.has(photoKey(f.id)));
+    const bytes =
+      pickedPhotos.reduce((n, f) => n + (f.size ?? 0), 0) +
+      (folder?.children ?? [])
+        .filter((c) => selected.has(folderKey(c.path)))
+        .reduce((n, c) => n + folderTotals(c).bytes, 0);
+
+    const click = $((key: SelKey, e: MouseEvent, keys: SelKey[]) => {
+      sel.value = clickItem(keys, sel.value, key, {
+        range: e.shiftKey,
+        toggle: true,
+      });
+    });
+    const nav = useNavigate();
+    /**
+     * A click on a tile: select with a modifier or while selecting, else
+     * open it in the app (a modified click without selection is the
+     * browser's).
+     */
+    const tileClick = $(
+      (key: SelKey, e: MouseEvent, keys: SelKey[], to: string) => {
+        const modified = e.shiftKey || e.ctrlKey || e.metaKey;
+        if (selectable && (modified || sel.value.keys.length > 0)) {
+          sel.value = clickItem(keys, sel.value, key, {
+            range: e.shiftKey,
+            toggle: true,
+          });
+        } else if (!modified) {
+          void nav(to);
+        }
+      },
+    );
+    /** Runs an action on the selection; true when it went through. */
+    const run = $(async (a: SelectionAction): Promise<boolean> => {
+      if (a.kind === "clear") {
+        sel.value = EMPTY_SELECTION;
+        return true;
+      }
+      // One at a time (a held Delete must not trash twice).
+      if (!onSelection$ || busy.value) return false;
+      busy.value = true;
+      try {
+        const ok = await onSelection$(a, splitSelection(sel.value.keys));
+        if (ok) sel.value = EMPTY_SELECTION;
+        return ok;
+      } finally {
+        busy.value = false;
+      }
+    });
+    // Ctrl/Cmd+A selects every tile, Esc clears, Delete trashes; not
+    // while typing in a field or with a dialog open.
+    useOnDocument(
+      "keydown",
+      $((e: KeyboardEvent) => {
+        if (!selectable) return;
+        const t = e.target as HTMLElement | null;
+        // (A tile's tick box keeps the focus after a click: not typing.)
+        if (
+          t?.closest(
+            "input:not([type=checkbox]), textarea, select, [contenteditable], dialog",
+          )
+        ) {
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+          const keys = Array.from(
+            document.querySelectorAll<HTMLElement>("[data-sel-key]"),
+            (el) => el.dataset.selKey as SelKey,
+          );
+          sel.value = selectAll(keys);
+          // The browser also selected the page's text (no sync handler
+          // on document to prevent it): take that back.
+          window.getSelection()?.removeAllRanges();
+        } else if (e.key === "Escape" && sel.value.keys.length > 0) {
+          sel.value = EMPTY_SELECTION;
+        } else if (
+          (e.key === "Delete" || e.key === "Backspace") &&
+          sel.value.keys.length > 0
+        ) {
+          void run({ kind: "trash" });
+        }
+      }),
+    );
 
     // Nested link list: the root's children are always shown, and a folder's
     // children once the selection is in it (like a file manager's sidebar).
@@ -279,17 +466,60 @@ export const FileBrowser = component$<Props>(
               </p>
             </StatePanel>
           ) : (
-            <ul class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            <ul
+              aria-label="フォルダの中身"
+              data-file-browser
+              data-selectable={selectable ? "" : undefined}
+              data-selecting={sel.value.keys.length > 0 ? "" : undefined}
+              class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4"
+            >
               {folder.children.map((child) => (
-                <li key={child.path}>
-                  <Link
+                <li
+                  key={child.path}
+                  data-sel-key={folderKey(child.path)}
+                  // (The tick box carries the state for assistive tech.)
+                  data-selected={
+                    selected.has(folderKey(child.path)) ? "" : undefined
+                  }
+                  class="group relative rounded-xl data-selected:ring-2 data-selected:ring-sky-500"
+                >
+                  {selectable && (
+                    <TickBox
+                      checked={selected.has(folderKey(child.path))}
+                      name={child.name}
+                      selKey={folderKey(child.path)}
+                      order={order}
+                      onPick={click}
+                    />
+                  )}
+                  <a
                     key={href(child.path)}
                     href={href(child.path)}
                     data-testid="folder-tile"
                     title={child.path}
+                    onClick$={[
+                      sync$((e: MouseEvent, el: HTMLElement) => {
+                        // Handled below (open or select); without selection a
+                        // modified click keeps the browser's own (new tab…).
+                        if (
+                          !el.closest("[data-selectable]") &&
+                          (e.ctrlKey || e.metaKey || e.shiftKey)
+                        )
+                          return;
+                        e.preventDefault();
+                      }),
+                      $((e: MouseEvent, el: HTMLAnchorElement) =>
+                        tileClick(
+                          folderKey(child.path),
+                          e,
+                          order,
+                          el.getAttribute("href") ?? "",
+                        ),
+                      ),
+                    ]}
                     class={[
                       card,
-                      "flex h-full items-center gap-2 px-3 py-3 text-sm transition-colors hover:border-sky-300 hover:bg-sky-50/60 dark:hover:border-sky-800 dark:hover:bg-sky-950/30",
+                      "flex h-full items-center gap-2 px-3 py-3 pr-12 text-sm transition-colors hover:border-sky-300 hover:bg-sky-50/60 sm:pr-9 dark:hover:border-sky-800 dark:hover:bg-sky-950/30",
                     ]}
                   >
                     <span class="text-sky-600 dark:text-sky-400">
@@ -301,19 +531,54 @@ export const FileBrowser = component$<Props>(
                       </span>
                       <FolderStats node={child} />
                     </span>
-                  </Link>
+                  </a>
                 </li>
               ))}
               {files.map((f) => {
                 const name = f.path.slice(f.path.lastIndexOf("/") + 1);
+                const key = photoKey(f.id);
                 return (
-                  <li key={f.id}>
-                    <Link
+                  <li
+                    key={f.id}
+                    data-sel-key={key}
+                    data-selected={selected.has(key) ? "" : undefined}
+                    class="group relative rounded-xl data-selected:ring-2 data-selected:ring-sky-500"
+                  >
+                    {selectable && (
+                      <TickBox
+                        checked={selected.has(key)}
+                        name={name}
+                        selKey={key}
+                        order={order}
+                        onPick={click}
+                      />
+                    )}
+                    <a
                       key={href(dir)}
                       href={mediaEditHref(f.id, href(dir))}
                       data-testid="file-tile"
                       data-media-id={f.id}
                       title={f.path}
+                      onClick$={[
+                        sync$((e: MouseEvent, el: HTMLElement) => {
+                          // Handled below (open or select); without selection a
+                          // modified click keeps the browser's own (new tab…).
+                          if (
+                            !el.closest("[data-selectable]") &&
+                            (e.ctrlKey || e.metaKey || e.shiftKey)
+                          )
+                            return;
+                          e.preventDefault();
+                        }),
+                        $((e: MouseEvent, el: HTMLAnchorElement) =>
+                          tileClick(
+                            key,
+                            e,
+                            order,
+                            el.getAttribute("href") ?? "",
+                          ),
+                        ),
+                      ]}
                       class={[
                         card,
                         "block overflow-hidden transition-colors hover:border-sky-300 dark:hover:border-sky-800",
@@ -345,11 +610,25 @@ export const FileBrowser = component$<Props>(
                       >
                         {f.size === null ? "—" : formatDecimalBytes(f.size)}
                       </span>
-                    </Link>
+                    </a>
                   </li>
                 );
               })}
             </ul>
+          )}
+          {selectable && sel.value.keys.length > 0 && (
+            <SelectionBar
+              count={sel.value.keys.length}
+              photos={pickedPhotos}
+              bytes={bytes}
+              folders={picked.folders}
+              dir={dir}
+              tree={tree}
+              imageBase={imageBase}
+              siteDefaults={siteDefaults}
+              busy={busy}
+              onAction$={run}
+            />
           )}
         </section>
       </div>

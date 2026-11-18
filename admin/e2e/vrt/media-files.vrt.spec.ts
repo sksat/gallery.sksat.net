@@ -1,4 +1,19 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+/** Every tile selected, and 公開 picked: the bar with its look first. */
+const selectForPublic = async (page: Page, phone: boolean) => {
+  if (phone) {
+    await page.getByRole("checkbox", { name: "vrchat2.png を選ぶ" }).click();
+    await page.getByRole("checkbox", { name: "vrchat3.png を選ぶ" }).click();
+  } else {
+    await page.keyboard.press("ControlOrMeta+a");
+  }
+  await page
+    .getByTestId("selection-bar")
+    .getByRole("button", { name: "公開", exact: true })
+    .click();
+  await expect(page.getByTestId("visibility-confirm")).toBeVisible();
+};
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
@@ -12,6 +27,13 @@ test.describe("desktop", () => {
       fullPage: true,
     });
   });
+
+  test("admin: media files selection", async ({ page }) => {
+    await page.goto("/media/?view=files&dir=/mock");
+    await expect(page.getByTestId("upload-folder")).toBeVisible();
+    await selectForPublic(page, false);
+    await expect(page).toHaveScreenshot("admin-media-files-selection.png");
+  });
 });
 
 test.describe("phone", () => {
@@ -24,5 +46,14 @@ test.describe("phone", () => {
     await expect(page).toHaveScreenshot("admin-media-files-phone.png", {
       fullPage: true,
     });
+  });
+
+  test("admin: media files selection (phone)", async ({ page }) => {
+    await page.goto("/media/?view=files&dir=/mock");
+    await expect(page.getByTestId("upload-folder")).toBeVisible();
+    await selectForPublic(page, true);
+    await expect(page).toHaveScreenshot(
+      "admin-media-files-selection-phone.png",
+    );
   });
 });
