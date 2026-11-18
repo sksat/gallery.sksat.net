@@ -68,13 +68,6 @@ export type MediaExif = {
 /** The VRChat world: with its id at the "link" level, else the name only. */
 export type MediaWorld = { id: string | null; name: string | null };
 
-/** Where it was taken, rounded to its level (workers/api, locationAt). */
-export type MediaLocation = {
-  latitude: number;
-  longitude: number;
-  precision: "exact" | "city" | "prefecture" | "country";
-};
-
 /**
  * One photo from /api/media. `id` is its public id (/photo/<id>). The API
  * leaves out (null) what the photo's metadata settings do not make public.
@@ -96,16 +89,15 @@ export type MediaInfoJSON = {
   maker?: string | null;
   world?: MediaWorld | null;
   exif?: MediaExif | null;
-  location?: MediaLocation | null;
-  tags: string[];
   /**
    * Where it was taken, rounded to its public precision (the API's
-   * `location`); null when hidden or unknown.
+   * `location`); null when hidden or unknown, and always for VRChat.
    */
   location?: MediaLocation | null;
+  tags: string[];
 };
 
-/** A photo's public position (workers/api MediaLocationJSON). */
+/** A photo's public position, rounded to its level (workers/api, locationAt). */
 export type MediaLocation = {
   latitude: number;
   longitude: number;
@@ -209,34 +201,6 @@ const parseExif = (v: unknown): MediaExif | null => {
   return Object.keys(out).length > 0 ? out : null;
 };
 
-const LOCATION_PRECISIONS: readonly string[] = [
-  "exact",
-  "city",
-  "prefecture",
-  "country",
-];
-
-const parseLocation = (v: unknown): MediaLocation | null => {
-  if (!isRecord(v)) return null;
-  const latitude = finiteOrNull(v.latitude);
-  const longitude = finiteOrNull(v.longitude);
-  if (
-    latitude === null ||
-    longitude === null ||
-    Math.abs(latitude) > 90 ||
-    Math.abs(longitude) > 180 ||
-    typeof v.precision !== "string" ||
-    !LOCATION_PRECISIONS.includes(v.precision)
-  ) {
-    return null;
-  }
-  return {
-    latitude,
-    longitude,
-    precision: v.precision as MediaLocation["precision"],
-  };
-};
-
 /**
  * One photo from an API response, or null if it is malformed. The id and
  * file end up in URLs, so both are checked for shape.
@@ -269,8 +233,6 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
     maker = strOrNull(camera.manufacturer) ?? strOrNull(camera.name);
   }
   const precision = v.timestamp_precision;
-  // A VRChat photo has no real-world position: never keep one.
-  const location = platform === "VRChat" ? null : parseLocation(v.location);
   return {
     id,
     file,
@@ -286,13 +248,11 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
     maker,
     world: parseWorld(v.world),
     exif: parseExif(v.exif),
-    location: parseLocation(v.location),
+    // A VRChat photo has no real-world position: never keep one.
+    location: platform === "VRChat" ? null : parseLocation(v.location),
     tags: Array.isArray(tags)
       ? tags.filter((t): t is string => typeof t === "string")
       : [],
-    // Only when public: most photos have none, and the layout's list goes
-    // to every page.
-    ...(location ? { location } : {}),
   };
 };
 

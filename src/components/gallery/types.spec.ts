@@ -247,15 +247,15 @@ describe("parseLocation", () => {
       camera: null,
       tags: [],
     };
-    expect(parseMediaItem(base)).not.toHaveProperty("location");
+    expect(parseMediaItem(base)?.location).toBeNull();
     // Never for a VRChat photo, whatever the API says.
     expect(
       parseMediaItem({
         ...base,
         platform: "VRChat",
         location: { latitude: 35, longitude: 139, precision: "exact" },
-      }),
-    ).not.toHaveProperty("location");
+      })?.location,
+    ).toBeNull();
     expect(
       parseMediaItem({
         ...base,
