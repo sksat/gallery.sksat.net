@@ -168,11 +168,14 @@ export const staleNames = async (
   return [...names].sort();
 };
 
-/** Retire every copy: the API Worker reads only the new generation's. */
+/**
+ * Retire every copy: the API Worker reads only the new generation's. A
+ * fresh random value, not old + 1: KV reads may be a minute old, and two
+ * bumps from the same stale value would write the same generation (the
+ * second retiring nothing).
+ */
 export const bumpGeneration = async (kv: LastGoodKV): Promise<void> => {
-  const current = Number(await kv.get(GENERATION_KEY));
-  const next = Number.isSafeInteger(current) && current >= 0 ? current + 1 : 1;
-  await kv.put(GENERATION_KEY, String(next));
+  await kv.put(GENERATION_KEY, crypto.randomUUID().replace(/-/g, ""));
 };
 
 /**
@@ -202,7 +205,12 @@ export const dropCopies = async (
       await bumpGeneration(kv);
     }
   } catch (err) {
-    console.error("last-good: invalidation failed:", err);
+    // E.g. the generation could not be read: retire everything rather
+    // than leave a copy that may show what was just hidden.
+    console.error("last-good: invalidation failed, bumping:", err);
+    await bumpGeneration(kv).catch((e) =>
+      console.error("last-good: bump failed:", e),
+    );
   }
 };
 

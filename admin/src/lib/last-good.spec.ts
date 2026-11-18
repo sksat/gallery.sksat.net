@@ -280,11 +280,13 @@ describe("invalidateLastGood after admin changes", () => {
     const t = setup();
     await invalidateLastGood(t.platform, t.db, { all: true });
     await t.settle();
-    expect(t.entries.get(GENERATION_KEY)).toBe("1");
+    const first = t.entries.get(GENERATION_KEY);
+    expect(first).toMatch(/^[0-9a-f]{32}$/);
     expect(t.count.deletes).toBe(0);
     await invalidateLastGood(t.platform, t.db, { all: true });
     await t.settle();
-    expect(t.entries.get(GENERATION_KEY)).toBe("2");
+    // A new value even from the same (possibly stale) read.
+    expect(t.entries.get(GENERATION_KEY)).not.toBe(first);
   });
 
   it("deletes in the current generation", async () => {
@@ -303,7 +305,7 @@ describe("dropCopies", () => {
     const names = Array.from({ length: MAX_DELETES + 1 }, (_, i) => `n${i}`);
     await dropCopies(kv, names);
     expect(count.deletes).toBe(0);
-    expect(entries.get(GENERATION_KEY)).toBe("1");
+    expect(entries.get(GENERATION_KEY)).toBeDefined();
   });
 
   it("bumps the generation when a deletion fails", async () => {
@@ -313,7 +315,18 @@ describe("dropCopies", () => {
       throw new Error("KV write limit");
     };
     await dropCopies(kv, ["http:/api/media"]);
-    expect(entries.get(GENERATION_KEY)).toBe("1");
+    expect(entries.get(GENERATION_KEY)).toBeDefined();
+  });
+
+  it("bumps the generation when it cannot be read", async () => {
+    const { kv, entries, count } = memoryKV();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    kv.get = async () => {
+      throw new Error("KV read failed");
+    };
+    await dropCopies(kv, ["http:/api/media"]);
+    expect(count.deletes).toBe(0);
+    expect(entries.get(GENERATION_KEY)).toBeDefined();
   });
 
   it("never rejects", async () => {
@@ -367,6 +380,6 @@ describe("invalidateLastGood", () => {
         photos: [1],
       }),
     ).resolves.toBeUndefined();
-    expect(t.entries.get(GENERATION_KEY)).toBe("1");
+    expect(t.entries.get(GENERATION_KEY)).toBeDefined();
   });
 });

@@ -3,6 +3,7 @@ import { withErrorHandler } from "~/lib/api";
 import { getUploadConfig, presignPut, putHeaders } from "~/lib/b2";
 import { initUpload } from "~/lib/db-upload";
 import { getDB } from "~/lib/env";
+import { invalidateLastGood } from "~/lib/last-good";
 import { generatePublicId } from "~/lib/public-id";
 import { guessPlatform, validateUploadInit } from "~/lib/upload";
 
@@ -40,10 +41,16 @@ export const onPost: RequestHandler = withErrorHandler(
       return;
     }
     const { init } = v;
-    const outcome = await initUpload(getDB(platform), init, {
+    const db = getDB(platform);
+    const outcome = await initUpload(db, init, {
       publicId: generatePublicId(),
       platform: guessPlatform(init.file),
     });
+    if (outcome.kind === "upload") {
+      // The new row hides a camera picture with the same file from /img
+      // already (and the PUT replaces its object).
+      await invalidateLastGood(platform, db, { uploads: [outcome.id] });
+    }
     if (outcome.kind === "conflict") {
       // A lost race is worth retrying (503); the rest is not (409).
       json(outcome.retry ? 503 : 409, { error: outcome.message });
