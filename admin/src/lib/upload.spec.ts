@@ -85,6 +85,10 @@ describe("guessPlatform", () => {
     expect(
       guessPlatform("/x/VRChat_2026-11-18_01-02-03.456_3840x2160.png"),
     ).toBe("VRChat");
+    // Before late 2022 the resolution came first.
+    expect(
+      guessPlatform("/x/VRChat_3840x2160_2022-08-22_02-03-18.591.png"),
+    ).toBe("VRChat");
     expect(guessPlatform("/VRChat/IMG_1.jpg")).toBe("Real");
   });
 });

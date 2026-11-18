@@ -108,6 +108,12 @@ describe("vrchatTakenAt", () => {
     );
   });
 
+  it("reads the older names with the resolution first", () => {
+    expect(vrchatTakenAt("VRChat_3840x2160_2022-08-22_02-03-18.591.png")).toBe(
+      "2022-08-22T02:03:18.591+09:00",
+    );
+  });
+
   it("ignores other names and impossible dates", () => {
     expect(vrchatTakenAt("IMG_0001.jpg")).toBeNull();
     expect(
