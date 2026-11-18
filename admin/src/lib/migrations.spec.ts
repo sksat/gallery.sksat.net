@@ -548,6 +548,18 @@ describe("0005_path_trash.sql", () => {
     }
   });
 
+  it("leaves every photo's metadata unread", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    db.exec("INSERT INTO media (file, platform) VALUES ('/b.png', 'Real')");
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM media WHERE metadata_read_at IS NULL AND status = 'ready'",
+        )
+        .get(),
+    ).toEqual({ n: 2 });
+  });
+
   it("drops legacy_index", () => {
     const db = migrate5([["/a.png", "Real", null, null]]);
     expect(() => db.prepare("SELECT legacy_index FROM media").all()).toThrow();

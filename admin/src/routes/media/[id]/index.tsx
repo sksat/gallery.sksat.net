@@ -456,6 +456,37 @@ const MediaFields = component$<{
           e.g. <code>VRChat, night</code>. Saved to D1 immediately; the public
           gallery shows it within about a minute.
         </p>
+        {row.tags.length > 0 && (
+          <ul class="mt-2 flex flex-wrap gap-1.5" aria-label="タグの公開">
+            {row.tags.map((t) => {
+              const isPublic = publicTags.includes(t);
+              return (
+                <li
+                  key={t}
+                  data-testid="tag-chip"
+                  data-public={isPublic ? "true" : "false"}
+                  class={[
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ring-1 ring-inset",
+                    isPublic
+                      ? "bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
+                      : "bg-zinc-100 text-zinc-600 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700",
+                  ]}
+                >
+                  {!isPublic && <span aria-hidden="true">🔒</span>}
+                  {t}
+                  <span class="sr-only">
+                    （{isPublic ? "公開" : "非公開"}）
+                  </span>
+                </li>
+              );
+            })}
+            <li>
+              <Link href="/tag/" class={[link, "text-xs"]}>
+                タグ一覧
+              </Link>
+            </li>
+          </ul>
+        )}
       </div>
     </fieldset>
   </>

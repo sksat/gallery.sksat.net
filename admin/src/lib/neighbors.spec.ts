@@ -147,6 +147,8 @@ describe("neighborsQuery", () => {
     expect(d.prepare(sql).get(...(args as (string | number)[]))).toEqual({
       prev_id: null,
       next_id: null,
+      prev_file: null,
+      next_file: null,
       pos: 1,
       total: 1,
     });

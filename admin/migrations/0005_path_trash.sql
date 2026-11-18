@@ -103,6 +103,11 @@ ALTER TABLE media ADD COLUMN world_id TEXT CHECK (world_id GLOB 'wrld_?*');
 ALTER TABLE media ADD COLUMN world_name TEXT;
 ALTER TABLE media ADD COLUMN world_author_id TEXT;
 
+-- media.metadata_read_at: when the original's metadata (EXIF, XMP) was last
+--   read into the columns above; NULL = not yet (the backfill reads the
+--   ready photos that have none). Admin only, never public.
+ALTER TABLE media ADD COLUMN metadata_read_at TEXT;
+
 -- media.legacy_index (0003, the N of the first /photo/<N> URLs) is gone:
 -- nothing links to those URLs any more.
 DROP INDEX idx_media_legacy_index;
