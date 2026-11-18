@@ -5,7 +5,7 @@ import type { DocumentHead } from "@builder.io/qwik-city";
 import Gallery from "~/components/gallery/gallery";
 import { PUBLIC_ID_RE, type MediaInfoJSON } from "~/components/gallery/types";
 import { ogpHead, photoOgp, type Ogp } from "~/components/ogp";
-import { loadPhoto } from "~/lib/api";
+import { loadPhoto, UNAVAILABLE } from "~/lib/api";
 import { useGalleryIndex } from "../../layout";
 
 type PhotoPage = {
@@ -28,7 +28,7 @@ export const usePhotoPage = routeLoader$<PhotoPage>(async (event) => {
     photo = await loadPhoto(event, raw);
   } catch (error) {
     console.error("Failed to load the photo:", error);
-    throw event.error(500, "Failed to fetch the photo");
+    throw event.error(503, UNAVAILABLE);
   }
   if (photo === null) {
     throw event.error(404, "Image not found");

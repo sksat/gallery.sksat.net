@@ -34,8 +34,15 @@ export const apiGet = (
   return fetch(base + path);
 };
 
-/** Thrown (as an HTTP 500) when the API cannot be read. */
+/** Thrown when the API cannot be read (the page answers 503). */
 export class ApiError extends Error {}
+
+/**
+ * The error page's message when the API cannot be read at all: it answers
+ * from last-good copies while D1 is down, so this means it has none either.
+ */
+export const UNAVAILABLE =
+  "The gallery is temporarily unavailable. Please try again in a few minutes.";
 
 const getJson = async (
   event: Pick<RequestEventBase, "platform">,

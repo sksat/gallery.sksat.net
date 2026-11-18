@@ -5,7 +5,8 @@
  *
  * Only public and unlisted data is ever returned (see query.ts), so the
  * Worker needs no authentication. Responses are cached at the edge for a
- * minute (Cache API) to keep D1 reads low.
+ * minute (Cache API) to keep D1 reads low, and kept for a week as
+ * last-good copies served when D1 fails (see last-good.ts).
  *
  * Other Workers reach it through a service binding and call the RPC
  * methods below; those are not reachable over HTTP.
@@ -21,7 +22,8 @@ import {
   type PathAccess,
 } from "./query";
 import type { MediaItemJSON } from "./types";
-import { jsonResponse, parseRoute, type Route } from "./route";
+import { jsonResponse, type Route } from "./route";
+import { handleGet, withLastGood, type Context } from "./last-good";
 
 export interface Env {
   DB: D1Database;
@@ -46,6 +48,13 @@ const respond = async (db: D1Database, route: Route): Promise<Response> => {
   }
 };
 
+// A plain function, not a method: every method of the entrypoint is
+// callable over RPC.
+const lastGood = (ctx: ExecutionContext): Context => ({
+  cache: caches.default,
+  waitUntil: (p) => ctx.waitUntil(p),
+});
+
 export default class extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -54,26 +63,11 @@ export default class extends WorkerEntrypoint<Env> {
         headers: { Allow: "GET, HEAD" },
       });
     }
-    const url = new URL(request.url);
-    const route = parseRoute(url.pathname);
-    if (!route) return jsonResponse(404, NOT_FOUND);
-
-    // Cache by path only: the API takes no query parameters, so this also
-    // keeps cache-busting query strings from reaching D1.
-    const cacheKey = new Request(url.origin + url.pathname, { method: "GET" });
-    const cache = caches.default;
-    const hit = await cache.match(cacheKey);
-    if (hit) return request.method === "HEAD" ? withoutBody(hit) : hit;
-
-    let response: Response;
-    try {
-      response = await respond(this.env.DB, route);
-    } catch (err) {
-      console.error(`GET ${url.pathname} failed:`, err);
-      return jsonResponse(500, { error: "internal server error" }, "no-store");
-    }
-    this.ctx.waitUntil(cache.put(cacheKey, response.clone()));
-    return request.method === "HEAD" ? withoutBody(response) : response;
+    return handleGet(
+      request,
+      (route) => respond(this.env.DB, route),
+      lastGood(this.ctx),
+    );
   }
 
   /**
@@ -82,7 +76,11 @@ export default class extends WorkerEntrypoint<Env> {
    * camera picture (see getPathAccess).
    */
   async pathAccess(path: string): Promise<PathAccess | null> {
-    return getPathAccess(this.env.DB, path);
+    return withLastGood(
+      `/rpc/pathAccess/${encodeURIComponent(path)}`,
+      () => getPathAccess(this.env.DB, path),
+      lastGood(this.ctx),
+    );
   }
 
   /**
@@ -91,9 +89,10 @@ export default class extends WorkerEntrypoint<Env> {
    * image Worker needs to fetch the original. Null if there is none.
    */
   async photo(publicId: string): Promise<MediaItemJSON | null> {
-    return getPhotoForImage(this.env.DB, publicId);
+    return withLastGood(
+      `/rpc/photo/${encodeURIComponent(publicId)}`,
+      () => getPhotoForImage(this.env.DB, publicId),
+      lastGood(this.ctx),
+    );
   }
 }
-
-const withoutBody = (res: Response): Response =>
-  new Response(null, { status: res.status, headers: res.headers });

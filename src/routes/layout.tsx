@@ -4,7 +4,7 @@ import { routeLoader$, type RequestHandler } from "@builder.io/qwik-city";
 import Header from "~/components/layout/header";
 import Footer from "~/components/layout/footer";
 import type { CameraJSON, MediaInfoJSON } from "~/components/gallery/types";
-import { loadCameras, loadMedia } from "~/lib/api";
+import { loadCameras, loadMedia, UNAVAILABLE } from "~/lib/api";
 
 import styles from "./styles.css?inline";
 
@@ -17,9 +17,10 @@ export type GalleryIndex = {
 
 /**
  * The photo and camera lists from the API Worker, shared by every page (the
- * gallery, camera pages and the camera list). A 500 rather than an empty
+ * gallery, camera pages and the camera list). A 503 rather than an empty
  * gallery when the API fails: responses may be served stale for a week, and
- * that must not pin an outage as "no photos".
+ * that must not pin an outage as "no photos". (While D1 is down the API
+ * answers from its last-good copies, so this is only when it has none.)
  */
 export const useGalleryIndex = routeLoader$<GalleryIndex>(async (event) => {
   try {
@@ -30,7 +31,7 @@ export const useGalleryIndex = routeLoader$<GalleryIndex>(async (event) => {
     return { media, cameras };
   } catch (error) {
     console.error("Failed to load the photo index:", error);
-    throw event.error(500, "Failed to fetch the photo index");
+    throw event.error(503, UNAVAILABLE);
   }
 });
 
