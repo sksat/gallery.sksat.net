@@ -58,6 +58,8 @@ type Props = {
   listHref: string;
   /** The page's form has unsaved edits (反映 reloads the page's data). */
   dirty: boolean;
+  /** A save (or move / trash) of this photo is running. */
+  saving?: boolean;
   /** Mirrors the number of pending choices (the page's leave guard). */
   pendingCount: Signal<number>;
   /** 反映: apply the pending choices; returns what undo needs. */
@@ -150,7 +152,8 @@ export const PhotoPreview = component$<Props>((props) => {
   const go = $(async (dir: "prev" | "next") => {
     // Not while 反映 is saving: its reload would finish after the
     // navigation and bring the page back to this photo.
-    if (busy.value) return;
+    // Nor while the page saves this photo, for the same reason.
+    if (busy.value || props.saving) return;
     const href = props.neighbors?.[dir];
     if (!href) return;
     if (open.value) {
@@ -158,6 +161,28 @@ export const PhotoPreview = component$<Props>((props) => {
     } else {
       await nav(href);
     }
+  });
+
+  // A horizontal swipe steps like ←/→: on the viewer, and on the page's
+  // photo (only there, so the form scrolls and works as usual).
+  const swipeStart = $((e: TouchEvent) => {
+    const t = e.touches[0];
+    // Not a swipe: two fingers (pinch), panning a zoomed-in photo, or
+    // starting at the screen's edge (the browser's own back).
+    const zoomed = (window.visualViewport?.scale ?? 1) > 1.01;
+    const edge = t.clientX < 24 || t.clientX > window.innerWidth - 24;
+    touchStart.value =
+      e.touches.length === 1 && !zoomed && !edge
+        ? { x: t.clientX, y: t.clientY }
+        : null;
+  });
+  const swipeEnd = $((e: TouchEvent) => {
+    const start = touchStart.value;
+    touchStart.value = null;
+    const t = e.changedTouches[0];
+    if (!start || !t) return;
+    const dir = swipe(t.clientX - start.x, t.clientY - start.y);
+    if (dir) go(dir);
   });
 
   /** Mark (or unmark) this photo's new visibility, then move on. */
@@ -350,6 +375,9 @@ export const PhotoPreview = component$<Props>((props) => {
         aria-label="写真を全画面で表示"
         aria-haspopup="dialog"
         onClick$={openViewer}
+        onTouchStart$={swipeStart}
+        onTouchCancel$={() => (touchStart.value = null)}
+        onTouchEnd$={swipeEnd}
         class="block w-full cursor-zoom-in rounded-xl"
       >
         <Thumb
@@ -385,26 +413,9 @@ export const PhotoPreview = component$<Props>((props) => {
           const active = document.activeElement;
           if (!active || active === document.body) trigger.value?.focus();
         }}
-        onTouchStart$={(e: TouchEvent) => {
-          const t = e.touches[0];
-          // Not a swipe: two fingers (pinch), panning a zoomed-in photo,
-          // or starting at the screen's edge (the browser's own back).
-          const zoomed = (window.visualViewport?.scale ?? 1) > 1.01;
-          const edge = t.clientX < 24 || t.clientX > window.innerWidth - 24;
-          touchStart.value =
-            e.touches.length === 1 && !zoomed && !edge
-              ? { x: t.clientX, y: t.clientY }
-              : null;
-        }}
+        onTouchStart$={swipeStart}
         onTouchCancel$={() => (touchStart.value = null)}
-        onTouchEnd$={(e: TouchEvent) => {
-          const start = touchStart.value;
-          touchStart.value = null;
-          const t = e.changedTouches[0];
-          if (!start || !t) return;
-          const dir = swipe(t.clientX - start.x, t.clientY - start.y);
-          if (dir) go(dir);
-        }}
+        onTouchEnd$={swipeEnd}
         class="m-0 h-dvh max-h-none w-screen max-w-none bg-transparent p-0 backdrop:bg-transparent"
       >
         <div class={[overlayClass.backdrop, "px-3"]}>

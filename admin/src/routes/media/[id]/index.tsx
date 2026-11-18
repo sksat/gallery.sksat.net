@@ -888,6 +888,7 @@ export default component$(() => {
         neighbors={neighbors}
         listHref={backHref}
         dirty={dirty.value}
+        saving={action.isRunning || move.isRunning || trash.isRunning}
         pendingCount={pendingCount}
         onApply$={applyPending}
         onUndo$={undoPending}
