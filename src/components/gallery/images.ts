@@ -13,15 +13,23 @@ export type { PresetName };
 
 /**
  * What to show: a photo (the Worker serves it by public id, so it can tell
- * whether the photo may be shown) or a bucket path (camera pictures).
+ * whether the photo may be shown) or a bucket path (camera pictures). A
+ * photo's `file` is null when its file name is not public.
  */
-export type ImageSource = { id: string; file: string } | string;
+export type ImageSource = { id: string; file: string | null } | string;
 
-const fileOf = (src: ImageSource): string =>
+const fileOf = (src: ImageSource): string | null =>
   typeof src === "string" ? src : src.file;
 
 export const originalUrl = (s3Base: string, file: string): string =>
   s3Base + file;
+
+/**
+ * Stand-in without the image Worker (dev, tests) for a photo whose file
+ * name is not public: there is no original URL to use. A grey square.
+ */
+export const HIDDEN_ORIGINAL =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3Crect width='1' height='1' fill='%23d4d4d8'/%3E%3C/svg%3E";
 
 export const imageUrl = (
   s3Base: string,
@@ -29,7 +37,10 @@ export const imageUrl = (
   imageBase: string | undefined,
   preset: PresetName,
 ): string => {
-  if (!imageBase) return originalUrl(s3Base, fileOf(src));
+  if (!imageBase) {
+    const file = fileOf(src);
+    return file === null ? HIDDEN_ORIGINAL : originalUrl(s3Base, file);
+  }
   const base = `${imageBase.replace(/\/$/, "")}/${preset}`;
   return typeof src === "string" ? base + src : `${base}/${src.id}`;
 };
@@ -54,11 +65,12 @@ export const srcSet = (
  * Pixel size encoded in the file name, as VRChat names its screenshots
  * (`VRChat_2023-12-11_01-21-32.519_7680x4320.png`). Passed to <img> as
  * width/height so the browser reserves the tile's aspect ratio before the
- * image loads. Empty when the name carries no size.
+ * image loads. Empty when the name carries no size, or is not public.
  */
 export const dimensionsFromFile = (
-  file: string,
+  file: string | null,
 ): { width: number; height: number } | Record<string, never> => {
+  if (file === null) return {};
   const match = /_(\d+)x(\d+)\.[A-Za-z]+$/.exec(file);
   if (!match) return {};
   const width = Number(match[1]);

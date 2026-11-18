@@ -16,7 +16,7 @@ import type { CameraJSON, MediaCamera, MediaInfo } from "./types";
 const photo = (camera: MediaInfo["camera"]): MediaInfo => ({
   id: "abcdefghjk",
   file: "/x.png",
-  world: "VRChat",
+  platform: "VRChat",
   timestamp: null,
   camera,
   tags: [],
@@ -213,7 +213,7 @@ describe("cameraSummaries", () => {
   ): MediaInfo => ({
     id,
     file: `/${id}.png`,
-    world: "VRChat",
+    platform: "VRChat",
     timestamp: iso === null ? null : new Date(iso),
     camera,
     tags: [],

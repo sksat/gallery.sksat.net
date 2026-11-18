@@ -43,8 +43,12 @@ import {
   type TransformOptions,
 } from "./request";
 
-/** What the API returns for a photo (workers/api/src/types.ts). */
-type Photo = CaptionSource & { id: string; file: string };
+/**
+ * What the API returns for a photo (workers/api/src/types.ts). `file` is
+ * null over HTTP when the file name is not public; the `photo` RPC always
+ * has it.
+ */
+type Photo = CaptionSource & { id: string; file: string | null };
 
 /** The API's getFileAccess (workers/api/src/query.ts). */
 type FileAccess = { kind: "photo"; photo: Photo } | { kind: "camera-image" };
@@ -54,6 +58,8 @@ interface Api {
   fetch(request: Request): Promise<Response>;
   /** Whether a bucket path may be served by file name (RPC). */
   fileAccess(file: string): Promise<FileAccess | null>;
+  /** A public or unlisted photo by public id, with its bucket path (RPC). */
+  photo(publicId: string): Promise<Photo | null>;
 }
 
 interface Env extends OriginEnv {
@@ -66,19 +72,36 @@ interface Env extends OriginEnv {
 const plain = (status: number, body: string) =>
   new Response(body, { status, headers: { "Cache-Control": "no-store" } });
 
-/**
- * A public or unlisted photo by public id; null if there is none (private
- * or unknown). Goes through the API's HTTP handler rather than RPC so its
- * edge cache saves a D1 read per image request. Throws if the API fails.
- */
-const photoById = async (env: Env, id: string): Promise<Photo | null> => {
+/** The photo over the API's HTTP handler (no file when its name is hidden). */
+const photoOverHttp = async (env: Env, id: string): Promise<Photo | null> => {
   // The host is a placeholder: a service binding ignores it.
   const res = await env.API.fetch(
     new Request(`https://gallery-api/api/media/${id}`),
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API returned ${res.status} for ${id}`);
-  const photo = (await res.json()) as Photo;
+  return (await res.json()) as Photo;
+};
+
+/**
+ * A public or unlisted photo by public id; null if there is none (private
+ * or unknown). Throws if the API fails.
+ *
+ * This runs on every request, before the edge cache (its key needs the
+ * file, and a photo made private must stop at once), so it goes through
+ * the API's HTTP handler first: that answer is cached for 60 s (Cache
+ * API), which keeps D1 reads down. Only when the HTTP answer leaves the
+ * file out (its name is not public) does it ask the `photo` RPC, which
+ * reads D1 each time but includes the bucket path. An API Worker from
+ * before that RPC always returns the file, so it never gets there.
+ */
+const photoById = async (
+  env: Env,
+  id: string,
+): Promise<(Photo & { file: string }) | null> => {
+  let photo = await photoOverHttp(env, id);
+  if (photo && photo.file === null) photo = await env.API.photo(id);
+  if (!photo) return null;
   // The file goes into the origin URL: hold it to the same shape as a
   // requested bucket path.
   const asPath =
@@ -88,7 +111,7 @@ const photoById = async (env: Env, id: string): Promise<Photo | null> => {
   if (!asPath || !("file" in asPath)) {
     throw new Error(`API returned no usable file for ${id}`);
   }
-  return photo;
+  return { ...photo, file: asPath.file };
 };
 
 const transform = (originUrl: string, image: TransformOptions) =>
@@ -180,7 +203,7 @@ export default {
       });
 
     if ("id" in parsed) {
-      let photo: Photo | null;
+      let photo: Awaited<ReturnType<typeof photoById>>;
       try {
         photo = await photoById(env, parsed.id);
       } catch (err) {

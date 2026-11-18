@@ -107,10 +107,17 @@ describe("visibleMedia", () => {
   };
   const photo = (
     id: string,
-    world: MediaInfo["world"],
+    platform: MediaInfo["platform"],
     camera: MediaInfo["camera"],
     tags: string[],
-  ): MediaInfo => ({ id, file: `/${id}`, world, timestamp: null, camera, tags });
+  ): MediaInfo => ({
+    id,
+    file: `/${id}`,
+    platform,
+    timestamp: null,
+    camera,
+    tags,
+  });
   const media: MediaInfo[] = [
     photo("aaaaaaaaaa", "Real", null, []),
     photo("bbbbbbbbbb", "VRChat", vl2, ["night"]),

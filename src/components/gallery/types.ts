@@ -1,6 +1,7 @@
 // Photo and camera types, as served by the API Worker (workers/api, see its
 // src/types.ts) and as used at runtime.
-export type MediaWorld = "VRChat" | "Real";
+/** Where a photo was taken (the API's `platform`). */
+export type MediaPlatform = "VRChat" | "Real";
 
 /** `camera` on a photo: enough to label it and link to /camera/<slug>/. */
 export type MediaCamera = {
@@ -37,8 +38,9 @@ export type CameraImageJSON = {
 /** One photo from /api/media. `id` is its public id (/photo/<id>). */
 export type MediaInfoJSON = {
   id: string;
-  file: string;
-  world: MediaWorld;
+  /** Bucket path; null when the photo's file name is not public. */
+  file: string | null;
+  platform: MediaPlatform;
   timestamp: null | string;
   camera: null | MediaCamera;
   tags: string[];
@@ -46,8 +48,9 @@ export type MediaInfoJSON = {
 
 export type MediaInfo = {
   id: string;
-  file: string;
-  world: MediaWorld;
+  /** Bucket path; null when the photo's file name is not public. */
+  file: string | null;
+  platform: MediaPlatform;
   timestamp: null | Date;
   camera: null | MediaCamera;
   tags: string[];
@@ -92,16 +95,20 @@ const strOrNull = (v: unknown): string | null =>
  */
 export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
   if (!isRecord(v)) return null;
-  const { id, file, world, timestamp, camera, tags } = v;
+  const { id, file, timestamp, camera, tags } = v;
+  // `world` is the field's old name, from an API Worker not yet updated.
+  const platform = v.platform ?? v.world;
   if (typeof id !== "string" || !PUBLIC_ID_RE.test(id)) return null;
+  // null: the file name is not public (images go by id).
   if (
-    typeof file !== "string" ||
-    !/^(\/[A-Za-z0-9._-]+)+$/.test(file) ||
-    /\/\.{1,2}(\/|$)/.test(file)
+    file !== null &&
+    (typeof file !== "string" ||
+      !/^(\/[A-Za-z0-9._-]+)+$/.test(file) ||
+      /\/\.{1,2}(\/|$)/.test(file))
   ) {
     return null;
   }
-  if (world !== "Real" && world !== "VRChat") return null;
+  if (platform !== "Real" && platform !== "VRChat") return null;
   let cam: MediaCamera | null = null;
   if (isRecord(camera) && typeof camera.slug === "string") {
     cam = {
@@ -114,7 +121,7 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
   return {
     id,
     file,
-    world,
+    platform,
     timestamp: typeof timestamp === "string" ? timestamp : null,
     camera: cam,
     tags: Array.isArray(tags)

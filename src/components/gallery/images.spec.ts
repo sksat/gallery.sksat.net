@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   dimensionsFromFile,
   GRID_CANDIDATES,
+  HIDDEN_ORIGINAL,
   imageUrl,
   originalUrl,
   srcSet,
@@ -38,6 +39,16 @@ describe("imageUrl", () => {
   it("returns the original when resizing is off", () => {
     expect(imageUrl(s3, file, undefined, "h240")).toBe(originalUrl(s3, file));
     expect(imageUrl(s3, file, "", "h240")).toBe(originalUrl(s3, file));
+  });
+
+  it("never needs the name of a photo whose name is not public", () => {
+    const hidden = { id: "abcdefghjk", file: null };
+    expect(imageUrl(s3, hidden, base, "h240")).toBe(
+      "https://gallery.sksat.net/img/h240/abcdefghjk",
+    );
+    // Without the image Worker there is no URL for it: a stand-in.
+    expect(imageUrl(s3, hidden, undefined, "h240")).toBe(HIDDEN_ORIGINAL);
+    expect(dimensionsFromFile(null)).toEqual({});
   });
 
   it("points at the image Worker preset", () => {

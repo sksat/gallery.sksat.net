@@ -19,7 +19,7 @@ const noWorker = { s3Base, imageBase: "" };
 const vrchat: MediaInfoJSON = {
   id: "vrcxxxxxxa",
   file: "/VRChat/2023-12/VRChat_2023-12-16_23-12-25.684_7680x4320.png",
-  world: "VRChat",
+  platform: "VRChat",
   timestamp: "2023-12-16T23:12:25.684+09:00",
   camera: {
     slug: "virtuallens2",
@@ -32,7 +32,7 @@ const vrchat: MediaInfoJSON = {
 const real: MediaInfoJSON = {
   id: "reaxxxxxxa",
   file: "/2023-12-comsys2023/DSC1.JPG",
-  world: "Real",
+  platform: "Real",
   timestamp: "2023-12-01T15:30:00Z",
   camera: null,
   tags: ["film", "night"],
@@ -40,7 +40,7 @@ const real: MediaInfoJSON = {
 const undated: MediaInfoJSON = {
   id: "undatedxxx",
   file: "/misc/a.png",
-  world: "Real",
+  platform: "Real",
   timestamp: null,
   camera: null,
   tags: [],
@@ -89,7 +89,7 @@ describe("photoOgp", () => {
     });
   });
 
-  it("treats the world as a tag and omits a missing camera", () => {
+  it("treats the platform as a tag and omits a missing camera", () => {
     expect(photoOgp(worker, real).description).toBe(
       "2023年12月2日 00:30 撮影。タグ: Real, film, night。",
     );

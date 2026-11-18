@@ -7,7 +7,7 @@ import {
 
 const vrchat = {
   file: "/VRChat/2023-12/a.png",
-  world: "VRChat",
+  platform: "VRChat",
   timestamp: "2023-12-16T23:12:25.684+09:00",
   camera: {
     name: "VirtualLens2",
@@ -18,7 +18,7 @@ const vrchat = {
 };
 const real = {
   file: "/2023-12-comsys2023/DSC1.JPG",
-  world: "Real",
+  platform: "Real",
   timestamp: null,
   camera: null,
   tags: ["film"],
@@ -39,7 +39,7 @@ describe("formatJst", () => {
 });
 
 describe("captionFor", () => {
-  it("shows the date, camera and tags (world first, de-duplicated)", () => {
+  it("shows the date, camera and tags (platform first, de-duplicated)", () => {
     expect(captionFor(vrchat)).toEqual({
       primary: "2023-12-16 23:12 JST",
       secondary: "logilabo VirtualLens2 · #VRChat",
@@ -61,8 +61,15 @@ describe("captionFor", () => {
 
   it("keeps only characters the font subset has", () => {
     expect(
-      captionFor({ ...real, tags: ["夜景", "night\n<b>"], world: "Real" }),
+      captionFor({ ...real, tags: ["夜景", "night\n<b>"], platform: "Real" }),
     ).toEqual({ secondary: "#Real #night<b>" });
+  });
+
+  it("reads the platform under its old name from an older API", () => {
+    const { platform: _, ...old } = real;
+    expect(captionFor({ ...old, world: "Real" })).toEqual({
+      secondary: "#Real #film",
+    });
   });
 
   it("joins words inside a tag", () => {
