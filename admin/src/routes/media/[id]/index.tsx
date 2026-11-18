@@ -71,6 +71,13 @@ import {
   splitPath,
 } from "~/lib/format";
 import { getNeighbors, parseListHref, type Neighbors } from "~/lib/neighbors";
+import {
+  moveItems,
+  RestoreError,
+  restoreItems,
+  trashItems,
+} from "~/lib/db-ops";
+import { undoMoves, type Move } from "~/lib/file-ops";
 import { VISIBILITIES, type MediaRow, type Visibility } from "~/lib/types";
 import {
   parseCameraIdInput,
@@ -361,6 +368,78 @@ export const useUndoPending = routeAction$(
   }),
 );
 
+const actionId = (raw: string): number | null => {
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
+
+/**
+ * Move or rename the photo: a new display path (folder + name). The B2
+ * object keeps its key. A taken name is refused.
+ */
+export const useMovePhoto = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = actionId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    const r = await moveItems(getDB(platform), [
+      { kind: "photo", id, to: data.path.trim() },
+    ]);
+    if (!r.ok) return fail(409, { message: r.error });
+    return { ok: true, undo: undoMoves(r.plan) };
+  },
+  zod$({ path: z.string().max(600) }),
+);
+
+/** Undo of a move: the moves the move action returned. */
+export const useUndoMove = routeAction$(
+  async (data, { platform, fail }) => {
+    const r = await moveItems(getDB(platform), data.moves);
+    if (!r.ok) return fail(409, { message: r.error });
+    return { ok: true };
+  },
+  zod$({
+    moves: z
+      .array(
+        z.union([
+          z.object({
+            kind: z.literal("photo"),
+            id: z.number().int().positive(),
+            to: z.string().max(600),
+          }),
+          z.object({
+            kind: z.literal("folder"),
+            from: z.string().max(600),
+            to: z.string().max(600),
+          }),
+        ]),
+      )
+      .max(10_000),
+  }),
+);
+
+/** Put the photo in the trash, or take it out. */
+export const useTrashPhoto = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = actionId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    const db = getDB(platform);
+    if (data.restore === "true") {
+      try {
+        const r = await restoreItems(db, [id]);
+        return { ok: true, restored: r.restored[0]?.path ?? null };
+      } catch (err) {
+        if (err instanceof RestoreError) {
+          return fail(409, { message: err.message });
+        }
+        throw err;
+      }
+    }
+    await trashItems(db, { photos: [id], folders: [] });
+    return { ok: true, restored: null };
+  },
+  zod$({ restore: z.string().max(5).optional() }),
+);
+
 /** What each visibility means on the public site. */
 const VISIBILITY_HELP: Record<Visibility, string> = {
   private: "Only in the admin. The public site answers 404.",
@@ -595,9 +674,53 @@ export default component$(() => {
   });
   /** Pending choices in the viewer (they too ask before leaving). */
   const pendingCount = useSignal(0);
+  const move = useMovePhoto();
+  const undoMove = useUndoMove();
+  const trash = useTrashPhoto();
   // The list this page was opened from (view, folder, filter, page).
   const backHref = safeBackHref(useLocation().url.searchParams.get("back"));
   const toast = useSignal<ToastState | null>(null);
+  /** The last move, for the toast's 元に戻す. */
+  const lastMove = useSignal<Move[] | null>(null);
+  useTask$(({ track }) => {
+    const v = track(() => move.value);
+    if (!v) return;
+    if (v.failed) {
+      toast.value = {
+        tone: "error",
+        message: v.message ?? "移動できませんでした",
+      };
+      return;
+    }
+    lastMove.value = v.undo;
+    toast.value = {
+      tone: "success",
+      message: "移動しました。",
+      actionLabel: v.undo.length > 0 ? "元に戻す" : undefined,
+    };
+  });
+  useTask$(({ track }) => {
+    const v = track(() => undoMove.value);
+    if (!v) return;
+    toast.value = v.failed
+      ? { tone: "error", message: `元に戻せませんでした: ${v.message ?? ""}` }
+      : { tone: "success", message: "元に戻しました。" };
+  });
+  useTask$(({ track }) => {
+    const v = track(() => trash.value);
+    if (!v) return;
+    toast.value = v.failed
+      ? { tone: "error", message: v.message ?? "失敗しました" }
+      : v.restored
+        ? { tone: "success", message: `${v.restored} に戻しました。` }
+        : { tone: "success", message: "ゴミ箱に入れました。" };
+  });
+  const undoLastMove = $(async () => {
+    const moves = lastMove.value;
+    if (!moves || moves.length === 0) return;
+    lastMove.value = null;
+    await undoMove.submit({ moves });
+  });
   useTask$(({ track }) => {
     const v = track(() => action.value);
     if (!v) return;
@@ -948,7 +1071,65 @@ export default component$(() => {
           )}
         </div>
       </Form>
-      <Toast toast={toast} />
+
+      {/* Where it is shown, and the trash: actions of their own, apart
+          from the metadata form (and its unsaved-changes guard). */}
+      <section aria-label="場所とゴミ箱" class={[card, "space-y-4 p-4 sm:p-6"]}>
+        {row.trashed_at ? (
+          <div
+            role="status"
+            class="flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            <span class="mr-auto">
+              ゴミ箱にあります（公開サイトには出ません）。
+            </span>
+            <Form action={trash}>
+              <input type="hidden" name="restore" value="true" />
+              <SubmitButton running={trash.isRunning} class={buttonSecondary}>
+                元に戻す
+              </SubmitButton>
+            </Form>
+          </div>
+        ) : (
+          <>
+            <Form
+              action={move}
+              aria-label="移動・名前の変更"
+              class="flex flex-wrap items-end gap-2"
+            >
+              <div class="min-w-0 flex-1">
+                <label for="move-path" class={label}>
+                  場所と名前
+                </label>
+                <input
+                  // Keyed: a successful move shows the new path.
+                  key={row.path}
+                  id="move-path"
+                  name="path"
+                  value={row.path}
+                  required
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellcheck={false}
+                  class={field}
+                />
+              </div>
+              <SubmitButton running={move.isRunning} class={buttonSecondary}>
+                移動・名前を変更
+              </SubmitButton>
+            </Form>
+            <Form action={trash}>
+              <SubmitButton
+                running={trash.isRunning}
+                class={[buttonSecondary, "text-red-700 dark:text-red-400"]}
+              >
+                ゴミ箱へ
+              </SubmitButton>
+            </Form>
+          </>
+        )}
+      </section>
+      <Toast toast={toast} onAction$={undoLastMove} />
     </div>
   );
 });

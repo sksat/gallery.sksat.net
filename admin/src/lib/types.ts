@@ -91,6 +91,8 @@ export type MediaRow = {
   world_id: string | null;
   world_name: string | null;
   world_author_id: string | null;
+  /** When it went to the trash; null when it is not there. */
+  trashed_at: string | null;
   updated_at: string;
 };
 

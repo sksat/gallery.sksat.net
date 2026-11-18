@@ -40,6 +40,13 @@ import {
 } from "~/lib/db";
 import { createFolder, listFolders, listMediaFiles } from "~/lib/db-files";
 import {
+  moveItems,
+  RestoreError,
+  restoreItems,
+  trashItems,
+} from "~/lib/db-ops";
+import { undoMoves, type Move } from "~/lib/file-ops";
+import {
   deleteIncompleteUpload,
   listIncompleteUploads,
   type IncompleteUpload,
@@ -73,6 +80,7 @@ import {
   MAX_FOLDER_NAME_LEN,
   newFolderPath,
   normalizeDir,
+  validateFolderPath,
   type FolderNode,
 } from "~/lib/folders";
 import {
@@ -355,6 +363,100 @@ export const useCreateFolder = routeAction$(
 );
 
 /**
+ * Files view: rename the open folder (`name` in the same parent), or put
+ * it in the trash with everything in it. Both can be undone from the
+ * toast (the moves back / a restore).
+ */
+export const useFolderOp = routeAction$(
+  async (data, { platform, fail }) => {
+    const dir = normalizeDir(data.dir);
+    if (dir === "/") return fail(400, { message: "ルートは変更できません" });
+    const db = getDB(platform);
+    if (data.op === "rename") {
+      const v = newFolderPath(dirOf(dir), data.name ?? "");
+      if (!v.ok) return fail(400, { message: v.error });
+      const r = await moveItems(db, [
+        { kind: "folder", from: dir, to: v.path },
+      ]);
+      if (!r.ok) return fail(409, { message: r.error });
+      return {
+        ok: true as const,
+        op: "rename" as const,
+        from: dir,
+        to: v.path,
+        undo: undoMoves(r.plan),
+        trashed: null,
+      };
+    }
+    const t = await trashItems(db, { photos: [], folders: [dir] });
+    return {
+      ok: true as const,
+      op: "trash" as const,
+      from: dir,
+      to: dirOf(dir),
+      undo: null,
+      trashed: t,
+    };
+  },
+  zod$({
+    op: z.enum(["rename", "trash"]),
+    dir: z.string().max(600),
+    name: z.string().max(200).optional(),
+  }),
+);
+
+/** Undo of useFolderOp: moves back, or a restore out of the trash. */
+export const useUndoFolderOp = routeAction$(
+  async (data, { platform, fail }) => {
+    const db = getDB(platform);
+    if (data.moves) {
+      const r = await moveItems(db, data.moves);
+      if (!r.ok) return fail(409, { message: r.error });
+    }
+    if (data.restore) {
+      for (const f of data.restore.folders) {
+        const v = validateFolderPath(f);
+        if (!v.ok) return fail(400, { message: `${f}: ${v.error}` });
+      }
+      try {
+        await restoreItems(db, data.restore.ids, data.restore.folders);
+      } catch (err) {
+        if (err instanceof RestoreError) {
+          return fail(409, { message: err.message });
+        }
+        throw err;
+      }
+    }
+    return { ok: true };
+  },
+  zod$({
+    moves: z
+      .array(
+        z.union([
+          z.object({
+            kind: z.literal("photo"),
+            id: z.number().int().positive(),
+            to: z.string().max(600),
+          }),
+          z.object({
+            kind: z.literal("folder"),
+            from: z.string().max(600),
+            to: z.string().max(600),
+          }),
+        ]),
+      )
+      .max(10_000)
+      .optional(),
+    restore: z
+      .object({
+        ids: z.array(z.number().int().positive()).max(10_000),
+        folders: z.array(z.string().max(600)).max(10_000),
+      })
+      .optional(),
+  }),
+);
+
+/**
  * Tick or untick every photo checkbox of one layout. Only that layout's:
  * the other one is hidden but its checked boxes would still be submitted,
  * so unticking a row after "select all" would not take it out.
@@ -423,6 +525,16 @@ export default component$(() => {
   const restore = useRestoreVisibility();
   const newFolder = useCreateFolder();
   const toast = useSignal<ToastState | null>(null);
+  const folderOp = useFolderOp();
+  const undoFolderOp = useUndoFolderOp();
+  /** What 元に戻す undoes after a folder rename / trash. */
+  const lastFolderUndo = useSignal<{
+    /** The folder it was, opened again once undone. */
+    back: string;
+    moves?: Move[];
+    restore?: { ids: number[]; folders: string[] };
+  } | null>(null);
+  const renameOpen = useSignal(false);
   const refresh = useRefresh();
   const deleteIncomplete = useDeleteIncomplete();
   const uploader = useUploader($(() => refresh.submit()));
@@ -525,6 +637,7 @@ export default component$(() => {
       return;
     }
     lastChange.value = { from: v.visibility, changes: v.previous };
+    lastFolderUndo.value = null;
     toast.value = {
       tone: "success",
       message: `${v.selected} selected, ${v.changed} changed to ${VISIBILITY_LABELS[v.visibility]}.`,
@@ -554,7 +667,48 @@ export default component$(() => {
       };
     }
   });
+  useTask$(({ track }) => {
+    const v = track(() => folderOp.value);
+    if (!v) return;
+    if (v.failed) {
+      toast.value = { tone: "error", message: v.message ?? "失敗しました" };
+      return;
+    }
+    lastChange.value = null;
+    lastFolderUndo.value = v.undo
+      ? { back: v.from, moves: v.undo }
+      : v.trashed
+        ? { back: v.from, restore: v.trashed }
+        : null;
+    renameOpen.value = false;
+    if (!isBrowser) return;
+    toast.value = {
+      tone: "success",
+      message:
+        v.op === "rename"
+          ? `${v.to} に名前を変えました。`
+          : "ゴミ箱に入れました。",
+      actionLabel: "元に戻す",
+    };
+    void nav(mediaListHref({ view: "files", dir: v.to }));
+  });
+  useTask$(({ track }) => {
+    const v = track(() => undoFolderOp.value);
+    if (!v) return;
+    toast.value = v.failed
+      ? { tone: "error", message: `元に戻せませんでした: ${v.message ?? ""}` }
+      : { tone: "success", message: "元に戻しました。" };
+  });
   const undo = $(async () => {
+    const folderUndo = lastFolderUndo.value;
+    if (folderUndo) {
+      lastFolderUndo.value = null;
+      const { back, ...undo } = folderUndo;
+      const r = await undoFolderOp.submit(undo);
+      if (!r.value.failed)
+        await nav(mediaListHref({ view: "files", dir: back }));
+      return;
+    }
     const last = lastChange.value;
     if (!last || last.changes.length === 0) return;
     lastChange.value = null;
@@ -980,8 +1134,85 @@ export default component$(() => {
                       Cancel
                     </button>
                   </Form>
+                ) : renameOpen.value && dir !== "/" ? (
+                  <Form
+                    action={folderOp}
+                    aria-busy={folderOp.isRunning}
+                    aria-label="フォルダ名の変更"
+                    class="flex items-center gap-2"
+                  >
+                    <input type="hidden" name="op" value="rename" />
+                    <input type="hidden" name="dir" value={dir} />
+                    <label for="rename-folder-name" class="sr-only">
+                      新しい名前
+                    </label>
+                    <input
+                      id="rename-folder-name"
+                      name="name"
+                      required
+                      value={dir.slice(dir.lastIndexOf("/") + 1)}
+                      maxLength={MAX_FOLDER_NAME_LEN}
+                      pattern={"\\s*[A-Za-z0-9_\\-][A-Za-z0-9._\\-]*\\s*"}
+                      title="英数字と . _ - (先頭に . は不可)"
+                      autoFocus
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellcheck={false}
+                      enterKeyHint="done"
+                      class={[field, "min-w-0 flex-1 sm:w-48"]}
+                    />
+                    <SubmitButton
+                      running={folderOp.isRunning}
+                      class={buttonPrimary}
+                    >
+                      変更
+                    </SubmitButton>
+                    <button
+                      type="button"
+                      onClick$={() => (renameOpen.value = false)}
+                      class={buttonSecondary}
+                    >
+                      Cancel
+                    </button>
+                  </Form>
                 ) : (
                   <div class="flex flex-wrap gap-2">
+                    {dir !== "/" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick$={() => (renameOpen.value = true)}
+                          class={[
+                            buttonSecondary,
+                            "min-w-fit whitespace-nowrap max-sm:flex-1",
+                          ]}
+                        >
+                          名前を変更
+                        </button>
+                        <Form action={folderOp} class="contents">
+                          <input type="hidden" name="op" value="trash" />
+                          <input type="hidden" name="dir" value={dir} />
+                          <SubmitButton
+                            running={folderOp.isRunning}
+                            class={[
+                              buttonSecondary,
+                              "min-w-fit whitespace-nowrap text-red-700 max-sm:flex-1 dark:text-red-400",
+                            ]}
+                          >
+                            フォルダをゴミ箱へ
+                          </SubmitButton>
+                        </Form>
+                      </>
+                    )}
+                    <Link
+                      href="/media/trash/"
+                      class={[
+                        buttonSecondary,
+                        "min-w-fit whitespace-nowrap max-sm:flex-1",
+                      ]}
+                    >
+                      ゴミ箱
+                    </Link>
                     <button
                       type="button"
                       onClick$={() => (newFolderOpen.value = true)}

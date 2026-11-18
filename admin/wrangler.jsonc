@@ -21,8 +21,10 @@
     "THUMBNAILS": "1",
     // Uploads (src/lib/b2.ts): the browser PUTs originals straight to the
     // bucket through URLs presigned with B2_UPLOAD_KEY_ID /
-    // B2_UPLOAD_APPLICATION_KEY, production secrets of a B2 "Write Only"
-    // key restricted to this bucket. Without them uploading is off.
+    // B2_UPLOAD_APPLICATION_KEY, production secrets of a B2 key restricted
+    // to this bucket with writeFiles + listFiles + deleteFiles (no
+    // readFiles; list + delete are for 完全に削除 in the trash, which
+    // removes every version). Without them uploading is off.
     "B2_ENDPOINT": "https://s3.us-west-002.backblazeb2.com",
     "B2_BUCKET": "sksat-gallery",
     "B2_REGION": "us-west-002",
