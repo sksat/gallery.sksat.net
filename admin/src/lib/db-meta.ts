@@ -1,7 +1,16 @@
 // Site-wide metadata defaults (`setting`) and tags (`tag`), migration 0005
 // (db-meta.spec.ts, on the real schema).
 
-import { siteDefaults, type MetadataLevels } from "./metadata";
+import {
+  storedOverrides,
+  withLevels,
+  type LevelChange,
+} from "./bulk-metadata";
+import {
+  parseOverrides,
+  siteDefaults,
+  type MetadataLevels,
+} from "./metadata";
 import { LIVE_PHOTO } from "./types";
 
 const KEY = "metadata_visibility";
@@ -123,3 +132,63 @@ export const publicTags = async (
     .all<{ name: string }>();
   return (res.results ?? []).map((r) => r.name);
 };
+
+/** A photo's stored overrides before a bulk change (for its undo). */
+export type StoredLevels = { id: number; levels: string | null };
+
+// Sets each listed photo's overrides from one JSON array of [id, value]
+// pairs (D1 caps bound parameters at 100 per statement).
+const SET_LEVELS_SQL = `UPDATE media SET
+   metadata_visibility = (SELECT json_extract(value, '$[1]') FROM json_each(?1)
+                          WHERE json_extract(value, '$[0]') = media.id),
+   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+ WHERE id IN (SELECT json_extract(value, '$[0]') FROM json_each(?1))`;
+
+const writeLevels = async (
+  db: D1Database,
+  rows: readonly StoredLevels[],
+): Promise<void> => {
+  if (rows.length === 0) return;
+  await db
+    .prepare(SET_LEVELS_SQL)
+    .bind(JSON.stringify(rows.map((r) => [r.id, r.levels])))
+    .run();
+};
+
+/**
+ * Apply `change` to the metadata levels of photos `ids` (bulk-metadata.ts).
+ * Returns what each photo that changed had before, for the undo.
+ */
+export const setMetadataLevels = async (
+  db: D1Database,
+  ids: readonly number[],
+  change: LevelChange,
+): Promise<StoredLevels[]> => {
+  if (ids.length === 0) return [];
+  const res = await db
+    .prepare(
+      `SELECT id, metadata_visibility FROM media
+       WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id`,
+    )
+    .bind(JSON.stringify(ids))
+    .all<{ id: number; metadata_visibility: string | null }>();
+  const previous: StoredLevels[] = [];
+  const next: StoredLevels[] = [];
+  for (const r of res.results ?? []) {
+    const current = parseOverrides(r.metadata_visibility);
+    const levels = storedOverrides(withLevels(current, change));
+    // Compared as stored by this module: the edit page may have written
+    // the same levels in another key order.
+    if (levels === storedOverrides(current)) continue;
+    previous.push({ id: r.id, levels: r.metadata_visibility });
+    next.push({ id: r.id, levels });
+  }
+  await writeLevels(db, next);
+  return previous;
+};
+
+/** Undo of setMetadataLevels: each photo's stored overrides as they were. */
+export const restoreMetadataLevels = (
+  db: D1Database,
+  previous: readonly StoredLevels[],
+): Promise<void> => writeLevels(db, previous);

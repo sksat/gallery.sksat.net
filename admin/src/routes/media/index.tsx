@@ -40,12 +40,21 @@ import {
 } from "~/lib/db";
 import { createFolder, listFolders, listMediaFiles } from "~/lib/db-files";
 import {
+  getSiteDefaults,
+  restoreMetadataLevels,
+  setMetadataLevels,
+  type StoredLevels,
+} from "~/lib/db-meta";
+import { storedOverrides, validateLevelChange } from "~/lib/bulk-metadata";
+import { parseOverrides, type MetadataLevels } from "~/lib/metadata";
+import {
+  loadTree,
   moveItems,
   RestoreError,
   restoreItems,
   trashItems,
 } from "~/lib/db-ops";
-import { undoMoves, type Move } from "~/lib/file-ops";
+import { intoFolder, undoMoves, type Move } from "~/lib/file-ops";
 import {
   deleteIncompleteUpload,
   listIncompleteUploads,
@@ -61,7 +70,12 @@ import {
   UploadPanel,
   useUploader,
 } from "~/components/uploader";
-import { FileBrowser, type FileTile } from "~/components/file-browser";
+import {
+  FileBrowser,
+  type FileTile,
+  type SelectedItems,
+} from "~/components/file-browser";
+import type { SelectionAction } from "~/components/selection-bar";
 import { SubmitButton } from "~/components/submit-button";
 import { Thumb } from "~/components/thumb";
 import { VisibilityBadge } from "~/components/visibility-badge";
@@ -128,6 +142,8 @@ type FilesData = {
   uploadEnabled: boolean;
   /** Uploads into `dir` that never completed. */
   incomplete: IncompleteUpload[];
+  /** The site's metadata levels (what 既定 means in a bulk change). */
+  siteDefaults: MetadataLevels;
 };
 
 type MediaListResult =
@@ -203,7 +219,12 @@ export const useMediaList = routeLoader$<MediaListResult>(
           tree,
           dir,
           folder: findFolder(tree, dir),
-          files: filesInDir(rows, dir),
+          files: filesInDir(rows, dir).map(
+            ({ metadata_visibility, ...r }): FileTile => ({
+              ...r,
+              metadata: parseOverrides(metadata_visibility),
+            }),
+          ),
           truncated,
           // Both halves: the presigned PUT and the check that completes it.
           uploadEnabled:
@@ -212,6 +233,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
           incomplete: (await listIncompleteUploads(db)).filter(
             (u) => dirOf(u.path) === dir,
           ),
+          siteDefaults: await getSiteDefaults(db),
         },
       };
     }
@@ -412,6 +434,108 @@ export const useFolderOp = routeAction$(
   }),
 );
 
+const selectionItems = {
+  photos: z.array(z.number().int().positive()).max(10_000),
+  // Folder paths as shown ("" or "/" would match every photo); not the
+  // naming rules, which older folders may predate.
+  folders: z
+    .array(
+      z
+        .string()
+        .max(600)
+        .refine((f) => f !== "/" && normalizeDir(f) === f, "invalid folder"),
+    )
+    .max(10_000),
+};
+
+/**
+ * Files view selection → 移動: the picked photos and folders into folder
+ * `dest`, or into a new folder `name` made inside it. Undone like a
+ * folder rename (useUndoFolderOp).
+ */
+export const useMoveSelection = routeAction$(
+  async (data, { platform, fail }) => {
+    let dest = normalizeDir(data.dest);
+    if (data.name?.trim()) {
+      const v = newFolderPath(dest, data.name);
+      if (!v.ok) return fail(400, { message: v.error });
+      dest = v.path;
+    } else if (dest !== "/") {
+      const v = validateFolderPath(dest);
+      if (!v.ok) return fail(400, { message: v.error });
+    }
+    const db = getDB(platform);
+    const items = { photos: data.photos, folders: data.folders };
+    const r = await moveItems(db, intoFolder(await loadTree(db), dest, items));
+    if (!r.ok) return fail(409, { message: r.error });
+    if (data.name?.trim()) await createFolder(db, dest);
+    const undo = undoMoves(r.plan);
+    // What moved: each moved folder, and each photo not inside one.
+    return { ok: true as const, to: dest, count: undo.length, undo };
+  },
+  zod$({
+    dest: z.string().max(600),
+    name: z.string().max(200).optional(),
+    ...selectionItems,
+  }),
+);
+
+/** Files view selection → ゴミ箱へ (folders with everything in them). */
+export const useTrashSelection = routeAction$(async (data, { platform }) => {
+  const t = await trashItems(getDB(platform), {
+    photos: data.photos,
+    folders: data.folders,
+  });
+  return { ok: true as const, trashed: t };
+}, zod$(selectionItems));
+
+/**
+ * Files view selection → 公開する情報: the given metadata levels on the
+ * selected photos ("" = the site's default). Returns what changed photos
+ * had, for 元に戻す (useRestoreMetadata).
+ */
+export const useBulkMetadata = routeAction$(
+  async (data, { platform, fail }) => {
+    const v = validateLevelChange(data.levels);
+    if (!v.ok) return fail(400, { message: v.error });
+    const previous = await setMetadataLevels(
+      getDB(platform),
+      data.ids,
+      v.value,
+    );
+    return { ok: true as const, selected: data.ids.length, previous };
+  },
+  zod$({
+    ids: z.array(z.number().int().positive()).min(1).max(MAX_BULK_IDS),
+    levels: z.record(z.string(), z.string().max(20)),
+  }),
+);
+
+/** Undo of useBulkMetadata. */
+export const useRestoreMetadata = routeAction$(
+  async (data, { platform }) => {
+    // Written back as read: only valid overrides reach the column.
+    await restoreMetadataLevels(
+      getDB(platform),
+      data.previous.map((r) => ({
+        id: r.id,
+        levels: storedOverrides(parseOverrides(r.levels)),
+      })),
+    );
+    return { ok: true as const };
+  },
+  zod$({
+    previous: z
+      .array(
+        z.object({
+          id: z.number().int().positive(),
+          levels: z.string().max(1000).nullable(),
+        }),
+      )
+      .max(MAX_BULK_IDS),
+  }),
+);
+
 /** Undo of useFolderOp: moves back, or a restore out of the trash. */
 export const useUndoFolderOp = routeAction$(
   async (data, { platform, fail }) => {
@@ -542,6 +666,118 @@ export default component$(() => {
     restore?: { ids: number[]; folders: string[] };
   } | null>(null);
   const renameOpen = useSignal(false);
+  /** The last bulk change (its target and previous visibilities), for undo. */
+  const lastChange = useSignal<{
+    from: Visibility;
+    changes: VisibilityChange[];
+  } | null>(null);
+  /** The last bulk metadata change (what the photos had), for undo. */
+  const lastMetadata = useSignal<StoredLevels[] | null>(null);
+  const moveSelection = useMoveSelection();
+  const trashSelection = useTrashSelection();
+  const bulkMetadata = useBulkMetadata();
+  const restoreMetadata = useRestoreMetadata();
+  /** The Files view's selection actions; true when it went through. */
+  const onSelection = $(
+    async (a: SelectionAction, items: SelectedItems): Promise<boolean> => {
+      const back =
+        data.value.kind === "ok" && data.value.files
+          ? data.value.files.dir
+          : "/";
+      if (a.kind === "metadata") {
+        if (items.photos.length > MAX_BULK_IDS) {
+          toast.value = {
+            tone: "error",
+            message: `公開する情報は一度に ${MAX_BULK_IDS} 枚までです`,
+          };
+          return false;
+        }
+        const r = await bulkMetadata.submit({
+          ids: items.photos,
+          levels: a.levels,
+        });
+        if (r.value.failed) {
+          toast.value = {
+            tone: "error",
+            message: r.value.message ?? "変更できませんでした",
+          };
+          return false;
+        }
+        lastChange.value = null;
+        lastFolderUndo.value = null;
+        lastMetadata.value =
+          r.value.previous.length > 0 ? r.value.previous : null;
+        toast.value = {
+          tone: "success",
+          message: `${r.value.previous.length} 枚の公開する情報を変えました。`,
+          actionLabel: r.value.previous.length > 0 ? "元に戻す" : undefined,
+        };
+        return true;
+      }
+      lastMetadata.value = null;
+      if (a.kind === "visibility") {
+        if (items.photos.length > MAX_BULK_IDS) {
+          toast.value = {
+            tone: "error",
+            message: `公開範囲は一度に ${MAX_BULK_IDS} 枚までです`,
+          };
+          return false;
+        }
+        // The bulk task shows the toast and keeps the undo.
+        const r = await bulk.submit({
+          ids: items.photos.map(String),
+          visibility: a.visibility,
+        });
+        return !r.value.failed;
+      }
+      if (a.kind === "move") {
+        const r = await moveSelection.submit({
+          dest: a.dest,
+          name: a.name,
+          ...items,
+        });
+        if (r.value.failed) {
+          toast.value = {
+            tone: "error",
+            message: r.value.message ?? "移動できませんでした",
+          };
+          return false;
+        }
+        lastChange.value = null;
+        lastFolderUndo.value = { back, moves: r.value.undo };
+        toast.value = {
+          tone: "success",
+          message: `${r.value.count} 件を ${r.value.to} に移動しました。`,
+          actionLabel: r.value.undo.length > 0 ? "元に戻す" : undefined,
+        };
+        return true;
+      }
+      if (a.kind === "trash") {
+        const r = await trashSelection.submit(items);
+        if (r.value.failed) {
+          toast.value = {
+            tone: "error",
+            message: "ゴミ箱に入れられませんでした",
+          };
+          return false;
+        }
+        lastChange.value = null;
+        const { ids, folders } = r.value.trashed;
+        // Already gone (e.g. from another tab): nothing to put back.
+        lastFolderUndo.value =
+          ids.length + folders.length > 0
+            ? { back, restore: r.value.trashed }
+            : null;
+        toast.value = {
+          tone: "success",
+          message: `${items.photos.length + items.folders.length} 件をゴミ箱に入れました。`,
+          actionLabel: lastFolderUndo.value ? "元に戻す" : undefined,
+        };
+        return true;
+      }
+      return false;
+    },
+  );
   const refresh = useRefresh();
   const deleteIncomplete = useDeleteIncomplete();
   const uploader = useUploader($(() => refresh.submit()));
@@ -618,11 +854,6 @@ export default component$(() => {
   const selectChanged = $((select: HTMLSelectElement) => {
     if (select.form && sheet.value?.open) return applyFilter(select.form);
   });
-  /** The last bulk change (its target and previous visibilities), for undo. */
-  const lastChange = useSignal<{
-    from: Visibility;
-    changes: VisibilityChange[];
-  } | null>(null);
   // Phones: ticked cards, selection mode (a tap on a card ticks it) and the
   // visibility picked in the bottom bar ("" = none yet).
   const selectedCount = useSignal(0);
@@ -645,6 +876,7 @@ export default component$(() => {
     }
     lastChange.value = { from: v.visibility, changes: v.previous };
     lastFolderUndo.value = null;
+    lastMetadata.value = null;
     toast.value = {
       tone: "success",
       message: `${v.selected} selected, ${v.changed} changed to ${VISIBILITY_LABELS[v.visibility]}.`,
@@ -682,6 +914,7 @@ export default component$(() => {
       return;
     }
     lastChange.value = null;
+    lastMetadata.value = null;
     lastFolderUndo.value = v.undo
       ? { back: v.from, moves: v.undo }
       : v.trashed
@@ -714,6 +947,15 @@ export default component$(() => {
       const r = await undoFolderOp.submit(undo);
       if (!r.value.failed)
         await nav(mediaListHref({ view: "files", dir: back }));
+      return;
+    }
+    const metadata = lastMetadata.value;
+    if (metadata) {
+      lastMetadata.value = null;
+      const r = await restoreMetadata.submit({ previous: metadata });
+      toast.value = r.value.failed
+        ? { tone: "error", message: "元に戻せませんでした" }
+        : { tone: "success", message: "元に戻しました。" };
       return;
     }
     const last = lastChange.value;
@@ -1097,6 +1339,8 @@ export default component$(() => {
               platform={platform}
               visibility={visibility}
               q={q}
+              siteDefaults={files.siteDefaults}
+              onSelection$={onSelection}
             >
               <div q:slot="toolbar" class="max-sm:w-full">
                 {newFolderOpen.value ? (

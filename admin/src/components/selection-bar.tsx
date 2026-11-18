@@ -1,0 +1,380 @@
+import {
+  $,
+  component$,
+  useSignal,
+  type QRL,
+  type Signal,
+} from "@builder.io/qwik";
+import type { LevelChange } from "~/lib/bulk-metadata";
+import { isWithin, type FolderNode } from "~/lib/folders";
+import type { MetadataLevels } from "~/lib/metadata";
+import { exposing } from "~/lib/review-pending";
+import { sharedVisibility, visibilityPending } from "~/lib/selection";
+import { formatDecimalBytes } from "~/lib/storage";
+import { VISIBILITIES, type Visibility } from "~/lib/types";
+import { BulkMetadataDialog } from "./bulk-metadata-dialog";
+import type { FileTile } from "./file-browser";
+import { Thumb } from "./thumb";
+import { buttonPrimary, buttonSecondary, field, label, muted } from "./ui";
+import {
+  VISIBILITY_LABELS_JA,
+  VISIBILITY_STYLE,
+  VisibilityIcon,
+} from "./visibility-style";
+
+// What can be done with the Files view's selection: 移動 (a folder picker
+// in a dialog, optionally into a new folder there), the visibility of the
+// selected photos (one button per level, in its own look; making photos
+// public or unlisted first shows them as thumbnails, as the viewer's 反映
+// does), 公開する情報 (bulk metadata levels), ゴミ箱へ, and clearing it.
+// Every change can be undone from the page's toast. A bar fixed at the
+// bottom on phones (replacing the tab bar, data-bottom-bar), sticky above
+// the grid from sm up.
+
+export type SelectionAction =
+  | { kind: "move"; dest: string; name: string }
+  | { kind: "visibility"; visibility: Visibility }
+  | { kind: "metadata"; levels: LevelChange }
+  | { kind: "trash" }
+  | { kind: "clear" };
+
+type Props = {
+  count: number;
+  /** The selected photos (folders' contents not included). */
+  photos: FileTile[];
+  bytes: number;
+  /** Folders being moved: they and their insides are not destinations. */
+  folders: string[];
+  /** The open folder (moving there does nothing). */
+  dir: string;
+  tree: FolderNode;
+  imageBase: string | null;
+  siteDefaults: MetadataLevels;
+  busy: Signal<boolean>;
+  /** Resolves true when the action went through. */
+  onAction$: QRL<(a: SelectionAction) => Promise<boolean>>;
+};
+
+const flatten = (node: FolderNode, depth = 0): [FolderNode, number][] => [
+  [node, depth],
+  ...node.children.flatMap((c) => flatten(c, depth + 1)),
+];
+
+const Icon = ({ d, class: cls = "size-4" }: { d: string; class?: string }) => (
+  <svg
+    viewBox="0 0 20 20"
+    fill="currentColor"
+    aria-hidden="true"
+    class={["shrink-0", cls]}
+  >
+    <path fill-rule="evenodd" clip-rule="evenodd" d={d} />
+  </svg>
+);
+
+/** Folder with an arrow (移動). */
+const MOVE_ICON =
+  "M2 5.5A1.5 1.5 0 0 1 3.5 4h4.09a1.5 1.5 0 0 1 1.06.44L9.7 5.5h6.8A1.5 1.5 0 0 1 18 7v8.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 15.5v-10Zm8.47 3.22a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1 0 1.06l-2 2a.75.75 0 1 1-1.06-1.06l.72-.72H7a.75.75 0 0 1 0-1.5h4.19l-.72-.72a.75.75 0 0 1 0-1.06Z";
+/** Sliders (公開する情報). */
+const LEVELS_ICON =
+  "M3.75 5a.75.75 0 0 0 0 1.5h1.4a2.5 2.5 0 0 0 4.7 0h6.4a.75.75 0 0 0 0-1.5h-6.4a2.5 2.5 0 0 0-4.7 0h-1.4Zm0 8.5a.75.75 0 0 0 0 1.5h6.4a2.5 2.5 0 0 0 4.7 0h1.4a.75.75 0 0 0 0-1.5h-1.4a2.5 2.5 0 0 0-4.7 0h-6.4ZM7.5 6.75a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm5 8.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z";
+/** Bin (ゴミ箱へ). */
+const TRASH_ICON =
+  "M8.75 2.5A1.75 1.75 0 0 0 7 4.25V5H4a.75.75 0 0 0 0 1.5h.3l.8 9.6A2 2 0 0 0 7.1 18h5.8a2 2 0 0 0 2-1.9l.8-9.6h.3a.75.75 0 0 0 0-1.5h-3v-.75A1.75 1.75 0 0 0 11.25 2.5h-2.5ZM11.5 5v-.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25V5h3Z";
+/** ✕ (選択解除). */
+const CLEAR_ICON =
+  "M5.22 5.22a.75.75 0 0 1 1.06 0L10 8.94l3.72-3.72a.75.75 0 1 1 1.06 1.06L11.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06L10 11.06l-3.72 3.72a.75.75 0 0 1-1.06-1.06L8.94 10 5.22 6.28a.75.75 0 0 1 0-1.06Z";
+
+export const SelectionBar = component$<Props>(
+  ({
+    count,
+    photos,
+    bytes,
+    folders,
+    dir,
+    tree,
+    imageBase,
+    siteDefaults,
+    busy,
+    onAction$,
+  }) => {
+    const dialog = useSignal<HTMLDialogElement>();
+    const metadataOpen = useSignal(false);
+    const dest = useSignal(dir);
+    /** A level waiting for a look at what becomes visible. */
+    const confirming = useSignal<Visibility | null>(null);
+
+    const destinations = flatten(tree).filter(
+      ([node]) => !folders.some((f) => isWithin(node.path, f)),
+    );
+    const current = sharedVisibility(photos);
+    const visible = confirming.value
+      ? exposing(visibilityPending(photos, confirming.value))
+      : [];
+
+    const submitMove = $(async (form: HTMLFormElement) => {
+      const data = new FormData(form);
+      // Kept open on a failure (the toast says why), with what was typed.
+      const ok = await onAction$({
+        kind: "move",
+        dest: String(data.get("dest") ?? "/"),
+        name: String(data.get("name") ?? ""),
+      });
+      if (ok) dialog.value?.close();
+    });
+    const pickVisibility = $(async (v: Visibility) => {
+      const pending = visibilityPending(photos, v);
+      if (Object.keys(pending).length === 0) return;
+      if (exposing(pending).length > 0 && confirming.value !== v) {
+        confirming.value = v;
+        return;
+      }
+      confirming.value = null;
+      await onAction$({ kind: "visibility", visibility: v });
+    });
+
+    const action =
+      "inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:px-3";
+    // Phones: icon over a short label, as in a bottom toolbar.
+    const tool = `${action} max-sm:h-12 max-sm:flex-col max-sm:gap-0.5 max-sm:text-xs`;
+    const quiet = `${action} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800`;
+    const quietTool = `${tool} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800`;
+
+    return (
+      <div
+        data-bottom-bar
+        role="region"
+        aria-label="選択した項目"
+        data-testid="selection-bar"
+        class={[
+          "z-30 grid grid-cols-[1fr_auto] items-center gap-2 border-zinc-200 bg-white/95 backdrop-blur sm:flex sm:flex-wrap dark:border-zinc-800 dark:bg-zinc-900/95",
+          "max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:border-t max-sm:pt-2 max-sm:pr-[max(1rem,env(safe-area-inset-right))] max-sm:pb-[calc(0.5rem+env(safe-area-inset-bottom))] max-sm:pl-[max(1rem,env(safe-area-inset-left))] max-sm:shadow-[0_-4px_12px_rgb(0_0_0/0.06)]",
+          // After the grid, held at the viewport's bottom while it scrolls.
+          "sm:sticky sm:bottom-4 sm:rounded-xl sm:border sm:p-2 sm:shadow-lg",
+        ]}
+      >
+        {/* (Gone if the selection changed and nothing would show.) */}
+        {confirming.value && visible.length > 0 && (
+          // The photos that would become visible to others, before they do.
+          <div
+            data-testid="visibility-confirm"
+            role="group"
+            aria-label={`${VISIBILITY_LABELS_JA[confirming.value]}にする写真`}
+            class="col-span-2 flex w-full flex-wrap items-center gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800"
+          >
+            <ul class="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
+              {visible.map(([id, item]) => (
+                <li key={id} class="relative shrink-0">
+                  <Thumb
+                    file={item.file}
+                    platform={null}
+                    imageBase={imageBase}
+                    variant="list"
+                    class="h-12 rounded-md"
+                  />
+                  <span
+                    class={[
+                      "absolute right-0.5 bottom-0.5 rounded-full p-0.5 ring-1 ring-inset",
+                      VISIBILITY_STYLE[item.to].badge,
+                    ]}
+                  >
+                    <VisibilityIcon visibility={item.to} class="size-3" />
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <span class="flex shrink-0 gap-2 max-sm:w-full">
+              <button
+                type="button"
+                onClick$={() => (confirming.value = null)}
+                class={[buttonSecondary, "max-sm:flex-1"]}
+              >
+                戻る
+              </button>
+              <button
+                type="button"
+                disabled={busy.value}
+                onClick$={() => pickVisibility(confirming.value!)}
+                class={[
+                  "inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold shadow-sm ring-2 ring-inset disabled:opacity-60 max-sm:flex-1 sm:h-10",
+                  VISIBILITY_STYLE[confirming.value].selected,
+                ]}
+              >
+                <VisibilityIcon visibility={confirming.value} />
+                {visible.length} 枚を{VISIBILITY_LABELS_JA[confirming.value]}
+              </button>
+            </span>
+          </div>
+        )}
+        <p
+          class="text-sm font-semibold tabular-nums sm:mr-auto"
+          data-testid="selection-summary"
+          aria-live="polite"
+        >
+          {count} 件選択
+          <span class={["ml-2 font-normal", muted]}>
+            {formatDecimalBytes(bytes)}
+          </span>
+        </p>
+        <button
+          type="button"
+          aria-label="選択解除"
+          title="選択解除 (Esc)"
+          onClick$={() => onAction$({ kind: "clear" })}
+          class={[quiet, "sm:order-last"]}
+        >
+          <Icon d={CLEAR_ICON} class="size-5" />
+        </button>
+        <div
+          role="group"
+          aria-label="公開範囲"
+          class="col-span-2 grid grid-cols-3 gap-0.5 rounded-lg border border-zinc-300 p-0.5 sm:flex dark:border-zinc-700"
+        >
+          {[...VISIBILITIES].reverse().map((v) => (
+            <button
+              key={v}
+              type="button"
+              disabled={busy.value || photos.length === 0}
+              aria-pressed={current === v}
+              onClick$={() => pickVisibility(v)}
+              class={[
+                "inline-flex h-11 items-center justify-center gap-1 rounded-md px-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:h-8",
+                current === v || confirming.value === v
+                  ? [VISIBILITY_STYLE[v].selected, "ring-2 ring-inset"]
+                  : [
+                      VISIBILITY_STYLE[v].accent,
+                      "hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                    ],
+              ]}
+            >
+              <VisibilityIcon visibility={v} />
+              {VISIBILITY_LABELS_JA[v]}
+            </button>
+          ))}
+        </div>
+        <div class="col-span-2 grid grid-cols-3 gap-1 sm:contents">
+          <button
+            type="button"
+            disabled={busy.value}
+            onClick$={() => {
+              dest.value = dir;
+              dialog.value?.showModal();
+            }}
+            class={quietTool}
+          >
+            <Icon d={MOVE_ICON} />
+            移動…
+          </button>
+          <button
+            type="button"
+            disabled={busy.value || photos.length === 0}
+            aria-haspopup="dialog"
+            onClick$={() => (metadataOpen.value = true)}
+            class={quietTool}
+          >
+            <Icon d={LEVELS_ICON} />
+            公開する情報…
+          </button>
+          <button
+            type="button"
+            disabled={busy.value}
+            title="ゴミ箱へ (Delete)"
+            onClick$={() => onAction$({ kind: "trash" })}
+            class={[
+              tool,
+              "text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40",
+            ]}
+          >
+            <Icon d={TRASH_ICON} />
+            ゴミ箱へ
+          </button>
+        </div>
+
+        {metadataOpen.value && (
+          <BulkMetadataDialog
+            photos={photos}
+            siteDefaults={siteDefaults}
+            busy={busy}
+            onClose$={() => (metadataOpen.value = false)}
+            onApply$={async (levels) => {
+              if (await onAction$({ kind: "metadata", levels })) {
+                metadataOpen.value = false;
+              }
+            }}
+          />
+        )}
+
+        <dialog
+          ref={dialog}
+          aria-labelledby="move-title"
+          class="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/40 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+        >
+          <form
+            preventdefault:submit
+            onSubmit$={(_, form) => submitMove(form)}
+            class="space-y-4 p-4"
+          >
+            <h2 id="move-title" class="text-base font-semibold">
+              {count} 件を移動
+            </h2>
+            <fieldset>
+              <legend class={label}>移動先</legend>
+              <ul
+                class="max-h-72 space-y-0.5 overflow-y-auto rounded-lg border border-zinc-200 p-1 dark:border-zinc-800"
+                data-testid="move-destinations"
+              >
+                {destinations.map(([node, depth]) => (
+                  <li key={node.path}>
+                    <label
+                      class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-2 text-sm has-checked:bg-sky-100 sm:min-h-9 dark:has-checked:bg-sky-950"
+                      style={{ paddingLeft: `${0.5 + depth * 1}rem` }}
+                    >
+                      <input
+                        type="radio"
+                        name="dest"
+                        value={node.path}
+                        checked={dest.value === node.path}
+                        onChange$={() => (dest.value = node.path)}
+                      />
+                      <span class="truncate">{node.name || "All files"}</span>
+                      {node.path === dir && (
+                        <span class={["text-xs", muted]}>(いまの場所)</span>
+                      )}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+            <div>
+              <label for="move-new-folder" class={label}>
+                その中に新しいフォルダを作る (任意)
+              </label>
+              <input
+                id="move-new-folder"
+                name="name"
+                maxLength={64}
+                pattern={"\\s*[A-Za-z0-9_\\-][A-Za-z0-9._\\-]*\\s*"}
+                title="英数字と . _ - (先頭に . は不可)"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellcheck={false}
+                class={field}
+              />
+            </div>
+            <div class="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick$={() => dialog.value?.close()}
+                class={buttonSecondary}
+              >
+                やめる
+              </button>
+              <button type="submit" disabled={busy.value} class={buttonPrimary}>
+                {busy.value ? "移動中…" : "ここへ移動"}
+              </button>
+            </div>
+          </form>
+        </dialog>
+      </div>
+    );
+  },
+);
