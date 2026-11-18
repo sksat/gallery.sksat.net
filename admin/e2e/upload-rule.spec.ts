@@ -250,6 +250,30 @@ test("apply the rules to photos already uploaded", async ({
   await removeRule(page, "rule-apply のカメラ");
 });
 
+test("every photo only when chosen: an empty or odd folder is refused", async ({
+  page,
+}) => {
+  await open(page);
+  const apply = page.getByTestId("apply-existing");
+  const input = apply.getByLabel("フォルダ (下のフォルダも含む)");
+  // The page sends them as typed: the refusal comes from the server.
+  for (const raw of ["", "/", "..", "/mock/../"]) {
+    await input.fill(raw);
+    await apply.getByRole("button", { name: "確認" }).click();
+    await expect(page.getByRole("alert")).toContainText(
+      raw.trim() === "" ? "フォルダを入力してください" : "/VRChat のように",
+    );
+    await expect(page.getByTestId("apply-preview")).toHaveCount(0);
+    await page.getByRole("button", { name: "Dismiss" }).click();
+  }
+  await apply.getByLabel("すべての写真").check();
+  await expect(input).toBeDisabled();
+  await apply.getByRole("button", { name: "確認" }).click();
+  await expect(page.getByTestId("apply-preview")).toContainText(
+    /すべての写真 の \d+ 枚のうち/,
+  );
+});
+
 test("undo of applying to existing photos", async ({ page }) => {
   await folderWith(page, "rule-undo", ["c.png"]);
   await open(page);

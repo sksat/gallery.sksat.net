@@ -561,6 +561,28 @@ export const appliedChips = (
 
 // --- Existing photos -----------------------------------------------------
 
+/**
+ * Which photos 既存の写真に適用 works on: every photo only when that was
+ * chosen (`all`), else the typed folder and below. The folder is checked
+ * as typed, never normalised: an empty, "/", "." or ".." folder is
+ * refused rather than turning into "every photo". Returns "/" for all.
+ */
+export const applyScope = (
+  all: boolean,
+  raw: string,
+): { ok: true; folder: string } | { ok: false; error: string } => {
+  if (all) return { ok: true, folder: "/" };
+  const s = raw.trim();
+  if (s === "") return { ok: false, error: "フォルダを入力してください" };
+  // "/VRChat/" and "VRChat" mean "/VRChat"; nothing else is rewritten.
+  const path = `/${s.replace(/^\/|\/$/g, "")}`;
+  const v = path === "/" ? null : validateFolderPath(path);
+  if (!v?.ok) {
+    return { ok: false, error: "フォルダは /VRChat のように書いてください" };
+  }
+  return { ok: true, folder: v.path };
+};
+
 /** The parts of a stored photo the rules may fill in. */
 export type ExistingPhoto = {
   id: number;

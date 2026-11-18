@@ -38,12 +38,12 @@ import {
   type ExistingBefore,
 } from "~/lib/db-upload-rules";
 import { getDB } from "~/lib/env";
-import { normalizeDir, validateFolderPath } from "~/lib/folders";
 import { inChunks } from "~/lib/selection";
 import {
   actionLabels,
   conditionLabels,
   ruleTitle,
+  applyScope,
   validateRules,
   type UploadRule,
 } from "~/lib/upload-rules";
@@ -94,21 +94,17 @@ export const useSaveRules = routeAction$(
   zod$({ rules: z.array(z.unknown()).max(100) }),
 );
 
-/** The folder to apply to: "/" or a valid folder path. */
-const folderParam = (raw: string): string | null => {
-  const dir = normalizeDir(raw.trim());
-  return dir === "/" || validateFolderPath(dir).ok ? dir : null;
-};
-
 export const usePreviewExisting = routeAction$(
   async (data, { platform, fail }) => {
-    const folder = folderParam(data.folder);
-    if (folder === null) return fail(400, { message: "フォルダが不正です" });
+    // Every photo only when that was chosen; a folder is checked as typed.
+    const scope = applyScope(data.all, data.folder);
+    if (!scope.ok) return fail(400, { message: scope.error });
     const db = getDB(platform);
+    const folder = scope.folder;
     const preview = await previewExisting(db, await getUploadRules(db), folder);
     return { ok: true as const, folder, ...preview };
   },
-  zod$({ folder: z.string().max(300) }),
+  zod$({ all: z.boolean(), folder: z.string().max(300) }),
 );
 
 export const useApplyExisting = routeAction$(
@@ -170,7 +166,9 @@ export default component$(() => {
   );
   const draft = useSignal<RuleDraft | null>(null);
   const isNew = useSignal(false);
-  const folder = useSignal("/");
+  const folder = useSignal("");
+  /** すべての写真 (rather than the typed folder). */
+  const allPhotos = useSignal(false);
   const progress = useSignal<{ done: number; total: number } | null>(null);
   const preview = useSignal<{
     folder: string;
@@ -421,7 +419,7 @@ export default component$(() => {
           preventdefault:submit
           onSubmit$={async () => {
             const r = await previewAction
-              .submit({ folder: folder.value })
+              .submit({ all: allPhotos.value, folder: folder.value })
               .catch(() => null);
             if (!r || r.value.failed) {
               preview.value = null;
@@ -451,6 +449,8 @@ export default component$(() => {
               id="apply-folder"
               type="text"
               value={folder.value}
+              placeholder="/VRChat"
+              disabled={allPhotos.value}
               onInput$={(_, el) => {
                 folder.value = el.value;
                 preview.value = null;
@@ -458,9 +458,21 @@ export default component$(() => {
               autoCapitalize="off"
               autoCorrect="off"
               spellcheck={false}
-              class={field}
+              class={[field, "disabled:opacity-50"]}
             />
           </div>
+          <label class="flex h-11 shrink-0 cursor-pointer items-center gap-2 text-sm sm:h-10">
+            <input
+              type="checkbox"
+              checked={allPhotos.value}
+              onChange$={(_, el) => {
+                allPhotos.value = el.checked;
+                preview.value = null;
+              }}
+              class="size-4"
+            />
+            すべての写真
+          </label>
           <button
             type="submit"
             disabled={previewAction.isRunning}
@@ -480,7 +492,10 @@ export default component$(() => {
             data-testid="apply-preview"
           >
             <p class="mr-auto">
-              {preview.value.folder} の {preview.value.photos} 枚のうち{" "}
+              {preview.value.folder === "/"
+                ? "すべての写真"
+                : preview.value.folder}{" "}
+              の {preview.value.photos} 枚のうち{" "}
               <strong>{preview.value.ids.length} 枚</strong>が変わります
             </p>
             {preview.value.ids.length > 0 && (

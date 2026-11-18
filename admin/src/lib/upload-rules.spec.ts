@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   actionLabels,
   appliedChips,
+  applyScope,
   applyUploadRules,
   conditionLabels,
   DEFAULT_UPLOAD_RULES,
@@ -259,6 +260,27 @@ describe("labels", () => {
       ),
     ).toEqual(["VRChat", "カメラ #9", "#a", "公開"]);
   });
+});
+
+describe("applyScope", () => {
+  it("is every photo only when chosen", () => {
+    expect(applyScope(true, "")).toEqual({ ok: true, folder: "/" });
+    expect(applyScope(false, "/VRChat")).toEqual({
+      ok: true,
+      folder: "/VRChat",
+    });
+    expect(applyScope(false, " VRChat/2026/ ")).toEqual({
+      ok: true,
+      folder: "/VRChat/2026",
+    });
+  });
+
+  it.each(["", "  ", "/", "//", ".", "..", "/.", "/..", "/a/../b", "a//b", "/a b"])(
+    "refuses %j instead of falling back to every photo",
+    (raw) => {
+      expect(applyScope(false, raw).ok).toBe(false);
+    },
+  );
 });
 
 describe("existingChange", () => {
