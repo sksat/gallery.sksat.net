@@ -16,7 +16,10 @@ test("theme toggle cycles system → light → dark and persists across reload",
 
   await expect(html(page)).toHaveAttribute("data-theme", "system");
   await expect(toggle).toHaveAccessibleName("Theme: System (switch to Light)");
-  await expect(toggle).toHaveAttribute("title", "Theme: System (switch to Light)");
+  await expect(toggle).toHaveAttribute(
+    "title",
+    "Theme: System (switch to Light)",
+  );
   // Icon only: no visible text in the button.
   await expect(toggle).toHaveText("");
   const lightBg = await bodyBg(page);

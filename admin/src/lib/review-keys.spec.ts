@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseAutoAdvance,
   reviewKey,
   swipe,
   withViewer,
@@ -98,13 +97,5 @@ describe("withViewer / withoutViewer", () => {
       "/media/2/?back=%2Fmedia%2F",
     );
     expect(withoutViewer("/media/2/?fs=1")).toBe("/media/2/");
-  });
-});
-
-describe("parseAutoAdvance", () => {
-  it("is on unless turned off", () => {
-    expect(parseAutoAdvance(null)).toBe(true);
-    expect(parseAutoAdvance("1")).toBe(true);
-    expect(parseAutoAdvance("0")).toBe(false);
   });
 });

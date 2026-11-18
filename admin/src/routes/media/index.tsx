@@ -28,7 +28,6 @@ import {
   muted,
   tagChip,
   VISIBILITY_LABELS,
-  visibilityBadge,
   worldBadge,
 } from "~/components/ui";
 import {
@@ -57,6 +56,12 @@ import {
 import { FileBrowser, type FileTile } from "~/components/file-browser";
 import { SubmitButton } from "~/components/submit-button";
 import { Thumb } from "~/components/thumb";
+import { VisibilityBadge } from "~/components/visibility-badge";
+import {
+  VISIBILITY_LABELS_JA,
+  VISIBILITY_STYLE,
+  VisibilityIcon,
+} from "~/components/visibility-style";
 import { Toast, type ToastState } from "~/components/toast";
 import { getDB, getImageBase } from "~/lib/env";
 import {
@@ -367,13 +372,6 @@ const phoneBoxes = (form: HTMLFormElement) =>
     ),
   );
 
-/** Short labels for the phone selection bar. */
-const VISIBILITY_LABELS_JA: Record<Visibility, string> = {
-  private: "非公開",
-  unlisted: "限定公開",
-  public: "公開",
-};
-
 // Folder (muted) + basename. Rendered as two adjacent text nodes so the
 // element's text is still the full path (search / E2E match on it).
 const FileName = component$<{ file: string; stacked?: boolean }>(
@@ -623,9 +621,7 @@ export default component$(() => {
         </div>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <span class={worldBadge(row.world)}>{row.world}</span>
-          <span class={visibilityBadge(row.visibility)}>
-            {VISIBILITY_LABELS[row.visibility]}
-          </span>
+          <VisibilityBadge visibility={row.visibility} />
           <span class="tabular-nums">{formatJst(row.timestamp) ?? "—"}</span>
           {row.tags.length > 0 && <Tags tags={row.tags} />}
         </div>
@@ -1156,12 +1152,7 @@ export default component$(() => {
                     <td class="px-4 py-3">
                       <span class="flex flex-col items-start gap-1">
                         <span class={worldBadge(row.world)}>{row.world}</span>
-                        <span
-                          data-testid="visibility-badge"
-                          class={visibilityBadge(row.visibility)}
-                        >
-                          {VISIBILITY_LABELS[row.visibility]}
-                        </span>
+                        <VisibilityBadge visibility={row.visibility} />
                       </span>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap tabular-nums">
@@ -1282,7 +1273,14 @@ export default component$(() => {
                   {VISIBILITIES.map((v) => (
                     <label
                       key={v}
-                      class="grid h-10 cursor-pointer place-items-center rounded-md text-sm font-medium text-zinc-700 has-checked:bg-zinc-900 has-checked:text-white has-focus-visible:outline-2 has-focus-visible:outline-sky-500 dark:text-zinc-300 dark:has-checked:bg-zinc-100 dark:has-checked:text-zinc-900"
+                      // Each level's icon and colour (visibility-style.tsx);
+                      // the chosen one filled in its style.
+                      class={[
+                        "flex h-10 cursor-pointer items-center justify-center gap-1 rounded-md text-sm font-medium has-focus-visible:outline-2 has-focus-visible:outline-sky-500",
+                        phoneVisibility.value === v
+                          ? [VISIBILITY_STYLE[v].selected, "ring-2 ring-inset"]
+                          : VISIBILITY_STYLE[v].accent,
+                      ]}
                     >
                       <input
                         type="radio"
@@ -1292,6 +1290,7 @@ export default component$(() => {
                         onChange$={() => (phoneVisibility.value = v)}
                         class="sr-only"
                       />
+                      <VisibilityIcon visibility={v} />
                       {VISIBILITY_LABELS_JA[v]}
                     </label>
                   ))}

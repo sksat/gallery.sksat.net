@@ -24,7 +24,6 @@ import {
   link,
   muted,
   VISIBILITY_LABELS,
-  visibilityBadge,
   worldBadge,
 } from "~/components/ui";
 import {
@@ -32,13 +31,21 @@ import {
   getMedia,
   listCameras,
   MAX_BULK_IDS,
+  restoreVisibility,
   setVisibility,
   updateMedia,
 } from "~/lib/db";
 import {
   PhotoPreview,
-  type QuickVisibilityResult,
+  type ApplyResult,
+  type UndoChange,
 } from "~/components/photo-preview";
+import { pendingBatches, type Pending } from "~/lib/review-pending";
+import { VisibilityBadge } from "~/components/visibility-badge";
+import {
+  VISIBILITY_STYLE,
+  VisibilityIcon,
+} from "~/components/visibility-style";
 import { getDB, getImageBase } from "~/lib/env";
 import {
   formatJst,
@@ -52,7 +59,6 @@ import { VISIBILITIES, type MediaRow, type Visibility } from "~/lib/types";
 import {
   parseCameraIdInput,
   parseTagsInput,
-  validateBulkVisibility,
   validatePatch,
 } from "~/lib/validate";
 
@@ -160,41 +166,106 @@ export const useUpdateMedia = routeAction$(
   }),
 );
 
+/** Most pending choices one 反映 applies. */
+const MAX_PENDING = 2000;
+
+const changeSchema = z
+  .array(
+    z.object({
+      id: z.number().int().positive(),
+      visibility: z.enum(VISIBILITIES),
+    }),
+  )
+  .min(1)
+  .max(MAX_PENDING);
+
 /**
- * The viewer's quick visibility (keys 1/2/3 and its buttons), and its
- * undo: one photo's visibility only, given by id since the viewer may
- * have moved on to the next photo by the time an undo is sent. Returns
- * the visibility it had before.
+ * 反映 of the viewer's pending choices: the same bulk update as /media
+ * (setVisibility, at most MAX_BULK_IDS ids at a time), grouped by the new
+ * visibility. Returns, for undo, each changed photo's new and previous
+ * visibility.
  */
-export const useQuickVisibility = routeAction$(
+export const useApplyPending = routeAction$(
   async (data, { platform, fail }) => {
-    const v = validateBulkVisibility(
-      { ids: [String(data.id)], visibility: data.visibility },
-      1,
-    );
-    if (!v.ok) return fail(400, { message: v.error });
     let db: D1Database;
     try {
       db = getDB(platform);
     } catch (err) {
-      console.error("/media/[id] quick visibility: getDB failed:", err);
+      console.error("/media/[id] apply: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
-    const row = await getMedia(db, v.ids[0]);
-    if (!row) return fail(404, { message: "not found" });
-    // The previous value from the update's own batch (unchanged rows are
-    // not listed: then it already had this visibility).
-    const { previous } = await setVisibility(db, v.ids, v.visibility);
-    return {
-      ok: true,
-      id: row.id,
-      visibility: v.visibility,
-      previous: previous[0]?.visibility ?? v.visibility,
-    };
+    const pending: Pending = {};
+    for (const c of data.changes) {
+      // from/file are only for the viewer; the update needs id and target.
+      pending[c.id] = { to: c.visibility, from: c.visibility, file: "" };
+    }
+    const undo: { id: number; from: Visibility; to: Visibility }[] = [];
+    try {
+      for (const batch of pendingBatches(pending, MAX_BULK_IDS)) {
+        const { previous } = await setVisibility(
+          db,
+          batch.ids,
+          batch.visibility,
+        );
+        for (const p of previous) {
+          undo.push({ id: p.id, from: batch.visibility, to: p.visibility });
+        }
+      }
+    } catch (err) {
+      // Each chunk commits on its own: the ones before stay applied, and
+      // their undo goes back with the error.
+      console.error("/media/[id] apply failed:", err);
+      return fail(500, { message: "update failed", undo });
+    }
+    return { ok: true, changed: undo.length, undo };
+  },
+  zod$({ changes: changeSchema }),
+);
+
+/**
+ * Undo of a 反映: each photo back to its previous visibility, if it still
+ * has the one 反映 set (restoreVisibility), grouped and capped like it.
+ */
+export const useUndoPending = routeAction$(
+  async (data, { platform, fail }) => {
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      console.error("/media/[id] undo: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
+    }
+    let changed = 0;
+    try {
+      for (const from of VISIBILITIES) {
+        for (const to of VISIBILITIES) {
+          const ids = data.changes
+            .filter((c) => c.from === from && c.to === to)
+            .map((c) => c.id);
+          for (let i = 0; i < ids.length; i += MAX_BULK_IDS) {
+            changed += await restoreVisibility(db, from, [
+              { visibility: to, ids: ids.slice(i, i + MAX_BULK_IDS) },
+            ]);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("/media/[id] undo failed:", err);
+      return fail(500, { message: "undo failed" });
+    }
+    return { ok: true, changed };
   },
   zod$({
-    id: z.number().int().positive(),
-    visibility: z.string().max(20),
+    changes: z
+      .array(
+        z.object({
+          id: z.number().int().positive(),
+          from: z.enum(VISIBILITIES),
+          to: z.enum(VISIBILITIES),
+        }),
+      )
+      .min(1)
+      .max(MAX_PENDING),
   }),
 );
 
@@ -222,7 +293,12 @@ const MediaFields = component$<{ row: MediaRow; cameras: CameraOption[] }>(
           {VISIBILITIES.map((v) => (
             <label
               key={v}
-              class="flex cursor-pointer gap-2 rounded-lg border border-zinc-200 p-3 text-sm has-[:checked]:border-sky-500 has-[:checked]:bg-sky-50/60 dark:border-zinc-800 dark:has-[:checked]:bg-sky-950/30"
+              // The level's icon and colour (visibility-style.tsx), tinted
+              // once checked.
+              class={[
+                "flex cursor-pointer gap-2 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800",
+                VISIBILITY_STYLE[v].card,
+              ]}
             >
               <input
                 type="radio"
@@ -232,7 +308,15 @@ const MediaFields = component$<{ row: MediaRow; cameras: CameraOption[] }>(
                 class="mt-0.5"
               />
               <span>
-                <span class="block font-medium">{VISIBILITY_LABELS[v]}</span>
+                <span
+                  class={[
+                    "flex items-center gap-1.5 font-medium",
+                    VISIBILITY_STYLE[v].accent,
+                  ]}
+                >
+                  <VisibilityIcon visibility={v} />
+                  {VISIBILITY_LABELS[v]}
+                </span>
                 <span class={["block text-xs", muted]}>
                   {VISIBILITY_HELP[v]}
                 </span>
@@ -325,6 +409,8 @@ const MediaFields = component$<{ row: MediaRow; cameras: CameraOption[] }>(
 );
 
 const UNSAVED_CONFIRM = "保存していない変更があります。破棄して移動しますか？";
+const PENDING_CONFIRM =
+  "反映していない公開範囲の変更があります。このまま移動しますか？";
 
 const navButton =
   "inline-flex h-11 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 sm:h-10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
@@ -332,19 +418,32 @@ const navButton =
 export default component$(() => {
   const media = useMedia();
   const action = useUpdateMedia();
-  const quick = useQuickVisibility();
-  /** The full-screen viewer's 1/2/3 (and its undo). */
-  const setQuickVisibility = $(
+  const apply = useApplyPending();
+  const undoApply = useUndoPending();
+  /** The viewer's 反映 of its pending choices. */
+  const applyPending = $(
     async (
-      id: number,
-      visibility: Visibility,
-    ): Promise<QuickVisibilityResult> => {
-      const { value } = await quick.submit({ id, visibility });
+      changes: { id: number; visibility: Visibility }[],
+    ): Promise<ApplyResult> => {
+      const { value } = await apply.submit({ changes });
       return value.failed
-        ? { ok: false, message: value.message ?? "unknown error" }
-        : { ok: true, previous: value.previous };
+        ? {
+            ok: false,
+            message: value.message ?? "unknown error",
+            undo: value.undo,
+          }
+        : { ok: true, undo: value.undo };
     },
   );
+  /** ...and its 元に戻す. */
+  const undoPending = $(async (changes: UndoChange[]): Promise<ApplyResult> => {
+    const { value } = await undoApply.submit({ changes });
+    return value.failed
+      ? { ok: false, message: value.message ?? "unknown error" }
+      : { ok: true, undo: [] };
+  });
+  /** Pending choices in the viewer (they too ask before leaving). */
+  const pendingCount = useSignal(0);
   // The list this page was opened from (view, folder, filter, page).
   const backHref = safeBackHref(useLocation().url.searchParams.get("back"));
   const toast = useSignal<ToastState | null>(null);
@@ -376,10 +475,16 @@ export default component$(() => {
   });
   usePreventNavigate$((url) => {
     // (The action's own reload does not navigate, so it never gets here.)
-    if (!dirty.value) return false;
+    // Pending choices go along to the next photo's edit page (they are
+    // kept for the list), but not anywhere else.
+    const toPhoto = url instanceof URL && /^\/media\/\d+\/$/.test(url.pathname);
+    const pendingLeft = pendingCount.value > 0 && !toPhoto;
+    if (!dirty.value && !pendingLeft) return false;
     // A link inside the app can ask; a browser navigation (reload, close)
     // only gets the browser's own dialog.
-    return url ? !confirm(UNSAVED_CONFIRM) : true;
+    return url
+      ? !confirm(dirty.value ? UNSAVED_CONFIRM : PENDING_CONFIRM)
+      : true;
   });
   // Phones: File / Last updated are folded away.
   const showMeta = useSignal(false);
@@ -482,12 +587,7 @@ export default component$(() => {
             Edit #{row.id}
           </h1>
           <span class={worldBadge(row.world)}>{row.world}</span>
-          <span
-            data-testid="visibility-badge"
-            class={visibilityBadge(row.visibility)}
-          >
-            {VISIBILITY_LABELS[row.visibility]}
-          </span>
+          <VisibilityBadge visibility={row.visibility} />
         </div>
       </div>
 
@@ -500,8 +600,11 @@ export default component$(() => {
         visibility={row.visibility}
         imageBase={previewBase}
         neighbors={neighbors}
+        listHref={backHref}
         dirty={dirty.value}
-        onVisibility$={setQuickVisibility}
+        pendingCount={pendingCount}
+        onApply$={applyPending}
+        onUndo$={undoPending}
       />
 
       <div class={[card, "p-5 text-sm"]}>

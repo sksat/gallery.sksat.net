@@ -5,45 +5,43 @@ import {
   useSignal,
   useVisibleTask$,
   type QRL,
+  type Signal,
 } from "@builder.io/qwik";
 import { useLocation, useNavigate } from "@builder.io/qwik-city";
 import { overlayClass } from "@shared/overlay/styles";
-import { formatJst, splitPath } from "~/lib/format";
-import {
-  LIST_CANDIDATES,
-  dimensionsFromFile,
-  fileExtension,
-  imageUrl,
-  srcSet,
-} from "~/lib/images";
+import { splitPath } from "~/lib/format";
+import { LIST_CANDIDATES, imageUrl, srcSet } from "~/lib/images";
 import type { Neighbors } from "~/lib/neighbors";
+import { OVERLAY_BOX_WIDTH_RATIO, pickOverlayPreset } from "~/lib/progress";
 import {
-  OVERLAY_BOX_WIDTH_RATIO,
-  pickOverlayPreset,
-  progressPercent,
-  readWithProgress,
-} from "~/lib/progress";
-import {
-  AUTO_ADVANCE_KEY,
   VISIBILITY_KEYS,
-  parseAutoAdvance,
   reviewKey,
   swipe,
   withViewer,
   withoutViewer,
 } from "~/lib/review-keys";
-import type { MediaWorld, Visibility } from "~/lib/types";
+import {
+  exposing,
+  parsePending,
+  pendingCounts,
+  pendingKey,
+  togglePending,
+  type Pending,
+} from "~/lib/review-pending";
+import { VISIBILITIES, type MediaWorld, type Visibility } from "~/lib/types";
+import { FullscreenImage } from "./fullscreen-image";
 import { Thumb } from "./thumb";
+import {
+  VISIBILITY_LABELS_JA as VISIBILITY_JA,
+  VISIBILITY_STYLE,
+  VisibilityIcon,
+} from "./visibility-style";
 
-/** Short labels for the viewer's visibility buttons. */
-const VISIBILITY_JA: Record<Visibility, string> = {
-  private: "非公開",
-  unlisted: "限定公開",
-  public: "公開",
-};
+export type UndoChange = { id: number; from: Visibility; to: Visibility };
 
-export type QuickVisibilityResult =
-  { ok: true; previous: Visibility } | { ok: false; message: string };
+export type ApplyResult =
+  | { ok: true; undo: UndoChange[] }
+  | { ok: false; message: string; undo?: UndoChange[] };
 
 type Props = {
   id: number;
@@ -55,44 +53,67 @@ type Props = {
   imageBase: string | null;
   /** Previous / next in the list the page was opened from. */
   neighbors: Neighbors | null;
-  /** The page's form has unsaved edits (quick changes would drop them). */
+  /** That list: pending choices are kept per list. */
+  listHref: string;
+  /** The page's form has unsaved edits (反映 reloads the page's data). */
   dirty: boolean;
-  /** Set one photo's visibility right away (the viewer's 1/2/3). */
-  onVisibility$: QRL<
-    (id: number, visibility: Visibility) => Promise<QuickVisibilityResult>
+  /** Mirrors the number of pending choices (the page's leave guard). */
+  pendingCount: Signal<number>;
+  /** 反映: apply the pending choices; returns what undo needs. */
+  onApply$: QRL<
+    (changes: { id: number; visibility: Visibility }[]) => Promise<ApplyResult>
   >;
+  onUndo$: QRL<(changes: UndoChange[]) => Promise<ApplyResult>>;
 };
 
-type Notice = {
-  text: string;
-  tone: "ok" | "error";
-  /** What 「元に戻す」 restores. */
-  undo?: { id: number; visibility: Visibility };
-};
+/** How long a choice shows before the viewer moves on. */
+const CHOSEN_MS = 300;
+
+type Notice = { text: string; tone: "ok" | "error"; undo?: UndoChange[] };
 
 /**
- * The edit page's photo: the inline preview (loads progressively, see
- * ProgressivePreview), and a tap on it opens a full-screen viewer with the
- * same look and loading as the public gallery's overlay (shared/overlay/).
+ * The edit page's photo: the inline preview, and a tap on it opens a
+ * full-screen viewer (the public gallery overlay's look, shared/overlay/)
+ * for going through photos and deciding who sees them.
  *
- * The viewer is for going through photos quickly: ←/→ (or a swipe) step
- * through the list the page was opened from, staying in the viewer
- * (`?fs=1` in the URL, so a reload reopens it), and 1/2/3 or its buttons
- * set the visibility at once, then by default go on to the next photo.
- * ←/→ also work on the page itself when no field has focus.
+ * ←/→, a swipe or ‹ › step through the list the page was opened from
+ * (`?fs=1` keeps the viewer open, also on reload). 1/2/3 or the buttons
+ * only mark a photo's new visibility (a pending choice, kept in
+ * sessionStorage for the list) and move on; the bar applies them all at
+ * once (反映), after a look at the photos that become visible to others,
+ * with 元に戻す for the whole batch.
  */
 export const PhotoPreview = component$<Props>((props) => {
   const dialog = useSignal<HTMLDialogElement>();
   const trigger = useSignal<HTMLButtonElement>();
   const open = useSignal(false);
   const busy = useSignal(false);
+  const pending = useSignal<Pending>({});
+  /** The choice just made: shown for a beat before moving on. */
+  const chosen = useSignal<Visibility | null>(null);
   const notice = useSignal<Notice | null>(null);
-  const autoAdvance = useSignal(true);
+  /** The 反映 step that shows what becomes visible, before applying. */
+  const confirming = useSignal(false);
   const touchStart = useSignal<{ x: number; y: number } | null>(null);
   const nav = useNavigate();
   const loc = useLocation();
   const boxClass =
     "w-full rounded-xl border border-zinc-200 dark:border-zinc-800";
+
+  const store = $((next: Pending) => {
+    pending.value = next;
+    props.pendingCount.value = Object.keys(next).length;
+    try {
+      const key = pendingKey(props.listHref);
+      if (Object.keys(next).length) {
+        sessionStorage.setItem(key, JSON.stringify(next));
+      } else {
+        sessionStorage.removeItem(key);
+      }
+    } catch {
+      // Storage blocked: kept for this page view only.
+    }
+  });
 
   /** Keep `fs=1` in the address bar while the viewer is open. */
   const syncUrl = $((viewer: boolean) => {
@@ -106,27 +127,28 @@ export const PhotoPreview = component$<Props>((props) => {
     await syncUrl(true);
   });
 
-  // Opened with ?fs=1 (a reload, or stepping through photos).
+  // The list's pending choices (from earlier photos or a reload), and
+  // ?fs=1 (a reload, or stepping through photos).
   // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(
     ({ track }) => {
-      const fs = track(() => loc.url.searchParams.get("fs"));
-      if (fs === "1") openViewer();
+      const list = track(() => props.listHref);
       try {
-        autoAdvance.value = parseAutoAdvance(
-          localStorage.getItem(AUTO_ADVANCE_KEY),
-        );
+        const stored = parsePending(sessionStorage.getItem(pendingKey(list)));
+        pending.value = stored;
+        props.pendingCount.value = Object.keys(stored).length;
       } catch {
-        // Storage blocked: the default (on).
+        // Storage blocked.
       }
+      if (track(() => loc.url.searchParams.get("fs")) === "1") openViewer();
     },
     { strategy: "document-ready" },
   );
 
   /** Previous / next photo; in the viewer, stay in it. */
   const go = $(async (dir: "prev" | "next") => {
-    // Not while a quick change is saving: its reload would finish after
-    // the navigation and bring the page back to the photo it was for.
+    // Not while 反映 is saving: its reload would finish after the
+    // navigation and bring the page back to this photo.
     if (busy.value) return;
     const href = props.neighbors?.[dir];
     if (!href) return;
@@ -137,8 +159,32 @@ export const PhotoPreview = component$<Props>((props) => {
     }
   });
 
-  const setVisibility = $(async (visibility: Visibility) => {
+  /** Mark (or unmark) this photo's new visibility, then move on. */
+  const mark = $(async (choice: Visibility) => {
+    if (busy.value || chosen.value) return;
+    const id = props.id;
+    // Never for a photo other than the one on screen.
+    if (!location.pathname.startsWith(`/media/${id}/`)) return;
+    const next = togglePending(
+      pending.value,
+      id,
+      choice,
+      props.visibility,
+      props.file,
+    );
+    await store(next);
+    confirming.value = false;
+    if (!next[id]) return; // Cleared: stay on this photo.
+    chosen.value = choice;
+    await new Promise((r) => setTimeout(r, CHOSEN_MS));
+    chosen.value = null;
+    if (open.value && props.id === id) await go("next");
+  });
+
+  const apply = $(async () => {
     if (busy.value) return;
+    const entries = Object.entries(pending.value);
+    if (!entries.length) return;
     if (props.dirty) {
       notice.value = {
         tone: "error",
@@ -147,40 +193,64 @@ export const PhotoPreview = component$<Props>((props) => {
       return;
     }
     busy.value = true;
-    const id = props.id;
-    const result = await props.onVisibility$(id, visibility);
-    busy.value = false;
+    let result: ApplyResult;
+    try {
+      result = await props.onApply$(
+        entries.map(([id, item]) => ({ id: Number(id), visibility: item.to })),
+      );
+    } catch (err) {
+      result = { ok: false, message: String(err) };
+    } finally {
+      busy.value = false;
+    }
+    confirming.value = false;
     if (!result.ok) {
-      notice.value = { tone: "error", text: `失敗しました: ${result.message}` };
+      // The choices stay (applying again is harmless); what did go through
+      // can still be undone.
+      notice.value = {
+        tone: "error",
+        text: `失敗しました: ${result.message}`,
+        undo: result.undo?.length ? result.undo : undefined,
+      };
       return;
     }
+    await store({});
     notice.value = {
       tone: "ok",
-      text: `#${id} を${VISIBILITY_JA[visibility]}にしました`,
-      undo:
-        result.previous === visibility
-          ? undefined
-          : { id, visibility: result.previous },
+      text: `${entries.length} 件を反映しました`,
+      undo: result.undo.length ? result.undo : undefined,
     };
-    // (Only from the photo it was for.)
-    if (autoAdvance.value && open.value && props.id === id) await go("next");
+  });
+
+  /** 反映: a look at what becomes visible first; private needs none. */
+  const startApply = $(() => {
+    if (busy.value) return;
+    if (exposing(pending.value).length) confirming.value = true;
+    else return apply();
   });
 
   const undo = $(async () => {
     const u = notice.value?.undo;
     if (!u || busy.value) return;
-    if (u.id === props.id && props.dirty) {
+    if (props.dirty) {
       notice.value = {
         tone: "error",
         text: "保存していない変更があります。先に保存してください。",
+        undo: u,
       };
       return;
     }
     busy.value = true;
-    const result = await props.onVisibility$(u.id, u.visibility);
-    busy.value = false;
+    let result: ApplyResult;
+    try {
+      result = await props.onUndo$(u);
+    } catch (err) {
+      result = { ok: false, message: String(err) };
+    } finally {
+      busy.value = false;
+    }
     notice.value = result.ok
-      ? { tone: "ok", text: `#${u.id} を元に戻しました` }
+      ? { tone: "ok", text: "元に戻しました" }
       : { tone: "error", text: `失敗しました: ${result.message}` };
   });
 
@@ -204,8 +274,11 @@ export const PhotoPreview = component$<Props>((props) => {
         },
         open.value,
       );
-      if (!action) return;
-      if (action.type === "visibility") setVisibility(action.visibility);
+      // Once per key press: after a client-side navigation Qwik can hold
+      // this listener twice, and a second mark would undo the first.
+      if (!action || ev.defaultPrevented) return;
+      ev.preventDefault();
+      if (action.type === "visibility") mark(action.visibility);
       else go(action.type);
     }),
   );
@@ -240,18 +313,33 @@ export const PhotoPreview = component$<Props>((props) => {
         .catch(() => {});
     }
   });
-  // A message about unsaved edits belongs to the photo it was shown on.
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(({ track }) => {
-    track(() => props.id);
-    track(() => props.dirty);
-    if (notice.value?.tone === "error") notice.value = null;
-  });
 
-  const { dir, base } = splitPath(props.file);
+  const { base } = splitPath(props.file);
   const n = props.neighbors;
+  const marked = pending.value[props.id]?.to;
+  const shown = chosen.value ?? marked ?? props.visibility;
   const control =
-    "inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 text-sm font-medium text-white ring-1 ring-white/20 hover:bg-white/20 aria-disabled:opacity-30";
+    "inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-lg px-2 text-sm font-medium whitespace-nowrap aria-disabled:opacity-30 sm:gap-1.5 sm:px-3";
+  const neutral = "bg-white/10 ring-1 ring-white/20 hover:bg-white/20";
+
+  const bar = (
+    <PendingBar
+      pending={pending.value}
+      imageBase={props.imageBase}
+      confirming={confirming.value}
+      busy={busy.value}
+      notice={notice.value}
+      onApply$={startApply}
+      onConfirm$={apply}
+      onCancel$={() => (confirming.value = false)}
+      onDiscard$={() => {
+        if (busy.value) return;
+        confirming.value = false;
+        return store({});
+      }}
+      onUndo$={undo}
+    />
+  );
 
   return (
     <>
@@ -271,6 +359,12 @@ export const PhotoPreview = component$<Props>((props) => {
           class={boxClass}
         />
       </button>
+      {/* On the page: the same bar, while the viewer is closed. */}
+      {!open.value && (
+        <div class="fixed inset-x-3 bottom-[calc(var(--bottom-ui,0px)+0.75rem+env(safe-area-inset-bottom))] z-30 flex justify-center sm:inset-x-auto sm:top-16 sm:right-4 sm:bottom-auto">
+          {bar}
+        </div>
+      )}
       {/* A modal <dialog> (focus stays in it, Escape closes it) that is
           itself transparent: the overlay's translucent backdrop inside
           shows the page behind, like the public gallery. A click outside
@@ -282,8 +376,13 @@ export const PhotoPreview = component$<Props>((props) => {
         onClick$={() => dialog.value?.close()}
         onClose$={() => {
           open.value = false;
+          confirming.value = false;
           syncUrl(false);
-          trigger.value?.focus();
+          // The browser gives focus back to the photo itself; only if it
+          // could not (that button was gone). This handler can run late,
+          // after focus has moved on.
+          const active = document.activeElement;
+          if (!active || active === document.body) trigger.value?.focus();
         }}
         onTouchStart$={(e: TouchEvent) => {
           const t = e.touches[0];
@@ -311,39 +410,84 @@ export const PhotoPreview = component$<Props>((props) => {
           <div
             stoppropagation:click
             data-testid="viewer-info"
-            class="flex w-full max-w-4xl flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white"
+            class="flex w-full max-w-4xl items-center gap-2 text-sm text-white"
           >
             {n && (
-              <span class="tabular-nums" data-testid="viewer-position">
+              // At the end of the list: a check instead of a next step.
+              <span
+                data-testid="viewer-position"
+                data-end={n.next ? undefined : ""}
+                class="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 tabular-nums data-end:bg-white data-end:text-zinc-900"
+              >
                 {n.pos} / {n.total}
+                {!n.next && (
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    role="img"
+                    aria-label="最後の写真"
+                    class="size-3.5"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M16.7 5.3a1 1 0 0 1 0 1.4l-8 8a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4L8 12.58l7.3-7.3a1 1 0 0 1 1.4 0Z"
+                    />
+                  </svg>
+                )}
               </span>
             )}
             <span class="min-w-0 truncate font-medium" title={props.file}>
-              <span class="text-white/60">{dir}</span>
               {base}
             </span>
-            {props.timestamp && (
-              <span class="text-white/70 tabular-nums">
-                {formatJst(props.timestamp)}
+            {/* Saved, and the pending change if any: 🔒 非公開 → 🌐 公開. */}
+            <span class="ml-auto flex shrink-0 items-center gap-1">
+              <span
+                data-testid="viewer-visibility"
+                class={[
+                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
+                  VISIBILITY_STYLE[props.visibility].badge,
+                  marked && "opacity-60",
+                ]}
+              >
+                <VisibilityIcon
+                  visibility={props.visibility}
+                  class="size-3.5"
+                />
+                {VISIBILITY_JA[props.visibility]}
               </span>
-            )}
-            <span
-              data-testid="viewer-visibility"
-              class="ml-auto rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold"
-            >
-              {VISIBILITY_JA[props.visibility]}
+              {marked && (
+                <span
+                  data-testid="viewer-pending"
+                  class={[
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold outline-2 outline-offset-1 outline-white outline-dashed",
+                    VISIBILITY_STYLE[marked].badge,
+                  ]}
+                >
+                  <span aria-hidden="true">→</span>
+                  <VisibilityIcon visibility={marked} class="size-3.5" />
+                  <span class="sr-only">変更予定:</span>
+                  {VISIBILITY_JA[marked]}
+                </span>
+              )}
             </span>
           </div>
           <FullscreenImage
             file={props.file}
             imageBase={props.imageBase}
             open={open.value}
-            boxClass="max-h-[calc(100dvh-13rem)]"
+            boxClass="max-h-[calc(100dvh-14rem)]"
           />
           <div
             stoppropagation:click
             class="flex w-full max-w-4xl flex-col items-center gap-2"
           >
+            {/* Phones: the bar right above the buttons, in thumb reach;
+                larger screens: at the top right. */}
+            {open.value && (
+              <div class="flex w-full justify-center sm:fixed sm:top-3 sm:right-3 sm:w-auto">
+                {bar}
+              </div>
+            )}
             <div class="flex w-full items-center justify-center gap-2">
               <button
                 type="button"
@@ -351,7 +495,7 @@ export const PhotoPreview = component$<Props>((props) => {
                 // (aria-disabled so focus stays when the end is reached)
                 aria-disabled={n?.prev ? undefined : "true"}
                 onClick$={() => go("prev")}
-                class={control}
+                class={[control, neutral, "text-xl text-white"]}
               >
                 <span aria-hidden="true">‹</span>
               </button>
@@ -360,78 +504,51 @@ export const PhotoPreview = component$<Props>((props) => {
                 aria-label="公開範囲"
                 class="grid flex-1 grid-cols-3 gap-2 sm:max-w-md sm:flex-none"
               >
-                {VISIBILITY_KEYS.map(([key, v]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={props.visibility === v}
-                    aria-keyshortcuts={key}
-                    // aria-disabled, not disabled: the pressed button
-                    // keeps focus while saving (setVisibility ignores
-                    // presses meanwhile).
-                    aria-disabled={busy.value ? "true" : undefined}
-                    onClick$={() => setVisibility(v)}
-                    class={[
-                      control,
-                      "aria-pressed:bg-white aria-pressed:text-zinc-900",
-                    ]}
-                  >
-                    {VISIBILITY_JA[v]}
-                    <kbd class="hidden rounded border border-current/40 px-1 text-[10px] opacity-70 sm:inline">
-                      {key}
-                    </kbd>
-                  </button>
-                ))}
+                {VISIBILITY_KEYS.map(([key, v]) => {
+                  // The photo's visibility as it will be (the pending
+                  // choice, else the saved one) in its level's filled
+                  // style; the others neutral with their icon and colour.
+                  const on = shown === v;
+                  return (
+                    <button
+                      key={v}
+                      type="button"
+                      aria-pressed={on}
+                      aria-keyshortcuts={key}
+                      onClick$={() => mark(v)}
+                      class={[
+                        control,
+                        "transition duration-150 motion-reduce:transition-none",
+                        on
+                          ? [VISIBILITY_STYLE[v].selected, "ring-2"]
+                          : [neutral, VISIBILITY_STYLE[v].onDark],
+                        on &&
+                          marked === v &&
+                          "outline-2 outline-offset-2 outline-white outline-dashed",
+                        chosen.value === v && "motion-safe:scale-105",
+                      ]}
+                    >
+                      <VisibilityIcon visibility={v} />
+                      <span class={on ? undefined : "text-white"}>
+                        {VISIBILITY_JA[v]}
+                      </span>
+                      {/* The key, for devices with a keyboard. */}
+                      <kbd class="hidden rounded border border-current/40 px-1 text-[10px] leading-4 opacity-80 pointer-fine:inline">
+                        {key}
+                      </kbd>
+                    </button>
+                  );
+                })}
               </div>
               <button
                 type="button"
                 aria-label="次の写真 (→)"
                 aria-disabled={n?.next ? undefined : "true"}
                 onClick$={() => go("next")}
-                class={control}
+                class={[control, neutral, "text-xl text-white"]}
               >
                 <span aria-hidden="true">›</span>
               </button>
-            </div>
-            <div class="flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-white/80">
-              <label class="flex min-h-11 cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={autoAdvance.value}
-                  onChange$={(_, el) => {
-                    autoAdvance.value = el.checked;
-                    try {
-                      localStorage.setItem(
-                        AUTO_ADVANCE_KEY,
-                        el.checked ? "1" : "0",
-                      );
-                    } catch {
-                      // Storage blocked: for this page view only.
-                    }
-                  }}
-                />
-                設定したら次へ進む
-              </label>
-              <p
-                role="status"
-                aria-live="polite"
-                data-testid="viewer-notice"
-                class={[
-                  "flex min-h-11 items-center gap-2",
-                  notice.value?.tone === "error" && "text-red-300",
-                ]}
-              >
-                {notice.value?.text ?? ""}
-                {notice.value?.undo && (
-                  <button
-                    type="button"
-                    onClick$={undo}
-                    class="h-11 rounded-lg px-2 font-semibold text-sky-300 underline-offset-4 hover:underline"
-                  >
-                    元に戻す
-                  </button>
-                )}
-              </p>
             </div>
           </div>
         </div>
@@ -440,181 +557,156 @@ export const PhotoPreview = component$<Props>((props) => {
   );
 });
 
-type ImageProps = {
-  file: string;
+type BarProps = {
+  pending: Pending;
   imageBase: string | null;
-  open: boolean;
-  /** Extra classes for the photo box (its height next to the controls). */
-  boxClass?: string;
+  confirming: boolean;
+  busy: boolean;
+  notice: Notice | null;
+  onApply$: QRL<() => void>;
+  onConfirm$: QRL<() => void>;
+  onCancel$: QRL<() => void>;
+  onDiscard$: QRL<() => void>;
+  onUndo$: QRL<() => void>;
 };
 
 /**
- * The thumbnail the inline preview already shows (same URL and srcset, so
- * it comes from the browser cache and is drawn in the first frame; never
- * an empty backdrop), then the overlay preset for this screen fetched with
- * progress while the view is open and stacked on top as a blob: URL.
- * Closing cancels a download in progress; a finished one is kept for the
- * next opening.
+ * The pending choices by level (🌐 12 · 🔗 3 · 🔒 20) with 反映 and 破棄;
+ * in the 反映 step, the photos that become visible to others as
+ * thumbnails before applying; afterwards, the result with 元に戻す.
  */
-const FullscreenImage = component$<ImageProps>((props) => {
-  const fullSrc = useSignal<string>();
-  /** The file fullSrc belongs to. */
-  const loadedFile = useSignal<string>();
-  // Fraction downloaded in [0, 1], null while the size is unknown, and
-  // undefined when there is nothing to show (not open, done or failed).
-  const progress = useSignal<number | null | undefined>(undefined);
+const PendingBar = component$<BarProps>((props) => {
+  const counts = pendingCounts(props.pending);
+  const total = Object.keys(props.pending).length;
+  const visible = exposing(props.pending);
+  // A result shows until the next choice; an error always.
+  const notice =
+    props.notice && (props.notice.tone === "error" || total === 0)
+      ? props.notice
+      : null;
+  if (!total && !notice) return null;
+  const pill =
+    "flex max-w-full flex-wrap items-center gap-2 rounded-2xl bg-zinc-900/90 p-1.5 pl-3 text-sm text-white shadow-lg ring-1 ring-white/15 backdrop-blur";
+  const action =
+    "inline-flex h-11 items-center justify-center gap-1 rounded-xl px-3 font-semibold";
 
-  // A visible task, eagerly (the closed dialog is never "visible"): it
-  // starts the download when the view opens.
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(
-    ({ track, cleanup }) => {
-      const open = track(() => props.open);
-      const file = track(() => props.file);
-      const base = track(() => props.imageBase);
-      if (loadedFile.value !== file) {
-        // Another photo (client-side navigation reused this component).
-        if (fullSrc.value?.startsWith("blob:")) {
-          URL.revokeObjectURL(fullSrc.value);
-        }
-        fullSrc.value = undefined;
-        loadedFile.value = undefined;
-      }
-      if (!open || fullSrc.value || !base) {
-        progress.value = undefined;
-        return;
-      }
-
-      progress.value = 0;
-      const preset = pickOverlayPreset(
-        window.innerWidth * OVERLAY_BOX_WIDTH_RATIO,
-        window.devicePixelRatio || 1,
-      );
-      const url = imageUrl(base, file, preset);
-      const controller = new AbortController();
-      const stale = () => controller.signal.aborted;
-      let fallback: HTMLImageElement | undefined;
-
-      fetch(url, { signal: controller.signal })
-        .then((response) => {
-          if (!response.ok) {
-            // The Worker answered (e.g. 404): keep the thumbnail rather
-            // than asking for the same failing transform again.
-            if (!stale()) progress.value = undefined;
-            return;
-          }
-          return readWithProgress(response, (f) => {
-            if (!stale()) progress.value = f;
-          }).then((blob) => {
-            if (stale()) return;
-            fullSrc.value = URL.createObjectURL(blob);
-            loadedFile.value = file;
-            progress.value = undefined;
-          });
-        })
-        .catch(() => {
-          if (stale()) return;
-          // Network failure: let the browser load it directly (no
-          // progress, so the bar turns indeterminate) and stack it only
-          // once it is complete; on error the thumbnail simply stays.
-          progress.value = null;
-          fallback = new Image();
-          fallback.onload = () => {
-            fullSrc.value = url;
-            loadedFile.value = file;
-            progress.value = undefined;
-          };
-          fallback.onerror = () => {
-            progress.value = undefined;
-          };
-          fallback.src = url;
-        });
-
-      // Closed (or another photo) before it finished: stop downloading.
-      cleanup(() => {
-        controller.abort();
-        if (fallback) {
-          fallback.onload = fallback.onerror = null;
-          fallback.src = ""; // cancels the download
-        }
-      });
-    },
-    { strategy: "document-ready" },
-  );
-
-  // Unmounted: free the blob.
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(
-    ({ cleanup }) => {
-      cleanup(() => {
-        if (fullSrc.value?.startsWith("blob:")) {
-          URL.revokeObjectURL(fullSrc.value);
-        }
-      });
-    },
-    { strategy: "document-ready" },
-  );
-
-  const percent = progressPercent(progress.value);
-  if (!props.imageBase) {
-    // Thumbnails off (E2E, previews): the file type, like Thumb's tile.
-    return (
-      <div class={[overlayClass.box, props.boxClass]}>
-        <span class="text-sm font-semibold tracking-wider text-white/70">
-          {fileExtension(props.file) || "IMG"}
-        </span>
-      </div>
-    );
-  }
   return (
-    <>
-      <div class={[overlayClass.box, props.boxClass]}>
-        <img
-          data-testid="fullscreen-thumb"
-          aria-hidden="true"
-          src={imageUrl(props.imageBase, props.file, "h240")}
-          srcset={srcSet(props.imageBase, props.file, LIST_CANDIDATES)}
-          {...dimensionsFromFile(props.file)}
-          // No broken-image icon if it fails.
-          onError$={(_, el) => {
-            el.hidden = true;
-          }}
-          class={overlayClass.image}
-        />
-        {fullSrc.value && (
-          <img
-            data-testid="fullscreen-image"
-            src={fullSrc.value}
-            alt={`Preview of ${props.file}`}
-            class={overlayClass.image}
-          />
-        )}
-      </div>
-      <div
-        data-testid="fullscreen-progress"
-        role="progressbar"
-        aria-label="写真を読み込み中"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-        aria-hidden={progress.value === undefined ? "true" : undefined}
+    <div
+      role="region"
+      aria-label="公開範囲の変更"
+      data-testid="pending-bar"
+      class="flex max-w-full flex-col items-stretch gap-2"
+    >
+      {props.confirming && (
+        <div
+          data-testid="pending-confirm"
+          class="flex max-w-[min(100%,36rem)] gap-1.5 overflow-x-auto rounded-2xl bg-zinc-900/90 p-1.5 ring-1 ring-white/15"
+        >
+          {visible.map(([id, item]) => (
+            <span key={id} class="relative shrink-0">
+              <Thumb
+                file={item.file}
+                world={null}
+                imageBase={props.imageBase}
+                variant="list"
+                class="h-14 rounded-lg"
+              />
+              <span
+                class={[
+                  "absolute right-1 bottom-1 rounded-full p-0.5 ring-1 ring-inset",
+                  VISIBILITY_STYLE[item.to].badge,
+                ]}
+              >
+                <VisibilityIcon visibility={item.to} class="size-3" />
+                <span class="sr-only">{VISIBILITY_JA[item.to]}</span>
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+      {total > 0 ? (
+        <div class={pill}>
+          {/* The riskiest first: 🌐 · 🔗 · 🔒. */}
+          <span class="flex items-center gap-2" data-testid="pending-counts">
+            {[...VISIBILITIES]
+              .reverse()
+              .filter((v) => counts[v] > 0)
+              .map((v) => (
+                <span
+                  key={v}
+                  class={[
+                    "inline-flex items-center gap-1 tabular-nums",
+                    VISIBILITY_STYLE[v].onDark,
+                  ]}
+                >
+                  <VisibilityIcon visibility={v} />
+                  <span class="sr-only">{VISIBILITY_JA[v]}</span>
+                  <span class="text-white">{counts[v]}</span>
+                </span>
+              ))}
+          </span>
+          {props.confirming ? (
+            <>
+              <button
+                type="button"
+                onClick$={props.onCancel$}
+                class={[action, "text-white/80 hover:bg-white/10"]}
+              >
+                戻る
+              </button>
+              <button
+                type="button"
+                aria-disabled={props.busy ? "true" : undefined}
+                onClick$={props.onConfirm$}
+                class={[action, "bg-sky-500 text-zinc-950"]}
+              >
+                反映
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                aria-disabled={props.busy ? "true" : undefined}
+                onClick$={props.onDiscard$}
+                class={[action, "text-white/80 hover:bg-white/10"]}
+              >
+                破棄
+              </button>
+              <button
+                type="button"
+                aria-disabled={props.busy ? "true" : undefined}
+                onClick$={props.onApply$}
+                class={[action, "bg-white text-zinc-900"]}
+              >
+                反映
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+      <p
+        role="status"
+        aria-live="polite"
+        data-testid="pending-notice"
         class={[
-          overlayClass.progress,
-          progress.value === undefined
-            ? overlayClass.progressDone
-            : overlayClass.progressActive,
+          "flex items-center justify-center gap-2 rounded-full px-3 text-sm empty:hidden",
+          notice?.tone === "error"
+            ? "bg-red-950/90 text-red-200"
+            : "bg-zinc-900/90 text-white",
         ]}
       >
-        <div
-          class={[
-            overlayClass.progressFill,
-            percent === undefined
-              ? overlayClass.progressIndeterminate
-              : overlayClass.progressDeterminate,
-          ]}
-          style={percent === undefined ? undefined : { width: `${percent}%` }}
-        />
-      </div>
-    </>
+        {notice?.text ?? ""}
+        {notice?.undo && (
+          <button
+            type="button"
+            onClick$={props.onUndo$}
+            class="h-11 rounded-lg px-1 font-semibold text-sky-300 underline-offset-4 hover:underline"
+          >
+            元に戻す
+          </button>
+        )}
+      </p>
+    </div>
   );
 });

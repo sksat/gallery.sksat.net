@@ -93,9 +93,3 @@ export const withoutViewer = (href: string): string => {
   const s = params.toString();
   return s ? `${path}?${s}` : path;
 };
-
-/** localStorage key for 「設定したら次へ進む」 (default on). */
-export const AUTO_ADVANCE_KEY = "admin-review-auto-advance";
-
-export const parseAutoAdvance = (stored: string | null): boolean =>
-  stored !== "0";
