@@ -63,16 +63,16 @@ export const D1Card = component$<{
       {usage.kind === "ok" && (
         <>
           <LimitRow
-            label="今日の読み取り行数"
-            value={formatCount(usage.usage.rowsRead)}
-            limit={formatCount(D1_FREE_ROWS_READ_PER_DAY)}
+            label="今日の読み取り"
+            value={`${formatCount(usage.usage.rowsRead)} 行`}
+            limit={`${formatCount(D1_FREE_ROWS_READ_PER_DAY)} 行`}
             part={usage.usage.rowsRead}
             whole={D1_FREE_ROWS_READ_PER_DAY}
           />
           <LimitRow
-            label="今日の書き込み行数"
-            value={formatCount(usage.usage.rowsWritten)}
-            limit={formatCount(D1_FREE_ROWS_WRITTEN_PER_DAY)}
+            label="今日の書き込み"
+            value={`${formatCount(usage.usage.rowsWritten)} 行`}
+            limit={`${formatCount(D1_FREE_ROWS_WRITTEN_PER_DAY)} 行`}
             part={usage.usage.rowsWritten}
             whole={D1_FREE_ROWS_WRITTEN_PER_DAY}
           />
@@ -81,10 +81,8 @@ export const D1Card = component$<{
     </ul>
     {usage.kind === "ok" && (
       <p class={["mt-3 text-xs", muted]}>
-        <span data-date>{usage.usage.date}</span> (UTC) のクエリ{" "}
-        {formatCount(usage.usage.readQueries)} 件 (読み取り) /{" "}
-        {formatCount(usage.usage.writeQueries)} 件 (書き込み)。 上限は毎日 00:00
-        UTC にリセットされます。数分遅れて反映されます。
+        <span data-date>{usage.usage.date}</span> (UTC) · 毎日 9:00 (JST)
+        にリセット
       </p>
     )}
     {usage.kind === "no-token" && (
