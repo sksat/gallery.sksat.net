@@ -2,8 +2,20 @@
 // mark it ready after, and list / drop the ones that never completed.
 // Covered by db-upload.spec.ts on the real schema.
 
+import { EMPTY_STORED, type StoredMeta } from "./photo-meta";
 import type { UploadInit } from "./upload";
 import type { MediaPlatform } from "./types";
+
+/** media columns (0005) for metadata read from the file itself. */
+export const metaColumns = (meta: StoredMeta) => ({
+  exif: meta.exif ? JSON.stringify(meta.exif) : null,
+  latitude: meta.location?.latitude ?? null,
+  longitude: meta.location?.longitude ?? null,
+  location_source: meta.location ? ("exif" as const) : null,
+  world_id: meta.world?.id ?? null,
+  world_name: meta.world?.name ?? null,
+  world_author_id: meta.world?.authorId ?? null,
+});
 
 export type InitOutcome =
   /**
@@ -81,11 +93,15 @@ export const initUpload = async (
       retry: false,
     };
   }
+  const meta = metaColumns(init.meta ?? EMPTY_STORED);
   try {
     const inserted = await db
       .prepare(
-        `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256)
-         VALUES (?1, ?2, ?2, ?3, ?4, '[]', 'private', 'uploading', ?5, ?6) RETURNING id`,
+        `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256,
+           exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at)
+         VALUES (?1, ?2, ?2, ?3, ?4, '[]', 'private', 'uploading', ?5, ?6,
+           ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+           CASE WHEN ?14 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END) RETURNING id`,
       )
       .bind(
         row.publicId,
@@ -94,6 +110,15 @@ export const initUpload = async (
         init.timestamp,
         init.size,
         init.sha256,
+        meta.exif,
+        meta.latitude,
+        meta.longitude,
+        meta.location_source,
+        meta.world_id,
+        meta.world_name,
+        meta.world_author_id,
+        // Read in the browser: the backfill can skip it.
+        init.meta ? 1 : 0,
       )
       .first<{ id: number }>();
     if (!inserted) throw new Error("INSERT INTO media returned no row");

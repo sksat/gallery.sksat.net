@@ -106,6 +106,38 @@ describe("validateUploadInit", () => {
     });
   });
 
+  it("keeps only the well-formed parts of the file's metadata", () => {
+    const meta = {
+      exif: { make: " Sony ", iso: 100, f_number: "2.8", serial: "123" },
+      location: { latitude: 35.5, longitude: 139.5 },
+      world: { id: "wrld_abc", name: "W", authorId: "not an id" },
+    };
+    expect(validateUploadInit({ ...ok, meta })).toEqual({
+      ok: true,
+      init: {
+        ...ok,
+        meta: {
+          exif: { make: "Sony", iso: 100 },
+          location: { latitude: 35.5, longitude: 139.5 },
+          world: { id: "wrld_abc", name: "W", authorId: null },
+        },
+      },
+    });
+    expect(
+      validateUploadInit({
+        ...ok,
+        meta: {
+          exif: { x: 1 },
+          location: { latitude: 91, longitude: 0 },
+          world: { id: "usr_x" },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      init: { ...ok, meta: { exif: null, location: null, world: null } },
+    });
+  });
+
   it("refuses anything off", () => {
     for (const bad of [
       null,

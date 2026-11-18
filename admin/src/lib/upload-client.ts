@@ -2,7 +2,8 @@
 // the admin API, and the PUT to the bucket with XMLHttpRequest (fetch has
 // no upload progress). Thin wrappers; the logic is in upload-queue.ts.
 
-import { takenAt } from "./taken-at";
+import { readPhotoMeta } from "./photo-meta";
+import { vrchatTakenAt } from "./taken-at";
 import { uploadContentType } from "./upload";
 import {
   UploadError,
@@ -32,11 +33,20 @@ const hex = (buf: ArrayBuffer) =>
 export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
   const contentType = uploadContentType(f.name, f.type);
   if (!contentType) throw new UploadError("PNG / JPEG ではありません", false);
-  const [digest, timestamp] = await Promise.all([
-    crypto.subtle.digest("SHA-256", await f.blob.arrayBuffer()),
-    takenAt({ name: f.name, slice: (a, b) => f.blob.slice(a, b) }),
+  const bytes = await f.blob.arrayBuffer();
+  const [digest, meta] = await Promise.all([
+    crypto.subtle.digest("SHA-256", bytes),
+    readPhotoMeta(new Uint8Array(bytes)),
   ]);
-  return { sha256: hex(digest), contentType, timestamp };
+  const { takenAt, ...stored } = meta;
+  return {
+    sha256: hex(digest),
+    contentType,
+    // The VRChat name is exact to the millisecond; then EXIF.
+    timestamp: vrchatTakenAt(f.name) ?? takenAt,
+    // Always sent, even empty: the server then knows the file was read.
+    meta: stored,
+  };
 };
 
 /** Statuses worth trying again (server trouble, expired URL, throttling). */

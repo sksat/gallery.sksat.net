@@ -7,6 +7,7 @@ import {
   normalizeDir,
   validateFolderPath,
 } from "./folders";
+import { normalizeStoredMeta, type StoredMeta } from "./photo-meta";
 import type { MediaPlatform } from "./types";
 import { validateImageFile } from "./validate";
 
@@ -127,6 +128,12 @@ export type UploadInit = {
   contentType: string;
   sha256: string;
   timestamp: string | null;
+  /**
+   * What the browser read from the file (photo-meta.ts): camera settings,
+   * GPS position, VRChat world; each null when not found. Absent when the
+   * browser did not read the file (the backfill reads it later).
+   */
+  meta?: StoredMeta;
 };
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -179,6 +186,8 @@ export const validateUploadInit = (
     }
     timestamp = o.timestamp;
   }
+  // Lenient: what is malformed is left out rather than refusing the file.
+  const meta = normalizeStoredMeta(o.meta);
   return {
     ok: true,
     init: {
@@ -187,6 +196,8 @@ export const validateUploadInit = (
       contentType,
       sha256: o.sha256,
       timestamp,
+      // Present (even empty) when the browser read the file.
+      ...(o.meta !== undefined ? { meta } : {}),
     },
   };
 };

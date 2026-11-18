@@ -9,7 +9,8 @@ import { guessPlatform, validateUploadInit } from "~/lib/upload";
 /**
  * Start (or resume) an upload: reserve the path as an `uploading` row and
  * return a presigned PUT for the browser to send the file to the bucket.
- * Body: { file, size, contentType, sha256, timestamp } (validateUploadInit).
+ * Body: { file, size, contentType, sha256, timestamp, meta? }
+ * (validateUploadInit; `meta` is what the browser read from the file).
  *
  * 200 { status: "upload", id, file, url, headers } — PUT the file to `url`
  *     with exactly `headers`, then POST /api/upload/<id>. `file` is where

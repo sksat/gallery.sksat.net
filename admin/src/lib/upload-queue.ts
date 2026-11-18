@@ -10,6 +10,7 @@
 // time with a fresh init, which resumes the same `uploading` row and signs
 // a new URL (so an expired URL is not a dead end).
 
+import type { StoredMeta } from "./photo-meta";
 import { uploadTarget } from "./upload";
 
 export type UploadStatus =
@@ -53,6 +54,8 @@ export type Prepared = {
   sha256: string;
   contentType: string;
   timestamp: string | null;
+  /** Metadata read from the file (photo-meta.ts), when there is any. */
+  meta?: StoredMeta;
 };
 
 export type InitResult =
@@ -81,13 +84,7 @@ export class UploadError extends Error {
 export type QueueDeps<S extends UploadSource> = {
   /** Hash and inspect the file; may reject it (UploadError). */
   prepare(source: S): Promise<Prepared>;
-  init(req: {
-    file: string;
-    size: number;
-    contentType: string;
-    sha256: string;
-    timestamp: string | null;
-  }): Promise<InitResult>;
+  init(req: Prepared & { file: string; size: number }): Promise<InitResult>;
   put(
     init: Extract<InitResult, { status: "upload" }>,
     source: S,
