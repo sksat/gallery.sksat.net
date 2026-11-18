@@ -4,6 +4,7 @@ import {
   EMPTY_SELECTION,
   keepShown,
   inChunks,
+  reconcileSelection,
   selectAll,
   sharedCamera,
   sharedPlatform,
@@ -13,6 +14,38 @@ import {
   type SelKey,
 } from "./selection";
 import { exposing } from "./review-pending";
+
+describe("reconcileSelection", () => {
+  const all: SelKey[] = ["p:1", "p:2", "p:3"];
+  const picked = { keys: ["p:1", "p:2"] as SelKey[], anchor: "p:1" as SelKey };
+
+  it("survives a reload of the same view that briefly lacks an item", () => {
+    // The reload misses photo 2: it stays selected, though only photo 1
+    // is shown (and counted, and acted on) meanwhile…
+    const during = reconcileSelection(["p:1", "p:3"], picked, true);
+    expect(during).toBe(picked);
+    expect(keepShown(["p:1", "p:3"], during).keys).toEqual(["p:1"]);
+    // …and once it is back, both are selected again.
+    const after = reconcileSelection(all, during, true);
+    expect(keepShown(all, after).keys).toEqual(["p:1", "p:2"]);
+  });
+
+  it("an edit by the user keeps only what is shown", () => {
+    // Photo 2 is missing for a while; unticking photo 1 leaves nothing,
+    // rather than photo 2 coming back selected later.
+    expect(
+      clickItem(["p:1", "p:3"], picked, "p:1", { range: false, toggle: true })
+        .keys,
+    ).toEqual([]);
+  });
+
+  it("another folder or filter keeps only what it shows", () => {
+    expect(reconcileSelection(["p:2", "p:9"], picked, false)).toEqual({
+      keys: ["p:2"],
+      anchor: null,
+    });
+  });
+});
 
 describe("visibilityPending", () => {
   const photos = [

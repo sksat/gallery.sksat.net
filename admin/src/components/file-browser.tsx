@@ -37,6 +37,7 @@ import {
   EMPTY_SELECTION,
   folderKey,
   keepShown,
+  reconcileSelection,
   photoKey,
   selectAll,
   splitSelection,
@@ -447,29 +448,49 @@ export const FileBrowser = component$<Props>(
     );
     const pressed = useSignal(false);
 
+    /** The folder and filter the selection was made in. */
+    const selView = useSignal("");
     useTask$(({ track }) => {
-      // Another folder, filter or a reload: keep what is still shown.
+      // Another folder or filter: keep what it still shows. A reload of
+      // the same one keeps every key (it may briefly lack an item); what
+      // counts is `shownSel` below.
       // The props are getters on the page's data: when the page leaves the
       // Files view they throw for a moment before this component goes.
       const shown = track(() => {
         try {
-          return { folders: folder?.children ?? [], files };
+          return {
+            folders: folder?.children ?? [],
+            files,
+            view: [dir, platform, visibility, q].join("\n"),
+          };
         } catch {
           return null;
         }
       });
       if (!shown) return;
-      sel.value = keepShown(
+      sel.value = reconcileSelection(
         [
           ...shown.folders.map((c) => folderKey(c.path)),
           ...shown.files.map((f) => photoKey(f.id)),
         ],
         sel.value,
+        shown.view === selView.value,
       );
+      selView.value = shown.view;
     });
     const selectable = onSelection$ !== undefined;
-    const selected = new Set(sel.value.keys);
-    const picked = splitSelection(sel.value.keys);
+    /**
+     * What is selected and shown: the count, the bar and every action use
+     * this, so an item that left the view is never acted on unseen.
+     */
+    const shownSel = keepShown(order, sel.value);
+    // Plain values for the JSX (an expression on a local object there
+    // could be kept as a derived signal of the first render).
+    const selCount = shownSel.keys.length;
+    const firstSelected = shownSel.keys[0];
+    const selected = new Set(shownSel.keys);
+    const picked = splitSelection(shownSel.keys);
+    const pickedFolders = picked.folders;
     const pickedPhotos = files.filter((f) => selected.has(photoKey(f.id)));
     const bytes =
       pickedPhotos.reduce((n, f) => n + (f.size ?? 0), 0) +
@@ -509,7 +530,7 @@ export const FileBrowser = component$<Props>(
           const at = focusKey.value ? order.indexOf(focusKey.value) : -1;
           const ok = await onSelection$(
             a,
-            splitSelection(keys ?? sel.value.keys),
+            splitSelection(keys ?? keepShown(order, sel.value).keys),
           );
           if (ok) sel.value = EMPTY_SELECTION;
           if (ok && at >= 0) {
@@ -592,10 +613,19 @@ export const FileBrowser = component$<Props>(
         } else if (e.key === "Delete" || (e.key === "Backspace" && e.metaKey)) {
           const focused = t?.closest<HTMLElement>("[data-sel-key]")?.dataset
             .selKey as SelKey | undefined;
-          if (sel.value.keys.length === 0 && focused) {
+          // What is selected among the shown tiles (not keys kept for an
+          // item a reload lacks), read from the tiles themselves: this
+          // listener may hold an older render's list.
+          const shown = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-file-browser] [aria-selected=true]",
+            ),
+            (el) => el.dataset.selKey as SelKey,
+          );
+          if (shown.length === 0 && focused) {
             sel.value = { keys: [focused], anchor: focused };
-          }
-          if (sel.value.keys.length > 0) void run({ kind: "trash" });
+            void run({ kind: "trash" }, [focused]);
+          } else if (shown.length > 0) void run({ kind: "trash" }, shown);
         }
       }),
     );
@@ -612,7 +642,10 @@ export const FileBrowser = component$<Props>(
       focusKey.value = key;
       const modified = e.shiftKey || e.ctrlKey || e.metaKey;
       const onTick = (e.target as HTMLElement).closest("[data-tick]");
-      if (selectable && (onTick || modified || sel.value.keys.length > 0)) {
+      if (
+        selectable &&
+        (onTick || modified || keepShown(order, sel.value).keys.length > 0)
+      ) {
         sel.value = clickItem(order, sel.value, key, {
           range: e.shiftKey,
           toggle: true,
@@ -720,7 +753,7 @@ export const FileBrowser = component$<Props>(
     });
 
     const menuItems = (key: SelKey): MenuItem[] => {
-      const single = sel.value.keys.length <= 1;
+      const single = selCount <= 1;
       const photos = pickedPhotos.length > 0 || key.startsWith("p:");
       return [
         {
@@ -1116,7 +1149,7 @@ export const FileBrowser = component$<Props>(
                 data-dir={dir}
                 data-layout={prefs.value.layout}
                 data-selectable={selectable ? "" : undefined}
-                data-selecting={sel.value.keys.length > 0 ? "" : undefined}
+                data-selecting={selCount > 0 ? "" : undefined}
                 onClick$={listClick}
                 onKeyDown$={[listKeys, listKey]}
                 onContextMenu$={[noNativeMenu, listMenu]}
@@ -1307,12 +1340,12 @@ export const FileBrowser = component$<Props>(
               </div>
             </div>
           )}
-          {selectable && sel.value.keys.length > 0 && (
+          {selectable && selCount > 0 && (
             <SelectionBar
-              count={sel.value.keys.length}
+              count={selCount}
               photos={pickedPhotos}
               bytes={bytes}
-              folders={picked.folders}
+              folders={pickedFolders}
               dir={dir}
               tree={tree}
               imageBase={imageBase}
@@ -1321,7 +1354,7 @@ export const FileBrowser = component$<Props>(
               progress={progress ?? null}
               busy={busy}
               command={command}
-              onRename$={() => startRename(sel.value.keys[0])}
+              onRename$={() => startRename(firstSelected)}
               onAction$={run}
             />
           )}
@@ -1332,7 +1365,7 @@ export const FileBrowser = component$<Props>(
             key={menu.value.n}
             x={menu.value.x}
             y={menu.value.y}
-            label={`${sel.value.keys.length} 件の操作`}
+            label={`${selCount} 件の操作`}
             items={menuItems(menu.value.key)}
             onClose$={() => (menu.value = null)}
             // The key as rendered: the menu closes before the pick runs.
