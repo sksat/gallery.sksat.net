@@ -29,7 +29,9 @@ test("dashboard: D1 card with today's reads and writes", async ({ page }) => {
   const d1 = page.getByRole("region", { name: "D1" });
   await expect(d1).toContainText("データベースのサイズ");
   await expect(d1).toContainText("/ 500 MB");
-  await expect(d1).toContainText("今日の読み取り45,000 行 / 5,000,000 行 (0.9%)");
+  await expect(d1).toContainText(
+    "今日の読み取り45,000 行 / 5,000,000 行 (0.9%)",
+  );
   await expect(d1).toContainText("今日の書き込み300 行 / 100,000 行 (0.3%)");
 });
 
