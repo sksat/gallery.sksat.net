@@ -88,18 +88,6 @@ export const parseImageUrl = (
   url: URL,
 ): ImageRequest | { status: 400 } | null => {
   if (!url.pathname.startsWith("/img/")) return null;
-  // Remove after the gallery deploys the new URLs: the old id form
-  // /img/<preset>/<public_id>, which the gallery and og:image tags of the
-  // deployment before this one still request. (Old path forms stay 404.)
-  const legacy = /^\/img\/([^/]+)\/([^/]+)$/.exec(url.pathname);
-  if (
-    legacy &&
-    url.search === "" &&
-    isPreset(legacy[1]) &&
-    PUBLIC_ID_RE.test(legacy[2])
-  ) {
-    return { preset: legacy[1], id: legacy[2] };
-  }
   const rest = url.pathname.slice("/img".length);
   for (const key of url.searchParams.keys()) {
     if (key !== "size") return { status: 400 };
