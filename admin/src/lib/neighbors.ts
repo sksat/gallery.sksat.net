@@ -3,6 +3,7 @@
 // folder sorted by name. Lets a phone step through a filtered list without
 // going back to it after every photo.
 
+import { dateParam, TAKEN_ON_SQL, takenOnArgs } from "./calendar";
 import { normalizeDir } from "./folders";
 import {
   mediaEditHref,
@@ -25,6 +26,8 @@ export type ListQuery = {
   platform: MediaPlatform | null;
   visibility: Visibility | null;
   q: string;
+  /** Taken in this year, month or day (from the calendar). */
+  date?: string | null;
   page: number;
 };
 
@@ -40,6 +43,7 @@ export const parseListHref = (href: string): ListQuery => {
     platform: platformParam(p),
     visibility: isVisibility(visibility) ? visibility : null,
     q: p.get("q")?.trim() ?? "",
+    date: dateParam(p),
     page: Number.isInteger(page) && page > 0 ? page : 1,
   };
 };
@@ -77,6 +81,10 @@ const listFilter = (list: ListQuery): Sql => {
     const escaped = list.q.replace(/[\\%_]/g, (c) => `\\${c}`);
     where.push("path LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
+  }
+  if (list.date) {
+    where.push(TAKEN_ON_SQL);
+    args.push(...takenOnArgs(list.date));
   }
   if (list.view === "files") {
     const prefix = list.dir === "/" ? "/" : `${list.dir}/`;
@@ -217,6 +225,7 @@ export const neighborLinks = (
       platform: list.platform,
       visibility: list.visibility,
       q: list.q,
+      date: list.date,
       page: Math.ceil(pos / pageSize),
     });
   return {

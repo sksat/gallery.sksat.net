@@ -4,6 +4,7 @@
 // Kept apart from db.ts's listMedia, which pages full rows by date for the
 // list view.
 
+import { TAKEN_ON_SQL, takenOnArgs } from "./calendar";
 import { dirOf } from "./folders";
 import { LIVE_PHOTO, type MediaPlatform, type Visibility } from "./types";
 
@@ -25,6 +26,8 @@ export type FilesParams = {
   platform?: MediaPlatform;
   visibility?: Visibility;
   q?: string;
+  /** Taken in this year, month or day (the calendar). */
+  date?: string;
   limit: number;
 };
 
@@ -52,6 +55,10 @@ export const filesQuery = (
     const escaped = params.q.replace(/[\\%_]/g, (c) => `\\${c}`);
     where.push("path LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
+  }
+  if (params.date) {
+    where.push(TAKEN_ON_SQL);
+    args.push(...takenOnArgs(params.date));
   }
   const whereSql = ` WHERE ${where.join(" AND ")}`;
   return {

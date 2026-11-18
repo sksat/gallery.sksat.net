@@ -18,6 +18,7 @@ const list = (over: Partial<ListQuery> = {}): ListQuery => ({
   platform: null,
   visibility: null,
   q: "",
+  date: null,
   page: 1,
   ...over,
 });

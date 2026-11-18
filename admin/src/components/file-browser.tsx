@@ -100,6 +100,8 @@ type Props = {
   platform: MediaPlatform | null;
   visibility: Visibility | null;
   q: string;
+  /** Taken in this year, month or day (the calendar), or null. */
+  date?: string | null;
   /** The site's metadata levels (what 既定 is in a bulk change). */
   siteDefaults: MetadataLevels;
   /** A chunked selection action under way (shown in the bar). */
@@ -354,12 +356,20 @@ export const FileBrowser = component$<Props>(
     platform,
     visibility,
     q,
+    date,
     siteDefaults,
     progress,
     onSelection$,
   }) => {
     const href = (path: string) =>
-      mediaListHref({ view: "files", dir: path, platform, visibility, q });
+      mediaListHref({
+        view: "files",
+        dir: path,
+        platform,
+        visibility,
+        q,
+        date,
+      });
 
     // The viewer's order and layout.
     const prefs = useSignal<ViewPrefs>(DEFAULT_PREFS);
@@ -999,6 +1009,7 @@ export const FileBrowser = component$<Props>(
                   platform,
                   visibility: t.value,
                   q,
+                  date,
                 });
                 const current = visibility === t.value;
                 return (

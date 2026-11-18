@@ -18,6 +18,7 @@ import {
   type DocumentHead,
 } from "@builder.io/qwik-city";
 import { MissingBindingError } from "~/components/missing-binding-error";
+import { calendarHrefFor, dateParam } from "~/lib/calendar";
 import { StatePanel } from "~/components/state-panel";
 import {
   buttonPrimary,
@@ -158,6 +159,8 @@ type MediaListResult =
       platform: MediaPlatform | null;
       visibility: Visibility | null;
       q: string;
+      /** Taken in this year, month or day (`?date=`, from the calendar). */
+      date: string | null;
       /** Image Worker base URL, or null for placeholder tiles. */
       imageBase: string | null;
       /** Only for view === "files". */
@@ -181,6 +184,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
     const visibilityRaw = query.get("visibility");
     const visibility = isVisibility(visibilityRaw) ? visibilityRaw : undefined;
     const q = query.get("q")?.trim() || undefined;
+    const date = dateParam(query) ?? undefined;
     const imageBase = getImageBase(platform);
 
     if (parseView(query.get("view")) === "files") {
@@ -188,16 +192,16 @@ export const useMediaList = routeLoader$<MediaListResult>(
         platform: onPlatform,
         visibility,
         q,
+        date,
         limit: FILES_LIMIT,
       });
       const dir = normalizeDir(query.get("dir"));
-      // Empty folders only when unfiltered: a filter shows where the
-      // matching photos are.
-      const folders =
-        onPlatform || visibility || q ? [] : await listFolders(db);
       // Folders are where photos are shown (path), not where their files
       // are in the bucket.
-      const filtered = Boolean(onPlatform || visibility || q);
+      const filtered = Boolean(onPlatform || visibility || q || date);
+      // Empty folders only when unfiltered: a filter shows where the
+      // matching photos are.
+      const folders = filtered ? [] : await listFolders(db);
       // Sizes and 公開 counts are each folder's own, filter or not.
       const tree = filtered
         ? withAllStats(
@@ -216,6 +220,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
         platform: onPlatform ?? null,
         visibility: visibility ?? null,
         q: q ?? "",
+        date: date ?? null,
         imageBase,
         files: {
           tree,
@@ -248,6 +253,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
       platform: onPlatform,
       visibility,
       q,
+      date,
       limit: PAGE_SIZE,
       offset,
     });
@@ -260,6 +266,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
           platform: onPlatform,
           visibility,
           q,
+          date,
           page: lastPage(total, PAGE_SIZE),
         }),
       );
@@ -273,6 +280,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
       platform: onPlatform ?? null,
       visibility: visibility ?? null,
       q: q ?? "",
+      date: date ?? null,
       imageBase,
       files: null,
     };
@@ -952,6 +960,7 @@ export default component$(() => {
         platform: get("platform") || null,
         visibility: get("visibility") || null,
         q: get("q") || null,
+        date: get("date") || null,
       }),
     );
     if (close) await closeSheet();
@@ -1128,21 +1137,32 @@ export default component$(() => {
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
-  const { view, rows, total, page, platform, visibility, q, imageBase, files } =
-    data.value;
+  const {
+    view,
+    rows,
+    total,
+    page,
+    platform,
+    visibility,
+    q,
+    date,
+    imageBase,
+    files,
+  } = data.value;
   const pageCount = lastPage(total, PAGE_SIZE);
-  const filtered = Boolean(platform || visibility || q);
+  const filtered = Boolean(platform || visibility || q || date);
   const chips = filterChips({
     view,
     dir: files?.dir ?? "/",
     platform,
     visibility,
     q,
+    date,
     visibilityLabel: (v) => (isVisibility(v) ? VISIBILITY_LABELS[v] : v),
   });
   const dir = files?.dir ?? "/";
   const pageUrl = (p: number) =>
-    mediaListHref({ platform, visibility, q, page: p });
+    mediaListHref({ platform, visibility, q, date, page: p });
   // This list's own URL, so an edit page can link back to it.
   const back = pageUrl(page);
   // Phones: once something is ticked, a tap on a card ticks it too.
@@ -1179,12 +1199,19 @@ export default component$(() => {
     {
       view: "list",
       label: "List",
-      href: mediaListHref({ platform, visibility, q }),
+      href: mediaListHref({ platform, visibility, q, date }),
     },
     {
       view: "files",
       label: "Files",
-      href: mediaListHref({ view: "files", dir, platform, visibility, q }),
+      href: mediaListHref({
+        view: "files",
+        dir,
+        platform,
+        visibility,
+        q,
+        date,
+      }),
     },
   ];
 
@@ -1274,6 +1301,35 @@ export default component$(() => {
           </Link>
         ))}
       </div>
+      {/* sm and up: the form shows the other filters; the date (from the
+          calendar) has no field, so it gets its chip here. */}
+      {chips
+        .filter((c) => c.key === "date")
+        .map((c) => (
+          <div key={c.href} class="hidden items-center gap-3 sm:flex">
+            <Link
+              prefetch="js"
+              href={c.href}
+              aria-label={`${c.label} の絞り込みを外す`}
+              class="inline-flex h-9 items-center gap-1.5 rounded-full bg-sky-100 pr-3 pl-4 text-sm font-medium text-sky-900 dark:bg-sky-950 dark:text-sky-100"
+            >
+              {c.label}
+              <span aria-hidden="true" class="opacity-60">
+                ✕
+              </span>
+            </Link>
+            {date && (
+              <Link
+                prefetch="js"
+                key={calendarHrefFor(date)}
+                href={calendarHrefFor(date)}
+                class="text-sm font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
+              >
+                カレンダーへ
+              </Link>
+            )}
+          </div>
+        ))}
       {/* Without JS the sheet cannot open: show the form inline on phones
           too, and drop the button that would open it. */}
       <noscript
@@ -1337,6 +1393,8 @@ export default component$(() => {
               {dir !== "/" && <input type="hidden" name="dir" value={dir} />}
             </>
           )}
+          {/* From the calendar; dropped with its chip. */}
+          {date && <input type="hidden" name="date" value={date} />}
           <div>
             <label for="filter-platform" class={label}>
               {PLATFORM_LABEL}
@@ -1432,6 +1490,7 @@ export default component$(() => {
                 platform && ` platform “${platform}”`,
                 visibility && ` visibility “${VISIBILITY_LABELS[visibility]}”`,
                 q && ` a file path containing “${q}”`,
+                date && ` taken on “${date}”`,
               ]
                 .filter(Boolean)
                 .join(" and")}
@@ -1478,6 +1537,7 @@ export default component$(() => {
               platform={platform}
               visibility={visibility}
               q={q}
+              date={date}
               siteDefaults={files.siteDefaults}
               progress={progress.value}
               onSelection$={onSelection}
