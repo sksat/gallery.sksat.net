@@ -3,6 +3,7 @@ import {
   clickItem,
   EMPTY_SELECTION,
   keepShown,
+  inChunks,
   selectAll,
   sharedVisibility,
   splitSelection,
@@ -33,6 +34,13 @@ describe("visibilityPending", () => {
 
   it("a level they all have already changes nothing", () => {
     expect(visibilityPending([photos[1]], "public")).toEqual({});
+  });
+});
+
+describe("inChunks", () => {
+  it("splits in order, the last run shorter", () => {
+    expect(inChunks([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+    expect(inChunks([], 100)).toEqual([]);
   });
 });
 

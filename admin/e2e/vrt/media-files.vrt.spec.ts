@@ -3,8 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 /** Every tile selected, and 公開 picked: the bar with its look first. */
 const selectForPublic = async (page: Page, phone: boolean) => {
   if (phone) {
-    await page.getByRole("checkbox", { name: "vrchat2.png を選ぶ" }).click();
-    await page.getByRole("checkbox", { name: "vrchat3.png を選ぶ" }).click();
+    await page.getByRole("option", { name: "vrchat2.png" }).getByTestId("tile-check").click();
+    await page.getByRole("option", { name: "vrchat3.png" }).getByTestId("tile-check").click();
   } else {
     await page.keyboard.press("ControlOrMeta+a");
   }
@@ -33,6 +33,17 @@ test.describe("desktop", () => {
     await expect(page.getByTestId("upload-folder")).toBeVisible();
     await selectForPublic(page, false);
     await expect(page).toHaveScreenshot("admin-media-files-selection.png");
+  });
+
+  test("admin: media files list and context menu", async ({ page }) => {
+    await page.goto("/media/?view=files&dir=/mock");
+    await expect(page.getByTestId("upload-folder")).toBeVisible();
+    await page.getByRole("button", { name: "リスト" }).click();
+    await page
+      .getByRole("option", { name: "vrchat1.png" })
+      .click({ button: "right", position: { x: 300, y: 10 } });
+    await expect(page.getByRole("menu")).toBeVisible();
+    await expect(page).toHaveScreenshot("admin-media-files-list.png");
   });
 });
 

@@ -38,6 +38,17 @@ export const folderWith = async (page: Page, name: string, files: string[]) => {
   await page.getByRole("button", { name: "閉じる" }).click();
   // The view reloads once the uploads are photos: wait for every tile.
   await expect(tiles(page)).toHaveCount(files.length);
+  // ...and may reload once more (checks of uploads): let it settle, or
+  // the next click can land on an element that is being replaced.
+  await page.waitForLoadState("networkidle");
 };
 
 export const tiles = (page: Page) => page.getByTestId("file-tile");
+
+/** A tile (an option named after the photo or folder). */
+export const tile = (page: Page, name: string) =>
+  page.getByRole("option", { name, exact: true });
+
+/** A tile's tick mark: a click on it picks the tile. */
+export const tick = (page: Page, name: string) =>
+  tile(page, name).getByTestId("tile-check");
