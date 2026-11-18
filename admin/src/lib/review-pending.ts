@@ -40,6 +40,18 @@ export const pendingCounts = (pending: Pending): Record<Visibility, number> => {
   return counts;
 };
 
+/** How many thumbnails the look before applying shows (then "+N"). */
+export const PREVIEW_MAX = 48;
+
+/** The first `max` items to show, and how many more there are. */
+export const previewOf = <T>(
+  items: readonly T[],
+  max = PREVIEW_MAX,
+): { shown: T[]; more: number } => ({
+  shown: items.slice(0, max),
+  more: Math.max(0, items.length - max),
+});
+
 /**
  * The photos that would become visible to others (public or unlisted):
  * these need a look before applying; making photos private does not.

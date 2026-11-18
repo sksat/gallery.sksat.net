@@ -168,7 +168,9 @@ test("more photos than one request takes go in chunks, and undo all", async ({
 
   await levelButton(page, "公開").click();
   const confirm = page.getByTestId("visibility-confirm");
-  await expect(confirm.getByRole("listitem")).toHaveCount(105);
+  // The first 48 as thumbnails, then how many more.
+  await expect(confirm.getByTestId("thumb-placeholder")).toHaveCount(48);
+  await expect(confirm.getByTestId("visibility-confirm-more")).toContainText("+57");
   await confirm.getByRole("button", { name: "105 枚を公開" }).click();
   await expect(
     page.getByText("105 selected, 105 changed to Public."),
@@ -187,6 +189,43 @@ test("more photos than one request takes go in chunks, and undo all", async ({
   await dialog.getByLabel("撮影設定").selectOption("hidden");
   await dialog.getByRole("button", { name: "適用" }).click();
   await expect(page.getByText("105 枚の公開する情報を変えました。")).toBeVisible();
+});
+
+test("the look before making many photos public keeps its button on screen", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const names = Array.from({ length: 150 }, (_, i) => `q${i}.png`);
+  await folderWith(page, "sel-overflow", names);
+  const confirm = page.getByTestId("visibility-confirm");
+  for (const size of [
+    { width: 1024, height: 600 },
+    { width: 390, height: 844 },
+    { width: 320, height: 640 },
+    { width: 667, height: 375 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.keyboard.press("ControlOrMeta+a");
+    await expect(summary(page)).toContainText("150 件選択");
+    await levelButton(page, "公開").click();
+    const apply = confirm.getByRole("button", { name: "150 枚を公開" });
+    await expect(apply).toBeInViewport({ ratio: 1 });
+    await expect(
+      confirm.getByRole("button", { name: "戻る" }),
+    ).toBeInViewport({ ratio: 1 });
+    // The whole bar stays inside the screen.
+    const box = await bar(page).boundingBox();
+    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(
+      size.height,
+    );
+    expect(box?.y ?? -1).toBeGreaterThanOrEqual(0);
+    await apply.click();
+    await expect(
+      page.getByText("150 selected, 150 changed to Public."),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "元に戻す" }).click();
+    await expect(page.getByText("元に戻しました。").last()).toBeVisible();
+  }
 });
 
 test.describe("keyboard, menu and drag in the Files view", () => {

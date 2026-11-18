@@ -5,9 +5,17 @@ import {
   pendingBatches,
   pendingCounts,
   pendingKey,
+  previewOf,
   togglePending,
   type Pending,
 } from "./review-pending";
+
+describe("previewOf", () => {
+  it("shows the first ones and counts the rest", () => {
+    expect(previewOf([1, 2, 3], 2)).toEqual({ shown: [1, 2], more: 1 });
+    expect(previewOf([1], 2)).toEqual({ shown: [1], more: 0 });
+  });
+});
 
 describe("togglePending", () => {
   it("marks a new visibility, and clears it on the same choice or the saved one", () => {
