@@ -163,10 +163,15 @@ export const listMedia = async (
     args.push(...takenOnArgs(params.date));
   }
   const whereSql = `WHERE ${where.join(" AND ")}`;
+  // With a date there are no undated rows: the plain index order lets the
+  // range stop at LIMIT + OFFSET instead of sorting the whole range.
+  const order = params.date
+    ? "timestamp DESC, id DESC"
+    : "timestamp IS NULL, timestamp DESC, id DESC";
 
   const rowsStmt = db
     .prepare(
-      `SELECT * FROM media ${whereSql} ORDER BY timestamp IS NULL, timestamp DESC, id DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM media ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`,
     )
     .bind(...args, params.limit, params.offset);
   const countStmt = db

@@ -31,6 +31,9 @@ export const sqliteD1 = (db: DatabaseSync): D1Database => {
       meta: { changes: 0 },
     });
     return {
+      /** The SQL and its bound values (for EXPLAIN QUERY PLAN in tests). */
+      sql,
+      args,
       bind: (...next: SQLInputValue[]) => statement(sql, next),
       all,
       run,

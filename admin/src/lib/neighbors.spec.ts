@@ -299,6 +299,9 @@ describe("neighborsStatements plans", () => {
     list(),
     list({ visibility: "private", platform: "Real" }),
     list({ view: "files", dir: "/a" }),
+    // The calendar's date filter is a range on the same index.
+    list({ date: "2023-12" }),
+    list({ view: "files", dir: "/a", date: "2023-12-04" }),
   ];
   for (const q of lists) {
     for (const a of anchors) {

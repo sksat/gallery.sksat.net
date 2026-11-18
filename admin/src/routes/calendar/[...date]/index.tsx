@@ -1,14 +1,7 @@
 import { component$ } from "@builder.io/qwik";
 import { routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
 
-import {
-  latestMonth,
-  latestYear,
-  monthView,
-  yearView,
-  type MonthView,
-  type YearView,
-} from "@shared/calendar/calendar";
+import { type MonthView, type YearView } from "@shared/calendar/calendar";
 import {
   AdminMonthCalendar,
   AdminYearCalendar,
@@ -16,7 +9,9 @@ import {
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { StatePanel } from "~/components/state-panel";
 import {
-  loadCalendar,
+  loadLatestMonth,
+  loadMonth,
+  loadYear,
   parseCalendarParams,
   type CalendarCover,
 } from "~/lib/calendar";
@@ -54,30 +49,29 @@ export const useCalendarPage = routeLoader$<CalendarPage>(
       status(500);
       return { kind: "missing-binding" };
     }
-    const index = await loadCalendar(db);
     const imageBase = getImageBase(platform);
-    if (at?.month !== undefined) {
-      return {
-        kind: "ok",
-        month: monthView(index, at.year, at.month),
-        year: null,
-        imageBase,
-      };
-    }
     if (at) {
-      return {
-        kind: "ok",
-        month: null,
-        year: yearView(index, at.year),
-        imageBase,
-      };
+      return at.month !== undefined
+        ? {
+            kind: "ok",
+            month: await loadMonth(db, at.year, at.month),
+            year: null,
+            imageBase,
+          }
+        : {
+            kind: "ok",
+            month: null,
+            year: await loadYear(db, at.year),
+            imageBase,
+          };
     }
-    const latest = latestMonth(index);
-    const year = latestYear(index);
+    // Admin timestamps are always full dates: the newest month is there
+    // whenever any photo has a time.
+    const latest = await loadLatestMonth(db);
     return {
       kind: "ok",
-      month: latest && monthView(index, latest.year, latest.month),
-      year: latest === null && year !== null ? yearView(index, year) : null,
+      month: latest && (await loadMonth(db, latest.year, latest.month)),
+      year: null,
       imageBase,
     };
   },
