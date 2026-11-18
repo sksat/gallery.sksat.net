@@ -23,7 +23,8 @@
       "@cloudflare/workers-types"
     ],
     "paths": {
-      "~/*": ["./src/*"]
+      "~/*": ["./src/*"],
+      "@shared/*": ["../shared/*"]
     }
   },
   "include": ["src", "e2e", "./*.config.ts"]

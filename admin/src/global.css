@@ -8,6 +8,8 @@
  * unset, e.g. no JS) and the OS prefers dark.
  */
 @import "tailwindcss";
+/* Class strings shared with the public gallery (e.g. the photo overlay). */
+@source "../../shared";
 
 @custom-variant dark {
   &:where([data-theme="dark"], [data-theme="dark"] *) {

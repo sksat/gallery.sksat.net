@@ -3,6 +3,8 @@
  * Tailwind CSS: https://tailwindcss.com
  */
 @import "tailwindcss";
+/* Class strings shared with the admin (e.g. the photo overlay's look). */
+@source "../shared";
 
 :root {
   color-scheme: dark;

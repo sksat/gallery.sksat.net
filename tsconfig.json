@@ -18,9 +18,10 @@
     "noEmit": true,
     "types": ["node", "vite/client", "vitest/globals"],
     "paths": {
-      "~/*": ["./src/*"]
+      "~/*": ["./src/*"],
+      "@shared/*": ["./shared/*"]
     }
   },
   "files": ["./eslint.config.js"],
-  "include": ["src", "e2e", "./*.d.ts", "./*.config.ts"]
+  "include": ["src", "shared", "e2e", "./*.d.ts", "./*.config.ts"]
 }

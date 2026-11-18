@@ -34,9 +34,8 @@ import {
   MAX_BULK_IDS,
   updateMedia,
 } from "~/lib/db";
-import { Thumb } from "~/components/thumb";
+import { PhotoPreview } from "~/components/photo-preview";
 import { getDB, getImageBase } from "~/lib/env";
-import { imageUrl, PREVIEW_CANDIDATES, srcSet } from "~/lib/images";
 import {
   formatJst,
   publicPhotoUrl,
@@ -365,7 +364,6 @@ export default component$(() => {
       requestAnimationFrame(() => copyField.value?.focus());
     }
   });
-  const fullscreen = useSignal<HTMLDialogElement>();
 
   if (media.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/media/" />;
@@ -437,58 +435,8 @@ export default component$(() => {
         </div>
       </div>
 
-      {previewBase ? (
-        // A tap opens the photo full screen, where it can be pinch-zoomed.
-        <button
-          type="button"
-          aria-label="写真を全画面で表示"
-          onClick$={() => fullscreen.value?.showModal()}
-          class="block w-full cursor-zoom-in rounded-xl"
-        >
-          <Thumb
-            file={row.file}
-            world={row.world}
-            imageBase={previewBase}
-            variant="preview"
-            class="w-full rounded-xl border border-zinc-200 dark:border-zinc-800"
-          />
-        </button>
-      ) : (
-        <Thumb
-          file={row.file}
-          world={row.world}
-          imageBase={null}
-          variant="preview"
-          class="w-full rounded-xl border border-zinc-200 dark:border-zinc-800"
-        />
-      )}
-      {previewBase && (
-        <dialog
-          ref={fullscreen}
-          aria-label={`Preview of ${row.file}`}
-          // Tap anywhere (the photo included) to close.
-          onClick$={() => fullscreen.value?.close()}
-          class="m-0 h-dvh max-h-none w-screen max-w-none bg-black p-0 backdrop:bg-black"
-        >
-          {/* The same candidates as the preview, so the browser usually
-              reuses the file it already has (no extra transform). */}
-          <img
-            src={imageUrl(previewBase, row.file, "w1200")}
-            srcset={srcSet(previewBase, row.file, PREVIEW_CANDIDATES)}
-            sizes="100vw"
-            alt={`Preview of ${row.file}`}
-            loading="lazy"
-            class="h-full w-full object-contain"
-          />
-          <button
-            type="button"
-            aria-label="閉じる"
-            class="absolute top-[max(0.5rem,env(safe-area-inset-top))] right-2 grid size-11 place-items-center rounded-full bg-black/60 text-white"
-          >
-            <span aria-hidden="true">✕</span>
-          </button>
-        </dialog>
-      )}
+      {/* A tap opens the photo full screen (shared/overlay/ look). */}
+      <PhotoPreview file={row.file} world={row.world} imageBase={previewBase} />
 
       <div class={[card, "p-5 text-sm"]}>
         <dl

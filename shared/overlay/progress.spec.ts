@@ -1,5 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { pickOverlayPreset, readWithProgress } from "./progress";
+import {
+  pickByWidth,
+  pickOverlayPreset,
+  progressPercent,
+  readWithProgress,
+} from "./progress";
+
+describe("pickByWidth", () => {
+  const widths = [
+    ["a", 100],
+    ["b", 200],
+  ] as const;
+
+  it("picks the smallest width that covers the drawn width", () => {
+    expect(pickByWidth(widths, 50, 2)).toBe("a");
+    expect(pickByWidth(widths, 101, 1)).toBe("b");
+    expect(pickByWidth(widths, 300, 1)).toBe("b");
+  });
+});
+
+describe("progressPercent", () => {
+  it("rounds a fraction, and has no value while unknown or done", () => {
+    expect(progressPercent(0.256)).toBe(26);
+    expect(progressPercent(1)).toBe(100);
+    expect(progressPercent(null)).toBeUndefined();
+    expect(progressPercent(undefined)).toBeUndefined();
+  });
+});
 
 describe("pickOverlayPreset", () => {
   it("picks the smallest preset that covers the drawn width", () => {
@@ -40,5 +67,24 @@ describe("readWithProgress", () => {
     const seen: (number | null)[] = [];
     await readWithProgress(response, (f) => seen.push(f));
     expect(seen).toEqual([null, null, null, 1]);
+  });
+
+  it("handles a response without a body or Content-Type", async () => {
+    const seen: (number | null)[] = [];
+    const blob = await readWithProgress(new Response(null), (f) =>
+      seen.push(f),
+    );
+    expect(seen).toEqual([1]);
+    expect(blob.size).toBe(0);
+    expect(blob.type).toBe("");
+  });
+
+  it("caps the fraction at 1 when more bytes arrive than announced", async () => {
+    const response = new Response(streamOf([60, 60]), {
+      headers: { "Content-Length": "100" },
+    });
+    const seen: (number | null)[] = [];
+    await readWithProgress(response, (f) => seen.push(f));
+    expect(seen).toEqual([0, 0.6, 1, 1]);
   });
 });
