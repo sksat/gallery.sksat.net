@@ -32,7 +32,7 @@ test("save from the bar fixed to the bottom", async ({ page }) => {
 });
 
 test("prev / next step through the filtered list", async ({ page }) => {
-  await page.goto("/media/?world=VRChat");
+  await page.goto("/media/?platform=VRChat");
   await page
     .getByTestId("media-card")
     .filter({ hasText: "vrchat3.png" })
@@ -48,7 +48,7 @@ test("prev / next step through the filtered list", async ({ page }) => {
   await page.getByRole("link", { name: "次へ ›" }).tap();
   await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
   // The form shows this photo, not the one before.
-  await expect(page.locator('select[name="world"]')).toHaveValue("VRChat");
+  await expect(page.locator('select[name="platform"]')).toHaveValue("VRChat");
   await expect(page.getByRole("link", { name: "次へ ›" })).toHaveCount(0);
 
   await page.getByRole("link", { name: "‹ 前へ" }).tap();
@@ -56,11 +56,11 @@ test("prev / next step through the filtered list", async ({ page }) => {
 
   // Still the same list to go back to.
   await page.getByRole("link", { name: "← Media" }).tap();
-  await expect(page).toHaveURL(/\/media\/\?world=VRChat#m-4$/);
+  await expect(page).toHaveURL(/\/media\/\?platform=VRChat#m-4$/);
 });
 
 test("unsaved changes ask before leaving", async ({ page }) => {
-  await page.goto("/media/?world=VRChat");
+  await page.goto("/media/?platform=VRChat");
   await page
     .getByTestId("media-card")
     .filter({ hasText: "vrchat3.png" })

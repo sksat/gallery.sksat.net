@@ -1,4 +1,5 @@
--- Where a photo is shown, apart from where its file is, and a trash.
+-- Where a photo is shown, apart from where its file is; a trash; whether
+-- its file name is public; world renamed to platform.
 --
 -- media.file stays the B2 object key: set once by the upload (or by hand),
 -- never changed. The image Worker, the API Worker, thumbnails and og cards
@@ -20,10 +21,26 @@
 -- index), so a trashed photo does not block its old place.
 -- Columns are added in place; 0003's public_id triggers stay.
 
+-- media.world → media.platform: where the photo was taken ('Real',
+--   'VRChat'; later e.g. 'Resonite'). "world" is kept for the actual
+--   VRChat world a photo was taken in. SQLite carries the rename into the
+--   column's CHECK; the index gets the new name too.
+ALTER TABLE media RENAME COLUMN world TO platform;
+DROP INDEX idx_media_world;
+CREATE INDEX idx_media_platform ON media(platform);
+
 ALTER TABLE media ADD COLUMN path TEXT
   CHECK (path GLOB '/?*' AND path NOT GLOB '*/' AND path NOT GLOB '*//*');
 
 ALTER TABLE media ADD COLUMN trashed_at TEXT;
+
+-- media.filename_public: whether the photo's file name may be shown on the
+--   public site, apart from its visibility. 0 (the default, existing photos
+--   included): the API Worker never returns the name and the image Worker
+--   serves the photo only by public id (/img/<preset>/<public_id>), not by
+--   its bucket path. 1: the name is returned and /img/<preset>/<file> works.
+ALTER TABLE media ADD COLUMN filename_public INTEGER NOT NULL DEFAULT 0
+  CHECK (filename_public IN (0, 1));
 
 UPDATE media SET path = file;
 

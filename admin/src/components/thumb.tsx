@@ -6,19 +6,19 @@ import {
   imageUrl,
   srcSet,
 } from "~/lib/images";
-import type { MediaWorld } from "~/lib/types";
+import type { MediaPlatform } from "~/lib/types";
 import { ProgressivePreview } from "./preview";
 
 // Photo thumbnail (the /thumb route), in a fixed 16:9 box so rows and the
 // preview never jump while images load. Without a thumbnail base (E2E/VRT,
 // THUMBNAILS off, or no image Worker binding) the same box shows a deterministic
-// placeholder: world-tinted tile with the file extension. The originals
+// placeholder: platform-tinted tile with the file extension. The originals
 // are never requested.
 
 type Props = {
   file: string;
   /** Tints the placeholder; null (camera pictures) = neutral. */
-  world: MediaWorld | null;
+  platform: MediaPlatform | null;
   imageBase: string | null;
   /**
    * "list": h240/h480 by density; "preview": the list thumbnail first, then
@@ -30,7 +30,7 @@ type Props = {
 };
 
 export const Thumb = component$<Props>(
-  ({ file, world, imageBase, variant, class: boxClass }) => {
+  ({ file, platform, imageBase, variant, class: boxClass }) => {
     const box = ["relative aspect-video shrink-0 overflow-hidden", boxClass];
     const ext = (
       <span
@@ -48,9 +48,9 @@ export const Thumb = component$<Props>(
           class={[
             box,
             "grid place-items-center",
-            world === "VRChat"
+            platform === "VRChat"
               ? "bg-violet-100 text-violet-500 dark:bg-violet-950 dark:text-violet-300"
-              : world === "Real"
+              : platform === "Real"
                 ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
                 : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
           ]}

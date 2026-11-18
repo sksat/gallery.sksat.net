@@ -62,9 +62,9 @@ test.describe("on a phone", () => {
         .first()
         .boundingBox();
       expect(formBox!.y + formBox!.height).toBeLessThanOrEqual(firstCard!.y);
-      await form.getByLabel("World").selectOption("VRChat");
+      await form.getByLabel("Platform").selectOption("VRChat");
       await form.getByRole("button", { name: "Filter" }).tap();
-      await expect(page).toHaveURL(/world=VRChat/);
+      await expect(page).toHaveURL(/platform=VRChat/);
       await expect(page.getByTestId("media-card")).toHaveCount(3);
     });
   });
@@ -78,20 +78,20 @@ test.describe("on a larger screen", () => {
   }) => {
     await page.goto("/media/");
     await expect(page.locator("table tbody tr")).toHaveCount(5);
-    const world = page.getByLabel("World");
-    await world.focus();
+    const platform = page.getByLabel("Platform");
+    await platform.focus();
     // Arrow keys on a closed select change its value (and fire `change`)
     // one step at a time.
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowDown");
-    await expect(world).toHaveValue("VRChat");
+    await expect(platform).toHaveValue("VRChat");
     await page.waitForTimeout(500);
     await expect(page).toHaveURL(/\/media\/$/);
     await expect(page.locator("table tbody tr")).toHaveCount(5);
 
     // Filter applies the choice.
     await page.getByRole("button", { name: "Filter" }).click();
-    await expect(page).toHaveURL(/\?world=VRChat$/);
+    await expect(page).toHaveURL(/\?platform=VRChat$/);
     await expect(page.locator("table tbody tr")).toHaveCount(3);
   });
 

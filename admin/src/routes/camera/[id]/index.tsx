@@ -497,7 +497,7 @@ export default component$(() => {
               >
                 <Thumb
                   file={img.file}
-                  world={null}
+                  platform={null}
                   imageBase={imageBase}
                   variant="list"
                   class="w-24 rounded-md sm:w-40"

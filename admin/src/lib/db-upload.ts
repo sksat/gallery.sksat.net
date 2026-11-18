@@ -3,7 +3,7 @@
 // Covered by db-upload.spec.ts on the real schema.
 
 import type { UploadInit } from "./upload";
-import type { MediaWorld } from "./types";
+import type { MediaPlatform } from "./types";
 
 export type InitOutcome =
   /**
@@ -32,7 +32,7 @@ const isUniqueError = (err: unknown) =>
 
 /**
  * Reserve a path for an upload of `init.file`. A new row is private,
- * `uploading`, with the given public id and world; when another photo
+ * `uploading`, with the given public id and platform; when another photo
  * already has that path, the first free numbered name is used instead
  * (numberedPaths). An `uploading` row with the same hash is resumed (a
  * retry, or picking the same file again after a failure).
@@ -40,7 +40,7 @@ const isUniqueError = (err: unknown) =>
 export const initUpload = async (
   db: D1Database,
   init: UploadInit,
-  row: { publicId: string; world: MediaWorld },
+  row: { publicId: string; platform: MediaPlatform },
 ): Promise<InitOutcome> => {
   const candidates = numberedPaths(init.file);
   // A name is taken by another file in the bucket (any row: keys never
@@ -84,13 +84,13 @@ export const initUpload = async (
   try {
     const inserted = await db
       .prepare(
-        `INSERT INTO media (public_id, file, path, world, timestamp, tags, visibility, status, size, sha256)
+        `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256)
          VALUES (?1, ?2, ?2, ?3, ?4, '[]', 'private', 'uploading', ?5, ?6) RETURNING id`,
       )
       .bind(
         row.publicId,
         file,
-        row.world,
+        row.platform,
         init.timestamp,
         init.size,
         init.sha256,

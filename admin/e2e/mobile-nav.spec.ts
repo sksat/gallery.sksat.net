@@ -40,12 +40,12 @@ test("filter sheet: selects apply at once, chips remove a filter", async ({
 
   await page.getByRole("button", { name: "絞り込み" }).tap();
   await expect(sheet).toBeVisible();
-  await sheet.getByLabel("World").selectOption("VRChat");
-  await expect(page).toHaveURL(/\?world=VRChat$/);
+  await sheet.getByLabel("Platform").selectOption("VRChat");
+  await expect(page).toHaveURL(/\?platform=VRChat$/);
   await expect(cards(page)).toHaveCount(3);
   // Still open for the next filter.
   await sheet.getByLabel("Visibility").selectOption("public");
-  await expect(page).toHaveURL(/\?world=VRChat&visibility=public$/);
+  await expect(page).toHaveURL(/\?platform=VRChat&visibility=public$/);
   await sheet.getByRole("button", { name: "閉じる" }).tap();
   await expect(sheet).toBeHidden();
 
@@ -53,7 +53,7 @@ test("filter sheet: selects apply at once, chips remove a filter", async ({
     page.getByRole("button", { name: "絞り込み (2)" }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Public の絞り込みを外す" }).tap();
-  await expect(page).toHaveURL(/\?world=VRChat$/);
+  await expect(page).toHaveURL(/\?platform=VRChat$/);
   await page.getByRole("link", { name: "VRChat の絞り込みを外す" }).tap();
   await expect(cards(page)).toHaveCount(5);
 

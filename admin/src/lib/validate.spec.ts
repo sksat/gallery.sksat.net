@@ -164,9 +164,16 @@ describe("validatePatch", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("rejects unknown world", () => {
-    const r = validatePatch({ world: "Mars" });
-    expect(r.ok).toBe(false);
+  it("rejects an unknown platform", () => {
+    expect(validatePatch({ platform: "Mars" }).ok).toBe(false);
+    expect(validatePatch({ world: "Mars" }).ok).toBe(false);
+  });
+
+  it("takes the platform, also under its old name world", () => {
+    const r = validatePatch({ platform: "VRChat" });
+    expect(r.ok && r.patch).toEqual({ platform: "VRChat" });
+    const old = validatePatch({ world: "Real" });
+    expect(old.ok && old.patch).toEqual({ platform: "Real" });
   });
 
   it("accepts a camera id and an explicit null", () => {

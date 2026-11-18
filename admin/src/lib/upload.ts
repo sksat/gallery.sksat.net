@@ -7,7 +7,7 @@ import {
   normalizeDir,
   validateFolderPath,
 } from "./folders";
-import type { MediaWorld } from "./types";
+import type { MediaPlatform } from "./types";
 import { validateImageFile } from "./validate";
 
 /**
@@ -115,8 +115,8 @@ export const uploadTarget = (
 export const VRCHAT_NAME_RE =
   /^VRChat_(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)\.(\d{3})_\d+x\d+\.png$/;
 
-/** World of a new photo: VRChat for VRChat's file names, else Real. */
-export const guessWorld = (file: string): MediaWorld =>
+/** Platform of a new photo: VRChat for VRChat's file names, else Real. */
+export const guessPlatform = (file: string): MediaPlatform =>
   VRCHAT_NAME_RE.test(file.slice(file.lastIndexOf("/") + 1))
     ? "VRChat"
     : "Real";

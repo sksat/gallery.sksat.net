@@ -6,7 +6,8 @@ import {
   type CameraRow,
   type MediaPatch,
   type MediaRow,
-  type MediaWorld,
+  type MediaPlatform,
+  isPlatform,
   isVisibility,
   LIVE_PHOTO,
   type Visibility,
@@ -18,7 +19,7 @@ type RawRow = {
   file: string;
   /** NULL only before migration 0005 / in hand-written test tables. */
   path?: string | null;
-  world: string;
+  platform: string;
   timestamp: string | null;
   camera_id: number | null;
   tags: string;
@@ -40,8 +41,6 @@ type RawCameraRow = {
   updated_at: string;
 };
 
-const isWorld = (v: string): v is MediaWorld => v === "Real" || v === "VRChat";
-
 const isCameraKind = (v: string): v is CameraKind =>
   (CAMERA_KINDS as readonly string[]).includes(v);
 
@@ -61,8 +60,8 @@ const parseTags = (raw: string): string[] => {
 };
 
 export const rowToMedia = (raw: RawRow): MediaRow => {
-  if (!isWorld(raw.world)) {
-    throw new Error(`unknown world value in DB: ${raw.world}`);
+  if (!isPlatform(raw.platform)) {
+    throw new Error(`unknown platform value in DB: ${raw.platform}`);
   }
   if (!isVisibility(raw.visibility)) {
     throw new Error(`unknown visibility value in DB: ${raw.visibility}`);
@@ -72,7 +71,7 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     public_id: raw.public_id,
     file: raw.file,
     path: raw.path ?? raw.file,
-    world: raw.world,
+    platform: raw.platform,
     timestamp: raw.timestamp,
     camera_id: raw.camera_id,
     tags: parseTags(raw.tags),
@@ -101,7 +100,7 @@ export const rowToCamera = (raw: RawCameraRow): CameraRow => {
 };
 
 export type ListParams = {
-  world?: MediaWorld;
+  platform?: MediaPlatform;
   visibility?: Visibility;
   q?: string;
   limit: number;
@@ -120,9 +119,9 @@ export const listMedia = async (
   // Not uploads that have not completed, nor the trash.
   const where: string[] = [LIVE_PHOTO];
   const args: unknown[] = [];
-  if (params.world) {
-    where.push("world = ?");
-    args.push(params.world);
+  if (params.platform) {
+    where.push("platform = ?");
+    args.push(params.platform);
   }
   if (params.visibility) {
     where.push("visibility = ?");
@@ -175,9 +174,9 @@ export const updateMedia = async (
 ): Promise<MediaRow | null> => {
   const sets: string[] = [];
   const args: unknown[] = [];
-  if (patch.world !== undefined) {
-    sets.push("world = ?");
-    args.push(patch.world);
+  if (patch.platform !== undefined) {
+    sets.push("platform = ?");
+    args.push(patch.platform);
   }
   if (patch.camera_id !== undefined) {
     sets.push("camera_id = ?");

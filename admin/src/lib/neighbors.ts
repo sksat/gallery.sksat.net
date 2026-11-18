@@ -8,12 +8,13 @@ import {
   mediaEditHref,
   mediaListHref,
   parseView,
+  platformParam,
   type MediaView,
 } from "./format";
 import {
   isVisibility,
   LIVE_PHOTO,
-  type MediaWorld,
+  type MediaPlatform,
   type Visibility,
 } from "./types";
 
@@ -21,7 +22,7 @@ import {
 export type ListQuery = {
   view: MediaView;
   dir: string;
-  world: MediaWorld | null;
+  platform: MediaPlatform | null;
   visibility: Visibility | null;
   q: string;
   page: number;
@@ -31,13 +32,12 @@ export type ListQuery = {
 export const parseListHref = (href: string): ListQuery => {
   const i = href.indexOf("?");
   const p = new URLSearchParams(i < 0 ? "" : href.slice(i + 1));
-  const world = p.get("world");
   const visibility = p.get("visibility");
   const page = Number(p.get("page") ?? "1");
   return {
     view: parseView(p.get("view")),
     dir: normalizeDir(p.get("dir")),
-    world: world === "Real" || world === "VRChat" ? world : null,
+    platform: platformParam(p),
     visibility: isVisibility(visibility) ? visibility : null,
     q: p.get("q")?.trim() ?? "",
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -62,9 +62,9 @@ export const neighborsQuery = (
   // Like the lists: completed uploads, not the trash; by path.
   const where: string[] = [LIVE_PHOTO];
   const args: unknown[] = [];
-  if (list.world) {
-    where.push("world = ?");
-    args.push(list.world);
+  if (list.platform) {
+    where.push("platform = ?");
+    args.push(list.platform);
   }
   if (list.visibility) {
     where.push("visibility = ?");
@@ -133,7 +133,7 @@ export const neighborLinks = (
     mediaListHref({
       view: list.view,
       dir: list.dir,
-      world: list.world,
+      platform: list.platform,
       visibility: list.visibility,
       q: list.q,
       page: Math.ceil(pos / pageSize),

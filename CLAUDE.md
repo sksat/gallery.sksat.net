@@ -68,7 +68,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - Main UI component managing photo display and navigation
 - Reads the photo and camera lists from `useGalleryIndex` (the layout's route loader, which asks the API Worker; `src/lib/api.ts`)
-- State management: tag filter (AND/OR; `world` is treated as one more tag, see `tags.ts`), selected image overlay
+- State management: tag filter (AND/OR; `platform` (Real / VRChat, the API's former `world`) is treated as one more tag, see `tags.ts`), selected image overlay
 - Keyboard navigation: Arrow keys to browse within the filtered photos when an image is selected
 - URL history: the filter lives in the query (`?tag=a&tag=b&mode=or`, replaceState); selecting an image pushes `/photo/[imageId]?<same query>`. On a camera page the same Gallery runs with a camera filter; a photo opened there carries `?camera=<slug>` so closing it returns to `/camera/<slug>/`
 - Visibility: lists contain public photos only. An unlisted photo is passed in by its `/photo/<id>` route and shown in the overlay, but never joins the grid, the tag counts, the sort or the arrow-key order. Private photos are 404.
@@ -110,7 +110,8 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - Read-only JSON API over the admin's D1 database (`gallery-admin`), served at `gallery.sksat.net/api/*` (Worker shell `gallery-api` and route managed by Terraform outside this repo; no `routes` in `wrangler.jsonc`, `workers_dev = false`). The schema belongs to `admin/migrations`; this Worker only runs SELECTs.
 - `GET /api/media` (public photos), `/api/media/<public_id>` (public or unlisted), `/api/media/legacy/<N>` (`{ id }` for an old `/photo/<N>`), `/api/camera`, `/api/camera/<slug>`. Private photos, photos whose upload has not completed (`status <> 'ready'`) and photos in the admin's trash (`trashed_at`) are never returned; these filters live in the SQL in `workers/api/src/query.ts`, so admin migrations (`0004_upload.sql`, `0005_path_trash.sql`) must be applied to D1 before this Worker is deployed. Cameras are listed only when a public photo uses them (opened by slug when a public or unlisted one does). Responses are cached for 60 s at the edge (Cache API, keyed by path) and 10 s in browsers.
-- Other Workers can call its RPC method `fileAccess(file)` (may this bucket path be served by name: a public photo or a camera picture) through a service binding; it is not reachable over HTTP.
+- A photo's `file` is returned only when its name is public (`media.filename_public = 1`); otherwise it is `null` (the gallery goes by public id). Photos carry `platform` (Real / VRChat) and, for now, the same value as `world`, its old name (deprecated; remove once deployed galleries read `platform`).
+- Other Workers can call its RPC methods through a service binding (not reachable over HTTP): `fileAccess(file)` (may this bucket path be served by name: a public photo whose name is public, or a camera picture) and `photo(publicId)` (a public or unlisted photo with its bucket path, for the image Worker to fetch the original even when the name is not public).
 - Tests: `workers/api/src/*.spec.ts` run the queries on node:sqlite with the admin migrations applied. Deployed from `main` by `.github/workflows/deploy-api-worker.yaml` (`pnpm run deploy.api`).
 
 ### Styling

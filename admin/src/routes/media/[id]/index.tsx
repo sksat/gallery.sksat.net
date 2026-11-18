@@ -25,7 +25,8 @@ import {
   link,
   muted,
   VISIBILITY_LABELS,
-  worldBadge,
+  PLATFORM_LABEL,
+  platformBadge,
 } from "~/components/ui";
 import {
   getCamera,
@@ -128,7 +129,7 @@ export const useUpdateMedia = routeAction$(
     // contract has a single source of truth. A malformed camera value
     // (undefined here) is passed through as-is for validatePatch to reject.
     const v = validatePatch({
-      world: data.world,
+      platform: data.platform,
       camera_id: parseCameraIdInput(data.camera_id),
       tags: parseTagsInput(data.tags ?? ""),
       visibility: data.visibility,
@@ -156,7 +157,7 @@ export const useUpdateMedia = routeAction$(
     return { ok: true, updated_at: updated.updated_at };
   },
   zod$({
-    world: z.enum(["Real", "VRChat"]),
+    platform: z.enum(["Real", "VRChat"]),
     // Required (no default): a submission without the field must not
     // silently clear the photo's camera. "" = none.
     camera_id: z.string().max(20),
@@ -330,14 +331,14 @@ const MediaFields = component$<{ row: MediaRow; cameras: CameraOption[] }>(
       <fieldset class="space-y-3">
         <legend class={legend}>Category</legend>
         <div class="max-w-xs">
-          <label for="edit-world" class={label}>
-            World
+          <label for="edit-platform" class={label}>
+            {PLATFORM_LABEL}
           </label>
-          <select id="edit-world" name="world" class={field}>
-            <option value="Real" selected={row.world === "Real"}>
+          <select id="edit-platform" name="platform" class={field}>
+            <option value="Real" selected={row.platform === "Real"}>
               Real
             </option>
-            <option value="VRChat" selected={row.world === "VRChat"}>
+            <option value="VRChat" selected={row.platform === "VRChat"}>
               VRChat
             </option>
           </select>
@@ -587,7 +588,7 @@ export default component$(() => {
           <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">
             Edit #{row.id}
           </h1>
-          <span class={worldBadge(row.world)}>{row.world}</span>
+          <span class={platformBadge(row.platform)}>{row.platform}</span>
           <VisibilityBadge visibility={row.visibility} />
         </div>
         <PhotoViews public_id={row.public_id} />
@@ -597,7 +598,7 @@ export default component$(() => {
       <PhotoPreview
         id={row.id}
         file={row.file}
-        world={row.world}
+        platform={row.platform}
         timestamp={row.timestamp}
         visibility={row.visibility}
         imageBase={previewBase}

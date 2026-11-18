@@ -28,7 +28,8 @@ import {
   muted,
   tagChip,
   VISIBILITY_LABELS,
-  worldBadge,
+  PLATFORM_LABEL,
+  platformBadge,
 } from "~/components/ui";
 import {
   listMedia,
@@ -82,6 +83,7 @@ import {
   mediaListHref,
   parseMediaAnchor,
   parseView,
+  platformParam,
   splitPath,
   type MediaView,
 } from "~/lib/format";
@@ -89,7 +91,7 @@ import {
   isVisibility,
   VISIBILITIES,
   type MediaRow,
-  type MediaWorld,
+  type MediaPlatform,
   type Visibility,
 } from "~/lib/types";
 import {
@@ -101,7 +103,7 @@ import {
 const PAGE_SIZE = MAX_BULK_IDS;
 /**
  * The files view builds its tree from every (filtered) row in one query of
- * id/file/world. Far above today's size; past it the tree is incomplete
+ * id/file/path/platform. Far above today's size; past it the tree is incomplete
  * (the alphabetically last paths are missing) and says so.
  */
 const FILES_LIMIT = 10_000;
@@ -126,7 +128,7 @@ type MediaListResult =
       rows: MediaRow[];
       total: number;
       page: number;
-      world: MediaWorld | null;
+      platform: MediaPlatform | null;
       visibility: Visibility | null;
       q: string;
       /** Image Worker base URL, or null for placeholder tiles. */
@@ -146,9 +148,9 @@ export const useMediaList = routeLoader$<MediaListResult>(
       status(500);
       return { kind: "missing-binding" };
     }
-    const worldRaw = query.get("world");
-    const world: MediaWorld | undefined =
-      worldRaw === "Real" || worldRaw === "VRChat" ? worldRaw : undefined;
+    // The platform filter (?platform=, or ?world= from old links). Not
+    // `platform`: that is the request's Cloudflare platform here.
+    const onPlatform = platformParam(query) ?? undefined;
     const visibilityRaw = query.get("visibility");
     const visibility = isVisibility(visibilityRaw) ? visibilityRaw : undefined;
     const q = query.get("q")?.trim() || undefined;
@@ -156,7 +158,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
 
     if (parseView(query.get("view")) === "files") {
       const { rows, truncated } = await listMediaFiles(db, {
-        world,
+        platform: onPlatform,
         visibility,
         q,
         limit: FILES_LIMIT,
@@ -164,7 +166,8 @@ export const useMediaList = routeLoader$<MediaListResult>(
       const dir = normalizeDir(query.get("dir"));
       // Empty folders only when unfiltered: a filter shows where the
       // matching photos are.
-      const folders = world || visibility || q ? [] : await listFolders(db);
+      const folders =
+        onPlatform || visibility || q ? [] : await listFolders(db);
       // Folders are where photos are shown (path), not where their files
       // are in the bucket.
       const tree = buildFolderTree(
@@ -177,7 +180,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
         rows: [],
         total: rows.length,
         page: 1,
-        world: world ?? null,
+        platform: onPlatform ?? null,
         visibility: visibility ?? null,
         q: q ?? "",
         imageBase,
@@ -203,7 +206,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
     const offset = (page - 1) * PAGE_SIZE;
 
     const { rows, total } = await listMedia(db, {
-      world,
+      platform: onPlatform,
       visibility,
       q,
       limit: PAGE_SIZE,
@@ -215,7 +218,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
       throw redirect(
         302,
         mediaListHref({
-          world,
+          platform: onPlatform,
           visibility,
           q,
           page: lastPage(total, PAGE_SIZE),
@@ -228,7 +231,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
       rows,
       total,
       page,
-      world: world ?? null,
+      platform: onPlatform ?? null,
       visibility: visibility ?? null,
       q: q ?? "",
       imageBase,
@@ -481,7 +484,7 @@ export default component$(() => {
       mediaListHref({
         view: parseView(get("view")),
         dir: get("dir") || null,
-        world: get("world") || null,
+        platform: get("platform") || null,
         visibility: get("visibility") || null,
         q: get("q") || null,
       }),
@@ -586,21 +589,21 @@ export default component$(() => {
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
-  const { view, rows, total, page, world, visibility, q, imageBase, files } =
+  const { view, rows, total, page, platform, visibility, q, imageBase, files } =
     data.value;
   const pageCount = lastPage(total, PAGE_SIZE);
-  const filtered = Boolean(world || visibility || q);
+  const filtered = Boolean(platform || visibility || q);
   const chips = filterChips({
     view,
     dir: files?.dir ?? "/",
-    world,
+    platform,
     visibility,
     q,
     visibilityLabel: (v) => (isVisibility(v) ? VISIBILITY_LABELS[v] : v),
   });
   const dir = files?.dir ?? "/";
   const pageUrl = (p: number) =>
-    mediaListHref({ world, visibility, q, page: p });
+    mediaListHref({ platform, visibility, q, page: p });
   // This list's own URL, so an edit page can link back to it.
   const back = pageUrl(page);
   // Phones: once something is ticked, a tap on a card ticks it too.
@@ -609,7 +612,7 @@ export default component$(() => {
     <>
       <Thumb
         file={row.file}
-        world={row.world}
+        platform={row.platform}
         imageBase={imageBase}
         variant="list"
         class="w-24 rounded-md"
@@ -622,7 +625,7 @@ export default component$(() => {
           </span>
         </div>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          <span class={worldBadge(row.world)}>{row.world}</span>
+          <span class={platformBadge(row.platform)}>{row.platform}</span>
           <VisibilityBadge visibility={row.visibility} />
           <span class="tabular-nums">{formatJst(row.timestamp) ?? "—"}</span>
           {row.tags.length > 0 && <Tags tags={row.tags} />}
@@ -637,12 +640,12 @@ export default component$(() => {
     {
       view: "list",
       label: "List",
-      href: mediaListHref({ world, visibility, q }),
+      href: mediaListHref({ platform, visibility, q }),
     },
     {
       view: "files",
       label: "Files",
-      href: mediaListHref({ view: "files", dir, world, visibility, q }),
+      href: mediaListHref({ view: "files", dir, platform, visibility, q }),
     },
   ];
 
@@ -794,22 +797,22 @@ export default component$(() => {
             </>
           )}
           <div>
-            <label for="filter-world" class={label}>
-              World
+            <label for="filter-platform" class={label}>
+              {PLATFORM_LABEL}
             </label>
             <select
-              id="filter-world"
-              name="world"
+              id="filter-platform"
+              name="platform"
               onChange$={(_, el) => selectChanged(el)}
               class={field}
             >
-              <option value="" selected={world === null}>
+              <option value="" selected={platform === null}>
                 (any)
               </option>
-              <option value="Real" selected={world === "Real"}>
+              <option value="Real" selected={platform === "Real"}>
                 Real
               </option>
-              <option value="VRChat" selected={world === "VRChat"}>
+              <option value="VRChat" selected={platform === "VRChat"}>
                 VRChat
               </option>
             </select>
@@ -884,7 +887,7 @@ export default component$(() => {
             <p>
               Nothing in D1 matches
               {[
-                world && ` world “${world}”`,
+                platform && ` platform “${platform}”`,
                 visibility && ` visibility “${VISIBILITY_LABELS[visibility]}”`,
                 q && ` a file path containing “${q}”`,
               ]
@@ -930,7 +933,7 @@ export default component$(() => {
               folder={files.folder}
               files={files.files}
               imageBase={imageBase}
-              world={world}
+              platform={platform}
               visibility={visibility}
               q={q}
             >
@@ -1135,7 +1138,7 @@ export default component$(() => {
                     <td class="px-4 py-2">
                       <Thumb
                         file={row.file}
-                        world={row.world}
+                        platform={row.platform}
                         imageBase={imageBase}
                         variant="list"
                         class="h-14 rounded-md"
@@ -1153,7 +1156,9 @@ export default component$(() => {
                     </td>
                     <td class="px-4 py-3">
                       <span class="flex flex-col items-start gap-1">
-                        <span class={worldBadge(row.world)}>{row.world}</span>
+                        <span class={platformBadge(row.platform)}>
+                          {row.platform}
+                        </span>
                         <VisibilityBadge visibility={row.visibility} />
                       </span>
                     </td>

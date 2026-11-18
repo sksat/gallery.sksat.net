@@ -2,7 +2,16 @@
 // same database through the API Worker (workers/api, its src/types.ts);
 // review it when changing columns.
 
-export type MediaWorld = "Real" | "VRChat";
+/**
+ * Where a photo was taken (media.platform; "world" until migration 0005,
+ * a name now kept for the VRChat world itself).
+ */
+export type MediaPlatform = "Real" | "VRChat";
+
+export const PLATFORMS: readonly MediaPlatform[] = ["Real", "VRChat"];
+
+export const isPlatform = (v: unknown): v is MediaPlatform =>
+  v === "Real" || v === "VRChat";
 
 export const CAMERA_KINDS = ["digital", "film", "phone", "virtual"] as const;
 export type CameraKind = (typeof CAMERA_KINDS)[number];
@@ -61,7 +70,7 @@ export type MediaRow = {
   file: string;
   /** Where the admin shows it (folder + name); moving rewrites it. */
   path: string;
-  world: MediaWorld;
+  platform: MediaPlatform;
   timestamp: string | null;
   camera_id: number | null;
   tags: string[];
@@ -72,7 +81,7 @@ export type MediaRow = {
 };
 
 export type MediaPatch = {
-  world?: MediaWorld;
+  platform?: MediaPlatform;
   camera_id?: number | null;
   tags?: string[];
   visibility?: Visibility;

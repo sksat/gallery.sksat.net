@@ -24,7 +24,7 @@ test("gallery: filter by tags with AND / OR", async ({ page }) => {
   await expect(images).toHaveCount(5);
   await expect(count).toHaveText("5 枚");
 
-  // "Real" is just a tag (from the world field)
+  // "Real" is just a tag (from the platform field)
   await chip(page, "Real").click();
   await expect(chip(page, "Real")).toHaveAttribute("aria-pressed", "true");
   await expect(images).toHaveCount(2);
@@ -333,4 +333,28 @@ test("old /photo/N URLs redirect to the photo's public id", async ({
   await page.goto("/photo/1");
   await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/$/);
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
+});
+
+// reaxxxxxxb's file name is not public (filename_public = 0 in the
+// fixture); the other photos' names are.
+test("gallery: a photo whose file name is not public never shows it", async ({
+  page,
+  request,
+}) => {
+  const api = "http://127.0.0.1:5178/api";
+  const one = await (await request.get(`${api}/media/reaxxxxxxb`)).json();
+  expect(one.file).toBeNull();
+  const list = await (await request.get(`${api}/media`)).json();
+  expect(JSON.stringify(list)).not.toContain("real2");
+  expect(list.find((m: { id: string }) => m.id === "reaxxxxxxa").file).toBe(
+    "/mock/real1.png",
+  );
+
+  // The page itself (grid and the photo's own page) has no trace of it.
+  await page.goto("/");
+  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+  expect(await page.content()).not.toContain("real2");
+  await page.goto("/photo/reaxxxxxxb/");
+  await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
+  expect(await page.content()).not.toContain("real2");
 });

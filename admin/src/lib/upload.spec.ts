@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatBytes,
-  guessWorld,
+  guessPlatform,
   MAX_UPLOAD_BYTES,
   safeSegment,
   uploadContentType,
@@ -80,12 +80,12 @@ describe("uploadTarget", () => {
   });
 });
 
-describe("guessWorld", () => {
+describe("guessPlatform", () => {
   it("is VRChat for VRChat's screenshot names", () => {
-    expect(guessWorld("/x/VRChat_2026-11-18_01-02-03.456_3840x2160.png")).toBe(
-      "VRChat",
-    );
-    expect(guessWorld("/VRChat/IMG_1.jpg")).toBe("Real");
+    expect(
+      guessPlatform("/x/VRChat_2026-11-18_01-02-03.456_3840x2160.png"),
+    ).toBe("VRChat");
+    expect(guessPlatform("/VRChat/IMG_1.jpg")).toBe("Real");
   });
 });
 

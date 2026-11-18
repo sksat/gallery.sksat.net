@@ -153,7 +153,7 @@ pnpm db.seed.remote      # apply to production
 pnpm db.seed.local       # apply to local
 ```
 
-Once seeded, the `/media` page lists every row, `/media/[id]` edits `world`, the camera, and `tags`, `/camera` registers cameras (name, slug, kind, manufacturer and its website, model, product page URL, description, and pictures of the camera itself). Edits are live on the public site once the API's cache expires (about a minute); there is no publish step.
+Once seeded, the `/media` page lists every row, `/media/[id]` edits `platform`, the camera, and `tags`, `/camera` registers cameras (name, slug, kind, manufacturer and its website, model, product page URL, description, and pictures of the camera itself). Edits are live on the public site once the API's cache expires (about a minute); there is no publish step.
 
 > **Migration `0002_camera.sql`** creates `camera` and `camera_image`, makes one camera per distinct `(camera_make, camera_model)` pair already in `media` (named after the model with the make as its `manufacturer`; slug from the model, e.g. `virtuallens2`; kind `virtual` when only VRChat photos use it), points `media.camera_id` at it, and rebuilds `media` without the old `camera_make`/`camera_model` columns. Review the generated names/slugs in `/camera` after `pnpm db.migrate.remote`. `pnpm import-media` emits cameras the same way.
 

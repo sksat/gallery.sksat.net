@@ -11,7 +11,7 @@ INSERT INTO camera (id, slug, name, manufacturer, manufacturer_url, model, kind,
   (2, 'pentax-sp',    'PENTAX SP',    'Asahi',    NULL,                           'Pentax SP',    'film',    NULL,                         NULL,                               '2024-01-01T00:00:00.000Z');
 -- Visibility: rows 1-3 public, 4 unlisted, 5 private. public_id is fixed
 -- (the trigger would pick a random one).
-INSERT INTO media (id, public_id, file, world, timestamp, camera_id, tags, visibility, legacy_index, updated_at) VALUES
+INSERT INTO media (id, public_id, file, platform, timestamp, camera_id, tags, visibility, legacy_index, updated_at) VALUES
   (1, 'aaaaaaaaa2', '/mock/real1.png',   'Real',   '2023-12-01T00:00:00Z', NULL, '[]',         'public',   0,    '2024-01-01T00:00:00.000Z'),
   (2, 'aaaaaaaaa3', '/mock/vrchat1.png', 'VRChat', '2023-12-02T00:00:00Z', 1,    '["VRChat"]', 'public',   1,    '2024-01-01T00:00:00.000Z'),
   (3, 'aaaaaaaaa4', '/mock/real2.png',   'Real',   '2023-12-03T00:00:00Z', NULL, '[]',         'public',   2,    '2024-01-01T00:00:00.000Z'),

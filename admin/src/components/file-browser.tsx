@@ -2,7 +2,7 @@ import { component$, Slot, type JSXOutput } from "@builder.io/qwik";
 import { Link } from "@builder.io/qwik-city";
 import { ancestors, isWithin, type FolderNode } from "~/lib/folders";
 import { mediaEditHref, mediaListHref } from "~/lib/format";
-import type { MediaWorld, Visibility } from "~/lib/types";
+import type { MediaPlatform, Visibility } from "~/lib/types";
 import { StatePanel } from "./state-panel";
 import { Thumb } from "./thumb";
 import { card, muted } from "./ui";
@@ -18,7 +18,7 @@ export type FileTile = {
   id: number;
   file: string;
   path: string;
-  world: MediaWorld;
+  platform: MediaPlatform;
 };
 
 type Props = {
@@ -30,7 +30,7 @@ type Props = {
   /** Photos directly in `dir`, sorted by name. */
   files: FileTile[];
   imageBase: string | null;
-  world: MediaWorld | null;
+  platform: MediaPlatform | null;
   visibility: Visibility | null;
   q: string;
 };
@@ -56,9 +56,9 @@ const Count = ({ n }: { n: number }) => (
 );
 
 export const FileBrowser = component$<Props>(
-  ({ tree, dir, folder, files, imageBase, world, visibility, q }) => {
+  ({ tree, dir, folder, files, imageBase, platform, visibility, q }) => {
     const href = (path: string) =>
-      mediaListHref({ view: "files", dir: path, world, visibility, q });
+      mediaListHref({ view: "files", dir: path, platform, visibility, q });
 
     // Nested link list: the root's children are always shown, and a folder's
     // children once the selection is in it (like a file manager's sidebar).
@@ -180,7 +180,7 @@ export const FileBrowser = component$<Props>(
               action={{ href: href("/"), label: ROOT_LABEL }}
             >
               <p>
-                No {world || q ? "matching " : ""}media lives under{" "}
+                No {platform || q ? "matching " : ""}media lives under{" "}
                 <code>{dir}</code>.
               </p>
             </StatePanel>
@@ -229,7 +229,7 @@ export const FileBrowser = component$<Props>(
                     >
                       <Thumb
                         file={f.file}
-                        world={f.world}
+                        platform={f.platform}
                         imageBase={imageBase}
                         variant="list"
                         class="w-full"

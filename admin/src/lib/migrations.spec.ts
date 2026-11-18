@@ -405,9 +405,9 @@ describe("0005_path_trash.sql", () => {
 
   it("fills in the path of a row inserted without one", () => {
     const db = migrate5([]);
-    db.exec("INSERT INTO media (file, world) VALUES ('/n.png', 'Real')");
+    db.exec("INSERT INTO media (file, platform) VALUES ('/n.png', 'Real')");
     db.exec(
-      "INSERT INTO media (file, world, path) VALUES ('/k.png', 'Real', '/moved/k.png')",
+      "INSERT INTO media (file, platform, path) VALUES ('/k.png', 'Real', '/moved/k.png')",
     );
     expect(
       db.prepare("SELECT file, path FROM media ORDER BY id").all(),
@@ -421,16 +421,50 @@ describe("0005_path_trash.sql", () => {
     const db = migrate5([["/a.png", "Real", null, null]]);
     expect(() =>
       db.exec(
-        "INSERT INTO media (file, world, path) VALUES ('/b.png', 'Real', '/a.png')",
+        "INSERT INTO media (file, platform, path) VALUES ('/b.png', 'Real', '/a.png')",
       ),
     ).toThrow(/UNIQUE/);
     db.exec("UPDATE media SET trashed_at = '2026-11-18T00:00:00Z'");
     db.exec(
-      "INSERT INTO media (file, world, path) VALUES ('/b.png', 'Real', '/a.png')",
+      "INSERT INTO media (file, platform, path) VALUES ('/b.png', 'Real', '/a.png')",
     );
     expect(
       db.prepare("SELECT COUNT(*) AS n FROM media WHERE path = '/a.png'").get(),
     ).toEqual({ n: 2 });
+  });
+
+  it("renames world to platform, keeping its values and CHECK", () => {
+    const db = migrate5([
+      ["/a.png", "Real", null, null],
+      ["/v.png", "VRChat", null, null],
+    ]);
+    expect(db.prepare("SELECT platform FROM media ORDER BY id").all()).toEqual([
+      { platform: "Real" },
+      { platform: "VRChat" },
+    ]);
+    expect(() =>
+      db.exec("INSERT INTO media (file, platform) VALUES ('/m.png', 'Mars')"),
+    ).toThrow(/CHECK/);
+    expect(() => db.prepare("SELECT world FROM media").all()).toThrow();
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_media_%' ORDER BY name",
+        )
+        .all()
+        .map((r) => r.name),
+    ).toContain("idx_media_platform");
+  });
+
+  it("hides every file name to begin with, new photos too", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    db.exec("INSERT INTO media (file, platform) VALUES ('/b.png', 'Real')");
+    expect(
+      db.prepare("SELECT filename_public FROM media ORDER BY id").all(),
+    ).toEqual([{ filename_public: 0 }, { filename_public: 0 }]);
+    expect(() => db.exec("UPDATE media SET filename_public = 2")).toThrow(
+      /CHECK/,
+    );
   });
 
   it("rejects malformed paths", () => {
@@ -439,7 +473,7 @@ describe("0005_path_trash.sql", () => {
       expect(
         () =>
           db.exec(
-            `INSERT INTO media (file, world, path) VALUES ('/x${bad.length}.png', 'Real', '${bad}')`,
+            `INSERT INTO media (file, platform, path) VALUES ('/x${bad.length}.png', 'Real', '${bad}')`,
           ),
         bad,
       ).toThrow(/CHECK/);

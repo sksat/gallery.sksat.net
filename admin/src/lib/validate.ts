@@ -30,11 +30,13 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
   const obj = input as Record<string, unknown>;
   const patch: MediaPatch = {};
 
-  if ("world" in obj) {
-    if (obj.world !== "Real" && obj.world !== "VRChat") {
-      return { ok: false, error: "world must be 'Real' or 'VRChat'" };
+  // `world` is the field's old name: still accepted from older clients.
+  const platform = "platform" in obj ? obj.platform : obj.world;
+  if ("platform" in obj || "world" in obj) {
+    if (platform !== "Real" && platform !== "VRChat") {
+      return { ok: false, error: "platform must be 'Real' or 'VRChat'" };
     }
-    patch.world = obj.world;
+    patch.platform = platform;
   }
 
   // Whether the id exists is checked against D1 by the caller

@@ -5,17 +5,17 @@
 // list view.
 
 import { dirOf } from "./folders";
-import { LIVE_PHOTO, type MediaWorld, type Visibility } from "./types";
+import { LIVE_PHOTO, type MediaPlatform, type Visibility } from "./types";
 
 export type MediaFileRow = {
   id: number;
   file: string;
   path: string;
-  world: MediaWorld;
+  platform: MediaPlatform;
 };
 
 export type FilesParams = {
-  world?: MediaWorld;
+  platform?: MediaPlatform;
   visibility?: Visibility;
   q?: string;
   limit: number;
@@ -32,9 +32,9 @@ export const filesQuery = (
   // Not uploads that have not completed (listIncomplete), nor the trash.
   const where: string[] = [LIVE_PHOTO];
   const args: unknown[] = [];
-  if (params.world) {
-    where.push("world = ?");
-    args.push(params.world);
+  if (params.platform) {
+    where.push("platform = ?");
+    args.push(params.platform);
   }
   if (params.visibility) {
     where.push("visibility = ?");
@@ -48,7 +48,7 @@ export const filesQuery = (
   }
   const whereSql = ` WHERE ${where.join(" AND ")}`;
   return {
-    sql: `SELECT id, file, path, world FROM media${whereSql} ORDER BY path LIMIT ?`,
+    sql: `SELECT id, file, path, platform FROM media${whereSql} ORDER BY path LIMIT ?`,
     args: [...args, params.limit + 1],
   };
 };

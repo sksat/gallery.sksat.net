@@ -19,7 +19,9 @@ import type {
 export type MediaJoinRow = {
   public_id: string;
   file: string;
-  world: string;
+  /** 1 when the file name may be shown (admin migration 0005). */
+  filename_public: number;
+  platform: string;
   timestamp: string | null;
   tags: string;
   camera_slug: string | null;
@@ -49,7 +51,7 @@ export type CameraImageRow = {
 };
 
 const MEDIA_SELECT = `
-  SELECT m.public_id, m.file, m.world, m.timestamp, m.tags,
+  SELECT m.public_id, m.file, m.filename_public, m.platform, m.timestamp, m.tags,
          c.slug AS camera_slug, c.name AS camera_name,
          c.manufacturer AS camera_manufacturer, c.model AS camera_model
   FROM media m LEFT JOIN camera c ON c.id = m.camera_id`;
@@ -81,10 +83,20 @@ const parseTags = (raw: string): string[] => {
   }
 };
 
-export const rowToItem = (row: MediaJoinRow): MediaItemJSON => ({
+/**
+ * A photo as the public API shows it: the file name only when it is public
+ * (`filename_public`), else null. `withFile` is for the image Worker's own
+ * lookups (RPC), which need the bucket path to fetch the original.
+ */
+export const rowToItem = (
+  row: MediaJoinRow,
+  withFile = false,
+): MediaItemJSON => ({
   id: row.public_id,
-  file: row.file,
-  world: row.world === "VRChat" ? "VRChat" : "Real",
+  file: withFile || row.filename_public === 1 ? row.file : null,
+  platform: row.platform === "VRChat" ? "VRChat" : "Real",
+  // Deprecated alias of platform (see MediaItemJSON).
+  world: row.platform === "VRChat" ? "VRChat" : "Real",
   timestamp: row.timestamp,
   camera:
     row.camera_slug === null
@@ -129,7 +141,7 @@ export const listPublicMedia = async (
        ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
     )
     .all<MediaJoinRow>();
-  return (res.results ?? []).map(rowToItem);
+  return (res.results ?? []).map((r) => rowToItem(r));
 };
 
 /** A public or unlisted photo by its public id. */
@@ -148,17 +160,38 @@ export type FileAccess =
   { kind: "photo"; photo: MediaItemJSON } | { kind: "camera-image" };
 
 /**
+ * A public or unlisted photo by its public id, with its bucket path even
+ * when the file name is not public: for the image Worker (RPC), which
+ * fetches the original by it and never shows it.
+ */
+export const getPhotoForImage = async (
+  db: D1Database,
+  publicId: string,
+): Promise<MediaItemJSON | null> => {
+  const row = await db
+    .prepare(`${MEDIA_SELECT} WHERE m.public_id = ? AND ${VIEWABLE}`)
+    .bind(publicId)
+    .first<MediaJoinRow>();
+  return row ? rowToItem(row, true) : null;
+};
+
+/**
  * Whether the image Worker may serve a bucket path by file name: a public
- * photo (with its metadata, for the og caption) or a picture of a camera.
- * Null for anything else, in particular unlisted and private photos, whose
- * predictable file paths must not give them away.
+ * photo whose file name is public (with its metadata, for the og caption)
+ * or a picture of a camera. Null for anything else, in particular unlisted
+ * and private photos, whose predictable file paths must not give them
+ * away, and photos whose name is not public (reachable by public id only).
  */
 export const getFileAccess = async (
   db: D1Database,
   file: string,
 ): Promise<FileAccess | null> => {
   const [photos, images] = await db.batch([
-    db.prepare(`${MEDIA_SELECT} WHERE m.file = ? AND ${LISTED}`).bind(file),
+    db
+      .prepare(
+        `${MEDIA_SELECT} WHERE m.file = ? AND ${LISTED} AND m.filename_public = 1`,
+      )
+      .bind(file),
     // A camera picture that is also a photo row follows the photo's
     // visibility and status: listing a private photo (or one still being
     // uploaded) as a camera picture must not publish it by path.

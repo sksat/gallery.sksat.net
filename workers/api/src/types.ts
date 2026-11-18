@@ -15,7 +15,17 @@ export type MediaCameraJSON = {
 /** One photo. `id` is its public id (/photo/<id>). */
 export type MediaItemJSON = {
   id: string;
-  file: string;
+  /**
+   * The bucket path, only when the photo's file name is public
+   * (media.filename_public); null otherwise. Images go by `id` anyway.
+   */
+  file: string | null;
+  /** Where the photo was taken (admin media.platform). */
+  platform: "Real" | "VRChat";
+  /**
+   * @deprecated The same value as `platform`, the field's old name. Kept
+   * while gallery deployments that read it may still run; to be removed.
+   */
   world: "Real" | "VRChat";
   timestamp: string | null;
   camera: MediaCameraJSON | null;

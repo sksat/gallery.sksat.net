@@ -10,6 +10,7 @@ import {
   getFileAccess,
   getLegacyId,
   getMedia,
+  getPhotoForImage,
   listCameras,
   listPublicMedia,
   rowToItem,
@@ -50,7 +51,7 @@ const setup = () => {
       (1, '/c/a.png', 0, 'Front');
     -- Cameras: 1 and 4 have public photos, 3 only an unlisted one, 2 only a
     -- private one.
-    INSERT INTO media (id, public_id, file, world, timestamp, camera_id, tags, visibility, legacy_index) VALUES
+    INSERT INTO media (id, public_id, file, platform, timestamp, camera_id, tags, visibility, legacy_index) VALUES
       (1, 'aaaaaaaaa2', '/p1.png', 'Real',   '2023-12-01T00:00:00Z', 4,    '["film"]',   'public',   0),
       (2, 'aaaaaaaaa3', '/p2.png', 'VRChat', '2023-12-02T00:00:00Z', 1,    '["VRChat"]', 'public',   1),
       (3, 'aaaaaaaaa4', '/u.png',  'VRChat', '2023-12-03T00:00:00Z', 3,    '[]',         'unlisted', 2),
@@ -59,10 +60,12 @@ const setup = () => {
       (6, 'aaaaaaaaa7', '/p3.png', 'Real',   '2023-12-01T00:00:00Z', NULL, '[]',         'public',   NULL);
     -- Public and unlisted, but their uploads have not completed: never
     -- served, and they do not make camera 2 visible either.
-    INSERT INTO media (id, public_id, file, world, timestamp, camera_id, tags, visibility, legacy_index, status) VALUES
+    INSERT INTO media (id, public_id, file, platform, timestamp, camera_id, tags, visibility, legacy_index, status) VALUES
       (7, 'aaaaaaaaa8', '/up.png', 'Real', '2023-12-09T00:00:00Z', 2, '[]', 'public',   4, 'uploading'),
       (8, 'aaaaaaaaa9', '/uu.png', 'Real', '2023-12-09T00:00:00Z', 2, '[]', 'unlisted', 5, 'uploading');
     INSERT INTO camera_image (camera_id, file, position) VALUES (3, '/up.png', 9);
+    -- File names are public except photo 6's.
+    UPDATE media SET filename_public = 1 WHERE id <> 6;
   `);
   return d1(db);
 };
@@ -80,6 +83,8 @@ describe("listPublicMedia", () => {
     expect(items[0]).toEqual({
       id: "aaaaaaaaa3",
       file: "/p2.png",
+      platform: "VRChat",
+      // Deprecated alias, still sent during the rename.
       world: "VRChat",
       timestamp: "2023-12-02T00:00:00Z",
       camera: {
@@ -176,6 +181,28 @@ describe("cameras", () => {
   });
 });
 
+describe("a photo whose file name is not public", () => {
+  it("is listed and opened without its file", async () => {
+    const db = setup();
+    const listed = (await listPublicMedia(db)).find((m) => m.id === "aaaaaaaaa7");
+    expect(listed).toMatchObject({ id: "aaaaaaaaa7", file: null });
+    expect(JSON.stringify(listed)).not.toContain("p3");
+    expect((await getMedia(db, "aaaaaaaaa7"))?.file).toBeNull();
+  });
+
+  it("is not served by its bucket path", async () => {
+    expect(await getFileAccess(setup(), "/p3.png")).toBeNull();
+  });
+
+  it("gives its file to the image Worker only (RPC)", async () => {
+    const db = setup();
+    expect((await getPhotoForImage(db, "aaaaaaaaa7"))?.file).toBe("/p3.png");
+    // Still not private ones.
+    expect(await getPhotoForImage(db, "aaaaaaaaa5")).toBeNull();
+    expect((await getPhotoForImage(db, "aaaaaaaaa4"))?.file).toBe("/u.png");
+  });
+});
+
 describe("photos in the admin's trash", () => {
   const trash = async (db: D1Database) =>
     db
@@ -242,7 +269,8 @@ describe("rowToItem", () => {
   const row = {
     public_id: "abcdefghjk",
     file: "/a.png",
-    world: "Real",
+    filename_public: 1,
+    platform: "Real",
     timestamp: null,
     tags: "[]",
     camera_slug: null,
@@ -250,6 +278,12 @@ describe("rowToItem", () => {
     camera_manufacturer: null,
     camera_model: null,
   };
+
+  it("leaves the file out unless its name is public", () => {
+    expect(rowToItem(row).file).toBe("/a.png");
+    expect(rowToItem({ ...row, filename_public: 0 }).file).toBeNull();
+    expect(rowToItem({ ...row, filename_public: 0 }, true).file).toBe("/a.png");
+  });
 
   it("has no camera when the photo has none", () => {
     expect(rowToItem(row).camera).toBeNull();

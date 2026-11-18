@@ -8,10 +8,22 @@ import {
   mediaListHref,
   parseMediaAnchor,
   parseView,
+  platformParam,
   publicPhotoUrl,
   safeBackHref,
   splitPath,
 } from "./format";
+
+describe("platformParam", () => {
+  it("reads ?platform=, and ?world= from old links", () => {
+    const p = (q: string) => platformParam(new URLSearchParams(q));
+    expect(p("platform=VRChat")).toBe("VRChat");
+    expect(p("world=Real")).toBe("Real");
+    expect(p("platform=Real&world=VRChat")).toBe("Real");
+    expect(p("platform=Mars")).toBeNull();
+    expect(p("")).toBeNull();
+  });
+});
 
 describe("mediaListHref visibility", () => {
   it("keeps the visibility filter", () => {
@@ -50,26 +62,26 @@ describe("filterChips", () => {
       filterChips({
         view: "files",
         dir: "/a",
-        world: "VRChat",
+        platform: "VRChat",
         visibility: "private",
         q: "x",
         visibilityLabel: label,
       }),
     ).toEqual([
       {
-        key: "world",
+        key: "platform",
         label: "VRChat",
         href: "/media/?view=files&dir=/a&visibility=private&q=x",
       },
       {
         key: "visibility",
         label: "PRIVATE",
-        href: "/media/?view=files&dir=/a&world=VRChat&q=x",
+        href: "/media/?view=files&dir=/a&platform=VRChat&q=x",
       },
       {
         key: "q",
         label: "“x”",
-        href: "/media/?view=files&dir=/a&world=VRChat&visibility=private",
+        href: "/media/?view=files&dir=/a&platform=VRChat&visibility=private",
       },
     ]);
   });
@@ -79,7 +91,7 @@ describe("filterChips", () => {
       filterChips({
         view: "list",
         dir: "/",
-        world: null,
+        platform: null,
         visibility: null,
         q: "",
         visibilityLabel: label,
@@ -168,12 +180,12 @@ describe("formatJst", () => {
 describe("mediaListHref", () => {
   it("is the bare list URL for defaults", () => {
     expect(mediaListHref({})).toBe("/media/");
-    expect(mediaListHref({ world: null, q: "", page: 1 })).toBe("/media/");
+    expect(mediaListHref({ platform: null, q: "", page: 1 })).toBe("/media/");
   });
 
   it("keeps the filter and drops page=1", () => {
-    expect(mediaListHref({ world: "VRChat", q: "a b", page: 1 })).toBe(
-      "/media/?world=VRChat&q=a+b",
+    expect(mediaListHref({ platform: "VRChat", q: "a b", page: 1 })).toBe(
+      "/media/?platform=VRChat&q=a+b",
     );
   });
 
@@ -190,10 +202,10 @@ describe("mediaListHref", () => {
       mediaListHref({
         view: "files",
         dir: "/VRChat/2023-12",
-        world: "VRChat",
+        platform: "VRChat",
         page: 2,
       }),
-    ).toBe("/media/?view=files&dir=/VRChat/2023-12&world=VRChat");
+    ).toBe("/media/?view=files&dir=/VRChat/2023-12&platform=VRChat");
     expect(mediaListHref({ view: "files", dir: "/" })).toBe(
       "/media/?view=files",
     );

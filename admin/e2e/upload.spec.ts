@@ -89,11 +89,11 @@ test("upload two photos into a new folder", async ({ page }) => {
     page.getByRole("heading", { name: "This folder is empty" }),
   ).toHaveCount(0);
 
-  // Private, with the time from the VRChat file name and the world.
+  // Private, with the time from the VRChat file name and the platform.
   await tiles.filter({ hasText: VRCHAT }).click();
   await expect(page.locator("main")).toContainText("Private");
   await expect(page.locator("main")).toContainText("2026/11/18 01:02");
-  await expect(page.locator('select[name="world"]')).toHaveValue("VRChat");
+  await expect(page.locator('select[name="platform"]')).toHaveValue("VRChat");
 });
 
 test("make uploaded photos public from the panel", async ({ page }) => {

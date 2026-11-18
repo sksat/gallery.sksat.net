@@ -16,10 +16,12 @@ import {
   getLegacyId,
   getFileAccess,
   getMedia,
+  getPhotoForImage,
   listCameras,
   listPublicMedia,
   type FileAccess,
 } from "./query";
+import type { MediaItemJSON } from "./types";
 import { jsonResponse, parseRoute, type Route } from "./route";
 
 export interface Env {
@@ -85,6 +87,15 @@ export default class extends WorkerEntrypoint<Env> {
    */
   async fileAccess(file: string): Promise<FileAccess | null> {
     return getFileAccess(this.env.DB, file);
+  }
+
+  /**
+   * A public or unlisted photo by public id, bucket path included even when
+   * the file name is not public (the HTTP API leaves it out then): what the
+   * image Worker needs to fetch the original. Null if there is none.
+   */
+  async photo(publicId: string): Promise<MediaItemJSON | null> {
+    return getPhotoForImage(this.env.DB, publicId);
   }
 }
 
