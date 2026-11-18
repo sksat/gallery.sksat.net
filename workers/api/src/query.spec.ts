@@ -99,6 +99,7 @@ describe("listPublicMedia", () => {
         manufacturer: "logilabo",
         model: "VirtualLens2",
       },
+      location: null,
       // "secret" is not a public tag.
       tags: ["VRChat"],
     });
@@ -191,6 +192,31 @@ describe("site-wide defaults", () => {
       tags: [],
     });
     expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
+  });
+});
+
+describe("location", () => {
+  it("is never returned unless a photo or the site makes it public", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `UPDATE media SET latitude = 35.6812, longitude = 139.7671, location_source = 'exif'`,
+    );
+    const all = JSON.stringify([
+      await listPublicMedia(db),
+      await getPhotoForImage(db, "aaaaaaaaa3"),
+      await getFileAccess(db, "/p2.png"),
+    ]);
+    expect(all).not.toContain("35.68");
+    run(
+      raw,
+      `UPDATE media SET metadata_visibility = '{"location":"prefecture"}' WHERE id = 2`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa3"))?.location).toEqual({
+      latitude: 35.7,
+      longitude: 139.8,
+      precision: "prefecture",
+    });
   });
 });
 
@@ -335,6 +361,8 @@ describe("projectPhoto", () => {
     camera_name: "VirtualLens2",
     camera_manufacturer: "logilabo",
     camera_model: "VirtualLens2",
+    latitude: 35.681236,
+    longitude: 139.767125,
   };
   const ctx = { site: null, publicTags: new Set(["x"]) };
   const at = (levels: Record<string, string>) =>
@@ -412,6 +440,38 @@ describe("projectPhoto", () => {
         },
         ctx,
       ).camera,
+    ).toBeNull();
+  });
+
+  it("shows where it was taken only as far as its level allows", () => {
+    // Hidden by default.
+    expect(projectPhoto(row, ctx).location).toBeNull();
+    expect(at({ location: "exact" }).location).toEqual({
+      latitude: 35.68124,
+      longitude: 139.76713,
+      precision: "exact",
+    });
+    expect(at({ location: "city" }).location).toEqual({
+      latitude: 35.68,
+      longitude: 139.77,
+      precision: "city",
+    });
+    expect(at({ location: "country" }).location).toEqual({
+      latitude: 36,
+      longitude: 140,
+      precision: "country",
+    });
+    // Unknown: nothing, whatever the level.
+    expect(
+      projectPhoto(
+        {
+          ...row,
+          latitude: null,
+          longitude: null,
+          metadata_visibility: '{"location":"exact"}',
+        },
+        ctx,
+      ).location,
     ).toBeNull();
   });
 

@@ -15,6 +15,7 @@
 import {
   BUILTIN_DEFAULTS,
   effectiveLevels,
+  locationAt,
   truncateTimestamp,
   type MetadataField,
 } from "./metadata";
@@ -37,6 +38,9 @@ export type MediaJoinRow = {
   tags: string;
   /** This photo's metadata visibility overrides (JSON), or NULL. */
   metadata_visibility: string | null;
+  /** Where it was taken (degrees; both NULL when unknown). */
+  latitude: number | null;
+  longitude: number | null;
   camera_slug: string | null;
   camera_name: string | null;
   camera_manufacturer: string | null;
@@ -72,7 +76,7 @@ export type Context = {
 
 const MEDIA_SELECT = `
   SELECT m.public_id, m.file, m.path, m.platform, m.timestamp, m.tags,
-         m.metadata_visibility,
+         m.metadata_visibility, m.latitude, m.longitude,
          c.slug AS camera_slug, c.name AS camera_name,
          c.manufacturer AS camera_manufacturer, c.model AS camera_model
   FROM media m LEFT JOIN camera c ON c.id = m.camera_id`;
@@ -188,6 +192,7 @@ export const projectPhoto = (
         ? null
         : levels.taken_at,
     camera: cameraAt(row, levels.camera),
+    location: locationAt(row.latitude, row.longitude, levels.location),
     tags:
       levels.tags === "public"
         ? parseTags(row.tags).filter((t) => ctx.publicTags.has(t))

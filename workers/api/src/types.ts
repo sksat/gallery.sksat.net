@@ -16,6 +16,13 @@ export type MediaCameraJSON = {
   model: string | null;
 };
 
+/** A coarse or exact position (metadata.ts, locationAt). */
+export type MediaLocationJSON = {
+  latitude: number;
+  longitude: number;
+  precision: "exact" | "city" | "prefecture" | "country";
+};
+
 /** How precisely `timestamp` is given (metadata.ts, taken_at). */
 export type TimestampPrecision =
   "second" | "minute" | "date" | "month" | "year";
@@ -44,6 +51,14 @@ export type MediaItemJSON = {
   timestamp: string | null;
   timestamp_precision: TimestampPrecision | null;
   camera: MediaCameraJSON | null;
+  /**
+   * Where it was taken, as precisely as its `location` level allows:
+   * "exact" to 5 decimals (about 1 m); "city", "prefecture" and "country"
+   * only as a coarse position (2, 1 and 0 decimals) with no place name
+   * yet (reverse geocoding comes later). Null when hidden (the default)
+   * or unknown.
+   */
+  location: MediaLocationJSON | null;
   /** Only the tags marked public (admin `tag` table). */
   tags: string[];
 };

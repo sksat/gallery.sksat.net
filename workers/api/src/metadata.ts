@@ -113,3 +113,34 @@ export const truncateTimestamp = (
       return `${y}-01-01T00:00:00${off}`;
   }
 };
+
+/** Decimals kept at each location level (about 1 m, 1 km, 10 km, 100 km). */
+const LOCATION_DECIMALS = { exact: 5, city: 2, prefecture: 1, country: 0 };
+
+/**
+ * Where a photo was taken at a level: rounded to that level's decimals.
+ * "city", "prefecture" and "country" give only a coarse position for now
+ * (no place name: reverse geocoding comes later). Null when hidden or
+ * unknown (both coordinates are needed).
+ */
+export const locationAt = (
+  latitude: number | null,
+  longitude: number | null,
+  level: MetadataLevels["location"],
+): {
+  latitude: number;
+  longitude: number;
+  precision: Exclude<MetadataLevels["location"], "hidden">;
+} | null => {
+  if (level === "hidden" || latitude === null || longitude === null) {
+    return null;
+  }
+  const f = 10 ** LOCATION_DECIMALS[level];
+  // + 0 turns -0 into 0.
+  const round = (v: number) => Math.round(v * f) / f + 0;
+  return {
+    latitude: round(latitude),
+    longitude: round(longitude),
+    precision: level,
+  };
+};

@@ -76,6 +76,19 @@ WHERE json_valid(m.tags) AND j.type = 'text'
   AND length(j.value) BETWEEN 1 AND 200
 ORDER BY j.value;
 
+-- Where a photo was taken (WGS 84 degrees), for a map later: both set or
+-- both NULL. location_source says where it came from (the file's EXIF GPS
+-- or entered by hand). Shown on the public site only as far as the
+-- photo's `location` level allows (hidden by default). Nothing is filled
+-- in here.
+ALTER TABLE media ADD COLUMN latitude REAL
+  CHECK (latitude BETWEEN -90 AND 90);
+ALTER TABLE media ADD COLUMN longitude REAL
+  CHECK ((latitude IS NULL) = (longitude IS NULL)
+         AND (longitude IS NULL OR longitude BETWEEN -180 AND 180));
+ALTER TABLE media ADD COLUMN location_source TEXT
+  CHECK (location_source IN ('exif', 'manual'));
+
 -- media.legacy_index (0003, the N of the first /photo/<N> URLs) is gone:
 -- nothing links to those URLs any more.
 DROP INDEX idx_media_legacy_index;

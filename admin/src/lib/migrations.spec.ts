@@ -511,6 +511,28 @@ describe("0005_path_trash.sql", () => {
     );
   });
 
+  it("keeps a location only as a valid pair, with its source", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    expect(
+      db
+        .prepare("SELECT latitude, longitude, location_source FROM media")
+        .get(),
+    ).toEqual({ latitude: null, longitude: null, location_source: null });
+    db.exec(
+      "UPDATE media SET latitude = -33.86, longitude = 151.21, location_source = 'exif'",
+    );
+    for (const bad of [
+      "latitude = NULL",
+      "longitude = NULL",
+      "latitude = 91",
+      "longitude = -180.5",
+      "location_source = 'gps'",
+    ]) {
+      expect(() => db.exec(`UPDATE media SET ${bad}`), bad).toThrow(/CHECK/);
+    }
+    db.exec("UPDATE media SET latitude = NULL, longitude = NULL");
+  });
+
   it("drops legacy_index", () => {
     const db = migrate5([["/a.png", "Real", null, null]]);
     expect(() => db.prepare("SELECT legacy_index FROM media").all()).toThrow();
