@@ -168,10 +168,13 @@ describe("validatePatch", () => {
     expect(validatePatch({ platform: "Mars" }).ok).toBe(false);
   });
 
-  it("takes the platform, not its old name world", () => {
+  it("takes the platform; world is not the platform", () => {
     const r = validatePatch({ platform: "VRChat" });
     expect(r.ok && r.patch).toEqual({ platform: "VRChat" });
-    expect(validatePatch({ world: "Real" })).toEqual({ ok: true, patch: {} });
+    expect(validatePatch({ world: "Real" })).toEqual({
+      ok: false,
+      error: "unknown field: world",
+    });
   });
 
   it('takes metadata visibility overrides; "" is the default', () => {
@@ -201,10 +204,10 @@ describe("validatePatch", () => {
     expect(validatePatch({ camera_id }).ok).toBe(false);
   });
 
-  it("ignores the removed camera_make/camera_model fields", () => {
-    // Unknown keys are dropped; the camera is only set through camera_id.
+  it("refuses the removed camera_make/camera_model fields", () => {
+    // The camera is only set through camera_id.
     const r = validatePatch({ camera_make: "Canon", camera_model: "EOS" });
-    expect(r.ok && r.patch).toEqual({});
+    expect(r.ok).toBe(false);
   });
   it("rejects array body", () => {
     const r = validatePatch([]);

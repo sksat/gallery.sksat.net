@@ -24,12 +24,30 @@ export const CAMERA_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export type ValidatePatchResult =
   { ok: true; patch: MediaPatch } | { ok: false; error: string };
 
+/** The fields a media PATCH may set. */
+const PATCH_FIELDS = new Set([
+  "platform",
+  "metadata_visibility",
+  "camera_id",
+  "tags",
+  "visibility",
+]);
+
 export const validatePatch = (input: unknown): ValidatePatchResult => {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, error: "body must be a JSON object" };
   }
   const obj = input as Record<string, unknown>;
   const patch: MediaPatch = {};
+
+  // Only the fields below. Anything else is an error rather than ignored,
+  // so a client sending `world` (now the VRChat world, not the platform)
+  // or a typo learns that nothing was saved.
+  for (const key of Object.keys(obj)) {
+    if (!PATCH_FIELDS.has(key)) {
+      return { ok: false, error: `unknown field: ${key}` };
+    }
+  }
 
   if ("platform" in obj) {
     const platform = obj.platform;
