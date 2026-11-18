@@ -2,7 +2,7 @@ import { component$, Slot, type JSXOutput } from "@builder.io/qwik";
 import { Link } from "@builder.io/qwik-city";
 import { ancestors, isWithin, type FolderNode } from "~/lib/folders";
 import { mediaEditHref, mediaListHref } from "~/lib/format";
-import type { MediaWorld, Visibility } from "~/lib/types";
+import type { MediaPlatform, Visibility } from "~/lib/types";
 import { StatePanel } from "./state-panel";
 import { Thumb } from "./thumb";
 import { card, muted } from "./ui";
@@ -13,7 +13,13 @@ import { card, muted } from "./ui";
 // the view, folder and filter in the URL, so reload/back work and the tree
 // is navigable with Tab / Enter.
 
-export type FileTile = { id: number; file: string; world: MediaWorld };
+/** A photo tile: `path` places and names it, `file` is its thumbnail. */
+export type FileTile = {
+  id: number;
+  file: string;
+  path: string;
+  platform: MediaPlatform;
+};
 
 type Props = {
   tree: FolderNode;
@@ -24,7 +30,7 @@ type Props = {
   /** Photos directly in `dir`, sorted by name. */
   files: FileTile[];
   imageBase: string | null;
-  world: MediaWorld | null;
+  platform: MediaPlatform | null;
   visibility: Visibility | null;
   q: string;
 };
@@ -50,9 +56,9 @@ const Count = ({ n }: { n: number }) => (
 );
 
 export const FileBrowser = component$<Props>(
-  ({ tree, dir, folder, files, imageBase, world, visibility, q }) => {
+  ({ tree, dir, folder, files, imageBase, platform, visibility, q }) => {
     const href = (path: string) =>
-      mediaListHref({ view: "files", dir: path, world, visibility, q });
+      mediaListHref({ view: "files", dir: path, platform, visibility, q });
 
     // Nested link list: the root's children are always shown, and a folder's
     // children once the selection is in it (like a file manager's sidebar).
@@ -174,7 +180,7 @@ export const FileBrowser = component$<Props>(
               action={{ href: href("/"), label: ROOT_LABEL }}
             >
               <p>
-                No {world || q ? "matching " : ""}media lives under{" "}
+                No {platform || q ? "matching " : ""}media lives under{" "}
                 <code>{dir}</code>.
               </p>
             </StatePanel>
@@ -207,7 +213,7 @@ export const FileBrowser = component$<Props>(
                 </li>
               ))}
               {files.map((f) => {
-                const name = f.file.slice(f.file.lastIndexOf("/") + 1);
+                const name = f.path.slice(f.path.lastIndexOf("/") + 1);
                 return (
                   <li key={f.id}>
                     <Link
@@ -215,7 +221,7 @@ export const FileBrowser = component$<Props>(
                       href={mediaEditHref(f.id, href(dir))}
                       data-testid="file-tile"
                       data-media-id={f.id}
-                      title={f.file}
+                      title={f.path}
                       class={[
                         card,
                         "block overflow-hidden transition-colors hover:border-sky-300 dark:hover:border-sky-800",
@@ -223,7 +229,7 @@ export const FileBrowser = component$<Props>(
                     >
                       <Thumb
                         file={f.file}
-                        world={f.world}
+                        platform={f.platform}
                         imageBase={imageBase}
                         variant="list"
                         class="w-full"

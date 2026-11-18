@@ -15,7 +15,16 @@ const NAV = [
     label: "Cameras",
     match: (p: string) => p === "/camera" || p.startsWith("/camera/"),
   },
+  { href: "/tag/", label: "Tags", match: (p: string) => p.startsWith("/tag") },
+  {
+    href: "/setting/",
+    label: "Settings",
+    match: (p: string) => p.startsWith("/setting"),
+  },
 ];
+
+/** The sections in the phone tab bar; the others are in its menu. */
+const TABS = 3;
 
 // sm and up: one header with the nav and the theme toggle. Phones: a slim
 // top bar (badge, section name, a menu holding the theme toggle) and the
@@ -98,6 +107,16 @@ export default component$(() => {
               </svg>
             </summary>
             <div class="absolute top-full right-0 z-30 mt-1 w-56 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+              {items.slice(TABS).map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={item.active ? "page" : undefined}
+                  class="flex h-11 items-center rounded-lg px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  {item.label}
+                </Link>
+              ))}
               <ThemeToggle menu />
             </div>
           </details>
@@ -106,7 +125,7 @@ export default component$(() => {
       <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         <Slot />
       </main>
-      <TabBar items={items} />
+      <TabBar items={items.slice(0, TABS)} />
     </>
   );
 });

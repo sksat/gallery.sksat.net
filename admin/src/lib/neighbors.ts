@@ -8,15 +8,21 @@ import {
   mediaEditHref,
   mediaListHref,
   parseView,
+  platformParam,
   type MediaView,
 } from "./format";
-import { isVisibility, type MediaWorld, type Visibility } from "./types";
+import {
+  isVisibility,
+  LIVE_PHOTO,
+  type MediaPlatform,
+  type Visibility,
+} from "./types";
 
 /** The /media list an edit page was opened from. */
 export type ListQuery = {
   view: MediaView;
   dir: string;
-  world: MediaWorld | null;
+  platform: MediaPlatform | null;
   visibility: Visibility | null;
   q: string;
   page: number;
@@ -26,13 +32,12 @@ export type ListQuery = {
 export const parseListHref = (href: string): ListQuery => {
   const i = href.indexOf("?");
   const p = new URLSearchParams(i < 0 ? "" : href.slice(i + 1));
-  const world = p.get("world");
   const visibility = p.get("visibility");
   const page = Number(p.get("page") ?? "1");
   return {
     view: parseView(p.get("view")),
     dir: normalizeDir(p.get("dir")),
-    world: world === "Real" || world === "VRChat" ? world : null,
+    platform: platformParam(p),
     visibility: isVisibility(visibility) ? visibility : null,
     q: p.get("q")?.trim() ?? "",
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -41,7 +46,7 @@ export const parseListHref = (href: string): ListQuery => {
 
 /** Same order as listMedia (list view) / filesInDir (files view). */
 const LIST_ORDER = "timestamp IS NULL, timestamp DESC, id DESC";
-const FILES_ORDER = "file";
+const FILES_ORDER = "path";
 
 /**
  * SQL + args for the neighbours of `id` in `list`: one row with prev_id,
@@ -54,12 +59,12 @@ export const neighborsQuery = (
   list: ListQuery,
   id: number,
 ): { sql: string; args: unknown[] } => {
-  // Like the lists, only photos whose upload has completed.
-  const where: string[] = ["status = 'ready'"];
+  // Like the lists: completed uploads, not the trash; by path.
+  const where: string[] = [LIVE_PHOTO];
   const args: unknown[] = [];
-  if (list.world) {
-    where.push("world = ?");
-    args.push(list.world);
+  if (list.platform) {
+    where.push("platform = ?");
+    args.push(list.platform);
   }
   if (list.visibility) {
     where.push("visibility = ?");
@@ -68,15 +73,15 @@ export const neighborsQuery = (
   if (list.q) {
     // Same LIKE escaping as listMedia.
     const escaped = list.q.replace(/[\\%_]/g, (c) => `\\${c}`);
-    where.push("file LIKE ? ESCAPE '\\'");
+    where.push("path LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
   }
   if (list.view === "files") {
     // Directly in the folder: the prefix, then no further "/".
     // SQLite counts characters (not UTF-16 units): let it measure.
     const prefix = list.dir === "/" ? "/" : `${list.dir}/`;
-    where.push("substr(file, 1, length(?)) = ?");
-    where.push("instr(substr(file, length(?) + 1), '/') = 0");
+    where.push("substr(path, 1, length(?)) = ?");
+    where.push("instr(substr(path, length(?) + 1), '/') = 0");
     args.push(prefix, prefix, prefix);
   }
   const whereSql = ` WHERE (${where.join(" AND ")}) OR id = ?`;
@@ -128,7 +133,7 @@ export const neighborLinks = (
     mediaListHref({
       view: list.view,
       dir: list.dir,
-      world: list.world,
+      platform: list.platform,
       visibility: list.visibility,
       q: list.q,
       page: Math.ceil(pos / pageSize),

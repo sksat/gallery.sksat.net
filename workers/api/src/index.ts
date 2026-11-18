@@ -13,13 +13,14 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   getCamera,
-  getLegacyId,
   getFileAccess,
   getMedia,
+  getPhotoForImage,
   listCameras,
   listPublicMedia,
   type FileAccess,
 } from "./query";
+import type { MediaItemJSON } from "./types";
 import { jsonResponse, parseRoute, type Route } from "./route";
 
 export interface Env {
@@ -35,10 +36,6 @@ const respond = async (db: D1Database, route: Route): Promise<Response> => {
     case "media": {
       const item = await getMedia(db, route.id);
       return item ? jsonResponse(200, item) : jsonResponse(404, NOT_FOUND);
-    }
-    case "legacy": {
-      const id = await getLegacyId(db, route.index);
-      return id ? jsonResponse(200, { id }) : jsonResponse(404, NOT_FOUND);
     }
     case "camera-list":
       return jsonResponse(200, await listCameras(db));
@@ -85,6 +82,15 @@ export default class extends WorkerEntrypoint<Env> {
    */
   async fileAccess(file: string): Promise<FileAccess | null> {
     return getFileAccess(this.env.DB, file);
+  }
+
+  /**
+   * A public or unlisted photo by public id, bucket path included even when
+   * the file name is not public (the HTTP API leaves it out then): what the
+   * image Worker needs to fetch the original. Null if there is none.
+   */
+  async photo(publicId: string): Promise<MediaItemJSON | null> {
+    return getPhotoForImage(this.env.DB, publicId);
   }
 }
 

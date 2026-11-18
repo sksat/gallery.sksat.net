@@ -1,3 +1,4 @@
+import { validateOverrides } from "./metadata";
 import {
   CAMERA_KINDS,
   type CameraInput,
@@ -23,6 +24,15 @@ export const CAMERA_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export type ValidatePatchResult =
   { ok: true; patch: MediaPatch } | { ok: false; error: string };
 
+/** The fields a media PATCH may set. */
+const PATCH_FIELDS = new Set([
+  "platform",
+  "metadata_visibility",
+  "camera_id",
+  "tags",
+  "visibility",
+]);
+
 export const validatePatch = (input: unknown): ValidatePatchResult => {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ok: false, error: "body must be a JSON object" };
@@ -30,11 +40,27 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
   const obj = input as Record<string, unknown>;
   const patch: MediaPatch = {};
 
-  if ("world" in obj) {
-    if (obj.world !== "Real" && obj.world !== "VRChat") {
-      return { ok: false, error: "world must be 'Real' or 'VRChat'" };
+  // Only the fields below. Anything else is an error rather than ignored,
+  // so a client sending `world` (now the VRChat world, not the platform)
+  // or a typo learns that nothing was saved.
+  for (const key of Object.keys(obj)) {
+    if (!PATCH_FIELDS.has(key)) {
+      return { ok: false, error: `unknown field: ${key}` };
     }
-    patch.world = obj.world;
+  }
+
+  if ("platform" in obj) {
+    const platform = obj.platform;
+    if (platform !== "Real" && platform !== "VRChat") {
+      return { ok: false, error: "platform must be 'Real' or 'VRChat'" };
+    }
+    patch.platform = platform;
+  }
+
+  if ("metadata_visibility" in obj) {
+    const v = validateOverrides(obj.metadata_visibility);
+    if (!v.ok) return v;
+    patch.metadata_visibility = v.value;
   }
 
   // Whether the id exists is checked against D1 by the caller

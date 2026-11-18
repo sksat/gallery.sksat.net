@@ -28,7 +28,7 @@ export default component$(() => {
       <PhotoPreview
         id={2}
         file="/mock/vrchat1.png"
-        world="VRChat"
+        platform="VRChat"
         timestamp="2023-12-02T00:00:00Z"
         visibility="public"
         imageBase="/e2e-thumb"

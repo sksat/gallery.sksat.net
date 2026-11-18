@@ -29,7 +29,7 @@ const vl2: CameraRow = {
 const NEW_COLS = {
   public_id: "abcdefghjk",
   visibility: "unlisted",
-  legacy_index: 3,
+  metadata_visibility: '{"taken_at":"date","camera":"x","bogus":"x"}',
   updated_at: UPDATED,
 };
 
@@ -38,7 +38,7 @@ describe("rowToMedia", () => {
     const row = rowToMedia({
       id: 1,
       file: "/VRChat/2023-12/x.png",
-      world: "VRChat",
+      platform: "VRChat",
       timestamp: "2023-12-11T01:21:32.519+09:00",
       camera_id: 4,
       tags: '["VRChat","portrait"]',
@@ -47,7 +47,11 @@ describe("rowToMedia", () => {
     expect(row.tags).toEqual(["VRChat", "portrait"]);
     expect(row.public_id).toBe("abcdefghjk");
     expect(row.visibility).toBe("unlisted");
-    expect(row.legacy_index).toBe(3);
+    // Unknown fields are dropped; an unknown level reads as hidden.
+    expect(row.metadata_visibility).toEqual({
+      taken_at: "date",
+      camera: "hidden",
+    });
     expect(row.camera_id).toBe(4);
     expect(row.timestamp).toBe("2023-12-11T01:21:32.519+09:00");
   });
@@ -56,7 +60,7 @@ describe("rowToMedia", () => {
     const row = rowToMedia({
       id: 2,
       file: "/Real/x.jpg",
-      world: "Real",
+      platform: "Real",
       timestamp: null,
       camera_id: null,
       tags: "[]",
@@ -66,18 +70,18 @@ describe("rowToMedia", () => {
     expect(row.camera_id).toBeNull();
   });
 
-  it("rejects unknown world value", () => {
+  it("rejects unknown platform value", () => {
     expect(() =>
       rowToMedia({
         id: 3,
         file: "x",
-        world: "Mars",
+        platform: "Mars",
         timestamp: null,
         camera_id: null,
         tags: "[]",
         ...NEW_COLS,
       }),
-    ).toThrow(/unknown world/);
+    ).toThrow(/unknown platform/);
   });
 
   it("rejects unknown visibility value", () => {
@@ -85,7 +89,7 @@ describe("rowToMedia", () => {
       rowToMedia({
         id: 3,
         file: "x",
-        world: "Real",
+        platform: "Real",
         timestamp: null,
         camera_id: null,
         tags: "[]",
@@ -100,7 +104,7 @@ describe("rowToMedia", () => {
       rowToMedia({
         id: 4,
         file: "x",
-        world: "Real",
+        platform: "Real",
         timestamp: null,
         camera_id: null,
         tags: "[1,2,3]",
@@ -114,7 +118,7 @@ describe("rowToMedia", () => {
       rowToMedia({
         id: 5,
         file: "x",
-        world: "Real",
+        platform: "Real",
         timestamp: null,
         camera_id: null,
         tags: "not json",

@@ -59,7 +59,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - **File-based routing**: Routes defined in `src/routes/` directory
 - **Layout system**: `src/routes/layout.tsx` provides shared layout (Header/Footer) with caching configuration
-- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing (`imageId` is the photo's public id; an old numeric `/photo/N` and `/?imageId=N` are 301-redirected through the API's frozen legacy index, see `src/routes/photo/[imageId]/legacy.ts`), `/camera/` (list of cameras with photos) and `/camera/[slug]/` for a camera's details and its photos (route paths are singular; see `src/components/gallery/cameras.ts`)
+- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing (`imageId` is the photo's public id; old numeric URLs are gone), `/camera/` (list of cameras with photos) and `/camera/[slug]/` for a camera's details and its photos (route paths are singular; see `src/components/gallery/cameras.ts`)
 - **Path alias**: `~/` maps to `./src/` (configured in tsconfig.json)
 
 ### Core Components
@@ -68,14 +68,14 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - Main UI component managing photo display and navigation
 - Reads the photo and camera lists from `useGalleryIndex` (the layout's route loader, which asks the API Worker; `src/lib/api.ts`)
-- State management: tag filter (AND/OR; `world` is treated as one more tag, see `tags.ts`), selected image overlay
+- State management: tag filter (AND/OR; `platform` (Real / VRChat, the API's former `world`) is treated as one more tag, see `tags.ts`), selected image overlay
 - Keyboard navigation: Arrow keys to browse within the filtered photos when an image is selected
 - URL history: the filter lives in the query (`?tag=a&tag=b&mode=or`, replaceState); selecting an image pushes `/photo/[imageId]?<same query>`. On a camera page the same Gallery runs with a camera filter; a photo opened there carries `?camera=<slug>` so closing it returns to `/camera/<slug>/`
 - Visibility: lists contain public photos only. An unlisted photo is passed in by its `/photo/<id>` route and shown in the overlay, but never joins the grid, the tag counts, the sort or the arrow-key order. Private photos are 404.
 
 **Media Data Flow**
 
-1. The admin's D1 (`gallery-admin`) is the source of truth; the API Worker (`workers/api`) serves `/api/media`, `/api/media/<public_id>`, `/api/media/legacy/<N>`, `/api/camera`, `/api/camera/<slug>`
+1. The admin's D1 (`gallery-admin`) is the source of truth; the API Worker (`workers/api`) serves `/api/media`, `/api/media/<public_id>`, `/api/camera`, `/api/camera/<slug>`
 2. Route loaders reach it through the Pages service binding `API` (root `wrangler.jsonc`), or `VITE_API_BASE_URL` without one (dev, tests)
 3. Images are addressed by public id at the image Worker (`/img/<preset>/<public_id>`); without `VITE_IMAGE_BASE_URL` (dev, tests) the originals under `VITE_S3_BASE_URL` are used
 
@@ -109,8 +109,9 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 ### API Worker (`workers/api/`)
 
 - Read-only JSON API over the admin's D1 database (`gallery-admin`), served at `gallery.sksat.net/api/*` (Worker shell `gallery-api` and route managed by Terraform outside this repo; no `routes` in `wrangler.jsonc`, `workers_dev = false`). The schema belongs to `admin/migrations`; this Worker only runs SELECTs.
-- `GET /api/media` (public photos), `/api/media/<public_id>` (public or unlisted), `/api/media/legacy/<N>` (`{ id }` for an old `/photo/<N>`), `/api/camera`, `/api/camera/<slug>`. Private photos and photos whose upload has not completed (`status <> 'ready'`) are never returned; these filters live in the SQL in `workers/api/src/query.ts`, so admin migration `0004_upload.sql` must be applied to D1 before this Worker is deployed. Cameras are listed only when a public photo uses them (opened by slug when a public or unlisted one does). Responses are cached for 60 s at the edge (Cache API, keyed by path) and 10 s in browsers.
-- Other Workers can call its RPC method `fileAccess(file)` (may this bucket path be served by name: a public photo or a camera picture) through a service binding; it is not reachable over HTTP.
+- `GET /api/media` (public photos), `/api/media/<public_id>` (public or unlisted), `/api/camera`, `/api/camera/<slug>`. Private photos, photos whose upload has not completed (`status <> 'ready'`) and photos in the admin's trash (`trashed_at`) are never returned; these filters live in the SQL in `workers/api/src/query.ts`, so admin migrations (`0004_upload.sql`, `0005_path_trash.sql`) must be applied to D1 before this Worker is deployed. Cameras are listed only when a public photo uses them (opened by slug when a public or unlisted one does). Responses are cached for 60 s at the edge (Cache API, keyed by path) and 10 s in browsers.
+- How much of each photo's metadata is public is decided in one place, `projectPhoto` (`workers/api/src/query.ts`, levels in `metadata.ts`): every field has ordered levels (file name `path` / `name` / `hidden`; taken at `second` … `year` / `hidden`, cut down in the photo's own offset, with `timestamp_precision`; camera `model` / `manufacturer` / `hidden`; tags `public` / `hidden`; location `exact` (5 decimals) / `city` / `prefecture` / `country` (only a position rounded to 2 / 1 / 0 decimals for now, no place name until reverse geocoding) / `hidden`, the default; world `link` (id + name, for https://vrchat.com/home/world/<id>) / `name` / `hidden`; exif `all` / `basic` (f_number, exposure_time, iso, focal_length_mm; the default) / `hidden`, from the normalized `media.exif` object, `ExifJSON` in `metadata.ts`; `media.world_author_id` is never returned). Each photo's `media.metadata_visibility` overrides the site default in the `setting` row `metadata_visibility`; an unknown value counts as hidden. Hidden fields are `null` (tags `[]`). Only tags marked public in the `tag` table are ever returned. `file` (the bucket key) is given only at `path` and while the photo has not been moved; `path` / `name` carry the display path and name. Cameras are listed or opened only through photos that show them at `model` (`levelSql`).
+- Other Workers can call its RPC methods through a service binding (not reachable over HTTP): `fileAccess(file)` (may this bucket path be served by name: a public, unmoved photo whose file name level is `path`, or a camera picture) and `photo(publicId)` (a public or unlisted photo, projected, but with its bucket key in `file` so the image Worker can fetch the original).
 - Tests: `workers/api/src/*.spec.ts` run the queries on node:sqlite with the admin migrations applied. Deployed from `main` by `.github/workflows/deploy-api-worker.yaml` (`pnpm run deploy.api`).
 
 ### Styling

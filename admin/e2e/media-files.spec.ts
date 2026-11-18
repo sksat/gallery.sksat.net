@@ -75,10 +75,10 @@ test("media files: the filter applies and keeps the view and folder", async ({
   page,
 }) => {
   await page.goto("/media/?view=files&dir=/mock");
-  await page.locator('select[name="world"]').selectOption("VRChat");
+  await page.locator('select[name="platform"]').selectOption("VRChat");
   await page.getByRole("button", { name: "Filter" }).click();
   // (A GET form escapes the slash; both spellings are the same query.)
-  await expect(page).toHaveURL(/view=files&dir=(\/|%2F)mock&world=VRChat/);
+  await expect(page).toHaveURL(/view=files&dir=(\/|%2F)mock&platform=VRChat/);
   await expect(page.getByTestId("file-tile")).toHaveCount(3);
   const tree = page.getByRole("navigation", { name: "Folders" });
   await expect(tree.getByRole("link", { name: /^mock/ })).toContainText("3");
@@ -88,7 +88,7 @@ test("media files: the filter applies and keeps the view and folder", async ({
     .getByRole("navigation", { name: "View" })
     .getByRole("link", { name: "List" })
     .click();
-  await expect(page).toHaveURL(/\/media\/\?world=VRChat$/);
+  await expect(page).toHaveURL(/\/media\/\?platform=VRChat$/);
   await expect(page.locator("table tbody tr")).toHaveCount(3);
 });
 

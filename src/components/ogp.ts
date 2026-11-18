@@ -131,11 +131,22 @@ export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
   const taken = parseMediaTimestamp(m.timestamp);
   const jst = taken && formatJst(taken);
   const tags = mediaTags({ ...m, timestamp: taken });
-  const camera = m.camera && cameraLabel(m.camera);
+  const camera = m.camera ? cameraLabel(m.camera) : m.maker;
+  // Cut down to a date, month or year: say only that much, as the API
+  // wrote it (the photo's own offset).
+  const parts = /^(\d{4})-(\d\d)-(\d\d)/.exec(m.timestamp ?? "");
+  const coarse =
+    parts &&
+    {
+      date: `${parts[1]}年${Number(parts[2])}月${Number(parts[3])}日`,
+      month: `${parts[1]}年${Number(parts[2])}月`,
+      year: `${parts[1]}年`,
+    }[m.timestamp_precision as string];
 
-  const subject = jst ? `${jst.date}の写真` : "写真";
+  const day = coarse ?? jst?.date;
+  const subject = day ? `${day}の写真` : "写真";
   const description = [
-    jst && `${jst.date} ${jst.time} 撮影。`,
+    coarse ? `${coarse} 撮影。` : jst && `${jst.date} ${jst.time} 撮影。`,
     tags.length > 0 && `タグ: ${tags.join(", ")}。`,
     camera && `カメラ: ${camera}。`,
   ]

@@ -386,3 +386,195 @@ describe("0004_upload.sql", () => {
     ).toMatch(/^\d{4}-\d\d-\d\dT/);
   });
 });
+
+describe("0005_path_trash.sql", () => {
+  const migrate5 = (rows: Parameters<typeof migrate>[0]) => {
+    const db = migrate(rows);
+    db.exec(migration("0003_visibility.sql"));
+    db.exec(migration("0004_upload.sql"));
+    db.exec(migration("0005_path_trash.sql"));
+    return db;
+  };
+
+  it("shows existing photos where their files are, none trashed", () => {
+    const db = migrate5([["/a/x.png", "Real", null, null]]);
+    expect(
+      db.prepare("SELECT file, path, trashed_at FROM media").all(),
+    ).toEqual([{ file: "/a/x.png", path: "/a/x.png", trashed_at: null }]);
+  });
+
+  it("fills in the path of a row inserted without one", () => {
+    const db = migrate5([]);
+    db.exec("INSERT INTO media (file, platform) VALUES ('/n.png', 'Real')");
+    db.exec(
+      "INSERT INTO media (file, platform, path) VALUES ('/k.png', 'Real', '/moved/k.png')",
+    );
+    expect(
+      db.prepare("SELECT file, path FROM media ORDER BY id").all(),
+    ).toEqual([
+      { file: "/n.png", path: "/n.png" },
+      { file: "/k.png", path: "/moved/k.png" },
+    ]);
+  });
+
+  it("gives a path to one live photo, but not to trashed ones", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    expect(() =>
+      db.exec(
+        "INSERT INTO media (file, platform, path) VALUES ('/b.png', 'Real', '/a.png')",
+      ),
+    ).toThrow(/UNIQUE/);
+    db.exec("UPDATE media SET trashed_at = '2026-11-18T00:00:00Z'");
+    db.exec(
+      "INSERT INTO media (file, platform, path) VALUES ('/b.png', 'Real', '/a.png')",
+    );
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM media WHERE path = '/a.png'").get(),
+    ).toEqual({ n: 2 });
+  });
+
+  it("renames world to platform, keeping its values and CHECK", () => {
+    const db = migrate5([
+      ["/a.png", "Real", null, null],
+      ["/v.png", "VRChat", null, null],
+    ]);
+    expect(db.prepare("SELECT platform FROM media ORDER BY id").all()).toEqual([
+      { platform: "Real" },
+      { platform: "VRChat" },
+    ]);
+    expect(() =>
+      db.exec("INSERT INTO media (file, platform) VALUES ('/m.png', 'Mars')"),
+    ).toThrow(/CHECK/);
+    expect(() => db.prepare("SELECT world FROM media").all()).toThrow();
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_media_%' ORDER BY name",
+        )
+        .all()
+        .map((r) => r.name),
+    ).toContain("idx_media_platform");
+  });
+
+  it("sets the site's metadata defaults; photos start with none of their own", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    const site = db
+      .prepare("SELECT value FROM setting WHERE key = 'metadata_visibility'")
+      .get() as { value: string };
+    expect(JSON.parse(site.value)).toEqual({
+      file_name: "hidden",
+      taken_at: "second",
+      camera: "model",
+      tags: "public",
+      location: "hidden",
+      world: "link",
+      exif: "basic",
+    });
+    expect(db.prepare("SELECT metadata_visibility FROM media").all()).toEqual([
+      { metadata_visibility: null },
+    ]);
+    // Overrides are a JSON object, or nothing.
+    db.exec(`UPDATE media SET metadata_visibility = '{"camera":"hidden"}'`);
+    for (const bad of ["'nope'", `'["x"]'`, "'1'"]) {
+      expect(
+        () => db.exec(`UPDATE media SET metadata_visibility = ${bad}`),
+        bad,
+      ).toThrow(/CHECK/);
+    }
+    expect(() => db.exec("UPDATE setting SET value = 'nope'")).toThrow(/CHECK/);
+  });
+
+  it("makes the tags the public site shows public; new tags are private", () => {
+    const db = migrate([
+      ["/a.png", "Real", null, null],
+      ["/b.png", "Real", null, null],
+    ]);
+    db.exec(`UPDATE media SET tags = '["night","t", 3]' WHERE file = '/a.png';
+      UPDATE media SET tags = '["secret","t"]' WHERE file = '/b.png'`);
+    db.exec(migration("0003_visibility.sql"));
+    db.exec(migration("0004_upload.sql"));
+    // /a.png is public, /b.png private.
+    db.exec("UPDATE media SET visibility = 'public' WHERE file = '/a.png'");
+    db.exec(migration("0005_path_trash.sql"));
+    expect(
+      db.prepare("SELECT name, public FROM tag ORDER BY name").all(),
+    ).toEqual([
+      { name: "night", public: 1 },
+      { name: "t", public: 1 },
+    ]);
+    db.exec("INSERT INTO tag (name) VALUES ('draft')");
+    expect(
+      db.prepare("SELECT public FROM tag WHERE name = 'draft'").get(),
+    ).toEqual({ public: 0 });
+    expect(() => db.exec("INSERT INTO tag (name) VALUES ('night')")).toThrow(
+      /UNIQUE/,
+    );
+  });
+
+  it("keeps a location only as a valid pair, with its source", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    expect(
+      db
+        .prepare("SELECT latitude, longitude, location_source FROM media")
+        .get(),
+    ).toEqual({ latitude: null, longitude: null, location_source: null });
+    db.exec(
+      "UPDATE media SET latitude = -33.86, longitude = 151.21, location_source = 'exif'",
+    );
+    for (const bad of [
+      "latitude = NULL",
+      "longitude = NULL",
+      "latitude = 91",
+      "longitude = -180.5",
+      "location_source = 'gps'",
+    ]) {
+      expect(() => db.exec(`UPDATE media SET ${bad}`), bad).toThrow(/CHECK/);
+    }
+    db.exec("UPDATE media SET latitude = NULL, longitude = NULL");
+  });
+
+  it("keeps exif as a JSON object and world ids as wrld_…", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    db.exec(
+      `UPDATE media SET exif = '{"iso":100}', world_id = 'wrld_abc', world_name = 'W', world_author_id = 'usr_x'`,
+    );
+    for (const bad of [
+      "exif = 'nope'",
+      "exif = '[1]'",
+      "world_id = 'abc'",
+      "world_id = 'wrld_'",
+    ]) {
+      expect(() => db.exec(`UPDATE media SET ${bad}`), bad).toThrow(/CHECK/);
+    }
+  });
+
+  it("leaves every photo's metadata unread", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    db.exec("INSERT INTO media (file, platform) VALUES ('/b.png', 'Real')");
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM media WHERE metadata_read_at IS NULL AND status = 'ready'",
+        )
+        .get(),
+    ).toEqual({ n: 2 });
+  });
+
+  it("drops legacy_index", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    expect(() => db.prepare("SELECT legacy_index FROM media").all()).toThrow();
+  });
+
+  it("rejects malformed paths", () => {
+    const db = migrate5([]);
+    for (const bad of ["a.png", "/a/", "/a//b.png", "/"]) {
+      expect(
+        () =>
+          db.exec(
+            `INSERT INTO media (file, platform, path) VALUES ('/x${bad.length}.png', 'Real', '${bad}')`,
+          ),
+        bad,
+      ).toThrow(/CHECK/);
+    }
+  });
+});

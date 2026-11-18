@@ -3,12 +3,10 @@ import { routeLoader$ } from "@builder.io/qwik-city";
 import type { DocumentHead } from "@builder.io/qwik-city";
 
 import Gallery from "~/components/gallery/gallery";
-import { legacyIndex } from "~/components/gallery/logic";
 import { PUBLIC_ID_RE, type MediaInfoJSON } from "~/components/gallery/types";
 import { ogpHead, photoOgp, type Ogp } from "~/components/ogp";
 import { loadPhoto } from "~/lib/api";
 import { useGalleryIndex } from "../../layout";
-import { legacyRedirect } from "./legacy";
 
 type PhotoPage = {
   photo: MediaInfoJSON;
@@ -19,15 +17,9 @@ type PhotoPage = {
 
 /**
  * The photo, from the API: public or unlisted (an unlisted photo opens by
- * its URL but is in no list), 404 for a private or unknown one. An old
- * /photo/N URL is redirected to the photo's public id.
- */
+ * its URL but is in no list), 404 for a private or unknown one. */
 export const usePhotoPage = routeLoader$<PhotoPage>(async (event) => {
   const raw = event.params.imageId;
-  const legacy = legacyIndex(raw);
-  if (legacy !== null) {
-    await legacyRedirect(event, legacy, event.url.searchParams);
-  }
   if (!PUBLIC_ID_RE.test(raw)) {
     throw event.error(404, "Image not found");
   }

@@ -2,7 +2,8 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { listMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
-import { isVisibility, type MediaWorld } from "~/lib/types";
+import { platformParam } from "~/lib/format";
+import { isVisibility } from "~/lib/types";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -22,9 +23,6 @@ const parseIntParam = (
   return Math.min(n, max);
 };
 
-const parseWorld = (v: string | null): MediaWorld | undefined =>
-  v === "Real" || v === "VRChat" ? v : undefined;
-
 export const onGet: RequestHandler = withErrorHandler(
   "GET /api/media",
   async ({ platform, url, json }) => {
@@ -41,13 +39,14 @@ export const onGet: RequestHandler = withErrorHandler(
       0,
       Number.MAX_SAFE_INTEGER,
     );
-    const world = parseWorld(url.searchParams.get("world"));
+    // ?platform=
+    const platformFilter = platformParam(url.searchParams) ?? undefined;
     const q = url.searchParams.get("q") ?? undefined;
     const v = url.searchParams.get("visibility");
     const visibility = isVisibility(v) ? v : undefined;
 
     const result = await listMedia(db, {
-      world,
+      platform: platformFilter,
       visibility,
       q,
       limit,

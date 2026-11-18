@@ -199,11 +199,11 @@ export const ancestors = (dir: string): { name: string; path: string }[] => {
 export const isWithin = (dir: string, folder: string): boolean =>
   folder === "/" || dir === folder || dir.startsWith(`${folder}/`);
 
-/** Rows whose file sits directly in `dir`, sorted by file name. */
-export const filesInDir = <T extends { file: string }>(
+/** Rows shown directly in `dir` (by `path`), sorted by path. */
+export const filesInDir = <T extends { path: string }>(
   rows: readonly T[],
   dir: string,
 ): T[] =>
   rows
-    .filter((r) => dirOf(r.file) === dir)
-    .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+    .filter((r) => dirOf(r.path) === dir)
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

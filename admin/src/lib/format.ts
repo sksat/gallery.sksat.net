@@ -35,6 +35,14 @@ export const formatJst = (ts: string | null): string | null => {
 
 export type MediaView = "list" | "files";
 
+/** The platform filter of a /media URL (`platform`). */
+export const platformParam = (
+  params: URLSearchParams,
+): "Real" | "VRChat" | null => {
+  const v = params.get("platform");
+  return v === "Real" || v === "VRChat" ? v : null;
+};
+
 /** The `view` query value; anything but "files" is the default list. */
 export const parseView = (raw: string | null | undefined): MediaView =>
   raw === "files" ? "files" : "list";
@@ -48,7 +56,7 @@ export const parseView = (raw: string | null | undefined): MediaView =>
 export const mediaListHref = (opts: {
   view?: MediaView;
   dir?: string | null;
-  world?: string | null;
+  platform?: string | null;
   visibility?: string | null;
   q?: string | null;
   page?: number;
@@ -57,7 +65,7 @@ export const mediaListHref = (opts: {
   const files = opts.view === "files";
   if (files) params.set("view", "files");
   if (files && opts.dir && opts.dir !== "/") params.set("dir", opts.dir);
-  if (opts.world) params.set("world", opts.world);
+  if (opts.platform) params.set("platform", opts.platform);
   if (opts.visibility) params.set("visibility", opts.visibility);
   if (opts.q) params.set("q", opts.q);
   if (!files && opts.page && opts.page > 1) {
@@ -94,7 +102,7 @@ export type FilterChip = { key: string; label: string; href: string };
 export const filterChips = (opts: {
   view: MediaView;
   dir: string;
-  world: string | null;
+  platform: string | null;
   visibility: string | null;
   q: string;
   /** Display name of a visibility value. */
@@ -103,16 +111,16 @@ export const filterChips = (opts: {
   const base = {
     view: opts.view,
     dir: opts.dir,
-    world: opts.world,
+    platform: opts.platform,
     visibility: opts.visibility,
     q: opts.q,
   };
   const chips: FilterChip[] = [];
-  if (opts.world) {
+  if (opts.platform) {
     chips.push({
-      key: "world",
-      label: opts.world,
-      href: mediaListHref({ ...base, world: null }),
+      key: "platform",
+      label: opts.platform,
+      href: mediaListHref({ ...base, platform: null }),
     });
   }
   if (opts.visibility) {

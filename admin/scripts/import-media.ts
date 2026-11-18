@@ -127,7 +127,8 @@ for (const item of items) {
     sqlString(JSON.stringify(item.tags ?? [])),
   ].join(", ");
   mediaLines.push(
-    `INSERT OR IGNORE INTO media (public_id, visibility, file, world, timestamp, camera_id, tags) VALUES (${cols});`,
+    // media.json's `world` is the D1 column `platform` (migration 0005).
+    `INSERT OR IGNORE INTO media (public_id, visibility, file, platform, timestamp, camera_id, tags) VALUES (${cols});`,
   );
 }
 

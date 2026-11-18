@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("media list: renders fixture rows and filters by world", async ({
+test("media list: renders fixture rows and filters by platform", async ({
   page,
 }) => {
   const response = await page.goto("/media/");
@@ -11,9 +11,9 @@ test("media list: renders fixture rows and filters by world", async ({
   ).toBeVisible();
   await expect(page.locator("table tbody tr")).toHaveCount(5);
 
-  await page.locator('select[name="world"]').selectOption("VRChat");
+  await page.locator('select[name="platform"]').selectOption("VRChat");
   await page.getByRole("button", { name: "Filter" }).click();
-  await expect(page).toHaveURL(/world=VRChat/);
+  await expect(page).toHaveURL(/platform=VRChat/);
   await expect(page.locator("table tbody tr")).toHaveCount(3);
 
   await page.getByRole("link", { name: "Reset" }).click();
@@ -31,15 +31,15 @@ test("media list: search by file substring", async ({ page }) => {
 test("media list: an out-of-range page redirects to the last page", async ({
   page,
 }) => {
-  await page.goto("/media/?world=VRChat&page=3");
-  await expect(page).toHaveURL(/\/media\/\?world=VRChat$/);
+  await page.goto("/media/?platform=VRChat&page=3");
+  await expect(page).toHaveURL(/\/media\/\?platform=VRChat$/);
   await expect(page.locator("table tbody tr")).toHaveCount(3);
   await expect(page.getByText("Page 1 / 1")).toBeVisible();
 });
 
 test("media list: the whole row opens the edit page", async ({ page }) => {
   await page.goto("/media/?q=vrchat1");
-  // Click over the World cell, not the filename text. The stretched link
+  // Click over the Status cell, not the filename text. The stretched link
   // overlays the whole row, so Playwright's actionability check would
   // (correctly) report the cell as covered; click by coordinates instead.
   // Columns: checkbox, ID, thumbnail, File, Status, ...

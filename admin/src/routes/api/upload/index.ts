@@ -4,7 +4,7 @@ import { getUploadConfig, presignPut, putHeaders } from "~/lib/b2";
 import { initUpload } from "~/lib/db-upload";
 import { getDB } from "~/lib/env";
 import { generatePublicId } from "~/lib/public-id";
-import { guessWorld, validateUploadInit } from "~/lib/upload";
+import { guessPlatform, validateUploadInit } from "~/lib/upload";
 
 /**
  * Start (or resume) an upload: reserve the path as an `uploading` row and
@@ -41,7 +41,7 @@ export const onPost: RequestHandler = withErrorHandler(
     const { init } = v;
     const outcome = await initUpload(getDB(platform), init, {
       publicId: generatePublicId(),
-      world: guessWorld(init.file),
+      platform: guessPlatform(init.file),
     });
     if (outcome.kind === "conflict") {
       // A lost race is worth retrying (503); the rest is not (409).

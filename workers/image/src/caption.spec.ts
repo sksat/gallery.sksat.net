@@ -65,11 +65,16 @@ describe("captionFor", () => {
     ).toEqual({ secondary: "#Real #night<b>" });
   });
 
-  it("reads the platform under its old name from an older API", () => {
-    const { platform: _, ...old } = real;
-    expect(captionFor({ ...old, world: "Real" })).toEqual({
-      secondary: "#Real #film",
-    });
+  it("shows the time only as precisely as the API gives it", () => {
+    const at = (timestamp: string, timestamp_precision: string) =>
+      captionFor({ ...real, timestamp, timestamp_precision }).primary;
+    expect(at("2023-12-16T23:12:00+09:00", "minute")).toBe(
+      "2023-12-16 23:12 JST",
+    );
+    // Cut down in the photo's own offset: no shift into JST.
+    expect(at("2023-12-16T00:00:00-05:00", "date")).toBe("2023-12-16");
+    expect(at("2023-12-01T00:00:00+09:00", "month")).toBe("2023-12");
+    expect(at("2023-01-01T00:00:00+09:00", "year")).toBe("2023");
   });
 
   it("joins words inside a tag", () => {

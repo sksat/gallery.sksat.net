@@ -1,3 +1,4 @@
+import { parseOverrides } from "./metadata";
 import {
   CAMERA_KINDS,
   type CameraImageRow,
@@ -6,8 +7,10 @@ import {
   type CameraRow,
   type MediaPatch,
   type MediaRow,
-  type MediaWorld,
+  type MediaPlatform,
+  isPlatform,
   isVisibility,
+  LIVE_PHOTO,
   type Visibility,
 } from "./types";
 
@@ -15,12 +18,14 @@ type RawRow = {
   id: number;
   public_id: string;
   file: string;
-  world: string;
+  /** NULL only before migration 0005 / in hand-written test tables. */
+  path?: string | null;
+  platform: string;
   timestamp: string | null;
   camera_id: number | null;
   tags: string;
   visibility: string;
-  legacy_index: number | null;
+  metadata_visibility?: string | null;
   updated_at: string;
 };
 
@@ -36,8 +41,6 @@ type RawCameraRow = {
   product_url: string | null;
   updated_at: string;
 };
-
-const isWorld = (v: string): v is MediaWorld => v === "Real" || v === "VRChat";
 
 const isCameraKind = (v: string): v is CameraKind =>
   (CAMERA_KINDS as readonly string[]).includes(v);
@@ -58,8 +61,8 @@ const parseTags = (raw: string): string[] => {
 };
 
 export const rowToMedia = (raw: RawRow): MediaRow => {
-  if (!isWorld(raw.world)) {
-    throw new Error(`unknown world value in DB: ${raw.world}`);
+  if (!isPlatform(raw.platform)) {
+    throw new Error(`unknown platform value in DB: ${raw.platform}`);
   }
   if (!isVisibility(raw.visibility)) {
     throw new Error(`unknown visibility value in DB: ${raw.visibility}`);
@@ -68,12 +71,13 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     id: raw.id,
     public_id: raw.public_id,
     file: raw.file,
-    world: raw.world,
+    path: raw.path ?? raw.file,
+    platform: raw.platform,
     timestamp: raw.timestamp,
     camera_id: raw.camera_id,
     tags: parseTags(raw.tags),
     visibility: raw.visibility,
-    legacy_index: raw.legacy_index,
+    metadata_visibility: parseOverrides(raw.metadata_visibility),
     updated_at: raw.updated_at,
   };
 };
@@ -97,7 +101,7 @@ export const rowToCamera = (raw: RawCameraRow): CameraRow => {
 };
 
 export type ListParams = {
-  world?: MediaWorld;
+  platform?: MediaPlatform;
   visibility?: Visibility;
   q?: string;
   limit: number;
@@ -113,12 +117,12 @@ export const listMedia = async (
   db: D1Database,
   params: ListParams,
 ): Promise<ListResult> => {
-  // Uploads that have not completed are not photos yet.
-  const where: string[] = ["status = 'ready'"];
+  // Not uploads that have not completed, nor the trash.
+  const where: string[] = [LIVE_PHOTO];
   const args: unknown[] = [];
-  if (params.world) {
-    where.push("world = ?");
-    args.push(params.world);
+  if (params.platform) {
+    where.push("platform = ?");
+    args.push(params.platform);
   }
   if (params.visibility) {
     where.push("visibility = ?");
@@ -126,9 +130,9 @@ export const listMedia = async (
   }
   if (params.q) {
     // Escape LIKE metacharacters so a literal `%` or `_` in the query does
-    // not behave as a wildcard.
+    // not behave as a wildcard. Searches where photos are shown (path).
     const escaped = params.q.replace(/[\\%_]/g, (c) => `\\${c}`);
-    where.push("file LIKE ? ESCAPE '\\'");
+    where.push("path LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
   }
   const whereSql = `WHERE ${where.join(" AND ")}`;
@@ -171,9 +175,9 @@ export const updateMedia = async (
 ): Promise<MediaRow | null> => {
   const sets: string[] = [];
   const args: unknown[] = [];
-  if (patch.world !== undefined) {
-    sets.push("world = ?");
-    args.push(patch.world);
+  if (patch.platform !== undefined) {
+    sets.push("platform = ?");
+    args.push(patch.platform);
   }
   if (patch.camera_id !== undefined) {
     sets.push("camera_id = ?");
@@ -186,6 +190,14 @@ export const updateMedia = async (
   if (patch.visibility !== undefined) {
     sets.push("visibility = ?");
     args.push(patch.visibility);
+  }
+  if (patch.metadata_visibility !== undefined) {
+    sets.push("metadata_visibility = ?");
+    args.push(
+      Object.keys(patch.metadata_visibility).length > 0
+        ? JSON.stringify(patch.metadata_visibility)
+        : null,
+    );
   }
   // No-op patch: skip the UPDATE entirely (don't bump updated_at) and just
   // return the current row. Costs a second round-trip but keeps the
@@ -281,7 +293,7 @@ export const listCameras = async (
 ): Promise<CameraListItem[]> => {
   const res = await db
     .prepare(
-      `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id AND m.status = 'ready') AS photo_count
+      `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id AND m.status = 'ready' AND m.trashed_at IS NULL) AS photo_count
        FROM camera c ORDER BY c.name COLLATE NOCASE, c.id`,
     )
     .all<RawCameraRow & { photo_count: number }>();

@@ -9,13 +9,9 @@ export const PUBLIC_ID_RE = /^[23456789abcdefghjkmnpqrstuvwxyz]{10}$/;
 /** Same shape as the admin's CAMERA_SLUG_RE. */
 const CAMERA_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/** Old /photo/<N> indices; the frozen table has 51 entries. */
-const LEGACY_INDEX_RE = /^(?:0|[1-9]\d{0,5})$/;
-
 export type Route =
   | { kind: "media-list" }
   | { kind: "media"; id: string }
-  | { kind: "legacy"; index: number }
   | { kind: "camera-list" }
   | { kind: "camera"; slug: string };
 
@@ -24,7 +20,6 @@ export type Route =
  *
  * - `/api/media` — public photos
  * - `/api/media/<public_id>` — one public or unlisted photo
- * - `/api/media/legacy/<N>` — `{ id }` of the photo that was /photo/<N>
  * - `/api/camera` — every camera
  * - `/api/camera/<slug>` — one camera
  */
@@ -38,9 +33,6 @@ export const parseRoute = (pathname: string): Route | null => {
     if (a === undefined) return { kind: "media-list" };
     if (b === undefined) {
       return PUBLIC_ID_RE.test(a) ? { kind: "media", id: a } : null;
-    }
-    if (a === "legacy" && LEGACY_INDEX_RE.test(b)) {
-      return { kind: "legacy", index: Number(b) };
     }
     return null;
   }

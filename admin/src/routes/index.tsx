@@ -141,8 +141,8 @@ export default component$(() => {
         <section class={[card, "flex flex-col p-5"]}>
           <h2 class="text-base font-semibold">Media</h2>
           <p class={["mt-1 flex-1 text-sm", muted]}>
-            Browse every photo in D1 and edit its visibility, world, camera and
-            tags. The public site reads D1 through the API Worker, so saved
+            Browse every photo in D1 and edit its visibility, platform, camera
+            and tags. The public site reads D1 through the API Worker, so saved
             edits show up there within about a minute.
           </p>
           <div class="mt-4">

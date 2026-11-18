@@ -13,7 +13,7 @@ test("admin: media list (phone)", async ({ page }) => {
 });
 
 test("admin: media list filter sheet (phone)", async ({ page }) => {
-  await page.goto("/media/?world=VRChat");
+  await page.goto("/media/?platform=VRChat");
   await page.getByRole("button", { name: "絞り込み (1)" }).click();
   await expect(page.getByRole("search", { name: "Filter" })).toBeVisible();
   await expect(page).toHaveScreenshot("admin-media-list-phone-filter.png");

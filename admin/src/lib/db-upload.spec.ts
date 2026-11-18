@@ -21,7 +21,7 @@ const init = (over: Partial<Parameters<typeof initUpload>[1]> = {}) => ({
   timestamp: "2026-11-18T01:02:03+09:00",
   ...over,
 });
-const row = { publicId: "abcdefghjk", world: "Real" as const };
+const row = { publicId: "abcdefghjk", platform: "Real" as const };
 /** Another valid public id (digits 2..9). */
 const id = (n: number) => ({ ...row, publicId: `${"c".repeat(9)}${n + 1}` });
 
@@ -35,7 +35,7 @@ const UPLOADED = bucket({ "/up/a.png": { size: 10, sha256: SHA_A } });
 const setup = () => {
   const raw = migratedSqlite();
   raw.exec(
-    "INSERT INTO media (file, world, visibility) VALUES ('/old/x.png', 'Real', 'public')",
+    "INSERT INTO media (file, platform, visibility) VALUES ('/old/x.png', 'Real', 'public')",
   );
   return { raw, db: sqliteD1(raw) };
 };
@@ -52,13 +52,13 @@ describe("initUpload", () => {
     expect(
       raw
         .prepare(
-          "SELECT public_id, file, world, timestamp, tags, visibility, status, size, sha256, uploaded_at FROM media WHERE id = 2",
+          "SELECT public_id, file, platform, timestamp, tags, visibility, status, size, sha256, uploaded_at FROM media WHERE id = 2",
         )
         .get(),
     ).toEqual({
       public_id: "abcdefghjk",
       file: "/up/a.png",
-      world: "Real",
+      platform: "Real",
       timestamp: "2026-11-18T01:02:03+09:00",
       tags: "[]",
       visibility: "private",
@@ -107,10 +107,34 @@ describe("initUpload", () => {
     ).toMatchObject({ kind: "upload", file: "/old/x-2.png" });
   });
 
+  it("counts a photo moved to the path, and the file of one moved away", async () => {
+    const { raw, db } = setup();
+    // /old/x.png's file stays; it is shown at /show/x.png now.
+    raw.exec("UPDATE media SET path = '/show/x.png' WHERE file = '/old/x.png'");
+    expect(
+      await initUpload(db, init({ file: "/show/x.png", sha256: SHA_B }), row),
+    ).toMatchObject({ file: "/show/x-1.png" });
+    expect(
+      await initUpload(db, init({ file: "/old/x.png" }), id(1)),
+    ).toMatchObject({ file: "/old/x-1.png" });
+  });
+
+  it("refuses a photo that is in the trash", async () => {
+    const { raw, db } = setup();
+    await initUpload(db, init(), row);
+    await completeUpload(db, 2, UPLOADED);
+    raw.exec("UPDATE media SET trashed_at = '2026-01-01' WHERE id = 2");
+    expect(await initUpload(db, init({ file: "/b/a.png" }), id(1))).toEqual({
+      kind: "conflict",
+      message: "同じ写真がゴミ箱にあります (/up/a.png)",
+      retry: false,
+    });
+  });
+
   it("gives up when every numbered name is taken", async () => {
     const { raw, db } = setup();
     const insert = raw.prepare(
-      "INSERT INTO media (file, world) VALUES (?, 'Real')",
+      "INSERT INTO media (file, platform) VALUES (?, 'Real')",
     );
     for (const f of numberedPaths("/n/a.png")) insert.run(f);
     expect(await initUpload(db, init({ file: "/n/a.png" }), row)).toEqual({

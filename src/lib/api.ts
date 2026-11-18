@@ -89,13 +89,3 @@ export const loadCamera = async (
   parseCameras([await getJson(event, `/camera/${encodeURIComponent(slug)}`)])?.at(
     0,
   ) ?? null;
-
-/** Public id of the photo that was /photo/<index> before public ids. */
-export const loadLegacyId = async (
-  event: Pick<RequestEventBase, "platform">,
-  index: number,
-): Promise<string | null> => {
-  const data = await getJson(event, `/media/legacy/${index}`);
-  const id = (data as { id?: unknown } | null)?.id;
-  return typeof id === "string" ? id : null;
-};

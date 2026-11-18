@@ -266,12 +266,17 @@ describe("photo paths", () => {
   ])("%s", (path, id) => expect(parsePhotoPath(path)).toBe(id));
 
   const rows: PhotoMediaRow[] = [
-    { id: 1, public_id: "aaaaaaaaa2", file: "/mock/real1.png", world: "Real" },
+    {
+      id: 1,
+      public_id: "aaaaaaaaa2",
+      file: "/mock/real1.png",
+      platform: "Real",
+    },
     {
       id: 2,
       public_id: "aaaaaaaaa3",
       file: "/mock/vrchat1.png",
-      world: "VRChat",
+      platform: "VRChat",
     },
   ];
   const pages = parseAccess(sample, "7d", now, HOST)!.pages;
@@ -307,10 +312,10 @@ describe("photo paths", () => {
 
   it("finds the rows on the real schema, ready ones only", async () => {
     const db = migratedSqlite();
-    db.exec(`INSERT INTO media (file, world, public_id) VALUES
+    db.exec(`INSERT INTO media (file, platform, public_id) VALUES
         ('/a.png', 'Real', 'aaaaaaaaa2'),
         ('/b.png', 'Real', 'aaaaaaaaa3');
-      INSERT INTO media (file, world, public_id, status) VALUES
+      INSERT INTO media (file, platform, public_id, status) VALUES
         ('/c.png', 'Real', 'aaaaaaaaa4', 'uploading');`);
     const found = await photoRowsFor(sqliteD1(db), [
       "aaaaaaaaa3",
@@ -321,7 +326,7 @@ describe("photo paths", () => {
 
   it("looks up more ids than D1 binds in one query", async () => {
     const db = migratedSqlite();
-    db.exec(`INSERT INTO media (file, world, public_id) VALUES
+    db.exec(`INSERT INTO media (file, platform, public_id) VALUES
         ('/a.png', 'Real', 'aaaaaaaaa2');`);
     const ids = Array.from({ length: 200 }, (_, i) => `none-${i}`);
     const found = await photoRowsFor(sqliteD1(db), [...ids, "aaaaaaaaa2"]);

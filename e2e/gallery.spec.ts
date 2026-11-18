@@ -24,7 +24,7 @@ test("gallery: filter by tags with AND / OR", async ({ page }) => {
   await expect(images).toHaveCount(5);
   await expect(count).toHaveText("5 枚");
 
-  // "Real" is just a tag (from the world field)
+  // "Real" is just a tag (from the platform field)
   await chip(page, "Real").click();
   await expect(chip(page, "Real")).toHaveAttribute("aria-pressed", "true");
   await expect(images).toHaveCount(2);
@@ -304,33 +304,58 @@ test("visibility: a private photo is a 404 and in no list", async ({
   await expect(chip(page, "secret")).toHaveCount(0);
 });
 
-test("old /photo/N URLs redirect to the photo's public id", async ({
+test("old numeric photo URLs are not found", async ({ request }) => {
+  // (Qwik City first adds the trailing slash, so ask with it.)
+  const res = await request.get("/photo/1/", { maxRedirects: 0 });
+  expect(res.status()).toBe(404);
+  // /?imageId=N is just the top page now.
+  const top = await request.get("/?imageId=2", { maxRedirects: 0 });
+  expect(top.status()).toBe(200);
+});
+
+test("gallery: private tags and hidden metadata never show", async ({
   page,
   request,
 }) => {
-  // (Qwik City first adds the trailing slash, so ask with it.)
-  const res = await request.get("/photo/1/?tag=VRChat", { maxRedirects: 0 });
-  expect(res.status()).toBe(301);
-  expect(res.headers()["location"]).toBe("/photo/vrcxxxxxxa/?tag=VRChat");
-
-  // The oldest format, /?imageId=N, too.
-  const top = await request.get("/?imageId=2&tag=night", {
-    maxRedirects: 0,
+  const api = "http://127.0.0.1:5178/api";
+  const list = await (await request.get(`${api}/media`)).json();
+  expect(JSON.stringify(list)).not.toContain("draft");
+  const vrchat2 = list.find((m: { id: string }) => m.id === "vrcxxxxxxb");
+  expect(vrchat2).toMatchObject({
+    timestamp: "2023-12-04T00:00:00+09:00",
+    timestamp_precision: "date",
   });
-  expect(top.status()).toBe(301);
-  expect(top.headers()["location"]).toBe("/photo/reaxxxxxxb/?tag=night");
 
-  // An unlisted photo keeps its old URL; a private one does not.
-  const unlisted = await request.get("/photo/5/", { maxRedirects: 0 });
-  expect(unlisted.headers()["location"]).toBe("/photo/unxxxxxxxx/");
-  expect((await request.get("/photo/6/", { maxRedirects: 0 })).status()).toBe(
-    404,
-  );
-  expect((await request.get("/photo/99/", { maxRedirects: 0 })).status()).toBe(
-    404,
+  await page.goto("/");
+  await expect(page.getByTestId("gallery-image")).toHaveCount(5, {
+    timeout: 10000,
+  });
+  expect(await page.content()).not.toContain("draft");
+  await expect(chip(page, "draft")).toHaveCount(0);
+  // Only the date of vrcxxxxxxb is shown, on its own day.
+  await expect(page.getByText("2023/12/04", { exact: true })).toHaveCount(1);
+});
+
+// reaxxxxxxb's file name is hidden (its metadata visibility in the
+// fixture); the other photos' names are.
+test("gallery: a photo whose file name is not public never shows it", async ({
+  page,
+  request,
+}) => {
+  const api = "http://127.0.0.1:5178/api";
+  const one = await (await request.get(`${api}/media/reaxxxxxxb`)).json();
+  expect(one.file).toBeNull();
+  const list = await (await request.get(`${api}/media`)).json();
+  expect(JSON.stringify(list)).not.toContain("real2");
+  expect(list.find((m: { id: string }) => m.id === "reaxxxxxxa").file).toBe(
+    "/mock/real1.png",
   );
 
-  await page.goto("/photo/1");
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/$/);
+  // The page itself (grid and the photo's own page) has no trace of it.
+  await page.goto("/");
+  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+  expect(await page.content()).not.toContain("real2");
+  await page.goto("/photo/reaxxxxxxb/");
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
+  expect(await page.content()).not.toContain("real2");
 });

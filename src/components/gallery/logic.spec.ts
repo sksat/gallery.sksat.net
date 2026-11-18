@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   galleryUrl,
-  legacyIndex,
   navigateImage,
   photoIdFromPath,
   visibleMedia,
@@ -158,18 +157,5 @@ describe("photoIdFromPath", () => {
     expect(photoIdFromPath("/photo/3")).toBeNull();
     expect(photoIdFromPath("/photo/abcdefghjo")).toBeNull();
     expect(photoIdFromPath("/photo/abcdefghjk/extra")).toBeNull();
-  });
-});
-
-describe("legacyIndex", () => {
-  it("reads N of an old /photo/N", () => {
-    expect(legacyIndex("0")).toBe(0);
-    expect(legacyIndex("50")).toBe(50);
-  });
-
-  it("rejects anything else", () => {
-    for (const raw of [null, "", "01", "-1", "1.5", "abcdefghjk", "9999999"]) {
-      expect(legacyIndex(raw)).toBeNull();
-    }
   });
 });

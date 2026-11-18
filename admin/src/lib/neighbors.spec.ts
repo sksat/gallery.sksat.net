@@ -11,7 +11,7 @@ import {
 const list = (over: Partial<ListQuery> = {}): ListQuery => ({
   view: "list",
   dir: "/",
-  world: null,
+  platform: null,
   visibility: null,
   q: "",
   page: 1,
@@ -22,13 +22,13 @@ describe("parseListHref", () => {
   it("reads the view, folder, filter and page", () => {
     expect(
       parseListHref(
-        "/media/?view=files&dir=/a/b&world=VRChat&q=x&visibility=private",
+        "/media/?view=files&dir=/a/b&platform=VRChat&q=x&visibility=private",
       ),
     ).toEqual(
       list({
         view: "files",
         dir: "/a/b",
-        world: "VRChat",
+        platform: "VRChat",
         visibility: "private",
         q: "x",
       }),
@@ -38,7 +38,7 @@ describe("parseListHref", () => {
 
   it("ignores bad values", () => {
     expect(
-      parseListHref("/media/?world=Moon&visibility=x&page=-1&dir=/../a"),
+      parseListHref("/media/?platform=Moon&visibility=x&page=-1&dir=/../a"),
     ).toEqual(list());
     expect(parseListHref("/media/")).toEqual(list());
   });
@@ -48,14 +48,22 @@ describe("parseListHref", () => {
 const db = (extra: [number, string][]) => {
   const d = new DatabaseSync(":memory:");
   d.exec(
-    "CREATE TABLE media (id INTEGER PRIMARY KEY, file TEXT, world TEXT, visibility TEXT, timestamp TEXT, status TEXT NOT NULL DEFAULT 'ready')",
+    "CREATE TABLE media (id INTEGER PRIMARY KEY, file TEXT, platform TEXT, visibility TEXT, timestamp TEXT, status TEXT NOT NULL DEFAULT 'ready', path TEXT, trashed_at TEXT)",
+  );
+  // Shown where the file is unless moved (migration 0005's trigger).
+  d.exec(
+    "CREATE TRIGGER p AFTER INSERT ON media WHEN NEW.path IS NULL BEGIN UPDATE media SET path = NEW.file WHERE id = NEW.id; END",
+  );
+  // In the trash: in no list.
+  d.exec(
+    "INSERT INTO media (id, file, platform, visibility, timestamp, trashed_at) VALUES (91, '/a/00.png', 'Real', 'public', '2023-12-02', '2026-01-01')",
   );
   // Still uploading: in no list.
   d.exec(
-    "INSERT INTO media (id, file, world, visibility, timestamp, status) VALUES (90, '/a/0.png', 'Real', 'public', '2023-12-02', 'uploading')",
+    "INSERT INTO media (id, file, platform, visibility, timestamp, status) VALUES (90, '/a/0.png', 'Real', 'public', '2023-12-02', 'uploading')",
   );
   const insert = d.prepare(
-    "INSERT INTO media (id, file, world, visibility, timestamp) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO media (id, file, platform, visibility, timestamp) VALUES (?, ?, ?, ?, ?)",
   );
   insert.run(1, "/a/2.png", "Real", "public", "2023-12-01");
   insert.run(2, "/a/1.png", "VRChat", "private", "2023-12-03");
@@ -114,7 +122,7 @@ describe("neighborsQuery", () => {
   });
 
   it("applies the filter", () => {
-    expect(run(list({ world: "VRChat", visibility: "public" }), 5)).toEqual({
+    expect(run(list({ platform: "VRChat", visibility: "public" }), 5)).toEqual({
       prev_id: null,
       next_id: 3,
       pos: 1,
@@ -122,13 +130,28 @@ describe("neighborsQuery", () => {
     });
     // No longer in the filtered list (VRChat): it still gets neighbours,
     // so the next photo is one tap away. Order: 2, 1, 4.
-    expect(run(list({ world: "Real" }), 2)).toEqual({
+    expect(run(list({ platform: "Real" }), 2)).toEqual({
       prev_id: null,
       next_id: 1,
       pos: 1,
       total: 3,
     });
     expect(run(list(), 99)).toBeUndefined();
+  });
+
+  it("walks a folder by where photos are shown, not their files", () => {
+    const { sql, args } = neighborsQuery(list({ view: "files", dir: "/z" }), 5);
+    const d = db([]);
+    // Photo 5's file stays /a/3.png; it is shown in /z now.
+    d.exec("UPDATE media SET path = '/z/3.png' WHERE id = 5");
+    expect(d.prepare(sql).get(...(args as (string | number)[]))).toEqual({
+      prev_id: null,
+      next_id: null,
+      prev_file: null,
+      next_file: null,
+      pos: 1,
+      total: 1,
+    });
   });
 
   it("walks one folder by name in the files view", () => {

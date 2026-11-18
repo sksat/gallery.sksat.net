@@ -1,16 +1,31 @@
 /**
  * Read-only D1 queries behind the public API, and the row → JSON
- * conversions. Visibility is enforced here, in SQL:
+ * conversions. Which photos may be seen is decided here, in SQL:
  *
  * - lists contain `public` photos only;
- * - a single photo (by public id or legacy index) may also be `unlisted`;
+ * - a single photo (by public id) may also be `unlisted`;
  * - `private` photos are never returned;
- * - nor are photos whose upload has not completed (`status <> 'ready'`).
+ * - nor are photos whose upload has not completed (`status <> 'ready'`)
+ *   or that are in the trash (`trashed_at`).
+ *
+ * How much of each photo's metadata is shown is decided by projectPhoto
+ * (metadata.ts levels), the one place every response goes through; the
+ * SQL only needs the levels where they pick rows (levelSql).
  */
+import {
+  BUILTIN_DEFAULTS,
+  effectiveLevels,
+  exifAt,
+  locationAt,
+  worldAt,
+  truncateTimestamp,
+  type MetadataField,
+} from "./metadata";
 import type {
   CameraImageJSON,
   CameraJSON,
   CameraKind,
+  MediaCameraJSON,
   MediaItemJSON,
 } from "./types";
 
@@ -18,9 +33,21 @@ import type {
 export type MediaJoinRow = {
   public_id: string;
   file: string;
-  world: string;
+  /** The admin's display path (0005); NULL only in old test tables. */
+  path: string | null;
+  platform: string;
   timestamp: string | null;
   tags: string;
+  /** This photo's metadata visibility overrides (JSON), or NULL. */
+  metadata_visibility: string | null;
+  /** Where it was taken (degrees; both NULL when unknown). */
+  latitude: number | null;
+  longitude: number | null;
+  /** Camera settings (JSON, metadata.ts ExifJSON), or NULL. */
+  exif: string | null;
+  /** The VRChat world (wrld_…) and its name. */
+  world_id: string | null;
+  world_name: string | null;
   camera_slug: string | null;
   camera_name: string | null;
   camera_manufacturer: string | null;
@@ -47,17 +74,42 @@ export type CameraImageRow = {
   id: number;
 };
 
+/** What projectPhoto needs besides the row: the site's defaults, public tags. */
+export type Context = {
+  /** The `setting` row metadata_visibility (JSON), or null. */
+  site: string | null;
+  publicTags: ReadonlySet<string>;
+};
+
 const MEDIA_SELECT = `
-  SELECT m.public_id, m.file, m.world, m.timestamp, m.tags,
+  SELECT m.public_id, m.file, m.path, m.platform, m.timestamp, m.tags,
+         m.metadata_visibility, m.latitude, m.longitude,
+         m.exif, m.world_id, m.world_name,
          c.slug AS camera_slug, c.name AS camera_name,
          c.manufacturer AS camera_manufacturer, c.model AS camera_model
   FROM media m LEFT JOIN camera c ON c.id = m.camera_id`;
 
+const SITE_SETTING =
+  "(SELECT value FROM setting WHERE key = 'metadata_visibility')";
+
 /**
- * A photo whose upload has completed (admin migration 0004). Rows still
- * `uploading` reserve a path but may have no file yet: never served.
+ * A field's level for the photo `m` in SQL, the same as effectiveLevels:
+ * the photo's override, else the site's default, else the built-in one.
+ * (An unknown value is compared as is, so it never equals a real level:
+ * hidden, as in effectiveLevels.)
  */
-const READY = "m.status = 'ready'";
+export const levelSql = (field: MetadataField): string =>
+  `COALESCE(json_extract(m.metadata_visibility, '$.${field}'),
+            json_extract(${SITE_SETTING}, '$.${field}'),
+            '${BUILTIN_DEFAULTS[field]}')`;
+
+/**
+ * A photo whose upload has completed (admin migration 0004) and that is
+ * not in the admin's trash (0005). Rows still `uploading` reserve a path
+ * but may have no file yet; trashed ones are on their way out. Neither is
+ * ever served.
+ */
+const READY = "m.status = 'ready' AND m.trashed_at IS NULL";
 
 /** Photos that are listed. */
 const LISTED = `${READY} AND m.visibility = 'public'`;
@@ -78,22 +130,85 @@ const parseTags = (raw: string): string[] => {
   }
 };
 
-export const rowToItem = (row: MediaJoinRow): MediaItemJSON => ({
-  id: row.public_id,
-  file: row.file,
-  world: row.world === "VRChat" ? "VRChat" : "Real",
-  timestamp: row.timestamp,
-  camera:
-    row.camera_slug === null
+/** The statements whose results make a Context (run them in the batch). */
+const contextStatements = (db: D1Database) => [
+  db.prepare(`SELECT value FROM setting WHERE key = 'metadata_visibility'`),
+  db.prepare("SELECT name FROM tag WHERE public = 1"),
+];
+
+const toContext = (
+  site: D1Result<unknown>,
+  tags: D1Result<unknown>,
+): Context => ({
+  site:
+    ((site.results ?? [])[0] as { value?: string } | undefined)?.value ?? null,
+  publicTags: new Set(
+    ((tags.results ?? []) as { name: string }[]).map((t) => t.name),
+  ),
+});
+
+const cameraAt = (
+  row: MediaJoinRow,
+  level: "model" | "manufacturer" | "hidden",
+): MediaCameraJSON | null => {
+  if (row.camera_slug === null || level === "hidden") return null;
+  if (level === "manufacturer") {
+    return row.camera_manufacturer === null
       ? null
       : {
-          slug: row.camera_slug,
-          name: row.camera_name ?? row.camera_slug,
+          slug: null,
+          name: row.camera_manufacturer,
           manufacturer: row.camera_manufacturer,
-          model: row.camera_model,
-        },
-  tags: parseTags(row.tags),
-});
+          model: null,
+        };
+  }
+  return {
+    slug: row.camera_slug,
+    name: row.camera_name ?? row.camera_slug,
+    manufacturer: row.camera_manufacturer,
+    model: row.camera_model,
+  };
+};
+
+/**
+ * A photo as the public API shows it: each piece of metadata at the level
+ * its visibility allows. `withKey` is for the image Worker's own lookups
+ * (RPC): `file` is then the bucket key whatever the level, to fetch the
+ * original by; the rest is still cut down (it goes into og captions).
+ */
+export const projectPhoto = (
+  row: MediaJoinRow,
+  ctx: Context,
+  withKey = false,
+): MediaItemJSON => {
+  const levels = effectiveLevels(ctx.site, row.metadata_visibility);
+  const path = row.path ?? row.file;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const timestamp = truncateTimestamp(row.timestamp, levels.taken_at);
+  return {
+    id: row.public_id,
+    file:
+      withKey || (levels.file_name === "path" && path === row.file)
+        ? row.file
+        : null,
+    path: levels.file_name === "path" ? path : null,
+    name: levels.file_name === "hidden" ? null : name,
+    platform: row.platform === "VRChat" ? "VRChat" : "Real",
+    timestamp,
+    timestamp_precision:
+      timestamp === null || levels.taken_at === "hidden"
+        ? null
+        : levels.taken_at,
+    camera: cameraAt(row, levels.camera),
+    location: locationAt(row.latitude, row.longitude, levels.location),
+    world: worldAt(row.world_id, row.world_name, levels.world),
+    exif: exifAt(row.exif, levels.exif),
+    tags:
+      levels.tags === "public"
+        ? parseTags(row.tags).filter((t) => ctx.publicTags.has(t))
+        : [],
+  };
+};
 
 export const rowToCamera = (
   row: CameraRow,
@@ -120,42 +235,74 @@ export const rowToCamera = (
 export const listPublicMedia = async (
   db: D1Database,
 ): Promise<MediaItemJSON[]> => {
-  const res = await db
-    .prepare(
+  const [site, tags, photos] = await db.batch([
+    ...contextStatements(db),
+    db.prepare(
       `${MEDIA_SELECT} WHERE ${LISTED}
        ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
-    )
-    .all<MediaJoinRow>();
-  return (res.results ?? []).map(rowToItem);
+    ),
+  ]);
+  const ctx = toContext(site, tags);
+  return ((photos.results ?? []) as MediaJoinRow[]).map((r) =>
+    projectPhoto(r, ctx),
+  );
+};
+
+/** One public or unlisted photo by public id, projected. */
+const onePhoto = async (
+  db: D1Database,
+  where: string,
+  arg: string,
+  withKey: boolean,
+): Promise<MediaItemJSON | null> => {
+  const [site, tags, photos] = await db.batch([
+    ...contextStatements(db),
+    db.prepare(`${MEDIA_SELECT} WHERE ${where}`).bind(arg),
+  ]);
+  const row = (photos.results ?? [])[0] as MediaJoinRow | undefined;
+  return row ? projectPhoto(row, toContext(site, tags), withKey) : null;
 };
 
 /** A public or unlisted photo by its public id. */
-export const getMedia = async (
+export const getMedia = (
   db: D1Database,
   publicId: string,
-): Promise<MediaItemJSON | null> => {
-  const row = await db
-    .prepare(`${MEDIA_SELECT} WHERE m.public_id = ? AND ${VIEWABLE}`)
-    .bind(publicId)
-    .first<MediaJoinRow>();
-  return row ? rowToItem(row) : null;
-};
+): Promise<MediaItemJSON | null> =>
+  onePhoto(db, `m.public_id = ? AND ${VIEWABLE}`, publicId, false);
+
+/**
+ * A public or unlisted photo by its public id, with its bucket key in
+ * `file` whatever its file name level: for the image Worker (RPC), which
+ * fetches the original by it and never shows it.
+ */
+export const getPhotoForImage = (
+  db: D1Database,
+  publicId: string,
+): Promise<MediaItemJSON | null> =>
+  onePhoto(db, `m.public_id = ? AND ${VIEWABLE}`, publicId, true);
 
 export type FileAccess =
   { kind: "photo"; photo: MediaItemJSON } | { kind: "camera-image" };
 
 /**
- * Whether the image Worker may serve a bucket path by file name: a public
- * photo (with its metadata, for the og caption) or a picture of a camera.
- * Null for anything else, in particular unlisted and private photos, whose
- * predictable file paths must not give them away.
+ * Whether the image Worker may serve a bucket path by name: a public photo
+ * whose file name is public with its folder ("path") and that is still at
+ * that path (not moved), with its metadata for the og caption; or a
+ * picture of a camera. Null for anything else, in particular unlisted and
+ * private photos, whose predictable paths must not give them away.
  */
 export const getFileAccess = async (
   db: D1Database,
   file: string,
 ): Promise<FileAccess | null> => {
-  const [photos, images] = await db.batch([
-    db.prepare(`${MEDIA_SELECT} WHERE m.file = ? AND ${LISTED}`).bind(file),
+  const [site, tags, photos, images] = await db.batch([
+    ...contextStatements(db),
+    db
+      .prepare(
+        `${MEDIA_SELECT} WHERE m.file = ?1 AND ${LISTED}
+           AND m.path = m.file AND ${levelSql("file_name")} = 'path'`,
+      )
+      .bind(file),
     // A camera picture that is also a photo row follows the photo's
     // visibility and status: listing a private photo (or one still being
     // uploaded) as a camera picture must not publish it by path.
@@ -167,37 +314,21 @@ export const getFileAccess = async (
       .bind(file),
   ]);
   const row = (photos.results ?? [])[0] as MediaJoinRow | undefined;
-  if (row) return { kind: "photo", photo: rowToItem(row) };
+  if (row) {
+    return { kind: "photo", photo: projectPhoto(row, toContext(site, tags)) };
+  }
   return (images.results ?? []).length > 0 ? { kind: "camera-image" } : null;
 };
 
 /**
- * Public id of the photo that was /photo/<index> before public ids.
- * Unlisted photos are included on purpose: every legacy index belongs to a
- * photo that was publicly listed when its old URL was shared, so the old
- * link keeps working after the photo is unlisted.
- */
-export const getLegacyId = async (
-  db: D1Database,
-  index: number,
-): Promise<string | null> => {
-  const row = await db
-    .prepare(
-      `SELECT public_id FROM media m WHERE legacy_index = ? AND ${VIEWABLE}`,
-    )
-    .bind(index)
-    .first<{ public_id: string }>();
-  return row?.public_id ?? null;
-};
-
-/**
- * Cameras follow their photos: one is listed only when a public photo was
- * taken with it, and can be opened by slug only when a public or unlisted
- * one was (so an unlisted photo's camera link works). Gear used only for
- * private photos stays hidden.
+ * Cameras follow their photos: one is listed only when a public photo
+ * shows it (its camera level is "model"), and can be opened by slug only
+ * when a public or unlisted one does. Gear that only private photos, or
+ * photos that hide it, were taken with stays hidden.
  */
 const cameraUsed = (visibility: string) =>
-  `EXISTS (SELECT 1 FROM media m WHERE m.camera_id = c.id AND ${visibility})`;
+  `EXISTS (SELECT 1 FROM media m WHERE m.camera_id = c.id AND ${visibility}
+             AND ${levelSql("camera")} = 'model')`;
 
 /** Cameras with at least one public photo, by slug. */
 export const listCameras = async (db: D1Database): Promise<CameraJSON[]> => {

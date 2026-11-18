@@ -8,16 +8,16 @@ import {
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 describe("filesQuery", () => {
-  it("selects only what the files view needs, by file, one past the limit", () => {
+  it("selects only what the files view needs, by path, one past the limit", () => {
     expect(filesQuery({ limit: 10 })).toEqual({
-      sql: "SELECT id, file, world FROM media WHERE status = 'ready' ORDER BY file LIMIT ?",
+      sql: "SELECT id, file, path, platform FROM media WHERE status = 'ready' AND trashed_at IS NULL ORDER BY path LIMIT ?",
       args: [11],
     });
   });
 
-  it("applies the world filter and an escaped substring", () => {
-    expect(filesQuery({ world: "VRChat", q: "50%_x", limit: 5 })).toEqual({
-      sql: "SELECT id, file, world FROM media WHERE status = 'ready' AND world = ? AND file LIKE ? ESCAPE '\\' ORDER BY file LIMIT ?",
+  it("applies the platform filter and an escaped substring of the path", () => {
+    expect(filesQuery({ platform: "VRChat", q: "50%_x", limit: 5 })).toEqual({
+      sql: "SELECT id, file, path, platform FROM media WHERE status = 'ready' AND trashed_at IS NULL AND platform = ? AND path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?",
       args: ["VRChat", "%50\\%\\_x%", 6],
     });
   });
@@ -32,7 +32,7 @@ const fakeDb = (results: unknown[]) =>
   }) as unknown as D1Database;
 
 describe("listMediaFiles", () => {
-  const row = (id: number) => ({ id, file: `/a/${id}.png`, world: "Real" });
+  const row = (id: number) => ({ id, file: `/a/${id}.png`, platform: "Real" });
 
   it("is not truncated up to the limit", async () => {
     const r = await listMediaFiles(fakeDb([row(1), row(2)]), { limit: 2 });
@@ -50,8 +50,8 @@ describe("listMediaFiles", () => {
 describe("folders (on the real schema)", () => {
   const setup = () => {
     const db = migratedSqlite();
-    db.exec(`INSERT INTO media (file, world) VALUES ('/VRChat/2023-12/a.png', 'VRChat');
-      INSERT INTO media (file, world, status) VALUES ('/up/b.png', 'Real', 'uploading');`);
+    db.exec(`INSERT INTO media (file, platform) VALUES ('/VRChat/2023-12/a.png', 'VRChat');
+      INSERT INTO media (file, platform, status) VALUES ('/up/b.png', 'Real', 'uploading');`);
     return sqliteD1(db);
   };
 
@@ -85,5 +85,19 @@ describe("folders (on the real schema)", () => {
     const db = setup();
     const { rows } = await listMediaFiles(db, { limit: 10 });
     expect(rows.map((r) => r.file)).toEqual(["/VRChat/2023-12/a.png"]);
+  });
+
+  it("follows where photos are shown, and leaves the trash out", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`INSERT INTO media (file, platform, path) VALUES ('/x/a.png', 'Real', '/moved/a.png');
+      INSERT INTO media (file, platform, trashed_at) VALUES ('/x/b.png', 'Real', '2026-01-01');`);
+    const db = sqliteD1(raw);
+    const { rows } = await listMediaFiles(db, { limit: 10 });
+    expect(rows.map((r) => [r.file, r.path])).toEqual([
+      ["/x/a.png", "/moved/a.png"],
+    ]);
+    // The folder of the moved photo exists; its old one does not.
+    expect(await createFolder(db, "/moved")).toBe(false);
+    expect(await createFolder(db, "/x")).toBe(true);
   });
 });

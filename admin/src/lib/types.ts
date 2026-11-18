@@ -1,8 +1,19 @@
+import type { MetadataOverrides } from "./metadata";
+
 // Admin-side shapes of the D1 rows (migrations/). The public site reads the
 // same database through the API Worker (workers/api, its src/types.ts);
 // review it when changing columns.
 
-export type MediaWorld = "Real" | "VRChat";
+/**
+ * Where a photo was taken (media.platform; "world" until migration 0005,
+ * a name now kept for the VRChat world itself).
+ */
+export type MediaPlatform = "Real" | "VRChat";
+
+export const PLATFORMS: readonly MediaPlatform[] = ["Real", "VRChat"];
+
+export const isPlatform = (v: unknown): v is MediaPlatform =>
+  v === "Real" || v === "VRChat";
 
 export const CAMERA_KINDS = ["digital", "film", "phone", "virtual"] as const;
 export type CameraKind = (typeof CAMERA_KINDS)[number];
@@ -47,24 +58,35 @@ export type Visibility = (typeof VISIBILITIES)[number];
 export const isVisibility = (v: unknown): v is Visibility =>
   (VISIBILITIES as readonly unknown[]).includes(v);
 
+/**
+ * SQL condition (on `media`, unqualified) for a photo the admin lists: its
+ * upload completed (0004) and it is not in the trash (0005).
+ */
+export const LIVE_PHOTO = "status = 'ready' AND trashed_at IS NULL";
+
 export type MediaRow = {
   id: number;
   /** Id in public URLs (/photo/<public_id>); fixed at creation. */
   public_id: string;
+  /** The B2 object key: fixed, used for images. */
   file: string;
-  world: MediaWorld;
+  /** Where the admin shows it (folder + name); moving rewrites it. */
+  path: string;
+  platform: MediaPlatform;
   timestamp: string | null;
   camera_id: number | null;
   tags: string[];
   visibility: Visibility;
-  /** N of the old /photo/<N> URL, for photos that had one. */
-  legacy_index: number | null;
+  /** How much of its metadata is public: its own levels (the rest follow the site). */
+  metadata_visibility: MetadataOverrides;
   updated_at: string;
 };
 
 export type MediaPatch = {
-  world?: MediaWorld;
+  platform?: MediaPlatform;
   camera_id?: number | null;
   tags?: string[];
   visibility?: Visibility;
+  /** Replaces the photo's overrides ({} = all from the site). */
+  metadata_visibility?: MetadataOverrides;
 };

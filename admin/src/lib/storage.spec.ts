@@ -80,12 +80,12 @@ describe("formatPercent", () => {
 describe("storage (on the real schema)", () => {
   const setup = () => {
     const db = migratedSqlite();
-    db.exec(`INSERT INTO media (file, world, visibility, size) VALUES
+    db.exec(`INSERT INTO media (file, platform, visibility, size) VALUES
         ('/VRChat/2023-12/a.png', 'VRChat', 'public',   1000),
         ('/VRChat/b.png',         'VRChat', 'unlisted', 2000),
         ('/2023-12-comsys2023/c.jpg', 'Real', 'public', 4000),
         ('/root.png',             'Real',   'private',  NULL);
-      INSERT INTO media (file, world, status, size) VALUES
+      INSERT INTO media (file, platform, status, size) VALUES
         ('/VRChat/up.png', 'VRChat', 'uploading', 8000);`);
     return sqliteD1(db);
   };

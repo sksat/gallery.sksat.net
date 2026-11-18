@@ -6,19 +6,21 @@ The photo and camera metadata live in [`e2e/fixture.sql`](../../e2e/fixture.sql)
 
 ## Inventory
 
-Seven photos with fixed timestamps and public ids. `legacy index` is the `N` of an old `/photo/N` URL.
+Seven photos with fixed timestamps and public ids.
 
-| public id    | file                 | world  | timestamp              | camera         | tags          | visibility | legacy index |
-| ------------ | -------------------- | ------ | ---------------------- | -------------- | ------------- | ---------- | ------------ |
-| `reaxxxxxxa` | `/mock/real1.png`    | Real   | `2023-12-01T00:00:00Z` | `pentax-sp`    | film          | public     | 0            |
-| `vrcxxxxxxa` | `/mock/vrchat1.png`  | VRChat | `2023-12-02T00:00:00Z` | `virtuallens2` | VRChat        | public     | 1            |
-| `reaxxxxxxb` | `/mock/real2.png`    | Real   | `2023-12-03T00:00:00Z` | —              | night         | public     | 2            |
-| `vrcxxxxxxb` | `/mock/vrchat2.png`  | VRChat | `2023-12-04T00:00:00Z` | —              | VRChat, night | public     | 3            |
-| `vrcxxxxxxc` | `/mock/vrchat3.png`  | VRChat | `2023-12-05T00:00:00Z` | `virtuallens2` | VRChat        | public     | 4            |
-| `unxxxxxxxx` | `/mock/unlisted.png` | VRChat | `2023-12-06T00:00:00Z` | `virtuallens2` | VRChat, night | unlisted   | 5            |
-| `pvxxxxxxxx` | `/mock/private.png`  | Real   | `2023-12-07T00:00:00Z` | —              | secret        | private    | 6            |
+| public id    | file                 | platform | timestamp                   | camera         | tags          | visibility |
+| ------------ | -------------------- | -------- | --------------------------- | -------------- | ------------- | ---------- |
+| `reaxxxxxxa` | `/mock/real1.png`    | Real     | `2023-12-01T00:00:00Z`      | `pentax-sp`    | film          | public     |
+| `vrcxxxxxxa` | `/mock/vrchat1.png`  | VRChat   | `2023-12-02T00:00:00Z`      | `virtuallens2` | VRChat        | public     |
+| `reaxxxxxxb` | `/mock/real2.png`    | Real     | `2023-12-03T00:00:00Z`      | —              | night         | public     |
+| `vrcxxxxxxb` | `/mock/vrchat2.png`  | VRChat   | `2023-12-04T12:34:56+09:00` | —              | VRChat, night | public     |
+| `vrcxxxxxxc` | `/mock/vrchat3.png`  | VRChat   | `2023-12-05T00:00:00Z`      | `virtuallens2` | VRChat, draft | public     |
+| `unxxxxxxxx` | `/mock/unlisted.png` | VRChat   | `2023-12-06T00:00:00Z`      | `virtuallens2` | VRChat, night | unlisted   |
+| `pvxxxxxxxx` | `/mock/private.png`  | Real     | `2023-12-07T00:00:00Z`      | —              | secret        | private    |
 
-Only the five public photos are listed. The gallery treats `world` as one more tag, so the tag counts are **VRChat 3**, **Real 2**, **night 2**, **film 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = `reaxxxxxxb`, `Real` OR `night` = three photos. The unlisted and the private photo are the newest and carry tags of their own, so a leak into a list, a count or the top page's card shows up in the tests.
+Metadata visibility (`media.metadata_visibility` over the site default, which hides file names): every file name is public with its folder except `reaxxxxxxb`'s, so the API leaves its `file` out and without the image Worker the gallery shows a grey stand-in for it; `vrcxxxxxxb` shows only the date it was taken (2023/12/04 in its +09:00). The tags film, VRChat and night are public; `draft` and `secret` are private and never returned.
+
+Only the five public photos are listed. The gallery treats `platform` as one more tag, so the tag counts are **VRChat 3**, **Real 2**, **night 2**, **film 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = `reaxxxxxxb`, `Real` OR `night` = three photos. The unlisted and the private photo are the newest and carry tags of their own, so a leak into a list, a count or the top page's card shows up in the tests.
 
 Two cameras:
 

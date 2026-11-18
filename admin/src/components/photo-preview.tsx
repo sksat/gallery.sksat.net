@@ -28,7 +28,7 @@ import {
   togglePending,
   type Pending,
 } from "~/lib/review-pending";
-import { VISIBILITIES, type MediaWorld, type Visibility } from "~/lib/types";
+import { VISIBILITIES, type MediaPlatform, type Visibility } from "~/lib/types";
 import { FullscreenImage } from "./fullscreen-image";
 import { Thumb } from "./thumb";
 import {
@@ -46,7 +46,7 @@ export type ApplyResult =
 type Props = {
   id: number;
   file: string;
-  world: MediaWorld;
+  platform: MediaPlatform;
   timestamp: string | null;
   visibility: Visibility;
   /** /thumb base, or null for placeholders. */
@@ -353,7 +353,7 @@ export const PhotoPreview = component$<Props>((props) => {
       >
         <Thumb
           file={props.file}
-          world={props.world}
+          platform={props.platform}
           imageBase={props.imageBase}
           variant="preview"
           class={boxClass}
@@ -606,7 +606,7 @@ const PendingBar = component$<BarProps>((props) => {
             <span key={id} class="relative shrink-0">
               <Thumb
                 file={item.file}
-                world={null}
+                platform={null}
                 imageBase={props.imageBase}
                 variant="list"
                 class="h-14 rounded-lg"

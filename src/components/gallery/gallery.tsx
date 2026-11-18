@@ -78,9 +78,7 @@ const MODE_LABELS: Record<TagMatchMode, string> = {
 };
 
 /**
- * Photo, filter, sort order and camera as encoded in a URL. (Old share
- * formats, /photo/N and /?imageId=N, are redirected by their routes.) The
- * camera comes from a `/camera/<slug>/` path, or `?camera=` on a photo
+ * Photo, filter, sort order and camera as encoded in a URL. The camera comes from a `/camera/<slug>/` path, or `?camera=` on a photo
  * opened from one.
  */
 const stateFromUrl = (url: URL) => ({
@@ -420,7 +418,10 @@ export default component$<GalleryProps>((props) => {
                       decoding="async"
                     />
                     <div class="pointer-events-none absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100">
-                      <div>{m.value.timestamp?.toLocaleString("ja-JP")}</div>
+                      <div>{m.value.takenText}</div>
+                      {!m.value.camera && m.value.maker && (
+                        <div>{m.value.maker}</div>
+                      )}
                       {m.value.camera && (
                         <div>
                           {/*
