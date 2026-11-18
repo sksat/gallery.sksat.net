@@ -42,6 +42,9 @@ import {
   type ApplyResult,
   type UndoChange,
 } from "~/components/photo-preview";
+import { MetadataSelect } from "~/components/metadata-select";
+import { ensureTags, getSiteDefaults, publicTags } from "~/lib/db-meta";
+import { EDITABLE_FIELDS, type MetadataLevels } from "~/lib/metadata";
 import { pendingBatches, type Pending } from "~/lib/review-pending";
 import { VisibilityBadge } from "~/components/visibility-badge";
 import {
@@ -75,6 +78,10 @@ type MediaLoaderResult =
       /** Options for the camera <select>, sorted by name. */
       cameras: CameraOption[];
       imageBase: string | null;
+      /** The site's metadata visibility defaults (the selects' 既定). */
+      defaults: MetadataLevels;
+      /** Which of the photo's tags are public. */
+      publicTags: string[];
     }
   | { kind: "missing-binding" }
   | { kind: "bad-request" }
@@ -109,12 +116,18 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
       status(404);
       return { kind: "not-found" };
     }
+    const [defaults, rowPublicTags] = await Promise.all([
+      getSiteDefaults(db),
+      publicTags(db, row.tags),
+    ]);
     return {
       kind: "ok",
       row,
       neighbors,
       cameras: cameras.map(({ id, name, slug }) => ({ id, name, slug })),
       imageBase: getImageBase(platform),
+      defaults,
+      publicTags: rowPublicTags,
     };
   },
 );
@@ -133,6 +146,17 @@ export const useUpdateMedia = routeAction$(
       camera_id: parseCameraIdInput(data.camera_id),
       tags: parseTagsInput(data.tags ?? ""),
       visibility: data.visibility,
+      // "" = the site's default for that field.
+      ...(data.mv_file_name !== undefined
+        ? {
+            metadata_visibility: {
+              file_name: data.mv_file_name,
+              taken_at: data.mv_taken_at ?? "",
+              camera: data.mv_camera ?? "",
+              tags: data.mv_tags ?? "",
+            },
+          }
+        : {}),
     });
     if (!v.ok) {
       return fail(400, { message: v.error });
@@ -154,7 +178,9 @@ export const useUpdateMedia = routeAction$(
     if (!updated) {
       return fail(404, { message: "not found" });
     }
-    return { ok: true, updated_at: updated.updated_at };
+    // Tags seen for the first time get a row, private: say so.
+    const newTags = await ensureTags(db, v.patch.tags ?? []);
+    return { ok: true, updated_at: updated.updated_at, newTags };
   },
   zod$({
     platform: z.enum(["Real", "VRChat"]),
@@ -165,6 +191,10 @@ export const useUpdateMedia = routeAction$(
     // Required: a submission without it must not change who can see the
     // photo.
     visibility: z.enum(VISIBILITIES),
+    mv_file_name: z.string().max(20).optional(),
+    mv_taken_at: z.string().max(20).optional(),
+    mv_camera: z.string().max(20).optional(),
+    mv_tags: z.string().max(20).optional(),
   }),
 );
 
@@ -286,129 +316,150 @@ const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
  * `checked` / `selected` / `value` over what the user just picked; it
  * re-renders only when the row itself changes (saved, or another photo).
  */
-const MediaFields = component$<{ row: MediaRow; cameras: CameraOption[] }>(
-  ({ row, cameras }) => (
-    <>
-      <fieldset class="space-y-3">
-        <legend class={legend}>Visibility</legend>
-        <div class="grid gap-2 sm:grid-cols-3">
-          {VISIBILITIES.map((v) => (
-            <label
-              key={v}
-              // The level's icon and colour (visibility-style.tsx), tinted
-              // once checked.
-              class={[
-                "flex cursor-pointer gap-2 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800",
-                VISIBILITY_STYLE[v].card,
-              ]}
-            >
-              <input
-                type="radio"
-                name="visibility"
-                value={v}
-                checked={row.visibility === v}
-                class="mt-0.5"
-              />
-              <span>
-                <span
-                  class={[
-                    "flex items-center gap-1.5 font-medium",
-                    VISIBILITY_STYLE[v].accent,
-                  ]}
-                >
-                  <VisibilityIcon visibility={v} />
-                  {VISIBILITY_LABELS[v]}
-                </span>
-                <span class={["block text-xs", muted]}>
-                  {VISIBILITY_HELP[v]}
-                </span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      <fieldset class="space-y-3">
-        <legend class={legend}>Category</legend>
-        <div class="max-w-xs">
-          <label for="edit-platform" class={label}>
-            {PLATFORM_LABEL}
-          </label>
-          <select id="edit-platform" name="platform" class={field}>
-            <option value="Real" selected={row.platform === "Real"}>
-              Real
-            </option>
-            <option value="VRChat" selected={row.platform === "VRChat"}>
-              VRChat
-            </option>
-          </select>
-        </div>
-      </fieldset>
-
-      <fieldset class="space-y-3">
-        <legend class={legend}>Camera</legend>
-        <div class="max-w-sm">
-          {/* The fieldset legend already says "Camera". */}
-          <label for="edit-camera" class="sr-only">
-            Camera
-          </label>
-          <select
-            id="edit-camera"
-            name="camera_id"
-            aria-describedby="edit-camera-help"
-            class={field}
+const MediaFields = component$<{
+  row: MediaRow;
+  cameras: CameraOption[];
+  defaults: MetadataLevels;
+  publicTags: string[];
+}>(({ row, cameras, defaults, publicTags }) => (
+  <>
+    <fieldset class="space-y-3">
+      <legend class={legend}>Visibility</legend>
+      <div class="grid gap-2 sm:grid-cols-3">
+        {VISIBILITIES.map((v) => (
+          <label
+            key={v}
+            // The level's icon and colour (visibility-style.tsx), tinted
+            // once checked.
+            class={[
+              "flex cursor-pointer gap-2 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800",
+              VISIBILITY_STYLE[v].card,
+            ]}
           >
-            <option value="" selected={row.camera_id === null}>
-              (none)
-            </option>
-            {cameras.map((c) => (
-              <option
-                key={c.id}
-                value={String(c.id)}
-                selected={row.camera_id === c.id}
+            <input
+              type="radio"
+              name="visibility"
+              value={v}
+              checked={row.visibility === v}
+              class="mt-0.5"
+            />
+            <span>
+              <span
+                class={[
+                  "flex items-center gap-1.5 font-medium",
+                  VISIBILITY_STYLE[v].accent,
+                ]}
               >
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <p id="edit-camera-help" class={["mt-1 text-xs", muted]}>
-            Not listed?{" "}
-            <Link href="/camera/new/" class={link}>
-              Add a camera
-            </Link>{" "}
-            first.
-          </p>
-        </div>
-      </fieldset>
-
-      <fieldset class="space-y-3">
-        <legend class={legend}>Tags</legend>
-        <div>
-          <label for="edit-tags" class={label}>
-            Tags (comma-separated)
+                <VisibilityIcon visibility={v} />
+                {VISIBILITY_LABELS[v]}
+              </span>
+              <span class={["block text-xs", muted]}>{VISIBILITY_HELP[v]}</span>
+            </span>
           </label>
-          <input
-            id="edit-tags"
-            type="text"
-            name="tags"
-            value={row.tags.join(", ")}
-            maxLength={2000}
-            aria-describedby="edit-tags-help"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellcheck={false}
-            enterKeyHint="done"
-            class={field}
+        ))}
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-3">
+      <legend class={legend}>
+        公開する情報{" "}
+        <Link href="/setting/" class={[link, "ml-2 text-xs font-normal"]}>
+          既定
+        </Link>
+      </legend>
+      <div class="grid gap-3 sm:grid-cols-2">
+        {EDITABLE_FIELDS.map((f) => (
+          <MetadataSelect
+            key={f}
+            field={f}
+            name={`mv_${f}`}
+            value={row.metadata_visibility[f] ?? ""}
+            siteDefault={defaults[f]}
           />
-          <p id="edit-tags-help" class={["mt-1 text-xs", muted]}>
-            e.g. <code>VRChat, night</code>. Saved to D1 immediately; the public
-            gallery shows it within about a minute.
-          </p>
-        </div>
-      </fieldset>
-    </>
-  ),
-);
+        ))}
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-3">
+      <legend class={legend}>Category</legend>
+      <div class="max-w-xs">
+        <label for="edit-platform" class={label}>
+          {PLATFORM_LABEL}
+        </label>
+        <select id="edit-platform" name="platform" class={field}>
+          <option value="Real" selected={row.platform === "Real"}>
+            Real
+          </option>
+          <option value="VRChat" selected={row.platform === "VRChat"}>
+            VRChat
+          </option>
+        </select>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-3">
+      <legend class={legend}>Camera</legend>
+      <div class="max-w-sm">
+        {/* The fieldset legend already says "Camera". */}
+        <label for="edit-camera" class="sr-only">
+          Camera
+        </label>
+        <select
+          id="edit-camera"
+          name="camera_id"
+          aria-describedby="edit-camera-help"
+          class={field}
+        >
+          <option value="" selected={row.camera_id === null}>
+            (none)
+          </option>
+          {cameras.map((c) => (
+            <option
+              key={c.id}
+              value={String(c.id)}
+              selected={row.camera_id === c.id}
+            >
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <p id="edit-camera-help" class={["mt-1 text-xs", muted]}>
+          Not listed?{" "}
+          <Link href="/camera/new/" class={link}>
+            Add a camera
+          </Link>{" "}
+          first.
+        </p>
+      </div>
+    </fieldset>
+
+    <fieldset class="space-y-3">
+      <legend class={legend}>Tags</legend>
+      <div>
+        <label for="edit-tags" class={label}>
+          Tags (comma-separated)
+        </label>
+        <input
+          id="edit-tags"
+          type="text"
+          name="tags"
+          value={row.tags.join(", ")}
+          maxLength={2000}
+          aria-describedby="edit-tags-help"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellcheck={false}
+          enterKeyHint="done"
+          class={field}
+        />
+        <p id="edit-tags-help" class={["mt-1 text-xs", muted]}>
+          e.g. <code>VRChat, night</code>. Saved to D1 immediately; the public
+          gallery shows it within about a minute.
+        </p>
+      </div>
+    </fieldset>
+  </>
+));
 
 const UNSAVED_CONFIRM = "保存していない変更があります。破棄して移動しますか？";
 const PENDING_CONFIRM =
@@ -459,7 +510,11 @@ export default component$(() => {
         }
       : {
           tone: "success",
-          message: `Saved at ${formatJst(v.updated_at)} JST.`,
+          message:
+            `Saved at ${formatJst(v.updated_at)} JST.` +
+            (v.newTags.length > 0
+              ? ` 新しいタグ${v.newTags.map((t) => `『${t}』`).join("")}は非公開です。`
+              : ""),
         };
   });
 
@@ -734,7 +789,12 @@ export default component$(() => {
         }}
         class={[card, "space-y-6 p-5"]}
       >
-        <MediaFields row={row} cameras={cameras} />
+        <MediaFields
+          row={row}
+          cameras={cameras}
+          defaults={media.value.defaults}
+          publicTags={media.value.publicTags}
+        />
 
         {/* Phones: fixed to the bottom of the screen, so Save and stepping
             through the list are always in reach. sm and up: the form's

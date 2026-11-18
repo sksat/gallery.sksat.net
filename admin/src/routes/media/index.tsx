@@ -148,7 +148,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
       status(500);
       return { kind: "missing-binding" };
     }
-    // The platform filter (?platform=, or ?world= from old links). Not
+    // The platform filter (?platform=). Not
     // `platform`: that is the request's Cloudflare platform here.
     const onPlatform = platformParam(query) ?? undefined;
     const visibilityRaw = query.get("visibility");

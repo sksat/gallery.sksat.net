@@ -9,14 +9,6 @@ describe("parseRoute", () => {
       kind: "media",
       id: "abcdefghjk",
     });
-    expect(parseRoute("/api/media/legacy/0")).toEqual({
-      kind: "legacy",
-      index: 0,
-    });
-    expect(parseRoute("/api/media/legacy/50/")).toEqual({
-      kind: "legacy",
-      index: 50,
-    });
     expect(parseRoute("/api/camera")).toEqual({ kind: "camera-list" });
     expect(parseRoute("/api/camera/virtuallens2")).toEqual({
       kind: "camera",
@@ -29,10 +21,7 @@ describe("parseRoute", () => {
       "/api/media/abcdefghj", // too short
       "/api/media/abcdefghjo", // 'o' is not in the alphabet
       "/api/media/ABCDEFGHJK",
-      "/api/media/legacy/-1",
-      "/api/media/legacy/01",
-      "/api/media/legacy/1.5",
-      "/api/media/legacy/9999999",
+      "/api/media/legacy/0", // the old /photo/<N> lookup is gone
       "/api/media/legacy",
       "/api/media/abcdefghjk/extra",
       "/api/camera/Bad_Slug",

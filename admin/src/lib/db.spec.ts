@@ -29,7 +29,7 @@ const vl2: CameraRow = {
 const NEW_COLS = {
   public_id: "abcdefghjk",
   visibility: "unlisted",
-  legacy_index: 3,
+  metadata_visibility: '{"taken_at":"date","camera":"x","bogus":"x"}',
   updated_at: UPDATED,
 };
 
@@ -47,7 +47,11 @@ describe("rowToMedia", () => {
     expect(row.tags).toEqual(["VRChat", "portrait"]);
     expect(row.public_id).toBe("abcdefghjk");
     expect(row.visibility).toBe("unlisted");
-    expect(row.legacy_index).toBe(3);
+    // Unknown fields are dropped; an unknown level reads as hidden.
+    expect(row.metadata_visibility).toEqual({
+      taken_at: "date",
+      camera: "hidden",
+    });
     expect(row.camera_id).toBe(4);
     expect(row.timestamp).toBe("2023-12-11T01:21:32.519+09:00");
   });

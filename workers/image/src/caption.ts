@@ -22,9 +22,9 @@ export type Caption = {
 /** The photo fields the caption uses (a subset of the API's photo). */
 export type CaptionSource = {
   platform?: string;
-  /** The old name of `platform`, from an API Worker not yet updated. */
-  world?: string;
   timestamp: string | null;
+  /** How precisely the API gives the time (its metadata levels). */
+  timestamp_precision?: string | null;
   camera: {
     name: string;
     manufacturer: string | null;
@@ -63,6 +63,29 @@ export const formatJst = (timestamp: string | null): string | null => {
   );
 };
 
+/**
+ * The time a photo was taken, as precisely as the API gives it: to the
+ * minute in JST, or (cut down to a date, month or year) as written, in the
+ * photo's own offset, so the date is the one it was taken on there.
+ */
+export const formatTaken = (
+  timestamp: string | null,
+  precision: string | null,
+): string | null => {
+  if (!timestamp) return null;
+  const local = /^(\d{4})-(\d\d)-(\d\d)T/.exec(timestamp);
+  switch (precision) {
+    case "date":
+      return local ? `${local[1]}-${local[2]}-${local[3]}` : null;
+    case "month":
+      return local ? `${local[1]}-${local[2]}` : null;
+    case "year":
+      return local ? local[1] : null;
+    default:
+      return formatJst(timestamp);
+  }
+};
+
 export const captionFor = (m: CaptionSource): Caption => {
   // "Manufacturer Model" (e.g. "logilabo VirtualLens2"); the camera's
   // display name when neither is set.
@@ -75,7 +98,7 @@ export const captionFor = (m: CaptionSource): Caption => {
   // The platform is a tag too (as in the gallery's tag filter), listed
   // first. Spaces inside a tag become "_" so "#night sky" doesn't read as
   // two.
-  const platform = m.platform ?? m.world ?? "";
+  const platform = m.platform ?? "";
   const tags = [
     ...new Set([platform, ...m.tags].map((t) => clean(t).replace(/ /g, "_"))),
   ]
@@ -83,7 +106,7 @@ export const captionFor = (m: CaptionSource): Caption => {
     .map((t) => `#${t}`)
     .join(" ");
   const secondary = [camera, tags].filter((s) => s !== "").join(" · ");
-  const primary = formatJst(m.timestamp);
+  const primary = formatTaken(m.timestamp, m.timestamp_precision ?? null);
   return {
     ...(primary ? { primary } : {}),
     ...(secondary ? { secondary: truncate(secondary) } : {}),

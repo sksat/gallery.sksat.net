@@ -1,10 +1,11 @@
--- Where a photo is shown, apart from where its file is; a trash; whether
--- its file name is public; world renamed to platform.
+-- Where a photo is shown, apart from where its file is; a trash; how much
+-- of each photo's metadata is public; which tags are public; world
+-- renamed to platform; legacy_index dropped.
 --
 -- media.file stays the B2 object key: set once by the upload (or by hand),
 -- never changed. The image Worker, the API Worker, thumbnails and og cards
 -- keep using it, so moving a photo in the admin never touches the bucket
--- and old /img/<preset>/<file> URLs keep working.
+-- and the image URLs of a photo do not change.
 -- media.path is the photo's place in the admin's folders ("/VRChat/2026-11/
 --   a.png"): the Files view, search and the lists use it, and moving or
 --   renaming a photo or folder rewrites it. Same shape as file (leading
@@ -34,13 +35,51 @@ ALTER TABLE media ADD COLUMN path TEXT
 
 ALTER TABLE media ADD COLUMN trashed_at TEXT;
 
--- media.filename_public: whether the photo's file name may be shown on the
---   public site, apart from its visibility. 0 (the default, existing photos
---   included): the API Worker never returns the name and the image Worker
---   serves the photo only by public id (/img/<preset>/<public_id>), not by
---   its bucket path. 1: the name is returned and /img/<preset>/<file> works.
-ALTER TABLE media ADD COLUMN filename_public INTEGER NOT NULL DEFAULT 0
-  CHECK (filename_public IN (0, 1));
+-- How much of a photo's metadata the public site shows, field by field
+-- (file_name, taken_at, camera, tags; location, world and exif reserved),
+-- each at a level from most to least (workers/api/src/metadata.ts has the
+-- lists). The API Worker applies them to everything it returns.
+-- media.metadata_visibility: this photo's overrides, a JSON object of
+--   field → level; NULL or a missing field = the site's default.
+-- setting: site-wide values by key. 'metadata_visibility' holds the
+--   defaults, a JSON object of the same shape. These keep what the public
+--   site showed so far, except the file name, which is hidden from now on.
+ALTER TABLE media ADD COLUMN metadata_visibility TEXT
+  CHECK (metadata_visibility IS NULL
+         OR (json_valid(metadata_visibility)
+             AND json_type(metadata_visibility) = 'object'));
+
+CREATE TABLE setting (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL CHECK (json_valid(value)),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+INSERT INTO setting (key, value) VALUES ('metadata_visibility', json_object(
+  'file_name', 'hidden', 'taken_at', 'second', 'camera', 'model',
+  'tags', 'public', 'location', 'hidden', 'world', 'link', 'exif', 'basic'));
+
+-- tag: every tag, and whether it is public. media.tags keeps the names (a
+--   JSON array, as before); the public site only ever sees the tags marked
+--   public here, and a name with no row is private. New tags are private.
+--   The tags of the photos the public site shows now (public and unlisted)
+--   are public already, so they start public; the rest start private.
+CREATE TABLE tag (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL UNIQUE CHECK (length(name) BETWEEN 1 AND 200),
+  public     INTEGER NOT NULL DEFAULT 0 CHECK (public IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+INSERT INTO tag (name, public)
+SELECT DISTINCT j.value, 1 FROM media m, json_each(m.tags) j
+WHERE json_valid(m.tags) AND j.type = 'text'
+  AND m.status = 'ready' AND m.visibility IN ('public', 'unlisted')
+  AND length(j.value) BETWEEN 1 AND 200
+ORDER BY j.value;
+
+-- media.legacy_index (0003, the N of the first /photo/<N> URLs) is gone:
+-- nothing links to those URLs any more.
+DROP INDEX idx_media_legacy_index;
+ALTER TABLE media DROP COLUMN legacy_index;
 
 UPDATE media SET path = file;
 

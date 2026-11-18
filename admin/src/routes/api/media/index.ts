@@ -39,7 +39,7 @@ export const onGet: RequestHandler = withErrorHandler(
       0,
       Number.MAX_SAFE_INTEGER,
     );
-    // ?platform= (or ?world=, its old name).
+    // ?platform=
     const platformFilter = platformParam(url.searchParams) ?? undefined;
     const q = url.searchParams.get("q") ?? undefined;
     const v = url.searchParams.get("visibility");

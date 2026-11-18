@@ -1,3 +1,4 @@
+import { validateOverrides } from "./metadata";
 import {
   CAMERA_KINDS,
   type CameraInput,
@@ -30,13 +31,18 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
   const obj = input as Record<string, unknown>;
   const patch: MediaPatch = {};
 
-  // `world` is the field's old name: still accepted from older clients.
-  const platform = "platform" in obj ? obj.platform : obj.world;
-  if ("platform" in obj || "world" in obj) {
+  if ("platform" in obj) {
+    const platform = obj.platform;
     if (platform !== "Real" && platform !== "VRChat") {
       return { ok: false, error: "platform must be 'Real' or 'VRChat'" };
     }
     patch.platform = platform;
+  }
+
+  if ("metadata_visibility" in obj) {
+    const v = validateOverrides(obj.metadata_visibility);
+    if (!v.ok) return v;
+    patch.metadata_visibility = v.value;
   }
 
   // Whether the id exists is checked against D1 by the caller

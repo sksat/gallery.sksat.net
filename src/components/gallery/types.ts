@@ -35,25 +35,68 @@ export type CameraImageJSON = {
   caption: string | null;
 };
 
-/** One photo from /api/media. `id` is its public id (/photo/<id>). */
+/** How precisely the API gives the time a photo was taken. */
+export type TimestampPrecision =
+  "second" | "minute" | "date" | "month" | "year";
+
+/**
+ * One photo from /api/media. `id` is its public id (/photo/<id>). The API
+ * leaves out (null) what the photo's metadata settings do not make public.
+ */
 export type MediaInfoJSON = {
   id: string;
-  /** Bucket path; null when the photo's file name is not public. */
+  /** Bucket path; null unless the file name is public with its folder. */
   file: string | null;
+  /** The file name, without its folder. */
+  name?: string | null;
   platform: MediaPlatform;
   timestamp: null | string;
+  timestamp_precision?: TimestampPrecision | null;
+  /** The camera, with its page. */
   camera: null | MediaCamera;
+  /** Only the camera's maker is public (no camera page). */
+  maker?: string | null;
   tags: string[];
 };
 
-export type MediaInfo = {
-  id: string;
-  /** Bucket path; null when the photo's file name is not public. */
-  file: string | null;
-  platform: MediaPlatform;
+export type MediaInfo = Omit<MediaInfoJSON, "timestamp"> & {
   timestamp: null | Date;
-  camera: null | MediaCamera;
-  tags: string[];
+  /** The time it was taken, as precisely as it is public, for display. */
+  takenText?: string | null;
+};
+
+const TAKEN_PARTS = /^(\d{4})-(\d\d)-(\d\d)T/;
+
+/**
+ * Display text for when a photo was taken: to the second (as before) or
+ * minute in the viewer's locale, or cut to a date, month or year as the
+ * API wrote it (in the photo's own offset, so its date is unchanged).
+ */
+export const formatTaken = (
+  timestamp: string | null,
+  precision: TimestampPrecision | null,
+): string | null => {
+  const date = parseMediaTimestamp(timestamp);
+  if (!date || !timestamp) return null;
+  const parts = TAKEN_PARTS.exec(timestamp);
+  switch (precision) {
+    case "year":
+      return parts ? parts[1] : null;
+    case "month":
+      return parts ? `${parts[1]}/${parts[2]}` : null;
+    case "date":
+      return parts ? `${parts[1]}/${parts[2]}/${parts[3]}` : null;
+    case "minute":
+      return date.toLocaleString("ja-JP", {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    default:
+      return date.toLocaleString("ja-JP");
+  }
 };
 
 export type MediaIndex = MediaInfo[];
@@ -81,7 +124,16 @@ export const parseMediaTimestamp = (timestamp: string | null): Date | null => {
 export const transformMediaInfo = (item: MediaInfoJSON): MediaInfo => ({
   ...item,
   timestamp: parseMediaTimestamp(item.timestamp),
+  takenText: formatTaken(item.timestamp, item.timestamp_precision ?? null),
 });
+
+const PRECISIONS: readonly string[] = [
+  "second",
+  "minute",
+  "date",
+  "month",
+  "year",
+];
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -95,9 +147,7 @@ const strOrNull = (v: unknown): string | null =>
  */
 export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
   if (!isRecord(v)) return null;
-  const { id, file, timestamp, camera, tags } = v;
-  // `world` is the field's old name, from an API Worker not yet updated.
-  const platform = v.platform ?? v.world;
+  const { id, file, timestamp, camera, tags, platform } = v;
   if (typeof id !== "string" || !PUBLIC_ID_RE.test(id)) return null;
   // null: the file name is not public (images go by id).
   if (
@@ -110,6 +160,7 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
   }
   if (platform !== "Real" && platform !== "VRChat") return null;
   let cam: MediaCamera | null = null;
+  let maker: string | null = null;
   if (isRecord(camera) && typeof camera.slug === "string") {
     cam = {
       slug: camera.slug,
@@ -117,13 +168,23 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
       manufacturer: strOrNull(camera.manufacturer),
       model: strOrNull(camera.model),
     };
+  } else if (isRecord(camera)) {
+    // Only the maker is public: no camera page to link to.
+    maker = strOrNull(camera.manufacturer) ?? strOrNull(camera.name);
   }
+  const precision = v.timestamp_precision;
   return {
     id,
     file,
+    name: strOrNull(v.name),
     platform,
     timestamp: typeof timestamp === "string" ? timestamp : null,
+    timestamp_precision:
+      typeof precision === "string" && PRECISIONS.includes(precision)
+        ? (precision as TimestampPrecision)
+        : null,
     camera: cam,
+    maker,
     tags: Array.isArray(tags)
       ? tags.filter((t): t is string => typeof t === "string")
       : [],

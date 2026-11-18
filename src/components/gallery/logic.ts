@@ -82,11 +82,3 @@ export const photoIdFromPath = (pathname: string): string | null => {
   const match = /^\/photo\/([^/]+)\/?$/.exec(pathname);
   return match && PUBLIC_ID_RE.test(match[1]) ? match[1] : null;
 };
-
-/**
- * N of an old `/photo/N` URL (from before public ids; an index into the
- * old media.json), else null. Public ids are 10 symbols, so the two never
- * overlap.
- */
-export const legacyIndex = (raw: string | null): number | null =>
-  raw !== null && /^(?:0|[1-9]\d{0,5})$/.test(raw) ? Number(raw) : null;

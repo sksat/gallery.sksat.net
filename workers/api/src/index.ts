@@ -13,7 +13,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   getCamera,
-  getLegacyId,
   getFileAccess,
   getMedia,
   getPhotoForImage,
@@ -37,10 +36,6 @@ const respond = async (db: D1Database, route: Route): Promise<Response> => {
     case "media": {
       const item = await getMedia(db, route.id);
       return item ? jsonResponse(200, item) : jsonResponse(404, NOT_FOUND);
-    }
-    case "legacy": {
-      const id = await getLegacyId(db, route.index);
-      return id ? jsonResponse(200, { id }) : jsonResponse(404, NOT_FOUND);
     }
     case "camera-list":
       return jsonResponse(200, await listCameras(db));

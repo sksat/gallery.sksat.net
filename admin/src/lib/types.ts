@@ -1,3 +1,5 @@
+import type { MetadataOverrides } from "./metadata";
+
 // Admin-side shapes of the D1 rows (migrations/). The public site reads the
 // same database through the API Worker (workers/api, its src/types.ts);
 // review it when changing columns.
@@ -75,8 +77,8 @@ export type MediaRow = {
   camera_id: number | null;
   tags: string[];
   visibility: Visibility;
-  /** N of the old /photo/<N> URL, for photos that had one. */
-  legacy_index: number | null;
+  /** How much of its metadata is public: its own levels (the rest follow the site). */
+  metadata_visibility: MetadataOverrides;
   updated_at: string;
 };
 
@@ -85,4 +87,6 @@ export type MediaPatch = {
   camera_id?: number | null;
   tags?: string[];
   visibility?: Visibility;
+  /** Replaces the photo's overrides ({} = all from the site). */
+  metadata_visibility?: MetadataOverrides;
 };

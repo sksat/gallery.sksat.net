@@ -456,15 +456,64 @@ describe("0005_path_trash.sql", () => {
     ).toContain("idx_media_platform");
   });
 
-  it("hides every file name to begin with, new photos too", () => {
+  it("sets the site's metadata defaults; photos start with none of their own", () => {
     const db = migrate5([["/a.png", "Real", null, null]]);
-    db.exec("INSERT INTO media (file, platform) VALUES ('/b.png', 'Real')");
+    const site = db
+      .prepare("SELECT value FROM setting WHERE key = 'metadata_visibility'")
+      .get() as { value: string };
+    expect(JSON.parse(site.value)).toEqual({
+      file_name: "hidden",
+      taken_at: "second",
+      camera: "model",
+      tags: "public",
+      location: "hidden",
+      world: "link",
+      exif: "basic",
+    });
+    expect(db.prepare("SELECT metadata_visibility FROM media").all()).toEqual([
+      { metadata_visibility: null },
+    ]);
+    // Overrides are a JSON object, or nothing.
+    db.exec(`UPDATE media SET metadata_visibility = '{"camera":"hidden"}'`);
+    for (const bad of ["'nope'", `'["x"]'`, "'1'"]) {
+      expect(
+        () => db.exec(`UPDATE media SET metadata_visibility = ${bad}`),
+        bad,
+      ).toThrow(/CHECK/);
+    }
+    expect(() => db.exec("UPDATE setting SET value = 'nope'")).toThrow(/CHECK/);
+  });
+
+  it("makes the tags the public site shows public; new tags are private", () => {
+    const db = migrate([
+      ["/a.png", "Real", null, null],
+      ["/b.png", "Real", null, null],
+    ]);
+    db.exec(`UPDATE media SET tags = '["night","t", 3]' WHERE file = '/a.png';
+      UPDATE media SET tags = '["secret","t"]' WHERE file = '/b.png'`);
+    db.exec(migration("0003_visibility.sql"));
+    db.exec(migration("0004_upload.sql"));
+    // /a.png is public, /b.png private.
+    db.exec("UPDATE media SET visibility = 'public' WHERE file = '/a.png'");
+    db.exec(migration("0005_path_trash.sql"));
     expect(
-      db.prepare("SELECT filename_public FROM media ORDER BY id").all(),
-    ).toEqual([{ filename_public: 0 }, { filename_public: 0 }]);
-    expect(() => db.exec("UPDATE media SET filename_public = 2")).toThrow(
-      /CHECK/,
+      db.prepare("SELECT name, public FROM tag ORDER BY name").all(),
+    ).toEqual([
+      { name: "night", public: 1 },
+      { name: "t", public: 1 },
+    ]);
+    db.exec("INSERT INTO tag (name) VALUES ('draft')");
+    expect(
+      db.prepare("SELECT public FROM tag WHERE name = 'draft'").get(),
+    ).toEqual({ public: 0 });
+    expect(() => db.exec("INSERT INTO tag (name) VALUES ('night')")).toThrow(
+      /UNIQUE/,
     );
+  });
+
+  it("drops legacy_index", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    expect(() => db.prepare("SELECT legacy_index FROM media").all()).toThrow();
   });
 
   it("rejects malformed paths", () => {

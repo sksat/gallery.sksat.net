@@ -15,11 +15,10 @@ import {
 } from "./format";
 
 describe("platformParam", () => {
-  it("reads ?platform=, and ?world= from old links", () => {
+  it("reads ?platform= only", () => {
     const p = (q: string) => platformParam(new URLSearchParams(q));
     expect(p("platform=VRChat")).toBe("VRChat");
-    expect(p("world=Real")).toBe("Real");
-    expect(p("platform=Real&world=VRChat")).toBe("Real");
+    expect(p("world=Real")).toBeNull();
     expect(p("platform=Mars")).toBeNull();
     expect(p("")).toBeNull();
   });

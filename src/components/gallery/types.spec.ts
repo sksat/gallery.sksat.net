@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  formatTaken,
   parseMediaItem,
   parseMediaList,
   parseMediaTimestamp,
@@ -26,10 +27,33 @@ const item: MediaInfoJSON = {
   id: "abcdefghjk",
   file: "/media/test.jpg",
   platform: "Real",
+  name: null,
   timestamp: "2023-12-01T00:00:00Z",
+  timestamp_precision: null,
   camera: null,
+  maker: null,
   tags: [],
 };
+
+describe("formatTaken", () => {
+  it("says only as much as the API gives, in the photo's own date", () => {
+    const at = "2023-12-16T00:00:00+09:00";
+    expect(formatTaken(at, "year")).toBe("2023");
+    expect(formatTaken(at, "month")).toBe("2023/12");
+    expect(formatTaken("2023-12-16T00:00:00-05:00", "date")).toBe(
+      "2023/12/16",
+    );
+    expect(formatTaken(null, "date")).toBeNull();
+    expect(formatTaken("nope", "date")).toBeNull();
+  });
+
+  it("gives the full time to the second or minute", () => {
+    const t = "2023-12-16T23:12:53+09:00";
+    expect(formatTaken(t, "second")).toBe(new Date(t).toLocaleString("ja-JP"));
+    expect(formatTaken(t, null)).toBe(new Date(t).toLocaleString("ja-JP"));
+    expect(formatTaken(t, "minute")).not.toContain(":53");
+  });
+});
 
 describe("transformMediaInfo", () => {
   it("should transform timestamp string to Date", () => {
@@ -64,10 +88,30 @@ describe("parseMediaItem", () => {
     });
   });
 
-  it("reads the platform under its old name, world, from an older API", () => {
+  it("reads the precision and a maker-only camera", () => {
+    expect(
+      parseMediaItem({
+        ...item,
+        name: "test.jpg",
+        timestamp_precision: "month",
+        camera: { slug: null, name: "logilabo", manufacturer: "logilabo", model: null },
+      }),
+    ).toEqual({
+      ...item,
+      name: "test.jpg",
+      timestamp_precision: "month",
+      maker: "logilabo",
+    });
+    expect(
+      parseMediaItem({ ...item, timestamp_precision: "fortnight" })
+        ?.timestamp_precision,
+    ).toBeNull();
+  });
+
+  it("needs platform (no old name)", () => {
     const old: Record<string, unknown> = { ...item, world: "Real" };
     delete old.platform;
-    expect(parseMediaItem(old)).toEqual(item);
+    expect(parseMediaItem(old)).toBeNull();
   });
 
   it("accepts a photo whose file name is not public", () => {
@@ -95,7 +139,13 @@ describe("parseMediaItem", () => {
         camera: { name: "no slug" },
         tags: ["a", 1],
       }),
-    ).toEqual({ ...item, timestamp: null, camera: null, tags: ["a"] });
+    ).toEqual({
+      ...item,
+      timestamp: null,
+      camera: null,
+      maker: "no slug",
+      tags: ["a"],
+    });
   });
 });
 

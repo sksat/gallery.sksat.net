@@ -166,14 +166,28 @@ describe("validatePatch", () => {
 
   it("rejects an unknown platform", () => {
     expect(validatePatch({ platform: "Mars" }).ok).toBe(false);
-    expect(validatePatch({ world: "Mars" }).ok).toBe(false);
   });
 
-  it("takes the platform, also under its old name world", () => {
+  it("takes the platform, not its old name world", () => {
     const r = validatePatch({ platform: "VRChat" });
     expect(r.ok && r.patch).toEqual({ platform: "VRChat" });
-    const old = validatePatch({ world: "Real" });
-    expect(old.ok && old.patch).toEqual({ platform: "Real" });
+    expect(validatePatch({ world: "Real" })).toEqual({ ok: true, patch: {} });
+  });
+
+  it('takes metadata visibility overrides; "" is the default', () => {
+    const r = validatePatch({
+      metadata_visibility: { taken_at: "date", camera: "", file_name: "path" },
+    });
+    expect(r.ok && r.patch).toEqual({
+      metadata_visibility: { taken_at: "date", file_name: "path" },
+    });
+    expect(validatePatch({ metadata_visibility: { tags: "all" } }).ok).toBe(
+      false,
+    );
+    expect(validatePatch({ metadata_visibility: { colour: "red" } }).ok).toBe(
+      false,
+    );
+    expect(validatePatch({ metadata_visibility: "date" }).ok).toBe(false);
   });
 
   it("accepts a camera id and an explicit null", () => {

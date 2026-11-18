@@ -1,3 +1,4 @@
+import { parseOverrides } from "./metadata";
 import {
   CAMERA_KINDS,
   type CameraImageRow,
@@ -24,7 +25,7 @@ type RawRow = {
   camera_id: number | null;
   tags: string;
   visibility: string;
-  legacy_index: number | null;
+  metadata_visibility?: string | null;
   updated_at: string;
 };
 
@@ -76,7 +77,7 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     camera_id: raw.camera_id,
     tags: parseTags(raw.tags),
     visibility: raw.visibility,
-    legacy_index: raw.legacy_index,
+    metadata_visibility: parseOverrides(raw.metadata_visibility),
     updated_at: raw.updated_at,
   };
 };
@@ -189,6 +190,14 @@ export const updateMedia = async (
   if (patch.visibility !== undefined) {
     sets.push("visibility = ?");
     args.push(patch.visibility);
+  }
+  if (patch.metadata_visibility !== undefined) {
+    sets.push("metadata_visibility = ?");
+    args.push(
+      Object.keys(patch.metadata_visibility).length > 0
+        ? JSON.stringify(patch.metadata_visibility)
+        : null,
+    );
   }
   // No-op patch: skip the UPDATE entirely (don't bump updated_at) and just
   // return the current row. Costs a second round-trip but keeps the

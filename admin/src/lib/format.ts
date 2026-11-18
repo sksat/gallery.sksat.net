@@ -35,14 +35,11 @@ export const formatJst = (ts: string | null): string | null => {
 
 export type MediaView = "list" | "files";
 
-/**
- * The platform filter of a /media URL: `platform`, or `world`, its name
- * before the rename (old links and bookmarks keep working).
- */
+/** The platform filter of a /media URL (`platform`). */
 export const platformParam = (
   params: URLSearchParams,
 ): "Real" | "VRChat" | null => {
-  const v = params.get("platform") ?? params.get("world");
+  const v = params.get("platform");
   return v === "Real" || v === "VRChat" ? v : null;
 };
 

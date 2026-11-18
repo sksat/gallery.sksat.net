@@ -31,8 +31,7 @@ test("media list: search by file substring", async ({ page }) => {
 test("media list: an out-of-range page redirects to the last page", async ({
   page,
 }) => {
-  // (?world=, the filter's old name, still works and becomes ?platform=.)
-  await page.goto("/media/?world=VRChat&page=3");
+  await page.goto("/media/?platform=VRChat&page=3");
   await expect(page).toHaveURL(/\/media\/\?platform=VRChat$/);
   await expect(page.locator("table tbody tr")).toHaveCount(3);
   await expect(page.getByText("Page 1 / 1")).toBeVisible();
