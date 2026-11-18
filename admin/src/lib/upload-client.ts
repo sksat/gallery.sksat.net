@@ -44,7 +44,7 @@ export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
     crypto.subtle.digest("SHA-256", bytes),
     readPhotoMeta(new Uint8Array(bytes)),
   ]);
-  const { takenAt: _, dates, ...stored } = meta;
+  const { takenAt: _, dates, creatorTool, dimensions, ...stored } = meta;
   // EXIF, then XMP, then the VRChat name (taken-at.ts).
   const taken = pickTakenAt(dates, f.name);
   return {
@@ -57,6 +57,7 @@ export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
     // Always sent, even empty: the server then knows the file was read.
     meta: stored,
     parserDate: PHOTO_META_PARSER_DATE,
+    hints: { creatorTool, dimensions },
   };
 };
 

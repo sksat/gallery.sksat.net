@@ -67,6 +67,34 @@ const harness = (over: Partial<QueueDeps<UploadSource>> = {}) => {
 };
 
 describe("createUploadQueue", () => {
+  it("keeps what the upload rules set, also over a resumed init", async () => {
+    const chip = { field: "platform", value: "VRChat", rule: "r" };
+    let calls = 0;
+    const h = harness({
+      maxAttempts: 2,
+      init: vi.fn(
+        async (req): Promise<InitResult> => ({
+          status: "upload",
+          id: 1,
+          file: req.file,
+          url: `https://b2.example/${req.file}`,
+          headers: {},
+          // A retry resumes the row: no `applied` then.
+          ...(calls++ === 0 ? { applied: [chip] } : {}),
+        }),
+      ),
+    });
+    h.queue.add("/", [src("a.png")]);
+    await flush();
+    expect(h.items()[0].applied).toEqual([chip]);
+    h.puts[0].reject(new UploadError("reset", true));
+    await flush();
+    h.puts[1].resolve();
+    await flush();
+    expect(h.items()[0].status).toBe("done");
+    expect(h.items()[0].applied).toEqual([chip]);
+  });
+
   it("uploads into the folder, at most `concurrency` at a time", async () => {
     const h = harness({ concurrency: 2 });
     h.queue.add("/trip", [src("a.png"), src("b.png"), src("c.png")]);

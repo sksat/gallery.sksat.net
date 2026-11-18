@@ -4,7 +4,6 @@ import {
   formatUploadSize,
   formatMegapixelsUp,
   groupDigits,
-  guessPlatform,
   MAX_UPLOAD_BYTES,
   safeSegment,
   uploadContentType,
@@ -87,26 +86,6 @@ describe("uploadTarget", () => {
       file: "/a/_./a.png",
       dir: "/a/_.",
     });
-  });
-});
-
-describe("guessPlatform", () => {
-  it("is VRChat for VRChat's screenshot names", () => {
-    expect(
-      guessPlatform("/x/VRChat_2026-11-18_01-02-03.456_3840x2160.png"),
-    ).toBe("VRChat");
-    // Before late 2022 the resolution came first.
-    expect(
-      guessPlatform("/x/VRChat_3840x2160_2022-08-22_02-03-18.591.png"),
-    ).toBe("VRChat");
-    expect(guessPlatform("/x/IMG_1.jpg")).toBe("Real");
-  });
-
-  it("is VRChat for anything under the top-level /VRChat/ folder", () => {
-    expect(guessPlatform("/VRChat/IMG_1.jpg")).toBe("VRChat");
-    expect(guessPlatform("/VRChat/2026-11/edited.png")).toBe("VRChat");
-    expect(guessPlatform("/Trip/VRChat/IMG_1.jpg")).toBe("Real");
-    expect(guessPlatform("/VRChatX/IMG_1.jpg")).toBe("Real");
   });
 });
 

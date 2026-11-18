@@ -1,6 +1,7 @@
 import { component$, useSignal, useTask$ } from "@builder.io/qwik";
 import {
   Form,
+  Link,
   routeAction$,
   routeLoader$,
   z,
@@ -11,7 +12,7 @@ import { MetadataSelect } from "~/components/metadata-select";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { SubmitButton } from "~/components/submit-button";
 import { Toast, type ToastState } from "~/components/toast";
-import { buttonPrimary, card, field, label } from "~/components/ui";
+import { buttonPrimary, card, field, label, muted } from "~/components/ui";
 import {
   getEmbedDefault,
   getSiteDefaults,
@@ -101,6 +102,19 @@ export default component$(() => {
   return (
     <div class="mx-auto max-w-3xl space-y-6">
       <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">設定</h1>
+      <Link
+        href="/setting/upload-rule/"
+        prefetch="js"
+        class={[
+          card,
+          "flex min-h-11 items-center justify-between gap-3 p-4 font-semibold hover:bg-zinc-50 sm:p-6 dark:hover:bg-zinc-800/50",
+        ]}
+      >
+        アップロード時のルール
+        <span aria-hidden="true" class={muted}>
+          →
+        </span>
+      </Link>
       <Form action={save} class={[card, "space-y-4 p-4 sm:p-6"]}>
         <fieldset class="space-y-3">
           <legend class="text-sm font-semibold">公開する情報の既定</legend>

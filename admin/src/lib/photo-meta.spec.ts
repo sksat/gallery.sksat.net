@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatExposure,
   isScanner,
+  normalizeHints,
   readPhotoMeta,
   readPhotoMetaSync,
   worldFromXmp,
@@ -50,7 +51,28 @@ describe("readPhotoMeta", () => {
       expect(meta.world).toEqual(WORLD);
       expect(meta.exif).toBeNull();
       expect(meta.location).toBeNull();
+      expect(meta.creatorTool).toBe("VRChat");
+      expect(meta.dimensions).toEqual({ width: 8, height: 8 });
     }
+  });
+
+  it("reads a JPEG's pixel size from its frame header", async () => {
+    const meta = await readPhotoMeta(fixture("exif-gps.jpg"));
+    expect(meta.dimensions).toEqual({ width: 8, height: 8 });
+    expect(meta.creatorTool).toBeNull();
+  });
+
+  it("keeps only well-formed hints from a request", () => {
+    expect(
+      normalizeHints({
+        creatorTool: " VRChat ",
+        dimensions: { width: 3840, height: 2160 },
+      }),
+    ).toEqual({ creatorTool: "VRChat", dimensions: { width: 3840, height: 2160 } });
+    expect(
+      normalizeHints({ creatorTool: 1, dimensions: { width: -1, height: 2 } }),
+    ).toEqual({ creatorTool: null, dimensions: null });
+    expect(normalizeHints(null)).toEqual({ creatorTool: null, dimensions: null });
   });
 
   it("finds XMP after the image data in the file's last bytes", async () => {
@@ -95,6 +117,8 @@ describe("readPhotoMeta", () => {
       digitizedAt: null,
       location: null,
       world: null,
+      creatorTool: null,
+      dimensions: null,
     });
     expect(readPhotoMetaSync(new Uint8Array(0)).exif).toBeNull();
     // Every prefix parses without throwing.
