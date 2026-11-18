@@ -19,6 +19,7 @@ import {
   setSiteDefaults,
 } from "~/lib/db-meta";
 import { getDB } from "~/lib/env";
+import { invalidateLastGood } from "~/lib/last-good";
 import {
   EDITABLE_FIELDS,
   EMBED_LABEL,
@@ -54,16 +55,27 @@ export const useSettings = routeLoader$<SettingResult>(
 export const useSaveDefaults = routeAction$(
   async (data, { platform, fail }) => {
     const db = getDB(platform);
-    const next = { ...(await getSiteDefaults(db)) };
+    const current = await getSiteDefaults(db);
+    const next = { ...current };
     for (const f of EDITABLE_FIELDS) {
       const v = data[f];
       if (!isLevel(f, v)) return fail(400, { message: `${f}: ${v}` });
       (next as Record<string, string>)[f] = v;
     }
+    const embed = data.embed_exif === "on";
+    const currentEmbed = await getEmbedDefault(db);
     await Promise.all([
       setSiteDefaults(db, next),
-      setEmbedDefault(db, data.embed_exif === "on"),
+      setEmbedDefault(db, embed),
     ]);
+    // Every photo that follows a default changes: retire every copy (only
+    // when something did change, as every copy is then written again).
+    if (
+      JSON.stringify(next) !== JSON.stringify(current) ||
+      embed !== currentEmbed
+    ) {
+      await invalidateLastGood(platform, db, { all: true });
+    }
     return { ok: true };
   },
   zod$({

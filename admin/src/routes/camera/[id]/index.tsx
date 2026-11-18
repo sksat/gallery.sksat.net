@@ -39,6 +39,7 @@ import {
   updateCameraImageCaption,
 } from "~/lib/db";
 import { getDB, getImageBase } from "~/lib/env";
+import { invalidateLastGood, staleBefore } from "~/lib/last-good";
 import { formatJst } from "~/lib/format";
 import type { CameraImageRow, CameraRow } from "~/lib/types";
 import {
@@ -125,6 +126,10 @@ export const useAddCameraImage = routeAction$(
       }
       throw err;
     }
+    await invalidateLastGood(platform, db, {
+      cameras: [id],
+      paths: [v.image.file],
+    });
     return { ok: true };
   },
   zod$({
@@ -159,6 +164,10 @@ export const useCameraImageOp = routeAction$(
     } else if (data.op === "remove") {
       const removed = await removeCameraImage(db, id, imageId);
       if (!removed) return fail(404, { message: "image not found" });
+      await invalidateLastGood(platform, db, {
+        cameras: [id],
+        paths: [removed.file],
+      });
       // What 「元に戻す」 puts back.
       return { ok: true, op: data.op, removed };
     } else {
@@ -166,6 +175,7 @@ export const useCameraImageOp = routeAction$(
       done = await moveCameraImage(db, id, imageId, data.op);
     }
     if (!done) return fail(404, { message: "image not found" });
+    await invalidateLastGood(platform, db, { cameras: [id] });
     return { ok: true, op: data.op };
   },
   zod$({
@@ -204,6 +214,10 @@ export const useRestoreCameraImage = routeAction$(
       }
       throw err;
     }
+    await invalidateLastGood(platform, db, {
+      cameras: [id],
+      paths: [v.image.file],
+    });
     return { ok: true };
   },
   zod$({
@@ -288,6 +302,8 @@ export const useUpdateCamera = routeAction$(
       console.error("/camera/[id]action: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
+    // Its old slug's page, if the slug changes.
+    const before = await staleBefore(platform, db, { cameras: [id] });
     let updated: CameraRow | null;
     try {
       updated = await updateCamera(db, id, v.camera);
@@ -300,6 +316,11 @@ export const useUpdateCamera = routeAction$(
     if (!updated) {
       return fail(404, { message: "not found" });
     }
+    // Its photos show its name and maker too.
+    await invalidateLastGood(platform, db, {
+      cameraPhotos: id,
+      names: before,
+    });
     return { ok: true, updated_at: updated.updated_at };
   },
   zod$(cameraFormSchema),

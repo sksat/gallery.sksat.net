@@ -5,8 +5,9 @@
  *
  * Only public and unlisted data is ever returned (see query.ts), so the
  * Worker needs no authentication. Responses are cached at the edge for a
- * minute (Cache API) to keep D1 reads low, and kept for a week as
- * last-good copies served when D1 fails (see last-good.ts).
+ * minute (Cache API) to keep D1 reads low, and kept for two days as
+ * last-good copies served when D1 fails (see last-good.ts; in the
+ * LAST_GOOD KV namespace when it is bound, see last-good-store.ts).
  *
  * Other Workers reach it through a service binding and call the RPC
  * methods below; those are not reachable over HTTP.
@@ -23,10 +24,21 @@ import {
 } from "./query";
 import type { MediaItemJSON } from "./types";
 import { jsonResponse, type Route } from "./route";
-import { handleGet, withLastGood, type Context } from "./last-good";
+import {
+  handleGet,
+  lastGoodName,
+  withLastGood,
+  type Context,
+} from "./last-good";
+import { cacheStore, kvStore } from "./last-good-store";
 
 export interface Env {
   DB: D1Database;
+  /**
+   * Last-good copies (last-good-store.ts). Optional: without it they stay
+   * in the Cache API.
+   */
+  LAST_GOOD?: KVNamespace;
 }
 
 const NOT_FOUND = { error: "not found" };
@@ -50,10 +62,16 @@ const respond = async (db: D1Database, route: Route): Promise<Response> => {
 
 // A plain function, not a method: every method of the entrypoint is
 // callable over RPC.
-const lastGood = (ctx: ExecutionContext): Context => ({
-  cache: caches.default,
-  waitUntil: (p) => ctx.waitUntil(p),
-});
+const lastGood = (env: Env, ctx: ExecutionContext): Context => {
+  const cache = caches.default;
+  return {
+    cache,
+    store: env.LAST_GOOD
+      ? kvStore(env.LAST_GOOD, cacheStore(cache))
+      : cacheStore(cache),
+    waitUntil: (p) => ctx.waitUntil(p),
+  };
+};
 
 export default class extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -66,7 +84,7 @@ export default class extends WorkerEntrypoint<Env> {
     return handleGet(
       request,
       (route) => respond(this.env.DB, route),
-      lastGood(this.ctx),
+      lastGood(this.env, this.ctx),
     );
   }
 
@@ -77,9 +95,9 @@ export default class extends WorkerEntrypoint<Env> {
    */
   async pathAccess(path: string): Promise<PathAccess | null> {
     return withLastGood(
-      `/rpc/pathAccess/${encodeURIComponent(path)}`,
+      lastGoodName.pathAccess(path),
       () => getPathAccess(this.env.DB, path),
-      lastGood(this.ctx),
+      lastGood(this.env, this.ctx),
     );
   }
 
@@ -90,9 +108,9 @@ export default class extends WorkerEntrypoint<Env> {
    */
   async photo(publicId: string): Promise<MediaItemJSON | null> {
     return withLastGood(
-      `/rpc/photo/${encodeURIComponent(publicId)}`,
+      lastGoodName.photo(publicId),
       () => getPhotoForImage(this.env.DB, publicId),
-      lastGood(this.ctx),
+      lastGood(this.env, this.ctx),
     );
   }
 }

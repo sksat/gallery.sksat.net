@@ -62,6 +62,18 @@
       "migrations_dir": "migrations",
     },
   ],
+  // The API Worker's last-good copies (workers/api/src/last-good-store.ts):
+  // the admin deletes the ones a change affects (src/lib/last-good.ts).
+  // The namespace (gallery-api-last-good) is created outside this repo.
+  // TODO: replace the placeholder with the namespace id (also in
+  // workers/api/wrangler.jsonc) before deploying: a deploy with it fails.
+  // Production only (not in env.preview).
+  "kv_namespaces": [
+    {
+      "binding": "LAST_GOOD",
+      "id": "TODO_GALLERY_API_LAST_GOOD_KV_ID",
+    },
+  ],
   "env": {
     "preview": {
       // `vars` and `d1_databases` are not inherited by environments, so they
@@ -80,6 +92,9 @@
       // production Access app's tokens anyway.
       "services": [],
       "d1_databases": [],
+      // Nor the last-good copies: previews could delete (or, worse, bump
+      // the generation of) the production copies.
+      "kv_namespaces": [],
     },
   },
 }

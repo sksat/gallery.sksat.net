@@ -30,6 +30,7 @@ import {
   type TrashedPhoto,
 } from "~/lib/db-ops";
 import { getDB, getImageBase } from "~/lib/env";
+import { invalidateLastGood } from "~/lib/last-good";
 import { formatJst, splitPath } from "~/lib/format";
 import { formatDecimalBytes } from "~/lib/storage";
 
@@ -78,7 +79,11 @@ export const useRestore = routeAction$(async (data, { platform, fail }) => {
   const picked = parseIds(data.ids);
   if (picked.length === 0) return fail(400, { message: "選ばれていません" });
   try {
-    const r = await restoreItems(getDB(platform), picked);
+    const db = getDB(platform);
+    const r = await restoreItems(db, picked);
+    await invalidateLastGood(platform, db, {
+      photos: r.restored.map((p) => p.id),
+    });
     return { ok: true, restored: r.restored.length };
   } catch (err) {
     if (err instanceof RestoreError) return fail(409, { message: err.message });

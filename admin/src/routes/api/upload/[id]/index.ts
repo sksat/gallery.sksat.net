@@ -2,6 +2,7 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { completeUpload } from "~/lib/db-upload";
 import { getDB } from "~/lib/env";
+import { invalidateLastGood } from "~/lib/last-good";
 import { getObjectStat } from "~/lib/object-stat";
 
 class StatError extends Error {
@@ -62,6 +63,7 @@ export const onPost: RequestHandler = withErrorHandler(
     }
     switch (outcome.kind) {
       case "ready":
+        await invalidateLastGood(platform, db, { uploads: [id] });
         json(200, { id, status: "ready" });
         return;
       case "not-found":

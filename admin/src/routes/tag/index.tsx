@@ -13,6 +13,7 @@ import { Toast, type ToastState } from "~/components/toast";
 import { card, muted } from "~/components/ui";
 import { listTags, setTagPublic, type TagRow } from "~/lib/db-meta";
 import { getDB } from "~/lib/env";
+import { invalidateLastGood } from "~/lib/last-good";
 
 // /tag/: every tag, how many photos have it, and whether it is public.
 // The public site only ever shows public tags; new ones start private.
@@ -31,7 +32,9 @@ export const useTags = routeLoader$<TagResult>(async ({ platform, status }) => {
 
 export const useSetTagPublic = routeAction$(
   async (data, { platform }) => {
-    await setTagPublic(getDB(platform), data.name, data.public === "1");
+    const db = getDB(platform);
+    await setTagPublic(db, data.name, data.public === "1");
+    await invalidateLastGood(platform, db, { tag: data.name });
     return { ok: true, name: data.name, public: data.public === "1" };
   },
   zod$({ name: z.string().min(1).max(200), public: z.enum(["0", "1"]) }),

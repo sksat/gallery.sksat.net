@@ -76,6 +76,7 @@ import {
   VisibilityIcon,
 } from "~/components/visibility-style";
 import { getDB, getImageBase } from "~/lib/env";
+import { invalidateLastGood, movedStale, staleBefore } from "~/lib/last-good";
 import {
   formatJst,
   publicPhotoUrl,
@@ -299,10 +300,13 @@ export const useUpdateMedia = routeAction$(
     ) {
       return fail(400, { message: "unknown スキャン機材" });
     }
+    // Its camera page too if the camera changes.
+    const before = await staleBefore(platform, db, { photos: [id] });
     const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
       return fail(404, { message: "not found" });
     }
+    await invalidateLastGood(platform, db, { photos: [id], names: before });
     // Tags seen for the first time get a row, private: say so.
     const newTags = await ensureTags(db, v.patch.tags ?? []);
     return { ok: true, updated_at: updated.updated_at, newTags };
@@ -395,8 +399,12 @@ export const useApplyPending = routeAction$(
       // Each chunk commits on its own: the ones before stay applied, and
       // their undo goes back with the error.
       console.error("/media/[id] apply failed:", err);
+      await invalidateLastGood(platform, db, {
+        photos: undo.map((u) => u.id),
+      });
       return fail(500, { message: "update failed", undo });
     }
+    await invalidateLastGood(platform, db, { photos: undo.map((u) => u.id) });
     return { ok: true, changed: undo.length, undo };
   },
   zod$({ changes: changeSchema }),
@@ -435,6 +443,8 @@ export const useUndoPending = routeAction$(
       return fail(500, { message: "D1 binding unavailable" });
     }
     let changed = 0;
+    // Whatever went back before a failure.
+    const touched = { photos: data.changes.map((c) => c.id) };
     try {
       for (const from of VISIBILITIES) {
         for (const to of VISIBILITIES) {
@@ -450,8 +460,10 @@ export const useUndoPending = routeAction$(
       }
     } catch (err) {
       console.error("/media/[id] undo failed:", err);
+      await invalidateLastGood(platform, db, touched);
       return fail(500, { message: "undo failed" });
     }
+    await invalidateLastGood(platform, db, touched);
     return { ok: true, changed };
   },
   zod$({
@@ -481,10 +493,12 @@ export const useMovePhoto = routeAction$(
   async (data, { platform, params, fail }) => {
     const id = actionId(params.id);
     if (id === null) return fail(400, { message: "invalid id" });
-    const r = await moveItems(getDB(platform), [
+    const db = getDB(platform);
+    const r = await moveItems(db, [
       { kind: "photo", id, to: data.path.trim() },
     ]);
     if (!r.ok) return fail(409, { message: r.error });
+    await invalidateLastGood(platform, db, movedStale(r.plan));
     return { ok: true, undo: undoMoves(r.plan) };
   },
   zod$({ path: z.string().max(600) }),
@@ -493,8 +507,10 @@ export const useMovePhoto = routeAction$(
 /** Undo of a move: the moves the move action returned. */
 export const useUndoMove = routeAction$(
   async (data, { platform, fail }) => {
-    const r = await moveItems(getDB(platform), data.moves);
+    const db = getDB(platform);
+    const r = await moveItems(db, data.moves);
     if (!r.ok) return fail(409, { message: r.error });
+    await invalidateLastGood(platform, db, movedStale(r.plan));
     return { ok: true };
   },
   zod$({
@@ -526,6 +542,7 @@ export const useTrashPhoto = routeAction$(
     if (data.restore === "true") {
       try {
         const r = await restoreItems(db, [id]);
+        await invalidateLastGood(platform, db, { photos: [id] });
         return { ok: true, restored: r.restored[0]?.path ?? null };
       } catch (err) {
         if (err instanceof RestoreError) {
@@ -535,6 +552,7 @@ export const useTrashPhoto = routeAction$(
       }
     }
     await trashItems(db, { photos: [id], folders: [] });
+    await invalidateLastGood(platform, db, { photos: [id] });
     return { ok: true, restored: null };
   },
   zod$({ restore: z.string().max(5).optional() }),

@@ -20,4 +20,15 @@
       "database_id": "70d6bc59-9937-48e0-90bb-0ef8a2a53bcd",
     },
   ],
+  "kv_namespaces": [
+    {
+      // Last-good copies served while D1 fails (src/last-good-store.ts).
+      // The namespace (gallery-api-last-good) is created outside this
+      // repo; admin/wrangler.jsonc binds the same one to delete copies.
+      // TODO: replace the placeholder with the namespace id (in both
+      // files) before deploying: a deploy with it fails.
+      "binding": "LAST_GOOD",
+      "id": "TODO_GALLERY_API_LAST_GOOD_KV_ID",
+    },
+  ],
 }
