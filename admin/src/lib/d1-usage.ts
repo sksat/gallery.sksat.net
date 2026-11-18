@@ -1,9 +1,16 @@
 // D1 usage for the dashboard: the database size (from any query's
 // meta.size_after, no token needed) and today's rows read / written from
-// Cloudflare's GraphQL Analytics API, which needs the optional secret
-// CF_ANALYTICS_API_TOKEN (an account API token with only "Account
-// Analytics: Read"). Fetch and the cache are injected so the parsing is
-// covered by Vitest.
+// the GraphQL Analytics API (cf-graphql.ts; needs CF_ANALYTICS_API_TOKEN).
+
+import {
+  accountNode,
+  cacheKeyUrl,
+  cachedGraphql,
+  finiteNumber,
+  getAnalyticsToken,
+  getStringVar,
+  type GraphqlDeps,
+} from "./cf-graphql";
 
 // Workers Free plan limits (https://developers.cloudflare.com/d1/platform/limits/).
 // Sizes are counted in decimal units like the rest of the dashboard.
@@ -12,10 +19,6 @@ export const D1_FREE_MAX_DB_BYTES = 500_000_000; // 500 MB per database
 // the last 24 hours.
 export const D1_FREE_ROWS_READ_PER_DAY = 5_000_000;
 export const D1_FREE_ROWS_WRITTEN_PER_DAY = 100_000;
-
-export const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
-/** How long a GraphQL answer is reused, so dashboard loads do not hammer it. */
-export const ANALYTICS_CACHE_SECONDS = 300;
 
 export type D1DailyUsage = {
   /** UTC day, YYYY-MM-DD. */
@@ -41,16 +44,10 @@ export type AnalyticsConfig = {
 export const getAnalyticsConfig = (
   platform: { env?: Record<string, unknown> } | undefined,
 ): AnalyticsConfig | null => {
-  const env = platform?.env ?? {};
-  const token = env.CF_ANALYTICS_API_TOKEN;
-  const accountId = env.CF_ACCOUNT_ID;
-  const databaseId = env.D1_DATABASE_ID;
-  return typeof token === "string" &&
-    token &&
-    typeof accountId === "string" &&
-    accountId &&
-    typeof databaseId === "string" &&
-    databaseId
+  const token = getAnalyticsToken(platform);
+  const accountId = getStringVar(platform, "CF_ACCOUNT_ID");
+  const databaseId = getStringVar(platform, "D1_DATABASE_ID");
+  return token && accountId && databaseId
     ? { token, accountId, databaseId }
     : null;
 };
@@ -84,9 +81,6 @@ export const d1UsageRequestBody = (
   },
 });
 
-const num = (v: unknown): number | null =>
-  typeof v === "number" && Number.isFinite(v) ? v : null;
-
 /**
  * The day's totals from a GraphQL response body, or null when it carries
  * errors or not the expected shape. No groups means no queries that day.
@@ -95,16 +89,7 @@ export const parseD1Usage = (
   body: unknown,
   date: string,
 ): D1DailyUsage | null => {
-  if (!body || typeof body !== "object") return null;
-  const b = body as {
-    errors?: unknown;
-    data?: { viewer?: { accounts?: unknown } } | null;
-  };
-  if (Array.isArray(b.errors) && b.errors.length > 0) return null;
-  const accounts = b.data?.viewer?.accounts;
-  if (!Array.isArray(accounts) || accounts.length !== 1) return null;
-  const groups = (accounts[0] as { d1AnalyticsAdaptiveGroups?: unknown })
-    ?.d1AnalyticsAdaptiveGroups;
+  const groups = accountNode(body)?.d1AnalyticsAdaptiveGroups;
   if (!Array.isArray(groups)) return null;
   const usage: D1DailyUsage = {
     date,
@@ -122,7 +107,7 @@ export const parseD1Usage = (
       "rowsRead",
       "rowsWritten",
     ] as const) {
-      const v = num(sum[k]);
+      const v = finiteNumber(sum[k]);
       if (v === null) return null;
       usage[k] += v;
     }
@@ -130,89 +115,26 @@ export const parseD1Usage = (
   return usage;
 };
 
-/** The subset of the Workers Cache API used here (caches.default). */
-export type SimpleCache = {
-  match(key: string): Promise<Response | undefined>;
-  put(key: string, res: Response): Promise<void>;
-};
-
-type Deps = {
-  fetch: typeof fetch;
-  cache: SimpleCache | null;
-  now: Date;
-};
-
-// The cache key is a URL of our own (never fetched), per account,
-// database and day. The token is not part of it.
-const cacheKey = (cfg: AnalyticsConfig, date: string) =>
-  `https://admin-cache.invalid/d1-usage/${encodeURIComponent(cfg.accountId)}/${encodeURIComponent(cfg.databaseId)}/${date}`;
-
 /**
  * Today's (UTC) D1 usage. Never throws: any failure is `{ kind: "error" }`
- * (logged), so the dashboard still renders. Only successful answers are
- * cached, for ANALYTICS_CACHE_SECONDS.
+ * (logged), so the dashboard still renders.
  */
 export const fetchD1Usage = async (
   cfg: AnalyticsConfig | null,
-  { fetch: doFetch, cache, now }: Deps,
+  deps: GraphqlDeps,
 ): Promise<D1UsageResult> => {
   if (!cfg) return { kind: "no-token" };
-  const date = utcDate(now);
-  const key = cacheKey(cfg, date);
-  try {
-    const hit = await cache?.match(key);
-    if (hit) {
-      const usage = parseD1Usage(await hit.json(), date);
-      if (usage) return { kind: "ok", usage };
-    }
-  } catch (err) {
-    console.error("d1 usage: cache read failed:", err);
-  }
-  try {
-    const res = await doFetch(GRAPHQL_ENDPOINT, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${cfg.token}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(d1UsageRequestBody(cfg, date)),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) {
-      console.error("d1 usage: GraphQL HTTP", res.status);
-      return { kind: "error" };
-    }
-    const text = await res.text();
-    const usage = parseD1Usage(JSON.parse(text), date);
-    if (!usage) {
-      console.error(
-        "d1 usage: unexpected GraphQL response:",
-        text.slice(0, 500),
-      );
-      return { kind: "error" };
-    }
-    try {
-      await cache?.put(
-        key,
-        new Response(text, {
-          headers: {
-            "content-type": "application/json",
-            "cache-control": `max-age=${ANALYTICS_CACHE_SECONDS}`,
-          },
-        }),
-      );
-    } catch (err) {
-      console.error("d1 usage: cache write failed:", err);
-    }
-    return { kind: "ok", usage };
-  } catch (err) {
-    console.error("d1 usage: GraphQL request failed:", err);
-    return { kind: "error" };
-  }
+  const date = utcDate(deps.now);
+  const usage = await cachedGraphql(
+    {
+      token: cfg.token,
+      // Per account, database and day.
+      key: cacheKeyUrl("d1-usage", cfg.accountId, cfg.databaseId, date),
+      body: d1UsageRequestBody(cfg, date),
+      parse: (json) => parseD1Usage(json, date),
+      label: "d1 usage",
+    },
+    deps,
+  );
+  return usage ? { kind: "ok", usage } : { kind: "error" };
 };
-
-/** "12,345": thousands separators by hand (no Intl, as in format.ts). */
-export const formatCount = (n: number): string =>
-  Math.round(n)
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");

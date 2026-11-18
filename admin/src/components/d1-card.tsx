@@ -3,9 +3,9 @@ import {
   D1_FREE_MAX_DB_BYTES,
   D1_FREE_ROWS_READ_PER_DAY,
   D1_FREE_ROWS_WRITTEN_PER_DAY,
-  formatCount,
   type D1UsageResult,
 } from "~/lib/d1-usage";
+import { formatCount } from "~/lib/cf-graphql";
 import { formatDecimalBytes, formatPercent, percentOf } from "~/lib/storage";
 import { card, muted } from "./ui";
 
@@ -81,9 +81,10 @@ export const D1Card = component$<{
     </ul>
     {usage.kind === "ok" && (
       <p class={["mt-3 text-xs", muted]}>
-        {usage.usage.date} (UTC) のクエリ {formatCount(usage.usage.readQueries)}{" "}
-        件 (読み取り) / {formatCount(usage.usage.writeQueries)} 件 (書き込み)。
-        上限は毎日 00:00 UTC にリセットされます。数分遅れて反映されます。
+        <span data-date>{usage.usage.date}</span> (UTC) のクエリ{" "}
+        {formatCount(usage.usage.readQueries)} 件 (読み取り) /{" "}
+        {formatCount(usage.usage.writeQueries)} 件 (書き込み)。 上限は毎日 00:00
+        UTC にリセットされます。数分遅れて反映されます。
       </p>
     )}
     {usage.kind === "no-token" && (

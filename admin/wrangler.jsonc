@@ -33,6 +33,12 @@
     // Identifiers, not credentials. Production only (not in env.preview).
     "CF_ACCOUNT_ID": "84a8852ca830f37f2d2e5bcfa7148d14",
     "D1_DATABASE_ID": "70d6bc59-9937-48e0-90bb-0ef8a2a53bcd",
+    // Access stats (src/lib/web-analytics.ts), read with the same
+    // CF_ANALYTICS_API_TOKEN: the Web Analytics site tag (not the beacon
+    // token). It covers the whole sksat.net zone, so the host narrows it
+    // to the public gallery.
+    "WEB_ANALYTICS_SITE_TAG": "5e9a7cb92cdd4aedafe02f1f547e7b4c",
+    "WEB_ANALYTICS_HOST": "gallery.sksat.net",
   },
   // The image Worker's AdminImage entrypoint (workers/image): resized
   // thumbnails of any photo, private included, for the /thumb route. It
