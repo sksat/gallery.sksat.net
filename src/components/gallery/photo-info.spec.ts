@@ -7,48 +7,11 @@ import {
   infoSummary,
   mapHref,
   photoInfo,
-  takenAt,
   worldHref,
 } from "./photo-info";
 import { transformMediaInfo, type MediaInfoJSON } from "./types";
 
-describe("takenAt", () => {
-  it("shows the time to the minute in the photo's own offset", () => {
-    // 23:12 in +09:00 is 14:12 UTC; the photo's own clock is kept.
-    expect(takenAt("2023-12-16T23:12:53+09:00", "second")).toEqual({
-      text: "2023/12/16 23:12",
-      datetime: "2023-12-16T23:12+09:00",
-    });
-    expect(takenAt("2023-12-16T23:12:00-05:00", "minute")).toEqual({
-      text: "2023/12/16 23:12",
-      datetime: "2023-12-16T23:12-05:00",
-    });
-    expect(takenAt("2023-12-02T00:00:00Z", null)?.text).toBe(
-      "2023/12/02 00:00",
-    );
-    expect(takenAt("2023-12-02T00:00:00.123Z", "second")?.datetime).toBe(
-      "2023-12-02T00:00Z",
-    );
-  });
-
-  it("says no more than the precision", () => {
-    const at = "2023-12-16T00:00:00+09:00";
-    expect(takenAt(at, "date")).toEqual({
-      text: "2023/12/16",
-      datetime: "2023-12-16",
-    });
-    expect(takenAt(at, "month")).toEqual({
-      text: "2023/12",
-      datetime: "2023-12",
-    });
-    expect(takenAt(at, "year")).toEqual({ text: "2023", datetime: "2023" });
-  });
-
-  it("is null without a readable time", () => {
-    expect(takenAt(null, "date")).toBeNull();
-    expect(takenAt("yesterday", "second")).toBeNull();
-  });
-});
+// The time itself: taken.spec.ts.
 
 describe("exposureLine", () => {
   it("joins what is known", () => {
@@ -194,6 +157,13 @@ describe("photoInfo", () => {
     expect(i.world).toEqual({ name: "Home", href: null });
     // No map page yet: the location is left out.
     expect(i.location).toBeNull();
+  });
+
+  it("takes the time in the photo's own offset", () => {
+    expect(
+      info({ timestamp: "2023-12-02T00:00:00Z", timestamp_precision: "second" })
+        .taken?.text,
+    ).toBe("2023/12/02 00:00");
   });
 
   it("never names a camera the API left out from the EXIF", () => {

@@ -3,51 +3,8 @@
 // out (null) stays out, and nothing is guessed from another field.
 import { cameraHref, cameraLabel, cameraSlug } from "./cameras";
 import { mediaTags } from "./tags";
-import type {
-  MediaExif,
-  MediaInfo,
-  MediaLocation,
-  MediaWorld,
-  TimestampPrecision,
-} from "./types";
-
-const TS_PARTS =
-  /^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d)(?::\d\d(?:\.\d+)?)?(Z|[+-]\d\d:\d\d)?$/;
-
-/** When a photo was taken: display text and a `<time datetime>` value. */
-export type TakenAt = { text: string; datetime: string };
-
-/**
- * The time a photo was taken, as precisely as the API gives it and in the
- * photo's own offset (as written in the timestamp, not the viewer's time
- * zone): 2023/12/16 23:12 (to the second or minute), 2023/12/16, 2023/12
- * or 2023. A missing precision is read as "second" (the API before it had
- * levels). Null when there is no time or it cannot be read.
- */
-export const takenAt = (
-  timestamp: string | null,
-  precision: TimestampPrecision | null | undefined,
-): TakenAt | null => {
-  if (!timestamp) return null;
-  const m = TS_PARTS.exec(timestamp);
-  if (!m) return null;
-  const [, y, mo, d, h, mi] = m;
-  // Optional in the pattern: undefined when the time has no offset.
-  const off = m[6] as string | undefined;
-  switch (precision) {
-    case "year":
-      return { text: y, datetime: y };
-    case "month":
-      return { text: `${y}/${mo}`, datetime: `${y}-${mo}` };
-    case "date":
-      return { text: `${y}/${mo}/${d}`, datetime: `${y}-${mo}-${d}` };
-    default:
-      return {
-        text: `${y}/${mo}/${d} ${h}:${mi}`,
-        datetime: `${y}-${mo}-${d}T${h}:${mi}${off ?? ""}`,
-      };
-  }
-};
+import { takenAt, type TakenAt } from "./taken";
+import type { MediaExif, MediaInfo, MediaLocation, MediaWorld } from "./types";
 
 /** A number without trailing zeros, to at most `digits` decimals. */
 const short = (n: number, digits: number) => {

@@ -18,6 +18,7 @@ import {
   type ImageSource,
 } from "./gallery/images";
 import { mediaTags } from "./gallery/tags";
+import { takenJa } from "./gallery/taken";
 import {
   parseMediaTimestamp,
   transformMediaInfo,
@@ -54,17 +55,6 @@ export type ImageBases = {
   s3Base: string;
   /** VITE_IMAGE_BASE_URL; empty in dev and tests, where originals are used. */
   imageBase?: string;
-};
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-/** Date and time in JST, e.g. { date: "2023年12月16日", time: "23:12" }. */
-export const formatJst = (d: Date): { date: string; time: string } => {
-  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  return {
-    date: `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日`,
-    time: `${pad(jst.getUTCHours())}:${pad(jst.getUTCMinutes())}`,
-  };
 };
 
 /**
@@ -130,25 +120,15 @@ export const topOgp = (bases: ImageBases, media: MediaInfoJSON[]): Ogp => {
 
 /** Card for /photo/<id>. */
 export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
-  const taken = parseMediaTimestamp(m.timestamp);
-  const jst = taken && formatJst(taken);
-  const tags = mediaTags({ ...m, timestamp: taken });
+  const tags = mediaTags({ ...m, timestamp: parseMediaTimestamp(m.timestamp) });
   const camera = m.camera ? cameraLabel(m.camera) : m.maker;
-  // Cut down to a date, month or year: say only that much, as the API
-  // wrote it (the photo's own offset).
-  const parts = /^(\d{4})-(\d\d)-(\d\d)/.exec(m.timestamp ?? "");
-  const coarse =
-    parts &&
-    {
-      date: `${parts[1]}年${Number(parts[2])}月${Number(parts[3])}日`,
-      month: `${parts[1]}年${Number(parts[2])}月`,
-      year: `${parts[1]}年`,
-    }[m.timestamp_precision as string];
+  // As precisely as the API gives it, in the photo's own offset: the same
+  // as the gallery and the photo page show (taken.ts).
+  const taken = takenJa(m.timestamp, m.timestamp_precision);
 
-  const day = coarse ?? jst?.date;
-  const subject = day ? `${day}の写真` : "写真";
+  const subject = taken ? `${taken.day}の写真` : "写真";
   const description = [
-    coarse ? `${coarse} 撮影。` : jst && `${jst.date} ${jst.time} 撮影。`,
+    taken && `${taken.full} 撮影。`,
     tags.length > 0 && `タグ: ${tags.join(", ")}。`,
     camera && `カメラ: ${camera}。`,
   ]

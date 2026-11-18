@@ -519,6 +519,7 @@ describe("projectPhoto", () => {
     const exif = JSON.stringify({
       make: "SONY",
       model: "ILCE-7M4",
+      lens: "FE 35mm F1.8",
       iso: 100,
       taken_at_original: "2023-12-16T23:12:53+09:00",
     });
@@ -534,9 +535,11 @@ describe("projectPhoto", () => {
     expect(at({})).toEqual({
       make: "SONY",
       model: "ILCE-7M4",
+      lens: "FE 35mm F1.8",
       iso: 100,
       taken_at_original: "2023-12-16T23:12:53+09:00",
     });
+    // The lens follows the camera too: it can name the camera.
     expect(at({ camera: "manufacturer", taken_at: "minute" })).toEqual({
       iso: 100,
     });

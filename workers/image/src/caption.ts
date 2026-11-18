@@ -13,7 +13,7 @@
  */
 
 export type Caption = {
-  /** Shooting date and time in JST; absent when the photo has none. */
+  /** Shooting date and time in its own offset; absent when it has none. */
   primary?: string;
   /** Camera and tags. */
   secondary?: string;
@@ -49,24 +49,37 @@ export const MAX_LINE_LENGTH = 40;
 const truncate = (s: string): string =>
   s.length > MAX_LINE_LENGTH ? s.slice(0, MAX_LINE_LENGTH - 1) + "…" : s;
 
-const pad = (n: number) => String(n).padStart(2, "0");
+const TS_RE =
+  /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::\d\d(?:\.\d+)?)?(Z|[+-]\d\d:\d\d)?$/;
 
-/** "2023-12-16 23:12 JST", or null for a missing or invalid timestamp. */
-export const formatJst = (timestamp: string | null): string | null => {
-  if (!timestamp) return null;
-  const t = new Date(timestamp).getTime();
-  if (isNaN(t)) return null;
-  const d = new Date(t + 9 * 60 * 60 * 1000);
-  return (
-    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
-    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} JST`
-  );
+/**
+ * The offset's name: JST for +09:00, UTC for Z, else UTC±hh:mm; none when
+ * unknown (no offset, or RFC 3339's "-00:00").
+ */
+const zoneName = (off: string | undefined): string | null => {
+  if (off === undefined || off === "-00:00") return null;
+  if (off === "+09:00") return "JST";
+  if (off === "Z" || off === "+00:00") return "UTC";
+  return `UTC${off}`;
+};
+
+/**
+ * "2023-12-16 23:12 JST": in the photo's own offset, as the gallery and its
+ * photo page show it (src/components/gallery/taken.ts), never converted.
+ * Null for a missing or unreadable timestamp.
+ */
+export const formatLocal = (timestamp: string | null): string | null => {
+  const m = timestamp ? TS_RE.exec(timestamp) : null;
+  if (!m) return null;
+  const zone = zoneName(m[6] as string | undefined);
+  const text = `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+  return zone ? `${text} ${zone}` : text;
 };
 
 /**
  * The time a photo was taken, as precisely as the API gives it: to the
- * minute in JST, or (cut down to a date, month or year) as written, in the
- * photo's own offset, so the date is the one it was taken on there.
+ * minute, or cut down to a date, month or year, always in the photo's own
+ * offset, so the date is the one it was taken on there.
  */
 export const formatTaken = (
   timestamp: string | null,
@@ -82,7 +95,7 @@ export const formatTaken = (
     case "year":
       return local ? local[1] : null;
     default:
-      return formatJst(timestamp);
+      return formatLocal(timestamp);
   }
 };
 

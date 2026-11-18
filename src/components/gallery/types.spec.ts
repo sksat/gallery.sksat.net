@@ -51,11 +51,15 @@ describe("formatTaken", () => {
     expect(formatTaken("nope", "date")).toBeNull();
   });
 
-  it("gives the full time to the second or minute", () => {
+  it("gives the time to the minute in the photo's own offset", () => {
     const t = "2023-12-16T23:12:53+09:00";
-    expect(formatTaken(t, "second")).toBe(new Date(t).toLocaleString("ja-JP"));
-    expect(formatTaken(t, null)).toBe(new Date(t).toLocaleString("ja-JP"));
-    expect(formatTaken(t, "minute")).not.toContain(":53");
+    expect(formatTaken(t, "second")).toBe("2023/12/16 23:12");
+    expect(formatTaken(t, null)).toBe("2023/12/16 23:12");
+    expect(formatTaken(t, "minute")).toBe("2023/12/16 23:12");
+    // Not the viewer's (or Tokyo's) time zone.
+    expect(formatTaken("2023-12-01T00:00:00Z", "second")).toBe(
+      "2023/12/01 00:00",
+    );
   });
 });
 

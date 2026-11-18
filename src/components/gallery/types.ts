@@ -1,5 +1,7 @@
 // Photo and camera types, as served by the API Worker (workers/api, see its
 // src/types.ts) and as used at runtime.
+import { takenAt } from "./taken";
+
 /** Where a photo was taken (the API's `platform`). */
 export type MediaPlatform = "VRChat" | "Real";
 
@@ -99,39 +101,15 @@ export type MediaInfo = Omit<MediaInfoJSON, "timestamp"> & {
   takenIso?: string | null;
 };
 
-const TAKEN_PARTS = /^(\d{4})-(\d\d)-(\d\d)T/;
-
 /**
- * Display text for when a photo was taken: to the second (as before) or
- * minute in the viewer's locale, or cut to a date, month or year as the
- * API wrote it (in the photo's own offset, so its date is unchanged).
+ * Display text for when a photo was taken (the grid captions): the same
+ * text as everywhere else on the site, in the photo's own offset
+ * (taken.ts).
  */
 export const formatTaken = (
   timestamp: string | null,
   precision: TimestampPrecision | null,
-): string | null => {
-  const date = parseMediaTimestamp(timestamp);
-  if (!date || !timestamp) return null;
-  const parts = TAKEN_PARTS.exec(timestamp);
-  switch (precision) {
-    case "year":
-      return parts ? parts[1] : null;
-    case "month":
-      return parts ? `${parts[1]}/${parts[2]}` : null;
-    case "date":
-      return parts ? `${parts[1]}/${parts[2]}/${parts[3]}` : null;
-    case "minute":
-      return date.toLocaleString("ja-JP", {
-        year: "numeric",
-        month: "numeric",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-    default:
-      return date.toLocaleString("ja-JP");
-  }
-};
+): string | null => takenAt(timestamp, precision)?.text ?? null;
 
 export type MediaIndex = MediaInfo[];
 

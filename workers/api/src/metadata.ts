@@ -216,7 +216,8 @@ export const parseExif = (raw: string | null | undefined): ExifJSON => {
 /**
  * The camera settings at a level; null when hidden or nothing is known.
  * Even at "all" they never say more than the other levels allow: the body
- * (make, model) only when the camera is shown as a model, and the original
+ * (make, model) and the lens (which can name the camera, e.g. "GR LENS
+ * 18.3mm") only when the camera is shown as a model, and the original
  * time only when the time is shown to the second.
  */
 export const exifAt = (
@@ -229,7 +230,8 @@ export const exifAt = (
   const keys = (level === "basic" ? BASIC_EXIF_KEYS : EXIF_KEYS).filter(
     (key) =>
       !(
-        (others.camera !== "model" && (key === "make" || key === "model")) ||
+        (others.camera !== "model" &&
+          (key === "make" || key === "model" || key === "lens")) ||
         (others.taken_at !== "second" && key === "taken_at_original")
       ),
   );
