@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
@@ -291,6 +291,87 @@ test("閉じる after a failure clears the panel and completes stored files", as
   await expect(page.getByTestId("file-tile")).toHaveCount(1);
   await expect(page.getByTestId("incomplete-uploads")).toHaveCount(0);
   expect(await putCount(page, "/mock/up-close/d.png")).toBe(1);
+});
+
+/** A tiny synthetic image from src/lib/fixtures (Pillow, no real photo). */
+const fixture = (name: string, mimeType: string) => ({
+  name,
+  mimeType,
+  buffer: readFileSync(new URL(`../src/lib/fixtures/${name}`, import.meta.url)),
+});
+
+test("the file's EXIF and VRChat world fill the shooting data, editable", async ({
+  page,
+}) => {
+  await newFolder(page, "/mock", "up-meta");
+  await page
+    .getByTestId("upload-input")
+    .setInputFiles([
+      fixture("exif-gps.jpg", "image/jpeg"),
+      fixture("vrchat-xmp.png", "image/png"),
+    ]);
+  await expect(page.getByTestId("file-tile")).toHaveCount(2);
+
+  await page
+    .getByTestId("file-tile")
+    .filter({ hasText: "exif-gps.jpg" })
+    .click();
+  const data = page.getByTestId("photo-data");
+  await expect(data.getByTestId("exif-gear")).toHaveText(
+    "FUJIFILM X-T5 · XF35mmF1.4 R",
+  );
+  await expect(data.getByTestId("exif-exposure")).toHaveText(
+    "35mm · f/2.8 · 1/250 秒 · ISO 400",
+  );
+  await expect(data.getByTestId("location-link")).toHaveText(
+    "35.6587083, 139.7447",
+  );
+  await expect(data.getByTestId("location-source")).toHaveText("EXIF");
+  // The taken-at time came from DateTimeOriginal.
+  await expect(page.locator("main")).toContainText("2023/12/11 01:21");
+  // Public at a glance: location is hidden by default, exif shown.
+  await expect(data.getByTestId("public-location")).toHaveAttribute(
+    "data-public",
+    "false",
+  );
+  await expect(data.getByTestId("public-exif")).toHaveAttribute(
+    "data-public",
+    "true",
+  );
+
+  // Edit the position by hand and publish it at city level.
+  await data.getByTestId("edit-location").locator("summary").click();
+  await page.getByLabel("緯度").fill("35.7");
+  await data.getByTestId("metadata-location").selectOption("city");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/^Saved at /)).toBeVisible();
+  await page.reload();
+  await expect(data.getByTestId("location-link")).toHaveText("35.7, 139.7447");
+  await expect(data.getByTestId("location-source")).toHaveText("手入力");
+  await expect(data.getByTestId("public-location")).toHaveAttribute(
+    "data-public",
+    "true",
+  );
+
+  await page.goto("/media/?view=files&dir=/mock/up-meta");
+  await page
+    .getByTestId("file-tile")
+    .filter({ hasText: "vrchat-xmp.png" })
+    .click();
+  const world = page.getByTestId("world-link");
+  await expect(world).toHaveText("The Black Cat & Friends");
+  await expect(world).toHaveAttribute(
+    "href",
+    "https://vrchat.com/home/world/wrld_4cf554b4-430c-4f8f-b53e-1f294eed230b",
+  );
+  // Saving without touching the shooting data keeps it as read.
+  await page.getByLabel("Tags (comma-separated)").fill("cat");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/^Saved at /)).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("world-link")).toHaveText(
+    "The Black Cat & Friends",
+  );
 });
 
 test("upload a folder: its subfolders are created under the open one", async ({

@@ -73,6 +73,9 @@ export const useSaveDefaults = routeAction$(
     taken_at: z.string().max(20),
     camera: z.string().max(20),
     tags: z.string().max(20),
+    exif: z.string().max(20),
+    world: z.string().max(20),
+    location: z.string().max(20),
   }),
 );
 

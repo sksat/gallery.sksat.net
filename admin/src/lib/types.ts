@@ -1,4 +1,6 @@
 import type { MetadataOverrides } from "./metadata";
+import type { ExifEdit, LocationEdit, WorldEdit } from "./photo-data";
+import type { ExifJSON } from "./photo-meta";
 
 // Admin-side shapes of the D1 rows (migrations/). The public site reads the
 // same database through the API Worker (workers/api, its src/types.ts);
@@ -79,10 +81,29 @@ export type MediaRow = {
   visibility: Visibility;
   /** How much of its metadata is public: its own levels (the rest follow the site). */
   metadata_visibility: MetadataOverrides;
+  /** Camera settings (media.exif; photo-data.ts). */
+  exif: ExifJSON;
+  /** Where it was taken (both or neither), and where that came from. */
+  latitude: number | null;
+  longitude: number | null;
+  location_source: "exif" | "manual" | null;
+  /** The VRChat world; the author is admin only. */
+  world_id: string | null;
+  world_name: string | null;
+  world_author_id: string | null;
   updated_at: string;
 };
 
 export type MediaPatch = {
+  /**
+   * Camera settings (photo-data.ts EXIF_EDIT_KEYS): a key set or cleared
+   * (null); keys left out are kept.
+   */
+  exif?: ExifEdit;
+  /** Null clears; a changed position becomes location_source 'manual'. */
+  location?: LocationEdit;
+  /** The world's id and/or name; a part left out is kept. */
+  world?: WorldEdit;
   platform?: MediaPlatform;
   camera_id?: number | null;
   tags?: string[];

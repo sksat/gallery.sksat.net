@@ -31,20 +31,36 @@ export const BUILTIN_DEFAULTS: MetadataLevels = {
   exif: "basic",
 };
 
-/** The fields the admin has controls for (the others have no data yet). */
+/** Every field has a control, in this order. */
 export const EDITABLE_FIELDS = [
   "file_name",
   "taken_at",
   "camera",
   "tags",
+  "exif",
+  "world",
+  "location",
 ] as const satisfies readonly MetadataField[];
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
+
+/**
+ * The fields read from the file: on the edit page their level sits next
+ * to their value (撮影データ), the others under 公開する情報.
+ */
+export const FILE_DATA_FIELDS = [
+  "exif",
+  "world",
+  "location",
+] as const satisfies readonly EditableField[];
 
 export const FIELD_LABELS: Record<EditableField, string> = {
   file_name: "ファイル名",
   taken_at: "撮影日時",
   camera: "カメラ",
   tags: "タグ",
+  exif: "撮影設定",
+  world: "ワールド",
+  location: "撮影場所",
 };
 
 export const LEVEL_LABELS: {
@@ -69,6 +85,15 @@ export const LEVEL_LABELS: {
     hidden: "出さない",
   },
   tags: { public: "公開タグ", hidden: "出さない" },
+  exif: { all: "すべて", basic: "露出だけ", hidden: "出さない" },
+  world: { link: "リンクまで", name: "名前だけ", hidden: "出さない" },
+  location: {
+    exact: "正確な位置",
+    city: "市区町村くらい",
+    prefecture: "都道府県くらい",
+    country: "国くらい",
+    hidden: "出さない",
+  },
 };
 
 export const isLevel = <F extends MetadataField>(
