@@ -49,8 +49,8 @@ const env = {
       new URL(req.url).pathname === `/api/media/${ID}`
         ? Response.json(photo)
         : new Response("Not Found", { status: 404 }),
-    fileAccess: async (file: string) =>
-      file === FILE ? { kind: "photo" as const, photo } : null,
+    pathAccess: async (path: string) =>
+      path === FILE ? { kind: "photo" as const, photo } : null,
   },
 };
 
@@ -108,17 +108,17 @@ const get = (path: string, method = "GET") =>
 
 describe("public fetch handler", () => {
   it("serves the second request from the edge cache", async () => {
-    const first = await get(`/img/h240/${ID}`);
+    const first = await get(`/img/${ID}?size=h240`);
     expect(first.status).toBe(200);
     expect(first.headers.get(CACHE_STATUS_HEADER)).toBe("MISS");
     await Promise.all(pending);
     expect([...store.keys()]).toEqual([
-      `https://gallery.sksat.net/img/h240${FILE}?format=avif`,
+      `https://gallery.sksat.net/img${FILE}?size=h240&format=avif`,
     ]);
     // Never the presigned URL.
     expect([...store.keys()][0]).not.toMatch(/X-Amz/);
 
-    const second = await get(`/img/h240${FILE}`);
+    const second = await get(`/img${FILE}?size=h240`);
     expect(second.headers.get(CACHE_STATUS_HEADER)).toBe("HIT");
     expect(second.headers.get("Vary")).toBe("Accept");
     expect(await second.text()).toBe("resized");
@@ -126,7 +126,7 @@ describe("public fetch handler", () => {
   });
 
   it("checks access before the cache: a cached photo made private is 404", async () => {
-    await get(`/img/h240/${ID}`);
+    await get(`/img/${ID}?size=h240`);
     await Promise.all(pending);
     expect(store.size).toBe(1);
     cacheDefault.match.mockClear();
@@ -135,10 +135,10 @@ describe("public fetch handler", () => {
       ...env,
       API: {
         fetch: async () => new Response("Not Found", { status: 404 }),
-        fileAccess: async () => null,
+        pathAccess: async () => null,
       },
     };
-    for (const path of [`/img/h240/${ID}`, `/img/h240${FILE}`]) {
+    for (const path of [`/img/${ID}?size=h240`, `/img${FILE}?size=h240`]) {
       const res = await worker.fetch(
         new Request(`https://gallery.sksat.net${path}`, {
           headers: { Accept: AVIF },
@@ -154,17 +154,17 @@ describe("public fetch handler", () => {
   it("uses a stable origin URL across requests", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.UTC(2026, 10, 18, 12));
-    await get(`/img/h240/${ID}`);
+    await get(`/img/${ID}?size=h240`);
     vi.setSystemTime(Date.UTC(2026, 10, 20, 12));
-    await get(`/img/h480/${ID}`);
+    await get(`/img/${ID}?size=h480`);
     vi.useRealTimers();
-    await get(`/img/h480/${ID}`);
+    await get(`/img/${ID}?size=h480`);
     expect(transforms).toHaveLength(2);
     expect(transforms[0]).toBe(transforms[1]);
   });
 
   it("does not use the cache for HEAD", async () => {
-    const res = await get(`/img/h240/${ID}`, "HEAD");
+    const res = await get(`/img/${ID}?size=h240`, "HEAD");
     expect(res.status).toBe(200);
     expect(cacheDefault.match).not.toHaveBeenCalled();
     expect(cacheDefault.put).not.toHaveBeenCalled();
@@ -179,7 +179,7 @@ describe("a photo whose file name is not public", () => {
     API: {
       fetch: async () => Response.json({ ...photo, file: null }),
       photo: async (id: string) => (id === ID ? photo : null),
-      fileAccess: async () => null,
+      pathAccess: async () => null,
     },
   };
   const getWith = (e: unknown, path: string) =>
@@ -192,13 +192,13 @@ describe("a photo whose file name is not public", () => {
     );
 
   it("is served by public id through the RPC", async () => {
-    const res = await getWith(hiddenName, `/img/h240/${ID}`);
+    const res = await getWith(hiddenName, `/img/${ID}?size=h240`);
     expect(res.status).toBe(200);
     expect(transforms[0]).toContain(FILE.slice(1));
   });
 
   it("is not served by its bucket path", async () => {
-    expect((await getWith(hiddenName, `/img/h240${FILE}`)).status).toBe(404);
+    expect((await getWith(hiddenName, `/img${FILE}?size=h240`)).status).toBe(404);
     expect(transforms).toEqual([]);
   });
 
@@ -208,14 +208,62 @@ describe("a photo whose file name is not public", () => {
       throw new TypeError("The RPC receiver does not implement the method");
     });
     const old = { ...env, API: { ...env.API, photo: rpc } };
-    expect((await getWith(old, `/img/h240/${ID}`)).status).toBe(200);
+    expect((await getWith(old, `/img/${ID}?size=h240`)).status).toBe(200);
     expect(rpc).not.toHaveBeenCalled();
     // ...and fails (503) for a hidden name, rather than guessing.
     const oldHidden = {
       ...hiddenName,
       API: { ...hiddenName.API, photo: old.API.photo },
     };
-    expect((await getWith(oldHidden, `/img/h240/${ID}`)).status).toBe(503);
+    expect((await getWith(oldHidden, `/img/${ID}?size=h240`)).status).toBe(503);
+  });
+});
+
+describe("paths", () => {
+  // The API finds a photo by display path; this one was moved, so its
+  // bucket key differs.
+  const moved = {
+    ...env,
+    API: {
+      ...env.API,
+      pathAccess: async (path: string) =>
+        path === "/trip/sunset.png"
+          ? { kind: "photo" as const, photo: { ...photo, file: FILE } }
+          : path === "/camera/vl2/front.png"
+            ? { kind: "camera-image" as const, file: path }
+            : null,
+    },
+  };
+  const at = (path: string) =>
+    worker.fetch(
+      new Request(`https://gallery.sksat.net${path}`, {
+        headers: { Accept: AVIF },
+      }),
+      moved as never,
+      ctx,
+    );
+
+  it("serves a moved photo at its display path, from its bucket key", async () => {
+    const res = await at("/img/trip/sunset.png?size=h480");
+    expect(res.status).toBe(200);
+    expect(transforms[0]).toContain(FILE.slice(1));
+    // Its old path is not found.
+    expect((await at(`/img${FILE}?size=h480`)).status).toBe(404);
+  });
+
+  it("serves camera pictures by their bucket path", async () => {
+    const res = await at("/img/camera/vl2/front.png");
+    expect(res.status).toBe(200);
+    expect(transforms[0]).toContain("camera/vl2/front.png");
+  });
+
+  it("answers 400 for a bad size or another parameter, 404 for old URLs", async () => {
+    expect((await at("/img/trip/sunset.png?size=og")).status).toBe(400);
+    expect((await at(`/img/${ID}?size=h241`)).status).toBe(400);
+    expect((await at(`/img/${ID}?size=h240&x=1`)).status).toBe(400);
+    expect((await at(`/img/h240/${ID}`)).status).toBe(404);
+    expect((await at(`/img/h240/trip/sunset.png`)).status).toBe(404);
+    expect(transforms).toEqual([]);
   });
 });
 
@@ -236,7 +284,12 @@ describe("public EXIF", () => {
     ...env,
     API: {
       fetch: async () => Response.json(p),
-      fileAccess: async () => ({ kind: "photo" as const, photo: p }),
+      pathAccess: async (path: string) =>
+        path === "/trip/sunset.png"
+          ? { kind: "photo" as const, photo: p }
+          : path === "/camera/vl2/front.png"
+            ? { kind: "camera-image" as const, file: path }
+            : null,
     },
   });
   const formats: string[] = [];
@@ -264,7 +317,7 @@ describe("public EXIF", () => {
 
   it("embeds only the public fields, as WebP instead of AVIF", async () => {
     stubWebp();
-    const res = await getWith(metaEnv(withMeta), `/img/w1200/${ID}`);
+    const res = await getWith(metaEnv(withMeta), `/img/${ID}?size=w1200`);
     expect(res.status).toBe(200);
     expect(formats).toEqual(["webp"]);
     expect(res.headers.get("Content-Length")).toBeNull();
@@ -294,13 +347,38 @@ describe("public EXIF", () => {
     expect([...store.keys()][0]).toMatch(/format=webp&exif=[0-9a-f]{16}$/);
   });
 
-  it("leaves photos without public metadata, and cards, alone", async () => {
+  it("embeds the same EXIF in a photo served by its display path", async () => {
     stubWebp();
-    const res = await getWith(metaEnv(photo), `/img/w1200/${ID}`);
+    const byId = await getWith(metaEnv(withMeta), `/img/${ID}?size=w1200`);
+    await Promise.all(pending);
+    const byPath = await getWith(
+      metaEnv(withMeta),
+      "/img/trip/sunset.png?size=w1200",
+    );
+    expect(formats).toEqual(["webp"]);
+    expect(byPath.status).toBe(200);
+    // One edge cache entry for both, and the same bytes and validator.
+    expect(byPath.headers.get(CACHE_STATUS_HEADER)).toBe("HIT");
+    expect(store.size).toBe(1);
+    expect(byPath.headers.get("ETag")).toBe(byId.headers.get("ETag"));
+    const out = Buffer.from(await byPath.arrayBuffer());
+    expect(out.indexOf("EXIF")).toBeGreaterThan(0);
+  });
+
+  it("leaves photos without public metadata, camera pictures and cards alone", async () => {
+    stubWebp();
+    const res = await getWith(metaEnv(photo), `/img/${ID}?size=w1200`);
     expect(formats).toEqual(["avif"]);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(webp);
     formats.length = 0;
-    const card = await getWith(metaEnv(withMeta), `/img/og/${ID}`);
+    const camera = await getWith(
+      metaEnv(withMeta),
+      "/img/camera/vl2/front.png?size=w1200",
+    );
+    expect(formats).toEqual(["avif"]);
+    expect(new Uint8Array(await camera.arrayBuffer())).toEqual(webp);
+    formats.length = 0;
+    const card = await getWith(metaEnv(withMeta), `/img/${ID}?size=og`);
     expect(formats).toEqual(["jpeg"]);
     expect(new Uint8Array(await card.arrayBuffer())).toEqual(webp);
   });
@@ -310,7 +388,7 @@ describe("AdminImage", () => {
   it("never reads or writes the edge cache", async () => {
     const admin = new AdminImage(ctx as never, env as never);
     // Even with the same image already in the cache.
-    await get(`/img/h240/${ID}`);
+    await get(`/img/${ID}?size=h240`);
     await Promise.all(pending);
     cacheDefault.match.mockClear();
     cacheDefault.put.mockClear();

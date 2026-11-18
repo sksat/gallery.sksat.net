@@ -1,6 +1,7 @@
 /**
- * Image Worker: serves resized gallery photos at /img/<preset>/<public_id>
- * (and camera pictures and public photos at /img/<preset>/<file>).
+ * Image Worker: serves resized gallery photos at /img/<public_id>?size=<preset>
+ * (and public photos by display path and camera pictures by bucket path at
+ * /img/<path>?size=<preset>; request.ts parseImageUrl).
  *
  * The originals in B2 are up to 7680x4320 PNGs (~37MB). Decoding them needs
  * far more than a Worker's 128MB / 10ms (Free plan), so the resize itself is
@@ -12,8 +13,9 @@
  *
  * - The default `fetch` handler (the public route) serves public data only.
  *   A public id resolves through the API Worker (`API` binding) while the
- *   photo is public or unlisted; a bucket path is served only for a public
- *   photo or a camera picture. It has no trusted-caller branch.
+ *   photo is public or unlisted; a path is served only for a public photo
+ *   whose file name is public with its folder (by its display path, so it
+ *   follows a move) or a camera picture (by its bucket path). It has no trusted-caller branch.
  * - `AdminImage` (a named RPC entrypoint, reachable only through a service
  *   binding that names it: the admin's) serves any photo, private included,
  *   and only after verifying the admin request's Cloudflare Access JWT. Its
@@ -40,7 +42,8 @@ import { statObject, type ObjectStat } from "./stat";
 import {
   isCardPreset,
   parseAdminImage,
-  parseImagePath,
+  parseFilePath,
+  parseImageUrl,
   transformFailed,
   transformOptions,
   variesByAccept,
@@ -56,14 +59,16 @@ import {
  */
 type Photo = CaptionSource & PublicMeta & { id: string; file: string | null };
 
-/** The API's getFileAccess (workers/api/src/query.ts). */
-type FileAccess = { kind: "photo"; photo: Photo } | { kind: "camera-image" };
+/** The API's getPathAccess (workers/api/src/query.ts). */
+type PathAccess =
+  | { kind: "photo"; photo: Photo & { file: string } }
+  | { kind: "camera-image"; file: string };
 
 /** The API Worker, through a service binding. */
 interface Api {
   fetch(request: Request): Promise<Response>;
-  /** Whether a bucket path may be served by file name (RPC). */
-  fileAccess(file: string): Promise<FileAccess | null>;
+  /** What a public path shows: a photo (with its bucket key) or a camera picture (RPC). */
+  pathAccess(path: string): Promise<PathAccess | null>;
   /** A public or unlisted photo by public id, with its bucket path (RPC). */
   photo(publicId: string): Promise<Photo | null>;
 }
@@ -110,14 +115,10 @@ const photoById = async (
   if (!photo) return null;
   // The file goes into the origin URL: hold it to the same shape as a
   // requested bucket path.
-  const asPath =
-    typeof photo?.file === "string"
-      ? parseImagePath(`/img/h240${photo.file}`)
-      : null;
-  if (!asPath || !("file" in asPath)) {
-    throw new Error(`API returned no usable file for ${id}`);
-  }
-  return { ...photo, file: asPath.file };
+  const file =
+    typeof photo.file === "string" ? parseFilePath(photo.file) : null;
+  if (!file) throw new Error(`API returned no usable file for ${id}`);
+  return { ...photo, file };
 };
 
 const transform = (originUrl: string, image: TransformOptions) =>
@@ -239,8 +240,9 @@ export default {
     }
 
     const url = new URL(request.url);
-    const parsed = parseImagePath(url.pathname);
+    const parsed = parseImageUrl(url);
     if (!parsed) return plain(404, "Not Found");
+    if ("status" in parsed) return plain(400, "Bad Request");
 
     let file: string;
     let caption: Caption = {};
@@ -266,23 +268,25 @@ export default {
       if (parsed.preset === "og") caption = captionFor(photo);
       meta = photo;
     } else {
-      // By bucket path, only a public photo or a camera picture: unlisted
-      // and private photos have guessable file names, so they are reachable
-      // by public id only.
-      file = parsed.file;
-      let access: FileAccess | null;
+      // By path, only a public photo whose file name is public with its
+      // folder (looked up by display path: unlisted and private photos have
+      // guessable names, so they are reachable by public id only) or a
+      // camera picture. Resize presets only (parseImageUrl).
+      let access: PathAccess | null;
       try {
-        access = await env.API.fileAccess(file);
+        access = await env.API.pathAccess(parsed.path);
       } catch (err) {
-        console.error(`file lookup for ${file} failed:`, err);
+        console.error(`path lookup for ${parsed.path} failed:`, err);
         return plain(503, "Service Unavailable");
       }
       if (!access) return notFound();
-      if (isCardPreset(parsed.preset)) {
-        // Cards only for photos: keeps the transformation count bounded.
-        if (access.kind !== "photo") return notFound();
-        if (parsed.preset === "og") caption = captionFor(access.photo);
+      const key = access.kind === "photo" ? access.photo.file : access.file;
+      const checked = parseFilePath(key);
+      if (!checked) {
+        console.error(`API returned no usable file for ${parsed.path}`);
+        return plain(503, "Service Unavailable");
       }
+      file = checked;
       if (access.kind === "photo") meta = access.photo;
     }
 

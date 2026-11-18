@@ -41,8 +41,8 @@ export const imageUrl = (
     const file = fileOf(src);
     return file === null ? HIDDEN_ORIGINAL : originalUrl(s3Base, file);
   }
-  const base = `${imageBase.replace(/\/$/, "")}/${preset}`;
-  return typeof src === "string" ? base + src : `${base}/${src.id}`;
+  const base = imageBase.replace(/\/$/, "");
+  return `${typeof src === "string" ? base + src : `${base}/${src.id}`}?size=${preset}`;
 };
 
 /**

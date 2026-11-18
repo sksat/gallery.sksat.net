@@ -43,13 +43,13 @@ const image = (headers: Record<string, string> = {}, status = 200) =>
 describe("edgeCacheKey", () => {
   it("keys on the path and the negotiated format, nothing from the origin URL", () => {
     expect(edgeCacheKey(ORIGIN, "h240", FILE, AVIF)).toBe(
-      `${ORIGIN}/img/h240${FILE}?format=avif`,
+      `${ORIGIN}/img${FILE}?size=h240&format=avif`,
     );
     expect(edgeCacheKey(ORIGIN, "h240", FILE, WEBP)).toBe(
-      `${ORIGIN}/img/h240${FILE}?format=webp`,
+      `${ORIGIN}/img${FILE}?size=h240&format=webp`,
     );
     expect(edgeCacheKey(ORIGIN, "h240", FILE, null)).toBe(
-      `${ORIGIN}/img/h240${FILE}?format=jpeg`,
+      `${ORIGIN}/img${FILE}?size=h240&format=jpeg`,
     );
   });
 
@@ -64,18 +64,19 @@ describe("edgeCacheKey", () => {
 
   it("keys cards as JPEG whatever the Accept, og also by caption", () => {
     expect(edgeCacheKey(ORIGIN, "og-site", FILE, AVIF)).toBe(
-      `${ORIGIN}/img/og-site${FILE}?format=jpeg`,
+      `${ORIGIN}/img${FILE}?size=og-site&format=jpeg`,
     );
     // og-site draws no caption, so none is in its key.
     expect(
       edgeCacheKey(ORIGIN, "og-site", FILE, AVIF, { primary: "x" }),
-    ).toBe(`${ORIGIN}/img/og-site${FILE}?format=jpeg`);
+    ).toBe(`${ORIGIN}/img${FILE}?size=og-site&format=jpeg`);
     const a = edgeCacheKey(ORIGIN, "og", FILE, AVIF, {
       primary: "2023-12-16 23:12 JST",
       secondary: "Camera · #VRChat",
     });
     const u = new URL(a);
-    expect(u.pathname).toBe(`/img/og${FILE}`);
+    expect(u.pathname).toBe(`/img${FILE}`);
+    expect(u.searchParams.get("size")).toBe("og");
     expect(u.searchParams.get("format")).toBe("jpeg");
     expect(u.searchParams.get("primary")).toBe("2023-12-16 23:12 JST");
     expect(u.searchParams.get("secondary")).toBe("Camera · #VRChat");
@@ -112,7 +113,7 @@ describe("isStorable", () => {
 });
 
 describe("withEdgeCache", () => {
-  const KEY = `${ORIGIN}/img/h240${FILE}?format=avif`;
+  const KEY = `${ORIGIN}/img${FILE}?size=h240&format=avif`;
 
   it("produces once, stores in the background, then serves the hit", async () => {
     const { cache, store } = memoryCache();

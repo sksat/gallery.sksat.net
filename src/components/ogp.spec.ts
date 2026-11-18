@@ -81,7 +81,7 @@ describe("photoOgp", () => {
       url: "https://gallery.sksat.net/photo/vrcxxxxxxa/",
       type: "article",
       image: {
-        url: "https://gallery.sksat.net/img/og/vrcxxxxxxa",
+        url: "https://gallery.sksat.net/img/vrcxxxxxxa?size=og",
         alt: "2023年12月16日の写真",
         width: 1200,
         height: 630,
@@ -128,7 +128,7 @@ describe("cameraOgp", () => {
     images: [],
   };
 
-  it("uses the camera's first picture as the card", () => {
+  it("uses the camera's first picture (resized: cards are for photos)", () => {
     const ogp = cameraOgp(worker, [vrchat, real], {
       ...vl2,
       description: "First line\nsecond line",
@@ -141,7 +141,7 @@ describe("cameraOgp", () => {
     expect(ogp.description).toBe("First line");
     expect(ogp.url).toBe("https://gallery.sksat.net/camera/virtuallens2/");
     expect(ogp.image?.url).toBe(
-      "https://gallery.sksat.net/img/og-site/camera/virtuallens2/a.png",
+      "https://gallery.sksat.net/img/camera/virtuallens2/a.png?size=w1200",
     );
   });
 
@@ -149,7 +149,7 @@ describe("cameraOgp", () => {
     const ogp = cameraOgp(worker, [vrchat, real], vl2);
     expect(ogp.description).toBe("VirtualLens2 で撮った写真 (1 枚)。");
     expect(ogp.image?.url).toBe(
-      "https://gallery.sksat.net/img/og-site/vrcxxxxxxa",
+      "https://gallery.sksat.net/img/vrcxxxxxxa?size=og-site",
     );
   });
 
@@ -164,7 +164,7 @@ describe("cameraListOgp", () => {
     expect(ogp.title).toBe("カメラ | sksat gallery");
     expect(ogp.url).toBe("https://gallery.sksat.net/camera/");
     expect(ogp.image?.url).toBe(
-      "https://gallery.sksat.net/img/og-site/vrcxxxxxxa",
+      "https://gallery.sksat.net/img/vrcxxxxxxa?size=og-site",
     );
   });
 });
@@ -176,7 +176,7 @@ describe("topOgp", () => {
     expect(ogp.type).toBe("website");
     expect(ogp.title).toBe("sksat gallery");
     expect(ogp.image?.url).toBe(
-      "https://gallery.sksat.net/img/og-site/vrcxxxxxxa",
+      "https://gallery.sksat.net/img/vrcxxxxxxa?size=og-site",
     );
   });
 

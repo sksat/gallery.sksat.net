@@ -24,7 +24,9 @@ export const CACHE_STATUS_HEADER = "X-Image-Cache";
  * Cache key for an image of `file` (a validated bucket path) at `preset`,
  * on the Worker's own `origin`. The Accept-dependent format is part of the
  * key, so browsers that differ in AVIF/WebP support get separate entries.
- * A photo by public id and by bucket path share an entry. `og` cards also
+ * The URL requested does not matter: a photo by public id and by its
+ * display path (or a moved one's new path) share the entry of its bucket
+ * key, and nothing else of the URL (no other query) gets in. `og` cards also
  * key on their caption, which changes with the photo's metadata; resized
  * photos on a digest of the EXIF embedded in them (`exif`), so a change to
  * what is public gets a new entry instead of waiting for the old one to
@@ -38,7 +40,8 @@ export const edgeCacheKey = (
   caption: Caption = {},
   exif: string | null = null,
 ): string => {
-  const url = new URL(`/img/${preset}${file}`, origin);
+  const url = new URL(`/img${file}`, origin);
+  url.searchParams.set("size", preset);
   url.searchParams.set("format", outputFormat(preset, accept));
   if (exif) url.searchParams.set("exif", exif);
   if (preset === "og") {

@@ -281,28 +281,31 @@ export const getPhotoForImage = (
 ): Promise<MediaItemJSON | null> =>
   onePhoto(db, `m.public_id = ? AND ${VIEWABLE}`, publicId, true);
 
-export type FileAccess =
-  { kind: "photo"; photo: MediaItemJSON } | { kind: "camera-image" };
+export type PathAccess =
+  | { kind: "photo"; photo: MediaItemJSON & { file: string } }
+  | { kind: "camera-image"; file: string };
 
 /**
- * Whether the image Worker may serve a bucket path by name: a public photo
- * whose file name is public with its folder ("path") and that is still at
- * that path (not moved), with its metadata for the og caption; or a
- * picture of a camera. Null for anything else, in particular unlisted and
- * private photos, whose predictable paths must not give them away.
+ * What the image Worker may serve at /img/<path>: a public photo whose
+ * display path is `path` and whose file name level is "path" (so a moved
+ * photo is found at its new path, and its bucket key, which may differ,
+ * comes back in `photo.file`; the rest is projected, for captions); or a
+ * camera picture whose bucket path is `path`. Null for anything else, in
+ * particular unlisted and private photos, whose predictable paths must not
+ * give them away, and a moved photo's old path.
  */
-export const getFileAccess = async (
+export const getPathAccess = async (
   db: D1Database,
-  file: string,
-): Promise<FileAccess | null> => {
+  path: string,
+): Promise<PathAccess | null> => {
   const [site, tags, photos, images] = await db.batch([
     ...contextStatements(db),
     db
       .prepare(
-        `${MEDIA_SELECT} WHERE m.file = ?1 AND ${LISTED}
-           AND m.path = m.file AND ${levelSql("file_name")} = 'path'`,
+        `${MEDIA_SELECT} WHERE m.path = ?1 AND ${LISTED}
+           AND ${levelSql("file_name")} = 'path'`,
       )
-      .bind(file),
+      .bind(path),
     // A camera picture that is also a photo row follows the photo's
     // visibility and status: listing a private photo (or one still being
     // uploaded) as a camera picture must not publish it by path.
@@ -311,13 +314,16 @@ export const getFileAccess = async (
         `SELECT 1 AS found FROM camera_image WHERE file = ?1
            AND NOT EXISTS (SELECT 1 FROM media WHERE file = ?1) LIMIT 1`,
       )
-      .bind(file),
+      .bind(path),
   ]);
   const row = (photos.results ?? [])[0] as MediaJoinRow | undefined;
   if (row) {
-    return { kind: "photo", photo: projectPhoto(row, toContext(site, tags)) };
+    const photo = projectPhoto(row, toContext(site, tags), true);
+    return { kind: "photo", photo: { ...photo, file: row.file } };
   }
-  return (images.results ?? []).length > 0 ? { kind: "camera-image" } : null;
+  return (images.results ?? []).length > 0
+    ? { kind: "camera-image", file: path }
+    : null;
 };
 
 /**
