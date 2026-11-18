@@ -1,0 +1,12 @@
+{
+  "version": 8,
+  "name": "test (no tiles)",
+  "sources": {},
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#1d2340" }
+    }
+  ]
+}

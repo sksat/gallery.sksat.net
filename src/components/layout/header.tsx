@@ -3,6 +3,7 @@ import { useLocation } from "@builder.io/qwik-city";
 
 import { CALENDAR_HREF } from "~/components/gallery/calendar";
 import { CAMERA_LIST_HREF } from "~/components/gallery/cameras";
+import { MAP_HREF } from "~/components/map/places";
 
 // The avatar with its grey square corners made transparent (the same
 // source as public/favicon.ico), so only the round icon shows on the header.
@@ -15,6 +16,12 @@ const NAV = [
     href: CALENDAR_HREF,
     label: "カレンダー",
     icon: "M5 5h14v15H5zM5 10h14M9 3v4M15 3v4",
+  },
+  {
+    href: MAP_HREF,
+    label: "地図",
+    // A map pin.
+    icon: "M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11zM12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
   },
   {
     href: CAMERA_LIST_HREF,

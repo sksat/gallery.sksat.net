@@ -317,7 +317,7 @@ test("gallery: private tags and hidden metadata never show", async ({
   page,
   request,
 }) => {
-  const api = "http://127.0.0.1:5178/api";
+  const api = `http://127.0.0.1:${process.env.E2E_API_PORT || 5178}/api`;
   const list = await (await request.get(`${api}/media`)).json();
   expect(JSON.stringify(list)).not.toContain("draft");
   const vrchat2 = list.find((m: { id: string }) => m.id === "vrcxxxxxxb");
@@ -342,7 +342,7 @@ test("gallery: a photo whose file name is not public never shows it", async ({
   page,
   request,
 }) => {
-  const api = "http://127.0.0.1:5178/api";
+  const api = `http://127.0.0.1:${process.env.E2E_API_PORT || 5178}/api`;
   const one = await (await request.get(`${api}/media/reaxxxxxxb`)).json();
   expect(one.file).toBeNull();
   const list = await (await request.get(`${api}/media`)).json();

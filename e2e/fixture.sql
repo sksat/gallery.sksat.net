@@ -74,3 +74,17 @@ UPDATE media SET
 UPDATE media SET
   metadata_visibility = '{"file_name":"path","taken_at":"minute"}'
   WHERE id = 1;
+-- Where they were taken (the map; locations are hidden by default):
+-- - reaxxxxxxa at its exact position (Tokyo Station);
+-- - reaxxxxxxb only to the city (35.66, 139.70: an area, not a pin);
+-- - vrcxxxxxxa has a position with an exact level, but VRChat photos are
+--   left off the map;
+-- - the private photo's position is public by its level, but it is private;
+-- - vrcxxxxxxc has a position that stays hidden (the default level).
+UPDATE media SET latitude = 35.681236, longitude = 139.767125, location_source = 'exif',
+  metadata_visibility = json_set(metadata_visibility, '$.location', 'exact') WHERE id = 1;
+UPDATE media SET latitude = 35.658034, longitude = 139.701636, location_source = 'manual',
+  metadata_visibility = json_set(metadata_visibility, '$.location', 'city') WHERE id = 3;
+UPDATE media SET latitude = 35.0, longitude = 135.0, location_source = 'manual',
+  metadata_visibility = json_set(metadata_visibility, '$.location', 'exact') WHERE id IN (2, 7);
+UPDATE media SET latitude = 34.702485, longitude = 135.495951, location_source = 'manual' WHERE id = 5;

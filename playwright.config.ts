@@ -1,8 +1,10 @@
 import { defineConfig } from "@playwright/test";
 
-const port = 5174;
+// E2E_PORT / E2E_API_PORT move both servers, e.g. to run two checkouts'
+// tests side by side.
+const port = Number(process.env.E2E_PORT) || 5174;
 // The API Worker (workers/api) on a local D1 with e2e/fixture.sql.
-const apiPort = 5178;
+const apiPort = Number(process.env.E2E_API_PORT) || 5178;
 // An explicit IPv4 address rather than "localhost": inside the Playwright
 // container (CI vrt job) vite listened on ::1 while the SSR fetch of
 // media.json went to 127.0.0.1 and was refused.
@@ -23,7 +25,11 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: `npx vite --mode ssr --host ${host} --port ${port}`,
+      // strictPort: if the port is taken (by something that does not answer
+      // the URL check), fail rather than move to another port. Outside CI a
+      // server that answers is reused: use E2E_PORT when another checkout
+      // may be running its tests.
+      command: `npx vite --mode ssr --host ${host} --port ${port} --strictPort`,
       url: origin,
       reuseExistingServer: !process.env.CI,
       env: {
@@ -31,6 +37,8 @@ export default defineConfig({
         // pictures come from public/test-media.
         VITE_S3_BASE_URL: `${origin}/test-media/`,
         VITE_API_BASE_URL: `${apiOrigin}/api`,
+        // A map style with no tiles: tests never reach the tile server.
+        VITE_MAP_STYLE_URL: `${origin}/test-media/map-style.json`,
       },
     },
   ],

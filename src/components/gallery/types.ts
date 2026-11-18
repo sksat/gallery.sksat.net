@@ -1,6 +1,11 @@
 // Photo and camera types, as served by the API Worker (workers/api, see its
 // src/types.ts) and as used at runtime.
 import { takenDateKey } from "@shared/calendar/calendar";
+import {
+  isLatLng,
+  LOCATION_DECIMALS,
+  type LocationPrecision,
+} from "@shared/map/map";
 
 import { takenAt } from "./taken";
 
@@ -93,6 +98,18 @@ export type MediaInfoJSON = {
   exif?: MediaExif | null;
   location?: MediaLocation | null;
   tags: string[];
+  /**
+   * Where it was taken, rounded to its public precision (the API's
+   * `location`); null when hidden or unknown.
+   */
+  location?: MediaLocation | null;
+};
+
+/** A photo's public position (workers/api MediaLocationJSON). */
+export type MediaLocation = {
+  latitude: number;
+  longitude: number;
+  precision: LocationPrecision;
 };
 
 export type MediaInfo = Omit<MediaInfoJSON, "timestamp"> & {
@@ -252,6 +269,8 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
     maker = strOrNull(camera.manufacturer) ?? strOrNull(camera.name);
   }
   const precision = v.timestamp_precision;
+  // A VRChat photo has no real-world position: never keep one.
+  const location = platform === "VRChat" ? null : parseLocation(v.location);
   return {
     id,
     file,
@@ -271,6 +290,33 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
     tags: Array.isArray(tags)
       ? tags.filter((t): t is string => typeof t === "string")
       : [],
+    // Only when public: most photos have none, and the layout's list goes
+    // to every page.
+    ...(location ? { location } : {}),
+  };
+};
+
+/**
+ * `location` from the API: a valid position at a known precision, rounded
+ * to that precision again so the page never shows more than it says.
+ */
+export const parseLocation = (v: unknown): MediaLocation | null => {
+  if (!isRecord(v)) return null;
+  const { latitude, longitude, precision } = v;
+  if (!isLatLng(latitude, longitude)) return null;
+  if (
+    typeof precision !== "string" ||
+    !Object.prototype.hasOwnProperty.call(LOCATION_DECIMALS, precision)
+  ) {
+    return null;
+  }
+  const p = precision as LocationPrecision;
+  const f = 10 ** LOCATION_DECIMALS[p];
+  const round = (x: number) => Math.round(x * f) / f + 0;
+  return {
+    latitude: round(latitude as number),
+    longitude: round(longitude as number),
+    precision: p,
   };
 };
 

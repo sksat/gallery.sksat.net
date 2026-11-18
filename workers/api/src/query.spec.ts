@@ -215,13 +215,15 @@ describe("location", () => {
     expect(all).not.toContain("35.68");
     run(
       raw,
-      `UPDATE media SET metadata_visibility = '{"location":"prefecture"}' WHERE id = 2`,
+      `UPDATE media SET metadata_visibility = '{"location":"prefecture"}' WHERE id IN (1, 2)`,
     );
-    expect((await getMedia(db, "aaaaaaaaa3"))?.location).toEqual({
+    expect((await getMedia(db, "aaaaaaaaa2"))?.location).toEqual({
       latitude: 35.7,
       longitude: 139.8,
       precision: "prefecture",
     });
+    // A VRChat photo has no real-world position, whatever its level.
+    expect((await getMedia(db, "aaaaaaaaa3"))?.location).toBeNull();
   });
 });
 
@@ -565,6 +567,17 @@ describe("projectPhoto", () => {
           ...row,
           latitude: null,
           longitude: null,
+          metadata_visibility: '{"location":"exact"}',
+        },
+        ctx,
+      ).location,
+    ).toBeNull();
+    // A VRChat photo: no real-world position, whatever the level.
+    expect(
+      projectPhoto(
+        {
+          ...row,
+          platform: "VRChat",
           metadata_visibility: '{"location":"exact"}',
         },
         ctx,
