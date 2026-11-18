@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import * as admin from "../../../admin/src/lib/metadata";
 import {
   BUILTIN_DEFAULTS,
+  EXIF_KEYS,
+  exifAt,
+  parseExif,
   effectiveLevels,
   METADATA_LEVELS,
   truncateTimestamp,
@@ -52,5 +55,29 @@ describe("the admin's copy", () => {
   it("has the same fields, levels and built-in defaults", () => {
     expect(admin.METADATA_LEVELS).toEqual(METADATA_LEVELS);
     expect(admin.BUILTIN_DEFAULTS).toEqual(BUILTIN_DEFAULTS);
+  });
+});
+
+describe("exif", () => {
+  it("has exactly the normalized keys", () => {
+    expect(EXIF_KEYS).toEqual([
+      "make",
+      "model",
+      "lens",
+      "focal_length_mm",
+      "f_number",
+      "exposure_time",
+      "iso",
+      "orientation",
+      "taken_at_original",
+    ]);
+  });
+
+  it("reads only known keys of the right type", () => {
+    expect(
+      parseExif('{"iso":"100","f_number":2.8,"lens":"","x":1,"make":"Canon"}'),
+    ).toEqual({ f_number: 2.8, make: "Canon" });
+    expect(parseExif("nope")).toEqual({});
+    expect(exifAt('{"lens":"L"}', "basic")).toBeNull();
   });
 });

@@ -1,3 +1,5 @@
+import type { ExifJSON } from "./metadata";
+
 /**
  * Response bodies of the public API, read by the gallery
  * (src/components/gallery/types.ts) and the image Worker. Review those
@@ -17,6 +19,8 @@ export type MediaCameraJSON = {
 };
 
 /** A coarse or exact position (metadata.ts, locationAt). */
+export type MediaWorldJSON = { id?: string; name: string | null };
+
 export type MediaLocationJSON = {
   latitude: number;
   longitude: number;
@@ -59,6 +63,17 @@ export type MediaItemJSON = {
    * or unknown.
    */
   location: MediaLocationJSON | null;
+  /**
+   * The VRChat world: at "link" its id (https://vrchat.com/home/world/<id>)
+   * and name, at "name" the name only. Null when hidden or unknown.
+   */
+  world: MediaWorldJSON | null;
+  /**
+   * Camera settings: at "all" every known one (ExifJSON), at "basic"
+   * (the default) f_number, exposure_time, iso and focal_length_mm. Null
+   * when hidden or unknown.
+   */
+  exif: ExifJSON | null;
   /** Only the tags marked public (admin `tag` table). */
   tags: string[];
 };

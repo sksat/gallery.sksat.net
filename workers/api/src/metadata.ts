@@ -144,3 +144,100 @@ export const locationAt = (
     precision: level,
   };
 };
+
+/**
+ * media.exif: the camera settings of a photo, normalized (whatever wrote
+ * it, from EXIF or XMP). Every key is optional.
+ */
+export type ExifJSON = {
+  make?: string;
+  model?: string;
+  lens?: string;
+  focal_length_mm?: number;
+  f_number?: number;
+  /** As photographers write it: "1/250", "2", "0.5". */
+  exposure_time?: string;
+  iso?: number;
+  /** EXIF Orientation, 1–8. */
+  orientation?: number;
+  /** DateTimeOriginal, as ISO 8601 when it has an offset. */
+  taken_at_original?: string;
+};
+
+const EXIF_TYPES = {
+  make: "string",
+  model: "string",
+  lens: "string",
+  focal_length_mm: "number",
+  f_number: "number",
+  exposure_time: "string",
+  iso: "number",
+  orientation: "number",
+  taken_at_original: "string",
+} as const satisfies Record<keyof ExifJSON, "string" | "number">;
+
+export const EXIF_KEYS = Object.keys(EXIF_TYPES) as (keyof ExifJSON)[];
+
+/** The `basic` exif level: how it was exposed. */
+export const BASIC_EXIF_KEYS: readonly (keyof ExifJSON)[] = [
+  "f_number",
+  "exposure_time",
+  "iso",
+  "focal_length_mm",
+];
+
+/**
+ * media.exif read leniently: only the known keys, each of its type (finite
+ * numbers, non-empty strings). Anything else is dropped.
+ */
+export const parseExif = (raw: string | null | undefined): ExifJSON => {
+  if (!raw) return {};
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
+  const out: Record<string, string | number> = {};
+  for (const key of EXIF_KEYS) {
+    const value = (v as Record<string, unknown>)[key];
+    if (EXIF_TYPES[key] === "number") {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        out[key] = value;
+      }
+    } else if (typeof value === "string" && value !== "") {
+      out[key] = value;
+    }
+  }
+  return out as ExifJSON;
+};
+
+/** The camera settings at a level; null when hidden or nothing is known. */
+export const exifAt = (
+  raw: string | null | undefined,
+  level: MetadataLevels["exif"],
+): ExifJSON | null => {
+  if (level === "hidden") return null;
+  const exif = parseExif(raw);
+  const keys = level === "basic" ? BASIC_EXIF_KEYS : EXIF_KEYS;
+  const out: Record<string, unknown> = {};
+  for (const key of keys) if (exif[key] !== undefined) out[key] = exif[key];
+  return Object.keys(out).length > 0 ? (out as ExifJSON) : null;
+};
+
+/**
+ * The VRChat world it was taken in, at a level: "link" gives the id too
+ * (https://vrchat.com/home/world/<id>), "name" the name only. Null when
+ * hidden or unknown. (The world's author is never public.)
+ */
+export const worldAt = (
+  id: string | null,
+  name: string | null,
+  level: MetadataLevels["world"],
+): { id?: string; name: string | null } | null => {
+  if (level === "hidden") return null;
+  if (level === "name") return name ? { name } : null;
+  if (!id && !name) return null;
+  return { ...(id ? { id } : {}), name };
+};

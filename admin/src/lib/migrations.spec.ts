@@ -533,6 +533,21 @@ describe("0005_path_trash.sql", () => {
     db.exec("UPDATE media SET latitude = NULL, longitude = NULL");
   });
 
+  it("keeps exif as a JSON object and world ids as wrld_…", () => {
+    const db = migrate5([["/a.png", "Real", null, null]]);
+    db.exec(
+      `UPDATE media SET exif = '{"iso":100}', world_id = 'wrld_abc', world_name = 'W', world_author_id = 'usr_x'`,
+    );
+    for (const bad of [
+      "exif = 'nope'",
+      "exif = '[1]'",
+      "world_id = 'abc'",
+      "world_id = 'wrld_'",
+    ]) {
+      expect(() => db.exec(`UPDATE media SET ${bad}`), bad).toThrow(/CHECK/);
+    }
+  });
+
   it("drops legacy_index", () => {
     const db = migrate5([["/a.png", "Real", null, null]]);
     expect(() => db.prepare("SELECT legacy_index FROM media").all()).toThrow();

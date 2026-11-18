@@ -100,6 +100,8 @@ describe("listPublicMedia", () => {
         model: "VirtualLens2",
       },
       location: null,
+      world: null,
+      exif: null,
       // "secret" is not a public tag.
       tags: ["VRChat"],
     });
@@ -192,6 +194,27 @@ describe("site-wide defaults", () => {
       tags: [],
     });
     expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
+  });
+});
+
+describe("world and exif", () => {
+  it("go out at their levels; the world's author never does", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `UPDATE media SET world_id = 'wrld_abc', world_name = 'Cat', world_author_id = 'usr_secret',
+         exif = '{"iso":200,"lens":"secret-lens"}', metadata_visibility = '{"world":"link","exif":"basic"}'`,
+    );
+    const p = await getMedia(db, "aaaaaaaaa3");
+    expect(p?.world).toEqual({ id: "wrld_abc", name: "Cat" });
+    expect(p?.exif).toEqual({ iso: 200 });
+    const all = JSON.stringify([
+      await listPublicMedia(db),
+      await getPhotoForImage(db, "aaaaaaaaa3"),
+      await getFileAccess(db, "/p2.png"),
+    ]);
+    expect(all).not.toContain("usr_secret");
+    expect(all).not.toContain("secret-lens");
   });
 });
 
@@ -363,6 +386,9 @@ describe("projectPhoto", () => {
     camera_model: "VirtualLens2",
     latitude: 35.681236,
     longitude: 139.767125,
+    exif: null,
+    world_id: null,
+    world_name: null,
   };
   const ctx = { site: null, publicTags: new Set(["x"]) };
   const at = (levels: Record<string, string>) =>
@@ -441,6 +467,64 @@ describe("projectPhoto", () => {
         ctx,
       ).camera,
     ).toBeNull();
+  });
+
+  it("shows the camera settings at each level", () => {
+    const exif = JSON.stringify({
+      make: "SONY",
+      lens: "FE 35mm F1.8",
+      focal_length_mm: 35,
+      f_number: 1.8,
+      exposure_time: "1/250",
+      iso: 100,
+      orientation: 1,
+      unknown: "dropped",
+      model: 7, // the wrong type: dropped
+    });
+    const withExif = (exif_level: string) =>
+      projectPhoto(
+        {
+          ...row,
+          exif,
+          metadata_visibility: JSON.stringify({ exif: exif_level }),
+        },
+        ctx,
+      ).exif;
+    expect(withExif("all")).toEqual({
+      make: "SONY",
+      lens: "FE 35mm F1.8",
+      focal_length_mm: 35,
+      f_number: 1.8,
+      exposure_time: "1/250",
+      iso: 100,
+      orientation: 1,
+    });
+    // The default.
+    expect(projectPhoto({ ...row, exif }, ctx).exif).toEqual({
+      f_number: 1.8,
+      exposure_time: "1/250",
+      iso: 100,
+      focal_length_mm: 35,
+    });
+    expect(withExif("hidden")).toBeNull();
+    expect(projectPhoto(row, ctx).exif).toBeNull();
+  });
+
+  it("shows the VRChat world at each level, never its author", () => {
+    const world = { world_id: "wrld_abc", world_name: "The Black Cat" };
+    const at = (level: string) =>
+      projectPhoto(
+        {
+          ...row,
+          ...world,
+          metadata_visibility: JSON.stringify({ world: level }),
+        },
+        ctx,
+      ).world;
+    expect(at("link")).toEqual({ id: "wrld_abc", name: "The Black Cat" });
+    expect(at("name")).toEqual({ name: "The Black Cat" });
+    expect(at("hidden")).toBeNull();
+    expect(projectPhoto(row, ctx).world).toBeNull();
   });
 
   it("shows where it was taken only as far as its level allows", () => {

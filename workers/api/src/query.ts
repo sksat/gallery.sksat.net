@@ -15,7 +15,9 @@
 import {
   BUILTIN_DEFAULTS,
   effectiveLevels,
+  exifAt,
   locationAt,
+  worldAt,
   truncateTimestamp,
   type MetadataField,
 } from "./metadata";
@@ -41,6 +43,11 @@ export type MediaJoinRow = {
   /** Where it was taken (degrees; both NULL when unknown). */
   latitude: number | null;
   longitude: number | null;
+  /** Camera settings (JSON, metadata.ts ExifJSON), or NULL. */
+  exif: string | null;
+  /** The VRChat world (wrld_…) and its name. */
+  world_id: string | null;
+  world_name: string | null;
   camera_slug: string | null;
   camera_name: string | null;
   camera_manufacturer: string | null;
@@ -77,6 +84,7 @@ export type Context = {
 const MEDIA_SELECT = `
   SELECT m.public_id, m.file, m.path, m.platform, m.timestamp, m.tags,
          m.metadata_visibility, m.latitude, m.longitude,
+         m.exif, m.world_id, m.world_name,
          c.slug AS camera_slug, c.name AS camera_name,
          c.manufacturer AS camera_manufacturer, c.model AS camera_model
   FROM media m LEFT JOIN camera c ON c.id = m.camera_id`;
@@ -193,6 +201,8 @@ export const projectPhoto = (
         : levels.taken_at,
     camera: cameraAt(row, levels.camera),
     location: locationAt(row.latitude, row.longitude, levels.location),
+    world: worldAt(row.world_id, row.world_name, levels.world),
+    exif: exifAt(row.exif, levels.exif),
     tags:
       levels.tags === "public"
         ? parseTags(row.tags).filter((t) => ctx.publicTags.has(t))

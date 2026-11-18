@@ -89,6 +89,20 @@ ALTER TABLE media ADD COLUMN longitude REAL
 ALTER TABLE media ADD COLUMN location_source TEXT
   CHECK (location_source IN ('exif', 'manual'));
 
+-- media.exif: the photo's camera settings, a normalized JSON object (the
+--   keys in workers/api/src/metadata.ts, ExifJSON: make, model, lens,
+--   focal_length_mm, f_number, exposure_time, iso, orientation,
+--   taken_at_original). Shown as far as the `exif` level allows.
+-- media.world_id / world_name: the VRChat world it was taken in
+--   (wrld_…), shown as far as the `world` level allows. world_author_id
+--   is for the admin only and never public.
+-- Nothing is filled in here.
+ALTER TABLE media ADD COLUMN exif TEXT
+  CHECK (exif IS NULL OR (json_valid(exif) AND json_type(exif) = 'object'));
+ALTER TABLE media ADD COLUMN world_id TEXT CHECK (world_id GLOB 'wrld_?*');
+ALTER TABLE media ADD COLUMN world_name TEXT;
+ALTER TABLE media ADD COLUMN world_author_id TEXT;
+
 -- media.legacy_index (0003, the N of the first /photo/<N> URLs) is gone:
 -- nothing links to those URLs any more.
 DROP INDEX idx_media_legacy_index;
