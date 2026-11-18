@@ -75,7 +75,8 @@ export const parseFilePath = (path: string): string | null => {
  * - `/img/<public_id>?size=<preset>`: a photo by its public id (the API
  *   checks it may be shown). Card presets (`og`, `og-site`) only here.
  * - `/img/<path>?size=<preset>`: a public photo by its display path, or a
- *   camera picture by its bucket path; resize presets only.
+ *   camera picture by its bucket path; resize presets, and `og-site` (the
+ *   badge-only card) for camera pictures (checked by the handler).
  *
  * A path always has an image extension and a public id never does, so a
  * single segment of 10 id letters is an id and anything else a path (a
@@ -87,6 +88,18 @@ export const parseImageUrl = (
   url: URL,
 ): ImageRequest | { status: 400 } | null => {
   if (!url.pathname.startsWith("/img/")) return null;
+  // Remove after the gallery deploys the new URLs: the old id form
+  // /img/<preset>/<public_id>, which the gallery and og:image tags of the
+  // deployment before this one still request. (Old path forms stay 404.)
+  const legacy = /^\/img\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+  if (
+    legacy &&
+    url.search === "" &&
+    isPreset(legacy[1]) &&
+    PUBLIC_ID_RE.test(legacy[2])
+  ) {
+    return { preset: legacy[1], id: legacy[2] };
+  }
   const rest = url.pathname.slice("/img".length);
   for (const key of url.searchParams.keys()) {
     if (key !== "size") return { status: 400 };
@@ -99,7 +112,9 @@ export const parseImageUrl = (
     return { preset: size, id: rest.slice(1) };
   const path = parseFilePath(rest);
   if (!path) return null;
-  if (isCardPreset(size)) return { status: 400 };
+  // Paths get no `og` (its caption is a photo's); `og-site` only if the
+  // handler finds a camera picture there.
+  if (size === "og") return { status: 400 };
   return { preset: size, path };
 };
 

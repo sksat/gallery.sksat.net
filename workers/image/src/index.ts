@@ -271,7 +271,7 @@ export default {
       // By path, only a public photo whose file name is public with its
       // folder (looked up by display path: unlisted and private photos have
       // guessable names, so they are reachable by public id only) or a
-      // camera picture. Resize presets only (parseImageUrl).
+      // camera picture. Resize presets, and `og-site` (checked below).
       let access: PathAccess | null;
       try {
         access = await env.API.pathAccess(parsed.path);
@@ -280,6 +280,11 @@ export default {
         return plain(503, "Service Unavailable");
       }
       if (!access) return notFound();
+      // The badge-only card for a camera page's picture; a photo's cards go
+      // by its public id.
+      if (parsed.preset === "og-site" && access.kind !== "camera-image") {
+        return notFound();
+      }
       const key = access.kind === "photo" ? access.photo.file : access.file;
       const checked = parseFilePath(key);
       if (!checked) {

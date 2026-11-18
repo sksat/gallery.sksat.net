@@ -128,7 +128,7 @@ describe("cameraOgp", () => {
     images: [],
   };
 
-  it("uses the camera's first picture (resized: cards are for photos)", () => {
+  it("uses the camera's first picture as the card", () => {
     const ogp = cameraOgp(worker, [vrchat, real], {
       ...vl2,
       description: "First line\nsecond line",
@@ -141,7 +141,7 @@ describe("cameraOgp", () => {
     expect(ogp.description).toBe("First line");
     expect(ogp.url).toBe("https://gallery.sksat.net/camera/virtuallens2/");
     expect(ogp.image?.url).toBe(
-      "https://gallery.sksat.net/img/camera/virtuallens2/a.png?size=w1200",
+      "https://gallery.sksat.net/img/camera/virtuallens2/a.png?size=og-site",
     );
   });
 

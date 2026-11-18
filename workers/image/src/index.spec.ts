@@ -257,13 +257,22 @@ describe("paths", () => {
     expect(transforms[0]).toContain("camera/vl2/front.png");
   });
 
-  it("answers 400 for a bad size or another parameter, 404 for old URLs", async () => {
+  it("answers 400 for a bad size or another parameter, 404 for old paths", async () => {
     expect((await at("/img/trip/sunset.png?size=og")).status).toBe(400);
     expect((await at(`/img/${ID}?size=h241`)).status).toBe(400);
     expect((await at(`/img/${ID}?size=h240&x=1`)).status).toBe(400);
-    expect((await at(`/img/h240/${ID}`)).status).toBe(404);
     expect((await at(`/img/h240/trip/sunset.png`)).status).toBe(404);
     expect(transforms).toEqual([]);
+  });
+
+  it("draws the badge-only card for a camera picture, not for a photo", async () => {
+    const card = await at("/img/camera/vl2/front.png?size=og-site");
+    expect(card.status).toBe(200);
+    expect((await at("/img/trip/sunset.png?size=og-site")).status).toBe(404);
+  });
+
+  it("still answers the old id form while the gallery deploys", async () => {
+    expect((await at(`/img/h240/${ID}`)).status).toBe(200);
   });
 });
 

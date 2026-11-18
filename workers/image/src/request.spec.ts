@@ -89,8 +89,19 @@ describe("parseImageUrl", () => {
     });
     // A preset name as a folder is just a folder.
     expect(p("/img/h240/a.png")).toEqual({ preset: "w1200", path: "/h240/a.png" });
-    // The old /img/<preset>/<public_id> form is neither.
-    expect(p("/img/h240/abcdefghjk")).toBeNull();
+    // The old /img/<preset>/<public_id> form, kept until the gallery has
+    // deployed the new URLs (only without a query).
+    expect(p("/img/h240/abcdefghjk")).toEqual({
+      preset: "h240",
+      id: "abcdefghjk",
+    });
+    expect(p("/img/og/abcdefghjk")).toEqual({ preset: "og", id: "abcdefghjk" });
+    expect(p("/img/h241/abcdefghjk")).toBeNull();
+    // The badge-only card may be asked for a path (camera pictures).
+    expect(p("/img/camera/vl2/a.png?size=og-site")).toEqual({
+      preset: "og-site",
+      path: "/camera/vl2/a.png",
+    });
   });
 
   it.each([
@@ -98,8 +109,7 @@ describe("parseImageUrl", () => {
     ["a prototype key as size", "/img/abcdefghjk?size=toString"],
     ["two sizes", "/img/abcdefghjk?size=h240&size=h480"],
     ["another parameter", "/img/abcdefghjk?size=h240&v=2"],
-    ["a card for a path", "/img/a.png?size=og"],
-    ["the site card for a path", "/img/camera/vl2/a.png?size=og-site"],
+    ["a captioned card for a path", "/img/a.png?size=og"],
   ])("answers 400 for %s", (_, url) => {
     expect(p(url)).toEqual({ status: 400 });
   });

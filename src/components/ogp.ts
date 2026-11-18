@@ -78,20 +78,15 @@ export const ogImage = (
   src: ImageSource,
   alt: string,
   preset: "og" | "og-site",
-): OgImage =>
-  // Cards are drawn for photos only; a camera picture (a bucket path) is
-  // its plain w1200 resize, whose height is not known here.
-  typeof src === "string"
-    ? {
-        url: imageUrl(s3Base, src, imageBase, "w1200"),
-        alt,
-        ...(imageBase ? {} : dimensionsFromFile(src)),
-      }
-    : {
-        url: imageUrl(s3Base, src, imageBase, preset),
-        alt,
-        ...(imageBase ? OG_CARD_SIZE : dimensionsFromFile(src.file)),
-      };
+): OgImage => ({
+  // A photo by its public id, or a camera picture by its bucket path (the
+  // Worker draws the badge-only `og-site` card for those).
+  url: imageUrl(s3Base, src, imageBase, preset),
+  alt,
+  ...(imageBase
+    ? OG_CARD_SIZE
+    : dimensionsFromFile(typeof src === "string" ? src : src.file)),
+});
 
 const photoSource = ({ id, file }: MediaInfoJSON) => ({ id, file });
 
