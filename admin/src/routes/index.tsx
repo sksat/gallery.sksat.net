@@ -146,7 +146,7 @@ export default component$(() => {
             edits show up there within about a minute.
           </p>
           <div class="mt-4">
-            <Link href="/media/" class={buttonSecondary}>
+            <Link prefetch="js" href="/media/" class={buttonSecondary}>
               Browse and edit metadata →
             </Link>
           </div>
@@ -159,7 +159,7 @@ export default component$(() => {
             and link photos to them.
           </p>
           <div class="mt-4">
-            <Link href="/camera/" class={buttonSecondary}>
+            <Link prefetch="js" href="/camera/" class={buttonSecondary}>
               Manage cameras →
             </Link>
           </div>

@@ -177,7 +177,7 @@ export default component$(() => {
   return (
     <div class="space-y-6">
       <div>
-        <Link href="/media/?view=files" class={backLink}>
+        <Link prefetch="js" href="/media/?view=files" class={backLink}>
           ← Files
         </Link>
         <div class="mt-2 flex flex-wrap items-baseline justify-between gap-3">

@@ -31,7 +31,8 @@ import {
 import {
   getCamera,
   getMedia,
-  listCameras,
+  listCameraOptions,
+  type CameraOption,
   MAX_BULK_IDS,
   restoreVisibility,
   setVisibility,
@@ -85,8 +86,6 @@ import {
   validatePatch,
 } from "~/lib/validate";
 
-type CameraOption = { id: number; name: string; slug: string };
-
 type MediaLoaderResult =
   | {
       kind: "ok";
@@ -125,16 +124,16 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
     // Step through the list this page was opened from (the whole list by
     // date without ?back=). The list pages by MAX_BULK_IDS.
     const list = parseListHref(safeBackHref(query.get("back")));
-    const [row, cameras, neighbors] = await Promise.all([
-      getMedia(db, id),
-      listCameras(db),
-      getNeighbors(db, list, id, MAX_BULK_IDS),
-    ]);
+    // The row first: its place in the list is where the neighbours' keyset
+    // lookups start.
+    const row = await getMedia(db, id);
     if (!row) {
       status(404);
       return { kind: "not-found" };
     }
-    const [defaults, rowPublicTags] = await Promise.all([
+    const [cameras, neighbors, defaults, rowPublicTags] = await Promise.all([
+      listCameraOptions(db),
+      getNeighbors(db, list, row, MAX_BULK_IDS),
       getSiteDefaults(db),
       publicTags(db, row.tags),
     ]);
@@ -142,7 +141,7 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
       kind: "ok",
       row,
       neighbors,
-      cameras: cameras.map(({ id, name, slug }) => ({ id, name, slug })),
+      cameras,
       imageBase: getImageBase(platform),
       defaults,
       publicTags: rowPublicTags,
@@ -502,7 +501,11 @@ const MediaFields = component$<{
     <fieldset class="space-y-3">
       <legend class={legend}>
         公開する情報{" "}
-        <Link href="/setting/" class={[link, "ml-2 text-xs font-normal"]}>
+        <Link
+          prefetch="js"
+          href="/setting/"
+          class={[link, "ml-2 text-xs font-normal"]}
+        >
           既定
         </Link>
       </legend>
@@ -571,7 +574,7 @@ const MediaFields = component$<{
         </select>
         <p id="edit-camera-help" class={["mt-1 text-xs", muted]}>
           Not listed?{" "}
-          <Link href="/camera/new/" class={link}>
+          <Link prefetch="js" href="/camera/new/" class={link}>
             Add a camera
           </Link>{" "}
           first.
@@ -627,7 +630,7 @@ const MediaFields = component$<{
               );
             })}
             <li>
-              <Link href="/tag/" class={[link, "text-xs"]}>
+              <Link prefetch="js" href="/tag/" class={[link, "text-xs"]}>
                 タグ一覧
               </Link>
             </li>
@@ -851,7 +854,11 @@ export default component$(() => {
           class="flex items-center justify-between gap-3 text-sm"
         >
           {/* The list scrolls back to this photo (#m-<id>). */}
-          <Link href={backHref + mediaAnchor(row.id)} class={backLink}>
+          <Link
+            prefetch="js"
+            href={backHref + mediaAnchor(row.id)}
+            class={backLink}
+          >
             ← Media
           </Link>
           {neighbors && (
@@ -1025,7 +1032,12 @@ export default component$(() => {
           class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-zinc-200 bg-white/95 pt-3 pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] shadow-[0_-4px_12px_rgb(0_0_0/0.06)] backdrop-blur sm:static sm:z-auto sm:gap-3 sm:bg-transparent sm:p-0 sm:pt-5 sm:shadow-none sm:backdrop-blur-none dark:border-zinc-800 dark:bg-zinc-900/95 sm:dark:bg-transparent"
         >
           {neighbors?.prev ? (
-            <Link href={neighbors.prev} rel="prev" class={navButton}>
+            <Link
+              prefetch="js"
+              href={neighbors.prev}
+              rel="prev"
+              class={navButton}
+            >
               ‹ 前へ
             </Link>
           ) : (
@@ -1055,6 +1067,7 @@ export default component$(() => {
           )}
           {neighbors?.next ? (
             <Link
+              prefetch="js"
               href={neighbors.next}
               rel="next"
               class={[navButton, "sm:ml-auto"]}

@@ -44,6 +44,7 @@ export default component$(() => {
       <header class="sticky top-0 z-20 border-b border-zinc-200 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/85">
         <div class="mx-auto flex h-12 max-w-6xl items-center gap-3 px-4 sm:h-14 sm:gap-6 sm:px-6">
           <Link
+            prefetch="js"
             href="/"
             class="flex shrink-0 items-center gap-2 rounded font-semibold tracking-tight"
           >
@@ -71,6 +72,7 @@ export default component$(() => {
           >
             {items.map((item) => (
               <Link
+                prefetch="js"
                 key={item.href}
                 href={item.href}
                 aria-current={item.active ? "page" : undefined}
@@ -109,6 +111,7 @@ export default component$(() => {
             <div class="absolute top-full right-0 z-30 mt-1 w-56 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
               {items.slice(TABS).map((item) => (
                 <Link
+                  prefetch="js"
                   key={item.href}
                   href={item.href}
                   aria-current={item.active ? "page" : undefined}
