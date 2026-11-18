@@ -5,7 +5,6 @@ import {
   cameraListOgp,
   cameraOgp,
   fallbackOgp,
-  formatJst,
   newestMediaIndex,
   ogpHead,
   photoOgp,
@@ -46,15 +45,6 @@ const undated: MediaInfoJSON = {
   tags: [],
 };
 
-describe("formatJst", () => {
-  it("shows the date and time in JST across the UTC date line", () => {
-    expect(formatJst(new Date("2023-12-01T15:30:00Z"))).toEqual({
-      date: "2023年12月2日",
-      time: "00:30",
-    });
-  });
-});
-
 describe("newestMediaIndex", () => {
   it("picks the latest timestamp, comparing instants not strings", () => {
     // 15:00Z is later than 23:12+09:00 (= 14:12Z) but sorts lower as a string.
@@ -90,8 +80,9 @@ describe("photoOgp", () => {
   });
 
   it("treats the platform as a tag and omits a missing camera", () => {
+    // In the photo's own offset (here UTC), like the gallery and the page.
     expect(photoOgp(worker, real).description).toBe(
-      "2023年12月2日 00:30 撮影。タグ: Real, film, night。",
+      "2023年12月1日 15:30 撮影。タグ: Real, film, night。",
     );
   });
 
@@ -110,7 +101,7 @@ describe("photoOgp", () => {
     });
     expect(photoOgp(noWorker, real).image).toEqual({
       url: s3Base + real.file,
-      alt: "2023年12月2日の写真",
+      alt: "2023年12月1日の写真",
     });
   });
 });

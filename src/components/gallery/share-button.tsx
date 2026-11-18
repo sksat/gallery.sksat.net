@@ -77,7 +77,9 @@ export const ShareButton = component$(() => {
       // field stack above it. Only the button and the field take clicks
       // (and keep them from the overlay, which closes on click), so the
       // rest of the corner still closes the overlay.
-      class="pointer-events-none absolute right-3 bottom-3 flex flex-col-reverse items-end gap-2"
+      // Above the open info sheet (its foot leaves room for it), so the
+      // button, the copy message and the URL field stay usable.
+      class="pointer-events-none absolute right-3 bottom-3 z-20 flex flex-col-reverse items-end gap-2"
     >
       <button
         type="button"

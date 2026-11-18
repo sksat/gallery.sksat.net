@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   captionFor,
-  formatJst,
+  formatLocal,
   MAX_LINE_LENGTH,
 } from "./caption";
 
@@ -24,17 +24,22 @@ const real = {
   tags: ["film"],
 };
 
-describe("formatJst", () => {
-  it("formats in JST whatever the offset", () => {
-    expect(formatJst("2023-12-16T23:12:25.684+09:00")).toBe(
+describe("formatLocal", () => {
+  it("keeps the photo's own clock and names its offset", () => {
+    expect(formatLocal("2023-12-16T23:12:25.684+09:00")).toBe(
       "2023-12-16 23:12 JST",
     );
-    expect(formatJst("2023-12-01T15:30:00Z")).toBe("2023-12-02 00:30 JST");
+    // Not converted to JST: the same reading as the gallery shows.
+    expect(formatLocal("2023-12-01T15:30:00Z")).toBe("2023-12-01 15:30 UTC");
+    expect(formatLocal("2023-12-01T15:30:00-05:00")).toBe(
+      "2023-12-01 15:30 UTC-05:00",
+    );
+    expect(formatLocal("2023-12-01T15:30:00")).toBe("2023-12-01 15:30");
   });
 
   it("is null for missing or invalid timestamps", () => {
-    expect(formatJst(null)).toBeNull();
-    expect(formatJst("not a date")).toBeNull();
+    expect(formatLocal(null)).toBeNull();
+    expect(formatLocal("not a date")).toBeNull();
   });
 });
 

@@ -38,7 +38,8 @@ test("photo page: card describing the photo", async ({ page }) => {
   expect(await meta(page, "og:title")).toBe(title);
   // The camera's display name.
   expect(await meta(page, "og:description")).toBe(
-    "2023年12月2日 09:00 撮影。タグ: VRChat。カメラ: VirtualLens2。",
+    // In the photo's own offset (the fixture's is UTC), as everywhere.
+    "2023年12月2日 00:00 撮影。タグ: VRChat。カメラ: VirtualLens2。",
   );
   expect(await meta(page, "og:image")).toMatch(/\/test-media\/+mock\/vrchat1\.png$/);
   expect(await meta(page, "og:image:alt")).toBe("2023年12月2日の写真");

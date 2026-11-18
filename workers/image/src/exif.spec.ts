@@ -102,6 +102,11 @@ describe("publicExif → encodeTiff", () => {
     expect(maker.ifd0[TAG.make]).toBe("Sony");
     expect(maker.ifd0[TAG.model]).toBeUndefined();
     expect(maker.exif).toBeUndefined();
+    // Camera hidden: no lens either.
+    const hidden = encodeTiff(
+      publicExif({ camera: null, exif: { lens: "GR LENS 18.3mm" } }),
+    );
+    expect(hidden).toBeNull();
     // Location at "city": two decimals, as the API rounded it.
     const city = publicExif({
       location: { latitude: 35.66, longitude: 139.74, precision: "city" },

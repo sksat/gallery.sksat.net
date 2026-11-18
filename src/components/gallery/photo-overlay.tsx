@@ -13,7 +13,9 @@ import {
 } from "@shared/overlay/progress";
 import { overlayClass } from "@shared/overlay/styles";
 import { GRID_CANDIDATES, imageUrl, srcSet, type ImageSource } from "./images";
+import { InfoPanel, type TagLink } from "./info-panel";
 import { ShareButton } from "./share-button";
+import type { MediaInfo } from "./types";
 
 const S3_BASE = import.meta.env.VITE_S3_BASE_URL;
 const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
@@ -24,6 +26,12 @@ interface PhotoOverlayProps {
   onClose$: QRL<() => void>;
   /** Show the share button (default); off where the URL is not the photo's. */
   share?: boolean;
+  /** The photo, for its info panel; none for a camera picture. */
+  info?: MediaInfo;
+  /** The info panel's tags with their gallery URLs. */
+  tagLinks?: TagLink[];
+  /** Filter the gallery by a tag from the info panel. */
+  onTag$?: QRL<(tag: string) => void>;
 }
 
 /**
@@ -95,7 +103,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
       onClick$={() => props.onClose$()}
       class={overlayClass.backdrop}
     >
-      <div class={overlayClass.box}>
+      <div data-testid="overlay-box" class={overlayClass.box}>
         <img
           aria-hidden="true"
           src={imageUrl(S3_BASE, props.src, IMAGE_BASE, "h240")}
@@ -135,6 +143,13 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
         />
       </div>
       {props.share !== false && <ShareButton />}
+      {props.info && props.onTag$ && (
+        <InfoPanel
+          photo={props.info}
+          tagLinks={props.tagLinks ?? []}
+          onTag$={props.onTag$}
+        />
+      )}
     </div>
   );
 });

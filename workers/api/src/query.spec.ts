@@ -492,6 +492,37 @@ describe("projectPhoto", () => {
     expect(projectPhoto(row, ctx).exif).toBeNull();
   });
 
+  it("never says more in the exif than the camera and time levels", () => {
+    const exif = JSON.stringify({
+      make: "SONY",
+      model: "ILCE-7M4",
+      lens: "FE 35mm F1.8",
+      iso: 100,
+      taken_at_original: "2023-12-16T23:12:53+09:00",
+    });
+    const at = (levels: Record<string, string>) =>
+      projectPhoto(
+        {
+          ...row,
+          exif,
+          metadata_visibility: JSON.stringify({ exif: "all", ...levels }),
+        },
+        ctx,
+      ).exif;
+    expect(at({})).toEqual({
+      make: "SONY",
+      model: "ILCE-7M4",
+      lens: "FE 35mm F1.8",
+      iso: 100,
+      taken_at_original: "2023-12-16T23:12:53+09:00",
+    });
+    // The lens follows the camera too: it can name the camera.
+    expect(at({ camera: "manufacturer", taken_at: "minute" })).toEqual({
+      iso: 100,
+    });
+    expect(at({ camera: "hidden", taken_at: "hidden" })).toEqual({ iso: 100 });
+  });
+
   it("shows the VRChat world at each level, never its author", () => {
     const world = { world_id: "wrld_abc", world_name: "The Black Cat" };
     const at = (level: string) =>

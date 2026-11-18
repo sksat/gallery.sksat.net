@@ -36,6 +36,8 @@ import {
   type SortOrder,
 } from "./sort";
 import {
+  DEFAULT_TAG_MODE,
+  mediaTags,
   parseTagFilter,
   tagCounts,
   toggleTag,
@@ -68,6 +70,12 @@ type GalleryProps = {
 };
 
 const SORT_KINDS: SortKind[] = ["new", "old", "random"];
+
+/** The filter a tag in the info panel sets: that tag alone. */
+const tagOnly = (tag: string): TagFilter => ({
+  tags: [tag],
+  mode: DEFAULT_TAG_MODE,
+});
 
 // A fresh seed for "random"; kept out of the pure sort code.
 const newSeed = () => Math.floor(Math.random() * 2 ** 31);
@@ -171,6 +179,22 @@ export default component$<GalleryProps>((props) => {
       null,
       "",
       galleryUrl(imageId, state.filter, state.sort, state.camera),
+    );
+  });
+
+  // A tag in the info panel: close the photo and show the photos with
+  // that tag, as a new history entry (Back returns to the photo).
+  const filterByTag = $((tag: string) => {
+    const filter = tagOnly(tag);
+    // An unknown `?camera=` is dropped rather than turned into a 404 page.
+    const camera = view.value.camera;
+    state.filter = filter;
+    state.selectedImageId = null;
+    state.camera = camera;
+    window.history.pushState(
+      null,
+      "",
+      galleryUrl(null, filter, state.sort, camera),
     );
   });
 
@@ -389,6 +413,12 @@ export default component$<GalleryProps>((props) => {
                     key={selected.id}
                     src={{ id: selected.id, file: selected.file }}
                     onClose$={() => selectImage(null)}
+                    info={selected}
+                    tagLinks={mediaTags(selected).map((tag) => ({
+                      tag,
+                      href: galleryUrl(null, tagOnly(tag), state.sort, camera),
+                    }))}
+                    onTag$={filterByTag}
                   />
                 )
               }

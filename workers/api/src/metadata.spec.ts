@@ -78,6 +78,8 @@ describe("exif", () => {
       parseExif('{"iso":"100","f_number":2.8,"lens":"","x":1,"make":"Canon"}'),
     ).toEqual({ f_number: 2.8, make: "Canon" });
     expect(parseExif("nope")).toEqual({});
-    expect(exifAt('{"lens":"L"}', "basic")).toBeNull();
+    expect(
+      exifAt('{"lens":"L"}', "basic", { camera: "model", taken_at: "second" }),
+    ).toBeNull();
   });
 });
