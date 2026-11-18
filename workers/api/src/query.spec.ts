@@ -1,9 +1,7 @@
 // Runs the queries against the admin's real migrations in an in-memory
 // SQLite (node:sqlite) through a minimal D1 stand-in, so the visibility
 // rules are checked on the actual SQL.
-import { readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   getCamera,
@@ -15,31 +13,10 @@ import {
   projectPhoto,
   type MediaJoinRow,
 } from "./query";
-
-const migrationsDir = resolve(__dirname, "../../../admin/migrations");
-
-/** The D1 subset query.ts uses, backed by node:sqlite. */
-const d1 = (db: DatabaseSync): D1Database => {
-  const statement = (sql: string, args: SQLInputValue[] = []) => ({
-    bind: (...next: SQLInputValue[]) => statement(sql, next),
-    all: async () => ({ results: db.prepare(sql).all(...args) }),
-    first: async () => db.prepare(sql).get(...args) ?? null,
-  });
-  return {
-    prepare: (sql: string) => statement(sql),
-    batch: async (stmts: { all: () => Promise<unknown> }[]) =>
-      Promise.all(stmts.map((s) => s.all())),
-  } as unknown as D1Database;
-};
+import { d1, migratedDb } from "./sqlite-d1.test-helper";
 
 const setup = () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  for (const f of readdirSync(migrationsDir)
-    .filter((f) => f.endsWith(".sql"))
-    .sort()) {
-    db.exec(readFileSync(resolve(migrationsDir, f), "utf8"));
-  }
+  const db = migratedDb();
   db.exec(`
     INSERT INTO camera (id, slug, name, manufacturer, manufacturer_url, model, kind, product_url) VALUES
       (1, 'virtuallens2', 'VirtualLens2', 'logilabo', 'https://example.com/logilabo', 'VirtualLens2', 'virtual', 'https://example.com/vl2'),

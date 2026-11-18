@@ -4,7 +4,7 @@ import { routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
 import Gallery from "~/components/gallery/gallery";
 import type { CameraJSON } from "~/components/gallery/types";
 import { cameraOgp, ogpHead, type Ogp } from "~/components/ogp";
-import { loadCamera } from "~/lib/api";
+import { loadCamera, UNAVAILABLE } from "~/lib/api";
 import { useGalleryIndex } from "../../layout";
 
 type CameraPage = { camera: CameraJSON; ogp: Ogp };
@@ -20,7 +20,7 @@ export const useCameraPage = routeLoader$<CameraPage>(async (event) => {
     camera = await loadCamera(event, event.params.slug);
   } catch (error) {
     console.error("Failed to load the camera:", error);
-    throw event.error(500, "Failed to fetch the camera");
+    throw event.error(503, UNAVAILABLE);
   }
   if (camera === null) {
     throw event.error(404, "Camera not found");
