@@ -44,7 +44,18 @@ import {
 } from "~/components/photo-preview";
 import { MetadataSelect } from "~/components/metadata-select";
 import { ensureTags, getSiteDefaults, publicTags } from "~/lib/db-meta";
-import { EDITABLE_FIELDS, type MetadataLevels } from "~/lib/metadata";
+import {
+  EDITABLE_FIELDS,
+  FILE_DATA_FIELDS,
+  type MetadataLevels,
+} from "~/lib/metadata";
+import {
+  changedGroups,
+  EXIF_EDIT_KEYS,
+  formGroups,
+  type PhotoDataGroups,
+} from "~/lib/photo-data";
+import { PhotoDataFields } from "~/components/photo-data-fields";
 import { pendingBatches, type Pending } from "~/lib/review-pending";
 import { VisibilityBadge } from "~/components/visibility-badge";
 import {
@@ -132,6 +143,39 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
   },
 );
 
+/**
+ * The shooting data of the form (photo-data-fields.tsx), only the groups
+ * edited since the page was loaded (`photo_data_loaded`): a page opened
+ * before the file's metadata was read must not clear it on save.
+ */
+const photoDataPatch = (data: Record<string, string | undefined>) => {
+  const raw = data.photo_data_loaded;
+  if (raw === undefined) return {};
+  let loaded: PhotoDataGroups;
+  try {
+    loaded = JSON.parse(raw) as PhotoDataGroups;
+  } catch {
+    return {};
+  }
+  const get = (name: string) => data[name];
+  const changed = changedGroups(loaded, formGroups(get));
+  return {
+    ...(changed.includes("exif")
+      ? {
+          exif: Object.fromEntries(
+            EXIF_EDIT_KEYS.map((k) => [k, get(`exif_${k}`) ?? ""]),
+          ),
+        }
+      : {}),
+    ...(changed.includes("location")
+      ? { location: { latitude: get("latitude"), longitude: get("longitude") } }
+      : {}),
+    ...(changed.includes("world")
+      ? { world_id: get("world_id") ?? "", world_name: get("world_name") ?? "" }
+      : {}),
+  };
+};
+
 export const useUpdateMedia = routeAction$(
   async (data, { platform, params, fail }) => {
     const id = Number(params.id);
@@ -149,14 +193,15 @@ export const useUpdateMedia = routeAction$(
       // "" = the site's default for that field.
       ...(data.mv_file_name !== undefined
         ? {
-            metadata_visibility: {
-              file_name: data.mv_file_name,
-              taken_at: data.mv_taken_at ?? "",
-              camera: data.mv_camera ?? "",
-              tags: data.mv_tags ?? "",
-            },
+            metadata_visibility: Object.fromEntries(
+              EDITABLE_FIELDS.map((f) => [
+                f,
+                (data as Record<string, string | undefined>)[`mv_${f}`] ?? "",
+              ]),
+            ),
           }
         : {}),
+      ...photoDataPatch(data as Record<string, string | undefined>),
     });
     if (!v.ok) {
       return fail(400, { message: v.error });
@@ -195,6 +240,21 @@ export const useUpdateMedia = routeAction$(
     mv_taken_at: z.string().max(20).optional(),
     mv_camera: z.string().max(20).optional(),
     mv_tags: z.string().max(20).optional(),
+    mv_exif: z.string().max(20).optional(),
+    mv_world: z.string().max(20).optional(),
+    mv_location: z.string().max(20).optional(),
+    exif_make: z.string().max(400).optional(),
+    exif_model: z.string().max(400).optional(),
+    exif_lens: z.string().max(400).optional(),
+    exif_focal_length_mm: z.string().max(40).optional(),
+    exif_f_number: z.string().max(40).optional(),
+    exif_exposure_time: z.string().max(40).optional(),
+    exif_iso: z.string().max(40).optional(),
+    world_id: z.string().max(400).optional(),
+    world_name: z.string().max(400).optional(),
+    latitude: z.string().max(40).optional(),
+    longitude: z.string().max(40).optional(),
+    photo_data_loaded: z.string().max(4000).optional(),
   }),
 );
 
@@ -368,7 +428,9 @@ const MediaFields = component$<{
         </Link>
       </legend>
       <div class="grid gap-3 sm:grid-cols-2">
-        {EDITABLE_FIELDS.map((f) => (
+        {EDITABLE_FIELDS.filter(
+          (f) => !(FILE_DATA_FIELDS as readonly string[]).includes(f),
+        ).map((f) => (
           <MetadataSelect
             key={f}
             field={f}
@@ -378,6 +440,11 @@ const MediaFields = component$<{
           />
         ))}
       </div>
+    </fieldset>
+
+    <fieldset class="space-y-3" data-testid="photo-data">
+      <legend class={legend}>撮影データ</legend>
+      <PhotoDataFields row={row} defaults={defaults} />
     </fieldset>
 
     <fieldset class="space-y-3">

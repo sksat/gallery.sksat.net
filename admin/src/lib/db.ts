@@ -1,4 +1,5 @@
 import { parseOverrides } from "./metadata";
+import { mergeExif, parseExifColumn } from "./photo-data";
 import {
   CAMERA_KINDS,
   type CameraImageRow,
@@ -26,6 +27,13 @@ type RawRow = {
   tags: string;
   visibility: string;
   metadata_visibility?: string | null;
+  exif?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  location_source?: string | null;
+  world_id?: string | null;
+  world_name?: string | null;
+  world_author_id?: string | null;
   updated_at: string;
 };
 
@@ -78,6 +86,16 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     tags: parseTags(raw.tags),
     visibility: raw.visibility,
     metadata_visibility: parseOverrides(raw.metadata_visibility),
+    exif: parseExifColumn(raw.exif),
+    latitude: raw.latitude ?? null,
+    longitude: raw.longitude ?? null,
+    location_source:
+      raw.location_source === "exif" || raw.location_source === "manual"
+        ? raw.location_source
+        : null,
+    world_id: raw.world_id ?? null,
+    world_name: raw.world_name ?? null,
+    world_author_id: raw.world_author_id ?? null,
     updated_at: raw.updated_at,
   };
 };
@@ -198,6 +216,47 @@ export const updateMedia = async (
         ? JSON.stringify(patch.metadata_visibility)
         : null,
     );
+  }
+  if (patch.exif !== undefined) {
+    // The keys the page does not edit (orientation, the original's time)
+    // stay as read from the file.
+    const current = await db
+      .prepare("SELECT exif FROM media WHERE id = ?")
+      .bind(id)
+      .first<{ exif: string | null }>();
+    if (!current) return null;
+    const merged = mergeExif(current.exif, patch.exif);
+    if (merged !== current.exif) {
+      sets.push("exif = ?");
+      args.push(merged);
+    }
+  }
+  if (patch.location !== undefined) {
+    const lat = patch.location?.latitude ?? null;
+    const lon = patch.location?.longitude ?? null;
+    // Unchanged: as it was (from EXIF stays EXIF). Changed by hand: manual.
+    const same = "latitude IS ? AND longitude IS ?";
+    sets.push(
+      `location_source = CASE WHEN ${same} THEN location_source
+         WHEN ? IS NULL THEN NULL ELSE 'manual' END`,
+      `latitude = CASE WHEN ${same} THEN latitude ELSE ? END`,
+      `longitude = CASE WHEN ${same} THEN longitude ELSE ? END`,
+    );
+    args.push(lat, lon, lat, lat, lon, lat, lat, lon, lon);
+  }
+  if (patch.world !== undefined) {
+    if (patch.world.id !== undefined) {
+      // The author read from the file belongs to that world only.
+      sets.push(
+        "world_author_id = CASE WHEN world_id IS ? THEN world_author_id END",
+        "world_id = ?",
+      );
+      args.push(patch.world.id, patch.world.id);
+    }
+    if (patch.world.name !== undefined) {
+      sets.push("world_name = ?");
+      args.push(patch.world.name);
+    }
   }
   // No-op patch: skip the UPDATE entirely (don't bump updated_at) and just
   // return the current row. Costs a second round-trip but keeps the

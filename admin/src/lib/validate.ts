@@ -1,5 +1,10 @@
 import { validateOverrides } from "./metadata";
 import {
+  validateExifEdit,
+  validateLocationEdit,
+  validateWorldEdit,
+} from "./photo-data";
+import {
   CAMERA_KINDS,
   type CameraInput,
   type CameraKind,
@@ -31,6 +36,10 @@ const PATCH_FIELDS = new Set([
   "camera_id",
   "tags",
   "visibility",
+  "exif",
+  "location",
+  "world_id",
+  "world_name",
 ]);
 
 export const validatePatch = (input: unknown): ValidatePatchResult => {
@@ -108,6 +117,23 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
       };
     }
     patch.visibility = obj.visibility;
+  }
+
+  if ("exif" in obj) {
+    const v = validateExifEdit(obj.exif);
+    if (!v.ok) return v;
+    patch.exif = v.value;
+  }
+  if ("location" in obj) {
+    const v = validateLocationEdit(obj.location);
+    if (!v.ok) return v;
+    patch.location = v.value;
+  }
+  // The VRChat world: world_id and/or world_name, each kept when left out.
+  if ("world_id" in obj || "world_name" in obj) {
+    const v = validateWorldEdit({ id: obj.world_id, name: obj.world_name });
+    if (!v.ok) return v;
+    patch.world = v.value;
   }
 
   return { ok: true, patch };
