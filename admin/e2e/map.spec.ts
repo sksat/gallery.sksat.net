@@ -95,6 +95,57 @@ test("edit page: set, move and clear the position on the map", async ({
   expect(external).toEqual([]);
 });
 
+test("edit page: edits made while the map is loading are kept", async ({
+  page,
+}) => {
+  await stubMaps(page);
+  // Hold the MapLibre chunk (the script that defines setWorkerUrl): the
+  // map stays loading until released.
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  let holding = false;
+  await page.route("**/build/*.js", async (route) => {
+    const response = await route.fetch();
+    const body = await response.body();
+    if (body.length > 100_000 && body.includes("setWorkerUrl")) {
+      holding = true;
+      await held;
+    }
+    await route.fulfill({ response, body });
+  });
+  // Photo 1 has a position.
+  await page.goto("/media/1/");
+  const clear = page.getByRole("button", { name: "位置を消す" });
+  await expect(clear).toBeVisible();
+  const map = page.getByTestId("location-map");
+  await map.scrollIntoViewIfNeeded();
+  await page
+    .getByTestId("photo-data-location")
+    .getByTestId("edit-location")
+    .locator("summary")
+    .click();
+  // MapLibre is on its way and held.
+  await expect.poll(() => holding).toBe(true);
+  const lat = page.getByLabel("緯度");
+  const lng = page.getByLabel("経度");
+  await lat.fill("");
+  await lng.fill("");
+  await lng.blur();
+  // Followed before the map is there.
+  await expect(clear).toHaveCount(0);
+  await expect(map).not.toHaveAttribute("data-ready", "");
+
+  release();
+  await mapLoaded(map);
+  // The pin starts from the inputs, not the saved position.
+  await expect(page.getByTestId("location-pin")).toHaveCount(0);
+  await lat.fill("35.0");
+  await lng.fill("135.0");
+  await lng.blur();
+  await expect(page.getByTestId("location-pin")).toHaveCount(1);
+  await expect(clear).toBeVisible();
+});
+
 test.describe("on a phone", () => {
   test.use({
     viewport: { width: 390, height: 844 },

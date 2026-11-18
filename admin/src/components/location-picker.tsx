@@ -1,4 +1,10 @@
-import { component$, useSignal, useVisibleTask$ } from "@builder.io/qwik";
+import {
+  component$,
+  noSerialize,
+  useSignal,
+  useVisibleTask$,
+  type NoSerialize,
+} from "@builder.io/qwik";
 
 import { isLatLng } from "@shared/map/map";
 import { currentMapStyle, loadMapLibre } from "~/lib/map";
@@ -12,15 +18,31 @@ const positionInputs = (el: HTMLElement) => {
   return { lat: get("latitude"), lng: get("longitude") };
 };
 
+type Position = { lat: number; lng: number };
+
+/**
+ * What the inputs hold now: a position, "empty" (both cleared) or null
+ * (half typed or not a position: leave the pin where it is).
+ */
+const readPosition = (
+  inputs: ReturnType<typeof positionInputs>,
+): Position | "empty" | null => {
+  const lat = inputs.lat?.value.trim() ?? "";
+  const lng = inputs.lng?.value.trim() ?? "";
+  if (lat === "" && lng === "") return "empty";
+  const la = Number(lat);
+  const lo = Number(lng);
+  return lat !== "" && lng !== "" && isLatLng(la, lo)
+    ? { lat: la, lng: lo }
+    : null;
+};
+
 /**
  * Fill (or empty) the inputs as typing would: input and change events, so
  * the form sees an edit (its leave guard; saving sends the position, which
  * then becomes `manual`).
  */
-const writePosition = (
-  el: HTMLElement,
-  pos: { lat: number; lng: number } | null,
-) => {
+const writePosition = (el: HTMLElement, pos: Position | null) => {
   const inputs = positionInputs(el);
   const pairs = [
     [inputs.lat, pos?.lat],
@@ -43,7 +65,10 @@ const writePosition = (
  * The edit page's map of where the photo was taken: a click puts the pin
  * there, the pin can be dragged, and 位置を消す removes it. It only fills
  * the form's 緯度 / 経度 inputs, and follows them when they are typed in.
- * MapLibre loads once the map scrolls into view.
+ *
+ * The inputs are followed from the page's start; MapLibre loads only once
+ * the map scrolls into view, and its pin then starts from what the inputs
+ * hold (not from the saved position, which may have been edited since).
  */
 export const LocationPicker = component$<{
   latitude: number | null;
@@ -51,11 +76,39 @@ export const LocationPicker = component$<{
 }>(({ latitude, longitude }) => {
   const box = useSignal<HTMLElement>();
   const has = useSignal(isLatLng(latitude, longitude));
+  /** Moves or drops the pin; set once the map is there. */
+  const pinTo = useSignal<NoSerialize<(pos: Position | "empty") => void>>();
+
+  // Follow the inputs whether or not the map has loaded.
+  // eslint-disable-next-line qwik/no-use-visible-task -- reads the DOM
+  useVisibleTask$(
+    ({ cleanup }) => {
+      const el = box.value;
+      if (!el) return;
+      const inputs = positionInputs(el);
+      const follow = () => {
+        const pos = readPosition(inputs);
+        if (pos === null) return;
+        has.value = pos !== "empty";
+        pinTo.value?.(pos);
+      };
+      inputs.lat?.addEventListener("change", follow);
+      inputs.lng?.addEventListener("change", follow);
+      // The inputs may have been edited before Qwik woke this up.
+      follow();
+      cleanup(() => {
+        inputs.lat?.removeEventListener("change", follow);
+        inputs.lng?.removeEventListener("change", follow);
+      });
+    },
+    { strategy: "document-ready" },
+  );
 
   // eslint-disable-next-line qwik/no-use-visible-task -- the map is browser only
-  useVisibleTask$(async ({ cleanup }) => {
+  useVisibleTask$(({ cleanup }) => {
     const el = box.value;
     if (!el) return;
+    const inputs = positionInputs(el);
     // An object: TypeScript would narrow a plain `let` to false.
     const life = { gone: false };
     let dispose = () => {};
@@ -63,91 +116,79 @@ export const LocationPicker = component$<{
       life.gone = true;
       dispose();
     });
-    const inputs = positionInputs(el);
-    const start =
-      latitude !== null && longitude !== null && isLatLng(latitude, longitude)
-        ? ([longitude, latitude] as [number, number])
-        : null;
-    let lib: Awaited<ReturnType<typeof loadMapLibre>>;
-    let map: InstanceType<typeof lib.Map>;
-    try {
-      lib = await loadMapLibre();
-      if (life.gone) return;
-      map = new lib.Map({
-        container: el,
-        style: currentMapStyle(),
-        center: start ?? [139.7, 35.7],
-        zoom: start ? 14 : 4,
-        attributionControl: { compact: true },
-        // Touch screens: one finger scrolls the page (a stray tap while
-        // scrolling would set a position), two move the map.
-        cooperativeGestures: matchMedia("(pointer: coarse)").matches,
-        locale: {
-          "CooperativeGesturesHandler.MobileHelpText":
-            "2本の指で地図を動かせます",
-        },
-      });
-    } catch (err) {
-      // No map (no WebGL): the inputs still work.
-      console.error("location map:", err);
-      return;
-    }
-    map.addControl(new lib.NavigationControl({ showCompass: false }));
-    let marker: InstanceType<typeof lib.Marker> | null = null;
-
-    const set = (lat: number, lng: number) => {
-      writePosition(el, { lat, lng });
-      has.value = true;
-    };
-    const place = (lng: number, lat: number) => {
-      if (marker) {
-        marker.setLngLat([lng, lat]);
+    const load = async () => {
+      let lib: Awaited<ReturnType<typeof loadMapLibre>>;
+      let map: InstanceType<typeof lib.Map>;
+      try {
+        lib = await loadMapLibre();
+        if (life.gone) return;
+        // What the inputs hold now that the map can be made.
+        const now = readPosition(inputs);
+        const at = now !== null && now !== "empty" ? now : null;
+        map = new lib.Map({
+          container: el,
+          style: currentMapStyle(),
+          center: at ? [at.lng, at.lat] : [139.7, 35.7],
+          zoom: at ? 14 : 4,
+          attributionControl: { compact: true },
+          // Touch screens: one finger scrolls the page (a stray tap while
+          // scrolling would set a position), two move the map.
+          cooperativeGestures: matchMedia("(pointer: coarse)").matches,
+          locale: {
+            "CooperativeGesturesHandler.MobileHelpText":
+              "2本の指で地図を動かせます",
+          },
+        });
+      } catch (err) {
+        // No map (no WebGL): the inputs still work.
+        console.error("location map:", err);
         return;
       }
-      marker = new lib.Marker({ draggable: true, color: "#0284c7" })
-        .setLngLat([lng, lat])
-        .addTo(map);
-      const pin = marker.getElement();
-      pin.dataset.testid = "location-pin";
-      // A click on the pin is not a click on the map (which would move the
-      // position to the clicked pixel, the pin's height above its tip).
-      pin.addEventListener("click", (e) => e.stopPropagation());
-      marker.on("dragend", () => {
-        const p = marker?.getLngLat();
-        if (p) set(p.lat, p.lng);
-      });
-    };
-    if (start) place(start[0], start[1]);
-    map.on("click", (e) => {
-      place(e.lngLat.lng, e.lngLat.lat);
-      set(e.lngLat.lat, e.lngLat.lng);
-    });
+      dispose = () => {
+        pinTo.value = undefined;
+        map.remove();
+      };
+      map.addControl(new lib.NavigationControl({ showCompass: false }));
+      let marker: InstanceType<typeof lib.Marker> | null = null;
 
-    // The inputs changed (typed, or 位置を消す): move or drop the pin.
-    const follow = () => {
-      const lat = inputs.lat?.value.trim() ?? "";
-      const lng = inputs.lng?.value.trim() ?? "";
-      if (lat === "" && lng === "") {
-        marker?.remove();
-        marker = null;
-        has.value = false;
-        return;
-      }
-      const la = Number(lat);
-      const lo = Number(lng);
-      if (lat !== "" && lng !== "" && isLatLng(la, lo)) {
-        place(lo, la);
-        has.value = true;
-      }
+      const place = (lng: number, lat: number) => {
+        if (marker) {
+          marker.setLngLat([lng, lat]);
+          return;
+        }
+        marker = new lib.Marker({ draggable: true, color: "#0284c7" })
+          .setLngLat([lng, lat])
+          .addTo(map);
+        const pin = marker.getElement();
+        pin.dataset.testid = "location-pin";
+        // A click on the pin is not a click on the map (which would move the
+        // position to the clicked pixel, the pin's height above its tip).
+        pin.addEventListener("click", (e) => e.stopPropagation());
+        marker.on("dragend", () => {
+          const p = marker?.getLngLat();
+          if (p) writePosition(el, { lat: p.lat, lng: p.lng });
+        });
+      };
+      const show = (pos: Position | "empty") => {
+        if (pos === "empty") {
+          marker?.remove();
+          marker = null;
+        } else {
+          place(pos.lng, pos.lat);
+        }
+      };
+      // The inputs as they are now (edited while the map was loading, too).
+      const now = readPosition(inputs);
+      if (now !== null) show(now);
+      pinTo.value = noSerialize(show);
+      // A click writes the inputs; their change event moves the pin.
+      map.on("click", (e) =>
+        writePosition(el, { lat: e.lngLat.lat, lng: e.lngLat.lng }),
+      );
+      el.dataset.ready = "";
     };
-    inputs.lat?.addEventListener("change", follow);
-    inputs.lng?.addEventListener("change", follow);
-    dispose = () => {
-      inputs.lat?.removeEventListener("change", follow);
-      inputs.lng?.removeEventListener("change", follow);
-      map.remove();
-    };
-    el.dataset.ready = "";
+    // Errors go to Qwik's error handling, as from any task.
+    return load();
   });
 
   return (
@@ -164,9 +205,8 @@ export const LocationPicker = component$<{
           type="button"
           class={buttonSecondary}
           onClick$={() => {
-            if (!box.value) return;
-            writePosition(box.value, null);
-            has.value = false;
+            // The inputs' change event updates `has` and the pin.
+            if (box.value) writePosition(box.value, null);
           }}
         >
           位置を消す
