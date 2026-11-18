@@ -180,6 +180,8 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
         ref={panel}
         id="photo-info"
         data-testid="info-panel"
+        // Its own scrolling and swipe-down; not a swipe between photos.
+        data-no-swipe
         aria-labelledby="photo-info-title"
         stoppropagation:click
         inert={!state}

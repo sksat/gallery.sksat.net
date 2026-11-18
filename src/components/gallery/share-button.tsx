@@ -144,6 +144,8 @@ export const ShareButton = component$(() => {
           type="text"
           readOnly
           data-testid="share-url"
+          // Dragging in the field selects text; not a swipe between photos.
+          data-no-swipe
           aria-label="この写真のリンク"
           value={manualUrl.value}
           stoppropagation:click

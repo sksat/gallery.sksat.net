@@ -62,23 +62,10 @@ export const reviewKey = (
   return match ? { type: "visibility", visibility: match[1] } : null;
 };
 
-/** Smallest horizontal travel (CSS px) that counts as a swipe. */
-export const SWIPE_MIN = 50;
-
-/**
- * A horizontal swipe from a touch's start to its end: to the left shows
- * the next photo, to the right the previous one. Mostly vertical moves
- * (scrolling, pinching) and short ones are not swipes.
- *
- * Used by the viewer and the edit page's photo. The same logic is moving
- * to shared/gestures/ for the public site; use that here once it lands.
- */
-export const swipe = (dx: number, dy: number): "prev" | "next" | null => {
-  if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * 1.5) {
-    return null;
-  }
-  return dx < 0 ? "next" : "prev";
-};
+// Swipes (used by the viewer and the edit page's photo) are shared with
+// the public gallery's overlay: the same rule as before, at least
+// SWIPE_MIN px and mostly horizontal.
+export { SWIPE_MIN, canStartSwipe, swipe } from "@shared/gestures/swipe";
 
 /** The edit page URL with the full-screen viewer open (`fs=1`). */
 export const withViewer = (href: string): string => {

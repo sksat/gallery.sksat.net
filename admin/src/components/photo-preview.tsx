@@ -15,6 +15,7 @@ import type { Neighbors } from "~/lib/neighbors";
 import { OVERLAY_BOX_WIDTH_RATIO, pickOverlayPreset } from "~/lib/progress";
 import {
   VISIBILITY_KEYS,
+  canStartSwipe,
   reviewKey,
   swipe,
   withViewer,
@@ -169,12 +170,14 @@ export const PhotoPreview = component$<Props>((props) => {
     const t = e.touches[0];
     // Not a swipe: two fingers (pinch), panning a zoomed-in photo, or
     // starting at the screen's edge (the browser's own back).
-    const zoomed = (window.visualViewport?.scale ?? 1) > 1.01;
-    const edge = t.clientX < 24 || t.clientX > window.innerWidth - 24;
-    touchStart.value =
-      e.touches.length === 1 && !zoomed && !edge
-        ? { x: t.clientX, y: t.clientY }
-        : null;
+    touchStart.value = canStartSwipe({
+      fingers: e.touches.length,
+      x: t.clientX,
+      width: window.innerWidth,
+      scale: window.visualViewport?.scale ?? 1,
+    })
+      ? { x: t.clientX, y: t.clientY }
+      : null;
   });
   const swipeEnd = $((e: TouchEvent) => {
     const start = touchStart.value;

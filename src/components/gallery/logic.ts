@@ -58,6 +58,23 @@ export const navigateImage = <T>(
 };
 
 /**
+ * The photos before and after the open one, as ←/→ and swipes step: within
+ * the filtered photos, or every photo when the open one is not among them
+ * (opened from a URL). An unlisted photo is in neither: no neighbours.
+ */
+export const neighborIds = <T>(
+  current: T,
+  filteredIds: T[],
+  allIds: T[],
+): { prev: T | null; next: T | null } => {
+  const ids = filteredIds.includes(current) ? filteredIds : allIds;
+  return {
+    prev: navigateImage(current, ids, "prev"),
+    next: navigateImage(current, ids, "next"),
+  };
+};
+
+/**
  * URL for a gallery state: `/`, `/camera/{slug}/` or `/photo/{id}`, with the
  * tag filter and the sort order kept in the query so closing or sharing a
  * photo preserves them. A photo opened from a camera page carries
