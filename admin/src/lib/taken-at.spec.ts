@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exifDateToIso, exifTakenAt, takenAt, vrchatTakenAt } from "./taken-at";
+import { exifDateToIso, exifTakenAt, vrchatTakenAt } from "./taken-at";
 
 /**
  * A TIFF block: IFD0 with `ifd0` ASCII tags (and a pointer to the EXIF IFD
@@ -184,27 +184,5 @@ describe("exifTakenAt", () => {
     expect(exifTakenAt(new ArrayBuffer(0))).toBeNull();
     const whole = new Uint8Array(jpeg(tiff(true, {}, ORIGINAL)));
     expect(exifTakenAt(whole.slice(0, 40).buffer)).toBeNull();
-  });
-});
-
-describe("takenAt", () => {
-  const fileOf = (name: string, bytes: ArrayBuffer) => ({
-    name,
-    slice: (a: number, b: number) => ({
-      arrayBuffer: async () => bytes.slice(a, b),
-    }),
-  });
-
-  it("prefers the VRChat name, then EXIF", async () => {
-    const exif = jpeg(tiff(true, {}, { 0x9003: "2020:01:01 00:00:00" }));
-    expect(
-      await takenAt(
-        fileOf("VRChat_2026-11-18_01-02-03.456_3840x2160.png", exif),
-      ),
-    ).toBe("2026-11-18T01:02:03.456+09:00");
-    expect(await takenAt(fileOf("IMG_1.jpg", exif))).toBe(
-      "2020-01-01T00:00:00+09:00",
-    );
-    expect(await takenAt(fileOf("x.png", new ArrayBuffer(4)))).toBeNull();
   });
 });

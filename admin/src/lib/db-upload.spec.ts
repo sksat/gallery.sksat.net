@@ -71,6 +71,66 @@ describe("initUpload", () => {
     expect((await listMedia(db, { limit: 10, offset: 0 })).total).toBe(1);
   });
 
+  it("stores the metadata read from the file, marked as read", async () => {
+    const { raw, db } = setup();
+    await initUpload(
+      db,
+      init({
+        meta: {
+          exif: { make: "FUJIFILM", f_number: 2.8 },
+          location: { latitude: 35.6587, longitude: 139.7447 },
+          world: { id: "wrld_x", name: "W", authorId: "usr_y" },
+        },
+      }),
+      row,
+    );
+    await initUpload(
+      db,
+      init({
+        file: "/up/b.png",
+        sha256: SHA_B,
+        meta: { exif: null, location: null, world: null },
+      }),
+      id(1),
+    );
+    // No meta: the browser did not read it (an old tab).
+    await initUpload(
+      db,
+      init({ file: "/up/c.png", sha256: "c".repeat(64) }),
+      id(2),
+    );
+    const cols =
+      "exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at IS NOT NULL AS read";
+    expect(raw.prepare(`SELECT ${cols} FROM media WHERE id = 2`).get()).toEqual(
+      {
+        exif: '{"make":"FUJIFILM","f_number":2.8}',
+        latitude: 35.6587,
+        longitude: 139.7447,
+        location_source: "exif",
+        world_id: "wrld_x",
+        world_name: "W",
+        world_author_id: "usr_y",
+        read: 1,
+      },
+    );
+    // Nothing found is still read.
+    expect(raw.prepare(`SELECT ${cols} FROM media WHERE id = 3`).get()).toEqual(
+      {
+        exif: null,
+        latitude: null,
+        longitude: null,
+        location_source: null,
+        world_id: null,
+        world_name: null,
+        world_author_id: null,
+        read: 1,
+      },
+    );
+    expect(
+      raw.prepare(`SELECT ${cols} FROM media WHERE id = 4`).get(),
+    ).toMatchObject({ exif: null, read: 0 });
+  });
+
   it("resumes the same photo, wherever its earlier attempt went", async () => {
     const { db } = setup();
     await initUpload(db, init(), row);
