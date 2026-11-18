@@ -119,8 +119,12 @@ export const uploadTarget = (
 export const VRCHAT_NAME_RE =
   /^VRChat_(?:\d+x\d+_)?(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)\.(\d{3})(?:_\d+x\d+)?\.png$/;
 
-/** Platform of a new photo: VRChat for VRChat's file names, else Real. */
+/**
+ * Platform of a new photo: VRChat for anything under the top-level /VRChat/
+ * folder or with VRChat's file names, else Real.
+ */
 export const guessPlatform = (file: string): MediaPlatform =>
+  file.startsWith("/VRChat/") ||
   VRCHAT_NAME_RE.test(file.slice(file.lastIndexOf("/") + 1))
     ? "VRChat"
     : "Real";

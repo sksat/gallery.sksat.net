@@ -89,7 +89,14 @@ describe("guessPlatform", () => {
     expect(
       guessPlatform("/x/VRChat_3840x2160_2022-08-22_02-03-18.591.png"),
     ).toBe("VRChat");
-    expect(guessPlatform("/VRChat/IMG_1.jpg")).toBe("Real");
+    expect(guessPlatform("/x/IMG_1.jpg")).toBe("Real");
+  });
+
+  it("is VRChat for anything under the top-level /VRChat/ folder", () => {
+    expect(guessPlatform("/VRChat/IMG_1.jpg")).toBe("VRChat");
+    expect(guessPlatform("/VRChat/2026-11/edited.png")).toBe("VRChat");
+    expect(guessPlatform("/Trip/VRChat/IMG_1.jpg")).toBe("Real");
+    expect(guessPlatform("/VRChatX/IMG_1.jpg")).toBe("Real");
   });
 });
 
