@@ -271,8 +271,8 @@ describe("paths", () => {
     expect((await at("/img/trip/sunset.png?size=og-site")).status).toBe(404);
   });
 
-  it("still answers the old id form while the gallery deploys", async () => {
-    expect((await at(`/img/h240/${ID}`)).status).toBe(200);
+  it("no longer answers the old id form", async () => {
+    expect((await at(`/img/h240/${ID}`)).status).toBe(404);
   });
 });
 
