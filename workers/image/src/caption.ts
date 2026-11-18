@@ -21,7 +21,9 @@ export type Caption = {
 
 /** The photo fields the caption uses (a subset of the API's photo). */
 export type CaptionSource = {
-  world: string;
+  platform?: string;
+  /** The old name of `platform`, from an API Worker not yet updated. */
+  world?: string;
   timestamp: string | null;
   camera: {
     name: string;
@@ -70,10 +72,12 @@ export const captionFor = (m: CaptionSource): Caption => {
           m.camera.name,
       )
     : "";
-  // The world is a tag too (as in the gallery's tag filter), listed first.
-  // Spaces inside a tag become "_" so "#night sky" doesn't read as two.
+  // The platform is a tag too (as in the gallery's tag filter), listed
+  // first. Spaces inside a tag become "_" so "#night sky" doesn't read as
+  // two.
+  const platform = m.platform ?? m.world ?? "";
   const tags = [
-    ...new Set([m.world, ...m.tags].map((t) => clean(t).replace(/ /g, "_"))),
+    ...new Set([platform, ...m.tags].map((t) => clean(t).replace(/ /g, "_"))),
   ]
     .filter((t) => t !== "")
     .map((t) => `#${t}`)

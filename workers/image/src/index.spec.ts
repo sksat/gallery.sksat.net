@@ -29,7 +29,7 @@ const AVIF = "image/avif,image/webp,*/*";
 const photo = {
   id: ID,
   file: FILE,
-  world: "w",
+  platform: "w",
   timestamp: null,
   camera: null,
   tags: [],
@@ -163,6 +163,51 @@ describe("public fetch handler", () => {
     expect(res.status).toBe(200);
     expect(cacheDefault.match).not.toHaveBeenCalled();
     expect(cacheDefault.put).not.toHaveBeenCalled();
+  });
+});
+
+describe("a photo whose file name is not public", () => {
+  // The HTTP API leaves the file out; the photo RPC has it; the file is
+  // not served by path.
+  const hiddenName = {
+    ...env,
+    API: {
+      fetch: async () => Response.json({ ...photo, file: null }),
+      photo: async (id: string) => (id === ID ? photo : null),
+      fileAccess: async () => null,
+    },
+  };
+  const getWith = (e: unknown, path: string) =>
+    worker.fetch(
+      new Request(`https://gallery.sksat.net${path}`, {
+        headers: { Accept: AVIF },
+      }),
+      e as never,
+      ctx,
+    );
+
+  it("is served by public id through the RPC", async () => {
+    const res = await getWith(hiddenName, `/img/h240/${ID}`);
+    expect(res.status).toBe(200);
+    expect(transforms[0]).toContain(FILE.slice(1));
+  });
+
+  it("is not served by its bucket path", async () => {
+    expect((await getWith(hiddenName, `/img/h240${FILE}`)).status).toBe(404);
+    expect(transforms).toEqual([]);
+  });
+
+  it("uses only HTTP (cached by the API) while it has the file", async () => {
+    // Like the API Worker from before the photo RPC.
+    const rpc = vi.fn(async () => {
+      throw new TypeError("The RPC receiver does not implement the method");
+    });
+    const old = { ...env, API: { ...env.API, photo: rpc } };
+    expect((await getWith(old, `/img/h240/${ID}`)).status).toBe(200);
+    expect(rpc).not.toHaveBeenCalled();
+    // ...and fails (503) for a hidden name, rather than guessing.
+    const oldHidden = { ...hiddenName, API: { ...hiddenName.API, photo: old.API.photo } };
+    expect((await getWith(oldHidden, `/img/h240/${ID}`)).status).toBe(503);
   });
 });
 

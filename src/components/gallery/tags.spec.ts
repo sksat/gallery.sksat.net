@@ -9,16 +9,19 @@ import {
 } from "./tags";
 import type { MediaInfo } from "./types";
 
-const media = (world: MediaInfo["world"], tags: string[]): MediaInfo => ({
+const media = (
+  platform: MediaInfo["platform"],
+  tags: string[],
+): MediaInfo => ({
   id: "abcdefghjk",
-  file: `/m/${world}-${tags.join("-")}.jpg`,
-  world,
+  file: `/m/${platform}-${tags.join("-")}.jpg`,
+  platform,
   timestamp: null,
   camera: null,
   tags,
 });
 
-// 0: Real film        1: VRChat (tag duplicates world)
+// 0: Real film        1: VRChat (tag duplicates platform)
 // 2: Real film night  3: VRChat night
 // 4: Real (no tags)
 const fixture: MediaInfo[] = [
@@ -32,12 +35,12 @@ const fixture: MediaInfo[] = [
 const indices = (entries: { index: number }[]) => entries.map((e) => e.index);
 
 describe("mediaTags", () => {
-  it("treats world as a tag and does not duplicate it when also tagged", () => {
+  it("treats platform as a tag and does not duplicate it when also tagged", () => {
     expect(mediaTags(fixture[1])).toEqual(["VRChat"]);
     expect(mediaTags(fixture[2])).toEqual(["Real", "film", "night"]);
   });
 
-  it("returns the world even when tags are empty", () => {
+  it("returns the platform even when tags are empty", () => {
     expect(mediaTags(fixture[4])).toEqual(["Real"]);
   });
 });
@@ -79,7 +82,7 @@ describe("filterMediaByTags", () => {
     ).toEqual([0, 1, 2, 3]);
   });
 
-  it("a world tag selects by world (single tag)", () => {
+  it("a platform tag selects by platform (single tag)", () => {
     expect(
       indices(filterMediaByTags(fixture, { tags: ["Real"], mode: "and" })),
     ).toEqual([0, 2, 4]);

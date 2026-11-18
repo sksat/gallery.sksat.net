@@ -25,7 +25,7 @@ describe("parseMediaTimestamp", () => {
 const item: MediaInfoJSON = {
   id: "abcdefghjk",
   file: "/media/test.jpg",
-  world: "Real",
+  platform: "Real",
   timestamp: "2023-12-01T00:00:00Z",
   camera: null,
   tags: [],
@@ -64,12 +64,26 @@ describe("parseMediaItem", () => {
     });
   });
 
+  it("reads the platform under its old name, world, from an older API", () => {
+    const old: Record<string, unknown> = { ...item, world: "Real" };
+    delete old.platform;
+    expect(parseMediaItem(old)).toEqual(item);
+  });
+
+  it("accepts a photo whose file name is not public", () => {
+    expect(parseMediaItem({ ...item, file: null })).toEqual({
+      ...item,
+      file: null,
+    });
+    expect(parseMediaItem({ ...item, file: undefined })).toBeNull();
+  });
+
   it("rejects ids and files that would not be safe in a URL", () => {
     expect(parseMediaItem({ ...item, id: "../x" })).toBeNull();
     expect(parseMediaItem({ ...item, id: "abcdefghjo" })).toBeNull();
     expect(parseMediaItem({ ...item, file: "/a/../b.png" })).toBeNull();
     expect(parseMediaItem({ ...item, file: "https://x/a.png" })).toBeNull();
-    expect(parseMediaItem({ ...item, world: "Mars" })).toBeNull();
+    expect(parseMediaItem({ ...item, platform: "Mars" })).toBeNull();
     expect(parseMediaItem(null)).toBeNull();
   });
 
