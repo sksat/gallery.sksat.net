@@ -24,7 +24,7 @@ test("media files: switch view, choose a folder, open a photo", async ({
   );
   // The root has no files of its own, just the "mock" folder.
   await expect(page.getByTestId("file-tile")).toHaveCount(0);
-  await expect(page.getByTestId("folder-tile")).toHaveText(/mock\s*5/);
+  await expect(page.getByTestId("folder-tile")).toHaveText(/mock.*3 \/ 5 公開/);
 
   await tree.getByRole("link", { name: /^mock/ }).click();
   await expect(page).toHaveURL(/\/media\/\?view=files&dir=\/mock$/);
@@ -124,7 +124,7 @@ test("media files: create an empty folder", async ({ page }) => {
   await page.goto("/media/?view=files&dir=/mock");
   await expect(
     page.getByTestId("folder-tile").filter({ hasText: "new-1" }),
-  ).toHaveText(/new-1\s*0/);
+  ).toHaveText(/new-1.*0 \/ 0 公開/);
   await expect(page.getByTestId("file-tile")).toHaveCount(5);
 
   // Again: refused, with the reason in the toast.
@@ -195,4 +195,40 @@ test.describe("media files on a phone", () => {
     );
     expect(overflow).toBe(0);
   });
+});
+
+test("media files: sizes, public counts and the visibility tabs", async ({
+  page,
+}) => {
+  await page.goto("/media/?view=files&dir=/mock");
+  await expect(page.getByTestId("folder-total")).toHaveText(
+    "このフォルダ 5 件 (3 件公開) · 30.0 MB",
+  );
+  const tiles = page.getByTestId("file-tile");
+  await expect(
+    tiles.filter({ hasText: "vrchat2.png" }).getByTestId("visibility-badge"),
+  ).toHaveText("Unlisted");
+  await expect(tiles.filter({ hasText: "vrchat3.png" })).toContainText(
+    "6.00 MB",
+  );
+
+  const tabs = page.getByRole("navigation", { name: "公開範囲で絞り込む" });
+  await tabs.getByRole("link", { name: "公開のみ", exact: true }).click();
+  await expect(page).toHaveURL(/visibility=public/);
+  await expect(tiles).toHaveCount(3);
+  // The folder's own numbers, not the filtered ones.
+  await expect(page.getByTestId("folder-total")).toHaveText(
+    "このフォルダ 5 件 (3 件公開) · 30.0 MB",
+  );
+  await tabs.getByRole("link", { name: "限定公開のみ" }).click();
+  await expect(tiles).toHaveCount(1);
+  await expect(tiles.getByTestId("visibility-badge")).toHaveText("Unlisted");
+  await expect(
+    tabs.getByRole("link", { name: "限定公開のみ" }),
+  ).toHaveAttribute("aria-current", "true");
+  await tabs.getByRole("link", { name: "非公開のみ" }).click();
+  await expect(tiles).toHaveCount(1);
+  await expect(tiles.getByTestId("visibility-badge")).toHaveText("Private");
+  await tabs.getByRole("link", { name: "すべて" }).click();
+  await expect(tiles).toHaveCount(5);
 });

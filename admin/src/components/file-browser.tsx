@@ -1,10 +1,18 @@
 import { component$, Slot, type JSXOutput } from "@builder.io/qwik";
 import { Link } from "@builder.io/qwik-city";
-import { ancestors, isWithin, type FolderNode } from "~/lib/folders";
+import {
+  ancestors,
+  folderTotals,
+  isWithin,
+  type FolderNode,
+} from "~/lib/folders";
 import { mediaEditHref, mediaListHref } from "~/lib/format";
+import { formatDecimalBytes } from "~/lib/storage";
 import type { MediaPlatform, Visibility } from "~/lib/types";
 import { StatePanel } from "./state-panel";
 import { Thumb } from "./thumb";
+import { VisibilityBadge } from "./visibility-badge";
+import { VisibilityIcon } from "./visibility-style";
 import { card, muted } from "./ui";
 
 // File-manager view of /media: the folder tree built from the file paths on
@@ -19,6 +27,8 @@ export type FileTile = {
   file: string;
   path: string;
   platform: MediaPlatform;
+  visibility: Visibility;
+  size: number | null;
 };
 
 type Props = {
@@ -54,6 +64,34 @@ const Count = ({ n }: { n: number }) => (
     <span class="sr-only"> files</span>
   </span>
 );
+
+/** "12 / 40 公開 · 1.23 GB": public photos of all, and their size. */
+const FolderStats = ({ node }: { node: FolderNode }) => (
+  <span
+    data-testid="folder-stats"
+    class={["block text-xs tabular-nums", muted]}
+  >
+    <span
+      class={
+        folderTotals(node).publicCount > 0
+          ? "font-medium text-sky-700 dark:text-sky-400"
+          : undefined
+      }
+    >
+      {folderTotals(node).publicCount} / {folderTotals(node).count} 公開
+    </span>
+    {" · "}
+    {formatDecimalBytes(folderTotals(node).bytes)}
+  </span>
+);
+
+/** Links for すべて / 公開のみ / 非公開のみ (the visibility filter). */
+const VISIBILITY_TABS: { label: string; value: Visibility | null }[] = [
+  { label: "すべて", value: null },
+  { label: "公開のみ", value: "public" },
+  { label: "限定公開のみ", value: "unlisted" },
+  { label: "非公開のみ", value: "private" },
+];
 
 export const FileBrowser = component$<Props>(
   ({ tree, dir, folder, files, imageBase, platform, visibility, q }) => {
@@ -91,6 +129,11 @@ export const FileBrowser = component$<Props>(
             </span>
             <span class="truncate">{node.name || ROOT_LABEL}</span>
             <Count n={node.count} />
+            <span
+              class={["w-16 shrink-0 text-right text-xs tabular-nums", muted]}
+            >
+              {formatDecimalBytes(folderTotals(node).bytes)}
+            </span>
           </Link>
           {open && node.children.length > 0 && (
             <ul class="ml-3 border-l border-zinc-200 pl-1 dark:border-zinc-800">
@@ -169,6 +212,51 @@ export const FileBrowser = component$<Props>(
             {/* Folder actions (new folder, upload) from the page. */}
             <Slot name="toolbar" />
           </div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <nav
+              aria-label="公開範囲で絞り込む"
+              class="inline-flex rounded-lg border border-zinc-200 bg-white p-0.5 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+            >
+              {VISIBILITY_TABS.map((t) => {
+                const target = mediaListHref({
+                  view: "files",
+                  dir,
+                  platform,
+                  visibility: t.value,
+                  q,
+                });
+                const current = visibility === t.value;
+                return (
+                  <Link
+                    key={target}
+                    href={target}
+                    aria-current={current ? "true" : undefined}
+                    class={[
+                      "inline-flex min-h-11 items-center gap-1 rounded-md px-3 sm:min-h-0 sm:py-1",
+                      current
+                        ? "bg-zinc-900 font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+                        : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                    ]}
+                  >
+                    {t.value && (
+                      <VisibilityIcon visibility={t.value} class="size-3.5" />
+                    )}
+                    {t.label}
+                  </Link>
+                );
+              })}
+            </nav>
+            {folder && (
+              <p
+                data-testid="folder-total"
+                class={["text-xs tabular-nums", muted]}
+              >
+                このフォルダ {folderTotals(folder).count} 件 (
+                {folderTotals(folder).publicCount} 件公開) ·{" "}
+                {formatDecimalBytes(folderTotals(folder).bytes)}
+              </p>
+            )}
+          </div>
           {/* Upload progress and leftovers, above the folder's contents. */}
           <Slot name="panel" />
 
@@ -207,8 +295,12 @@ export const FileBrowser = component$<Props>(
                     <span class="text-sky-600 dark:text-sky-400">
                       <FolderIcon />
                     </span>
-                    <span class="truncate font-medium">{child.name}</span>
-                    <Count n={child.count} />
+                    <span class="min-w-0">
+                      <span class="block truncate font-medium">
+                        {child.name}
+                      </span>
+                      <FolderStats node={child} />
+                    </span>
                   </Link>
                 </li>
               ))}
@@ -227,17 +319,31 @@ export const FileBrowser = component$<Props>(
                         "block overflow-hidden transition-colors hover:border-sky-300 dark:hover:border-sky-800",
                       ]}
                     >
-                      <Thumb
-                        file={f.file}
-                        platform={f.platform}
-                        imageBase={imageBase}
-                        variant="list"
-                        class="w-full"
-                      />
+                      <span class="relative block">
+                        <Thumb
+                          file={f.file}
+                          platform={f.platform}
+                          imageBase={imageBase}
+                          variant="list"
+                          class="w-full"
+                        />
+                        <VisibilityBadge
+                          visibility={f.visibility}
+                          class="absolute top-1.5 left-1.5 shadow-sm"
+                        />
+                      </span>
                       {/* Two lines, broken anywhere: VRChat names only
                           differ near the end. */}
-                      <span class="line-clamp-2 px-2 py-1.5 text-xs font-medium break-all">
+                      <span class="line-clamp-2 px-2 pt-1.5 text-xs font-medium break-all">
                         {name}
+                      </span>
+                      <span
+                        class={[
+                          "block px-2 pb-1.5 text-xs tabular-nums",
+                          muted,
+                        ]}
+                      >
+                        {f.size === null ? "—" : formatDecimalBytes(f.size)}
                       </span>
                     </Link>
                   </li>

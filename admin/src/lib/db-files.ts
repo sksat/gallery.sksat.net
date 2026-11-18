@@ -12,6 +12,9 @@ export type MediaFileRow = {
   file: string;
   path: string;
   platform: MediaPlatform;
+  visibility: Visibility;
+  /** Bytes; null for photos from before uploads recorded it. */
+  size: number | null;
 };
 
 export type FilesParams = {
@@ -48,7 +51,7 @@ export const filesQuery = (
   }
   const whereSql = ` WHERE ${where.join(" AND ")}`;
   return {
-    sql: `SELECT id, file, path, platform FROM media${whereSql} ORDER BY path LIMIT ?`,
+    sql: `SELECT id, file, path, platform, visibility, size FROM media${whereSql} ORDER BY path LIMIT ?`,
     args: [...args, params.limit + 1],
   };
 };

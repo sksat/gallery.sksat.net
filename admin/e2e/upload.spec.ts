@@ -410,7 +410,9 @@ test("upload a folder: its subfolders are created under the open one", async ({
     ]),
   );
   // The new folders are in the tree.
-  await expect(page.getByTestId("folder-tile")).toHaveText(/Trip_1\s*2/);
+  await expect(page.getByTestId("folder-tile")).toHaveText(
+    /Trip_1.*0 \/ 2 公開/,
+  );
 });
 
 test("drop files on the Files view to upload them", async ({ page }) => {
