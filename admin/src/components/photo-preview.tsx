@@ -22,6 +22,7 @@ import {
 } from "~/lib/review-keys";
 import {
   exposing,
+  previewOf,
   parsePending,
   pendingCounts,
   pendingKey,
@@ -578,7 +579,7 @@ type BarProps = {
 const PendingBar = component$<BarProps>((props) => {
   const counts = pendingCounts(props.pending);
   const total = Object.keys(props.pending).length;
-  const visible = exposing(props.pending);
+  const preview = previewOf(exposing(props.pending));
   // A result shows until the next choice; an error always.
   const notice =
     props.notice && (props.notice.tone === "error" || total === 0)
@@ -595,14 +596,20 @@ const PendingBar = component$<BarProps>((props) => {
       role="region"
       aria-label="公開範囲の変更"
       data-testid="pending-bar"
-      class="flex max-w-full flex-col items-stretch gap-2"
+      // A width of its own (not the content's): however many photos there
+      // are, the buttons below stay on screen.
+      class="flex max-w-[min(36rem,calc(100vw-1.5rem))] flex-col items-stretch gap-2"
     >
       {props.confirming && (
         <div
           data-testid="pending-confirm"
-          class="flex max-w-[min(100%,36rem)] gap-1.5 overflow-x-auto rounded-2xl bg-zinc-900/90 p-1.5 ring-1 ring-white/15"
+          // Rows that scroll within a height of their own; past
+          // PREVIEW_MAX photos a "+N" says how many more.
+          // (Its width follows the bar's: compact for a few photos, the
+          // bar's max-width for many.)
+          class="flex max-h-[min(13rem,30dvh)] flex-wrap content-start gap-1.5 overflow-y-auto overscroll-contain rounded-2xl bg-zinc-900/90 p-1.5 ring-1 ring-white/15"
         >
-          {visible.map(([id, item]) => (
+          {preview.shown.map(([id, item]) => (
             <span key={id} class="relative shrink-0">
               <Thumb
                 file={item.file}
@@ -622,6 +629,15 @@ const PendingBar = component$<BarProps>((props) => {
               </span>
             </span>
           ))}
+          {preview.more > 0 && (
+            <span
+              data-testid="pending-confirm-more"
+              class="flex h-14 items-center rounded-lg bg-white/10 px-3 text-sm font-semibold text-white tabular-nums"
+            >
+              <span class="sr-only">ほか </span>+{preview.more}
+              <span class="sr-only"> 枚</span>
+            </span>
+          )}
         </div>
       )}
       {total > 0 ? (

@@ -144,6 +144,49 @@ test("1/2/3 mark a choice and go on; 反映 applies them, 元に戻す reverts",
   await expect(page.getByTestId("visibility-badge")).toHaveText("Public");
 });
 
+for (const size of [
+  { width: 1024, height: 600 },
+  { width: 390, height: 844 },
+  { width: 320, height: 640 },
+  { width: 667, height: 375 },
+]) {
+  test(`many photos to look at keep 反映 on screen (${size.width}×${size.height})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await openFromFolder(page);
+    // 150 pending choices that make photos public, seeded the way the
+    // viewer stores them (pendingKey of the list). Their ids belong to no
+    // photo: the bulk update skips them, so applying changes nothing
+    // (other specs count the fixture's visibilities).
+    await page.evaluate(() => {
+      const params = new URLSearchParams("view=files&dir=/mock");
+      const pending: Record<number, unknown> = {};
+      for (let i = 0; i < 150; i++) {
+        pending[100_000 + i] = { to: "public", from: "private", file: `/x/${i}.png` };
+      }
+      sessionStorage.setItem(
+        `admin-review-pending:/media/?${params.toString()}`,
+        JSON.stringify(pending),
+      );
+    });
+    await page.reload();
+    await expect(viewer(page)).toBeVisible();
+    await expect(counts(page)).toContainText("150");
+
+    await bar(page).getByRole("button", { name: "反映" }).click();
+    const confirm = page.getByTestId("pending-confirm");
+    await expect(confirm).toBeVisible();
+    const apply = bar(page).getByRole("button", { name: "反映" });
+    await expect(apply).toBeInViewport({ ratio: 1 });
+    await expect(
+      bar(page).getByRole("button", { name: "戻る" }),
+    ).toBeInViewport({ ratio: 1 });
+    await apply.click();
+    await expect(counts(page)).toHaveCount(0);
+  });
+}
+
 test("making photos private applies without the look first", async ({
   page,
 }) => {

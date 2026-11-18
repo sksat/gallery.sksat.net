@@ -13,6 +13,13 @@ const selectForPublic = async (page: Page, phone: boolean) => {
     .getByRole("button", { name: "公開", exact: true })
     .click();
   await expect(page.getByTestId("visibility-confirm")).toBeVisible();
+  // Deterministic: no hover on the button just clicked, no text selection
+  // left from Ctrl+A, and the focus where a click leaves it every time.
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => {
+    window.getSelection()?.removeAllRanges();
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
 };
 
 test.describe("desktop", () => {

@@ -9,7 +9,7 @@ import {
 import type { LevelChange } from "~/lib/bulk-metadata";
 import { isWithin, type FolderNode } from "~/lib/folders";
 import type { MetadataLevels } from "~/lib/metadata";
-import { exposing } from "~/lib/review-pending";
+import { exposing, previewOf } from "~/lib/review-pending";
 import { sharedVisibility, visibilityPending } from "~/lib/selection";
 import { formatDecimalBytes } from "~/lib/storage";
 import { VISIBILITIES, type Visibility } from "~/lib/types";
@@ -130,6 +130,7 @@ export const SelectionBar = component$<Props>(
     const visible = confirming.value
       ? exposing(visibilityPending(photos, confirming.value))
       : [];
+    const preview = previewOf(visible);
 
     const submitMove = $(async (form: HTMLFormElement) => {
       const data = new FormData(form);
@@ -194,10 +195,12 @@ export const SelectionBar = component$<Props>(
             data-testid="visibility-confirm"
             role="group"
             aria-label={`${VISIBILITY_LABELS_JA[confirming.value]}にする写真`}
-            class="col-span-2 flex w-full flex-wrap items-center gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800"
+            class="col-span-2 flex w-full min-w-0 flex-wrap items-end gap-2 border-b border-zinc-200 pb-2 sm:flex-nowrap dark:border-zinc-800"
           >
-            <ul class="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
-              {visible.map(([id, item]) => (
+            {/* Rows that scroll within a height of their own, so the
+                buttons stay on screen; past PREVIEW_MAX a "+N". */}
+            <ul class="flex max-h-[min(7.5rem,25dvh)] min-w-0 flex-1 basis-full flex-wrap content-start gap-1.5 overflow-y-auto overscroll-contain sm:basis-0">
+              {preview.shown.map(([id, item]) => (
                 <li key={id} class="relative shrink-0">
                   <Thumb
                     file={item.file}
@@ -216,6 +219,15 @@ export const SelectionBar = component$<Props>(
                   </span>
                 </li>
               ))}
+              {preview.more > 0 && (
+                <li
+                  data-testid="visibility-confirm-more"
+                  class="flex h-12 items-center rounded-md bg-zinc-100 px-3 text-sm font-semibold tabular-nums dark:bg-zinc-800"
+                >
+                  <span class="sr-only">ほか </span>+{preview.more}
+                  <span class="sr-only"> 枚</span>
+                </li>
+              )}
             </ul>
             <span class="flex shrink-0 gap-2 max-sm:w-full">
               <button
