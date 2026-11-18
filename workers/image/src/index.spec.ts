@@ -53,7 +53,10 @@ const env = {
 };
 
 let store: Map<string, Response>;
-let cacheDefault: { match: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
+let cacheDefault: {
+  match: ReturnType<typeof vi.fn>;
+  put: ReturnType<typeof vi.fn>;
+};
 let transforms: string[];
 let pending: Promise<unknown>[];
 const ctx = {
@@ -206,7 +209,10 @@ describe("a photo whose file name is not public", () => {
     expect((await getWith(old, `/img/h240/${ID}`)).status).toBe(200);
     expect(rpc).not.toHaveBeenCalled();
     // ...and fails (503) for a hidden name, rather than guessing.
-    const oldHidden = { ...hiddenName, API: { ...hiddenName.API, photo: old.API.photo } };
+    const oldHidden = {
+      ...hiddenName,
+      API: { ...hiddenName.API, photo: old.API.photo },
+    };
     expect((await getWith(oldHidden, `/img/h240/${ID}`)).status).toBe(503);
   });
 });
@@ -254,6 +260,37 @@ describe("AdminImage", () => {
       ok: false,
       status: 404,
     });
+    expect(transforms).toHaveLength(1);
+  });
+
+  it("bytes reads a range of the original and refuses bad arguments", async () => {
+    const headers: (string | null)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        transforms.push(`${init?.method} ${url}`);
+        headers.push(new Headers(init?.headers).get("range"));
+        return new Response("abc", {
+          status: 206,
+          headers: { "content-range": "bytes 39-41/42" },
+        });
+      }),
+    );
+    const admin = new AdminImage(ctx as never, env as never);
+    const got = await admin.bytes("jwt", FILE, { suffix: 3 });
+    expect(
+      got.ok && got.object && new TextDecoder().decode(got.object.bytes),
+    ).toBe("abc");
+    expect(got.ok && got.object?.size).toBe(42);
+    expect(headers).toEqual(["bytes=-3"]);
+    expect(transforms[0]).toMatch(/^GET https:\/\/s3\.example\/bucket\//);
+    expect(await admin.bytes("jwt", "/../media.json", { suffix: 3 })).toEqual({
+      ok: false,
+      status: 404,
+    });
+    expect(
+      await admin.bytes("jwt", FILE, { offset: 0, length: 10 ** 9 }),
+    ).toEqual({ ok: false, status: 400 });
     expect(transforms).toHaveLength(1);
   });
 });

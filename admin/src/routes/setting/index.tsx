@@ -7,13 +7,15 @@ import {
   zod$,
   type DocumentHead,
 } from "@builder.io/qwik-city";
+import { MetadataBackfill } from "~/components/metadata-backfill";
 import { MetadataSelect } from "~/components/metadata-select";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { SubmitButton } from "~/components/submit-button";
 import { Toast, type ToastState } from "~/components/toast";
 import { buttonPrimary, card } from "~/components/ui";
 import { getSiteDefaults, setSiteDefaults } from "~/lib/db-meta";
-import { getDB } from "~/lib/env";
+import { countUnread } from "~/lib/backfill";
+import { getAdminImages, getDB } from "~/lib/env";
 import { EDITABLE_FIELDS, isLevel, type MetadataLevels } from "~/lib/metadata";
 
 // /setting/: site-wide settings. For now the default of how much of each
@@ -21,17 +23,36 @@ import { EDITABLE_FIELDS, isLevel, type MetadataLevels } from "~/lib/metadata";
 // on its edit page.
 
 type SettingResult =
-  { kind: "ok"; defaults: MetadataLevels } | { kind: "missing-binding" };
+  | {
+      kind: "ok";
+      defaults: MetadataLevels;
+      /** Photos whose original has not been read; null: cannot read them. */
+      unread: number | null;
+    }
+  | { kind: "missing-binding" };
 
 export const useSettings = routeLoader$<SettingResult>(
   async ({ platform, status }) => {
+    let db: D1Database;
+    let defaults: MetadataLevels;
     try {
-      return { kind: "ok", defaults: await getSiteDefaults(getDB(platform)) };
+      db = getDB(platform);
+      defaults = await getSiteDefaults(db);
     } catch (err) {
       console.error("/setting loader: getDB failed:", err);
       status(500);
       return { kind: "missing-binding" };
     }
+    // The backfill's count is optional: the settings still work without it.
+    let unread: number | null = null;
+    if (getAdminImages(platform)) {
+      try {
+        unread = await countUnread(db);
+      } catch (err) {
+        console.error("/setting loader: countUnread failed:", err);
+      }
+    }
+    return { kind: "ok", defaults, unread };
   },
 );
 
@@ -70,7 +91,7 @@ export default component$(() => {
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
-  const { defaults } = data.value;
+  const { defaults, unread } = data.value;
   return (
     <div class="mx-auto max-w-3xl space-y-6">
       <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">設定</h1>
@@ -87,6 +108,7 @@ export default component$(() => {
           保存
         </SubmitButton>
       </Form>
+      {unread !== null && <MetadataBackfill unread={unread} />}
       <Toast toast={toast} />
     </div>
   );
