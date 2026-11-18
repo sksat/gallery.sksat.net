@@ -593,10 +593,11 @@ describe("0005_path_trash.sql", () => {
       ["/a.png", { taken_at: "filename", exif: "file", world: "file" }],
       ["/b.png", null],
       ["/c.png", { taken_at: "filename" }],
-      // Edited after its file was read: kept as if by hand.
-      ["/d.png", { exif: "manual", world: "manual" }],
-      // Never read, yet filled: only a hand could have.
-      ["/e.png", { exif: "manual" }],
+      // Edited (visibility, tags, a move) after its file was read: still
+      // automatic, updated_at says nothing about these fields.
+      ["/d.png", { exif: "file", world: "file" }],
+      // Never read: automatic too (nothing was entered by hand so far).
+      ["/e.png", { exif: "file" }],
     ]);
     // Location keeps its own column.
     expect(rows[0]).toMatchObject({ location_source: "manual" });

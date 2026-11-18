@@ -82,7 +82,7 @@ test("edit page: set, move and clear the position on the map", async ({
   await expect(page.getByText(/^Saved at /)).toBeVisible();
   await page.reload();
   const data = page.getByTestId("photo-data-location");
-  await expect(data.getByTestId("location-source")).toHaveText("手入力");
+  await expect(data.getByTestId("manual-location")).toContainText("手入力");
 
   // 位置を消す → no position once saved.
   await page.getByRole("button", { name: "位置を消す" }).click();

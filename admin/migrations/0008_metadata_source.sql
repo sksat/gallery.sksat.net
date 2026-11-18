@@ -22,25 +22,20 @@ ALTER TABLE media ADD COLUMN metadata_source TEXT
          OR (json_valid(metadata_source)
              AND json_type(metadata_source) = 'object'));
 
--- The taken-at times so far were filled in automatically (the VRChat file
--- names or EXIF at upload, or the old media.json): the weakest automatic
--- source, so the next reading may improve them. exif and world came from
--- the file, unless the file was never read (then only a hand could have
--- filled them) or the photo was edited after it was read: then they may
--- have been edited by hand, and are kept as 'manual' (losing a possible
--- improvement rather than an edit). Location keeps location_source.
+-- Everything so far was filled in automatically: the taken-at times from
+-- the VRChat file names or EXIF at upload (or the old media.json), exif
+-- and world from the file. None of them has been edited by hand yet, so
+-- all are marked automatic, the taken-at times as the weakest source, and
+-- the next reading may improve them. (updated_at cannot tell a hand edit
+-- apart: completing an upload and any other edit move it too.) Location
+-- keeps location_source.
 UPDATE media SET metadata_source = (
   SELECT json_group_object(key, value) FROM (
     SELECT 'taken_at' AS key, 'filename' AS value WHERE media.timestamp IS NOT NULL
     UNION ALL
-    SELECT 'exif', CASE WHEN media.metadata_read_at IS NULL
-                          OR media.updated_at > media.metadata_read_at
-                        THEN 'manual' ELSE 'file' END
-      WHERE media.exif IS NOT NULL
+    SELECT 'exif', 'file' WHERE media.exif IS NOT NULL
     UNION ALL
-    SELECT 'world', CASE WHEN media.metadata_read_at IS NULL
-                           OR media.updated_at > media.metadata_read_at
-                         THEN 'manual' ELSE 'file' END
+    SELECT 'world', 'file'
       WHERE media.world_id IS NOT NULL OR media.world_name IS NOT NULL
   )
 )
