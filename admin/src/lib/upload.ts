@@ -113,11 +113,18 @@ export const uploadTarget = (
 };
 
 /** VRChat's own screenshots: VRChat_2026-11-18_01-02-03.456_3840x2160.png */
+// Current VRChat names put the resolution last
+// (VRChat_2026-11-18_01-02-03.456_3840x2160.png); before late 2022 it came
+// first (VRChat_3840x2160_2022-08-22_02-03-18.591.png).
 export const VRCHAT_NAME_RE =
-  /^VRChat_(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)\.(\d{3})_\d+x\d+\.png$/;
+  /^VRChat_(?:\d+x\d+_)?(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)\.(\d{3})(?:_\d+x\d+)?\.png$/;
 
-/** Platform of a new photo: VRChat for VRChat's file names, else Real. */
+/**
+ * Platform of a new photo: VRChat for anything under the top-level /VRChat/
+ * folder or with VRChat's file names, else Real.
+ */
 export const guessPlatform = (file: string): MediaPlatform =>
+  file.startsWith("/VRChat/") ||
   VRCHAT_NAME_RE.test(file.slice(file.lastIndexOf("/") + 1))
     ? "VRChat"
     : "Real";
