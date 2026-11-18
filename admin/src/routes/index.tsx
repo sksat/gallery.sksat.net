@@ -20,7 +20,7 @@ import {
   fetchAccess,
   getWebAnalyticsConfig,
   parseAccessRange,
-  photoRefsOf,
+  photoIdsOf,
   photoRowsFor,
   topPhotos,
   type AccessRange,
@@ -45,7 +45,7 @@ const topPhotosOf = async (
 ): Promise<TopPhoto[]> => {
   if (!db || access.kind !== "ok") return [];
   try {
-    const rows = await photoRowsFor(db, photoRefsOf(access.stats.pages));
+    const rows = await photoRowsFor(db, photoIdsOf(access.stats.pages));
     return topPhotos(access.stats.pages, rows);
   } catch (err) {
     console.error("/ loader: photo lookup failed:", err);

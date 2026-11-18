@@ -47,13 +47,14 @@ const access = (query, vars) => {
     series,
     pages: [
       g(120, 80, { requestPath: "/" }),
-      // Fixture photo 2 by its public id and by its old index (1).
+      // Fixture photo 2 with and without the trailing slash.
       g(40, 30, { requestPath: "/photo/aaaaaaaaa3/" }),
-      g(10, 8, { requestPath: "/photo/1" }),
+      g(10, 8, { requestPath: "/photo/aaaaaaaaa3" }),
       g(25, 20, { requestPath: "/photo/aaaaaaaaa5/" }),
       g(15, 10, { requestPath: "/camera/" }),
-      // No such photo.
+      // No such photo, and an old numeric URL: pages, not photos.
       g(5, 5, { requestPath: "/photo/zzzzzzzzzz/" }),
+      g(3, 3, { requestPath: "/photo/1" }),
     ],
     countries: [
       g(150, null, { countryName: "JP" }),

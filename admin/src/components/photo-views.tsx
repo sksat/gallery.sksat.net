@@ -9,13 +9,15 @@ import {
 } from "~/lib/web-analytics";
 import { muted } from "./ui";
 
-type Photo = { public_id: string; legacy_index: number | null };
 type ViewsResult =
   { kind: "ok"; d7: number; d30: number } | { kind: "unavailable" | "error" };
 
-// The photo's page views from the same cached Web Analytics answers as the
-// dashboard (the 7 d and 30 d ranges), new and old paths added up.
-const loadViews = server$(async function (photo: Photo): Promise<ViewsResult> {
+// The photo's page views (/photo/<public_id>, with or without the trailing
+// slash) from the same cached Web Analytics answers as the dashboard (the
+// 7 d and 30 d ranges).
+const loadViews = server$(async function (
+  publicId: string,
+): Promise<ViewsResult> {
   const config = getWebAnalyticsConfig(this.platform);
   if (config.kind !== "ok") return { kind: "unavailable" };
   const deps = {
@@ -31,14 +33,14 @@ const loadViews = server$(async function (photo: Photo): Promise<ViewsResult> {
   if (d7.kind !== "ok" || d30.kind !== "ok") return { kind: "error" };
   return {
     kind: "ok",
-    d7: photoCounts(d7.stats.pages, photo).pageViews,
-    d30: photoCounts(d30.stats.pages, photo).pageViews,
+    d7: photoCounts(d7.stats.pages, publicId).pageViews,
+    d30: photoCounts(d30.stats.pages, publicId).pageViews,
   };
 });
 
-/** One line on the edit page: "閲覧 7 日 12 · 30 日 34". */
-export const PhotoViews = component$<Photo>(({ public_id, legacy_index }) => {
-  const views = useResource$(() => loadViews({ public_id, legacy_index }));
+/** One line on the edit page: "閲覧数 (概数) 7 日 12 · 30 日 34". */
+export const PhotoViews = component$<{ public_id: string }>(({ public_id }) => {
+  const views = useResource$(() => loadViews(public_id));
   return (
     <Resource
       value={views}

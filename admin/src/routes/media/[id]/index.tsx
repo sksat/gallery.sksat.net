@@ -590,7 +590,7 @@ export default component$(() => {
           <span class={worldBadge(row.world)}>{row.world}</span>
           <VisibilityBadge visibility={row.visibility} />
         </div>
-        <PhotoViews public_id={row.public_id} legacy_index={row.legacy_index} />
+        <PhotoViews public_id={row.public_id} />
       </div>
 
       {/* A tap opens the photo full screen (shared/overlay/ look). */}

@@ -10,7 +10,7 @@ import {
   parseAccessRange,
   parsePhotoPath,
   photoCounts,
-  photoRefsOf,
+  photoIdsOf,
   photoRowsFor,
   rangeWindow,
   referrerLabel,
@@ -73,8 +73,10 @@ const sample = body({
   pages: [
     g(9, 5, { requestPath: "/" }),
     g(6, 3, { requestPath: "/photo/aaaaaaaaa3/" }),
-    g(2, 1, { requestPath: "/photo/1" }),
+    g(2, 1, { requestPath: "/photo/aaaaaaaaa3" }),
     g(1, 1, { requestPath: "/photo/aaaaaaaaa2/" }),
+    // An old numeric URL: listed as a page, never attributed to a photo.
+    g(1, 0, { requestPath: "/photo/1" }),
   ],
   countries: [
     g(25, null, { countryName: "JP" }),
@@ -253,47 +255,44 @@ describe("getWebAnalyticsConfig", () => {
 
 describe("photo paths", () => {
   it.each([
-    ["/photo/aaaaaaaaa3/", { publicId: "aaaaaaaaa3" }],
-    ["/photo/aaaaaaaaa3", { publicId: "aaaaaaaaa3" }],
-    ["/photo/12/", { legacyIndex: 12 }],
-    ["/photo/0", { legacyIndex: 0 }],
+    ["/photo/aaaaaaaaa3/", "aaaaaaaaa3"],
+    ["/photo/aaaaaaaaa3", "aaaaaaaaa3"],
+    ["/photo/12/", null],
+    ["/photo/0", null],
     ["/photo/", null],
     ["/photo/AAAAAAAAA3/", null],
     ["/photo/aaaaaaaaa3/x", null],
     ["/camera/x/", null],
-  ])("%s", (path, ref) => expect(parsePhotoPath(path)).toEqual(ref));
+  ])("%s", (path, id) => expect(parsePhotoPath(path)).toBe(id));
 
   const rows: PhotoMediaRow[] = [
-    {
-      id: 1,
-      public_id: "aaaaaaaaa2",
-      legacy_index: 0,
-      file: "/mock/real1.png",
-      world: "Real",
-    },
+    { id: 1, public_id: "aaaaaaaaa2", file: "/mock/real1.png", world: "Real" },
     {
       id: 2,
       public_id: "aaaaaaaaa3",
-      legacy_index: 1,
       file: "/mock/vrchat1.png",
       world: "VRChat",
     },
   ];
   const pages = parseAccess(sample, "7d", now, HOST)!.pages;
 
-  it("collects the ids to look up", () => {
-    expect(photoRefsOf(pages)).toEqual({
-      publicIds: ["aaaaaaaaa3", "aaaaaaaaa2"],
-      legacyIndexes: [1],
-    });
+  it("collects the public ids to look up", () => {
+    expect(photoIdsOf(pages)).toEqual(["aaaaaaaaa3", "aaaaaaaaa2"]);
   });
 
-  it("adds a photo's new and old paths together", () => {
-    expect(photoCounts(pages, rows[1])).toEqual({ pageViews: 8, visits: 4 });
-    expect(photoCounts(pages, rows[0])).toEqual({ pageViews: 1, visits: 1 });
-    expect(
-      photoCounts(pages, { public_id: "zzzzzzzzzz", legacy_index: null }),
-    ).toEqual({ pageViews: 0, visits: 0 });
+  it("adds a photo's paths with and without the slash together", () => {
+    expect(photoCounts(pages, "aaaaaaaaa3")).toEqual({
+      pageViews: 8,
+      visits: 4,
+    });
+    expect(photoCounts(pages, "aaaaaaaaa2")).toEqual({
+      pageViews: 1,
+      visits: 1,
+    });
+    expect(photoCounts(pages, "zzzzzzzzzz")).toEqual({
+      pageViews: 0,
+      visits: 0,
+    });
   });
 
   it("ranks photos by page views", () => {
@@ -306,18 +305,27 @@ describe("photo paths", () => {
     expect(topPhotos(pages, rows, 1)).toHaveLength(1);
   });
 
-  it("finds the rows on the real schema, ready ones only, once each", async () => {
+  it("finds the rows on the real schema, ready ones only", async () => {
     const db = migratedSqlite();
-    db.exec(`INSERT INTO media (file, world, public_id, legacy_index) VALUES
-        ('/a.png', 'Real', 'aaaaaaaaa2', 0),
-        ('/b.png', 'Real', 'aaaaaaaaa3', 1);
+    db.exec(`INSERT INTO media (file, world, public_id) VALUES
+        ('/a.png', 'Real', 'aaaaaaaaa2'),
+        ('/b.png', 'Real', 'aaaaaaaaa3');
       INSERT INTO media (file, world, public_id, status) VALUES
         ('/c.png', 'Real', 'aaaaaaaaa4', 'uploading');`);
-    const found = await photoRowsFor(sqliteD1(db), {
-      publicIds: ["aaaaaaaaa3", "aaaaaaaaa4"],
-      legacyIndexes: [1, 0],
-    });
-    expect(found.map((r) => r.file).sort()).toEqual(["/a.png", "/b.png"]);
+    const found = await photoRowsFor(sqliteD1(db), [
+      "aaaaaaaaa3",
+      "aaaaaaaaa4",
+    ]);
+    expect(found.map((r) => r.file)).toEqual(["/b.png"]);
+  });
+
+  it("looks up more ids than D1 binds in one query", async () => {
+    const db = migratedSqlite();
+    db.exec(`INSERT INTO media (file, world, public_id) VALUES
+        ('/a.png', 'Real', 'aaaaaaaaa2');`);
+    const ids = Array.from({ length: 200 }, (_, i) => `none-${i}`);
+    const found = await photoRowsFor(sqliteD1(db), [...ids, "aaaaaaaaa2"]);
+    expect(found.map((r) => r.file)).toEqual(["/a.png"]);
   });
 
   it("labels a direct visit", () => {

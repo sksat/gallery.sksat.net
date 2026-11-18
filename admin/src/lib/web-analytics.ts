@@ -312,32 +312,24 @@ export const fetchAccess = async (
   return stats ? { kind: "ok", stats } : { kind: "error" };
 };
 
-/** A photo page of the public site: /photo/<public_id>/ or the old /photo/<N>/. */
-export type PhotoRef = { publicId: string } | { legacyIndex: number };
-
-export const parsePhotoPath = (path: string): PhotoRef | null => {
+/**
+ * The public id of a photo page, /photo/<public_id> with or without the
+ * trailing slash; null for any other path (including old /photo/<N>
+ * URLs, which only show up in the top pages).
+ */
+export const parsePhotoPath = (path: string): string | null => {
   const m = /^\/photo\/([^/?#]+)\/?$/.exec(path);
-  if (!m) return null;
-  const id = m[1];
-  if (/^\d{1,9}$/.test(id)) return { legacyIndex: Number(id) };
-  if (PUBLIC_ID_RE.test(id)) return { publicId: id };
-  return null;
+  return m && PUBLIC_ID_RE.test(m[1]) ? m[1] : null;
 };
 
-/** Page views and visits of one photo, adding up all of its paths. */
+/** Page views and visits of one photo, adding up both forms of its path. */
 export const photoCounts = (
   pages: AccessStats["pages"],
-  photo: { public_id: string; legacy_index: number | null },
+  publicId: string,
 ): Counts => {
   const out = { pageViews: 0, visits: 0 };
   for (const p of pages) {
-    const ref = parsePhotoPath(p.path);
-    if (
-      ref &&
-      ("publicId" in ref
-        ? ref.publicId === photo.public_id
-        : ref.legacyIndex === photo.legacy_index)
-    ) {
+    if (parsePhotoPath(p.path) === publicId) {
       out.pageViews += p.pageViews;
       out.visits += p.visits;
     }
@@ -348,28 +340,22 @@ export const photoCounts = (
 export type PhotoMediaRow = {
   id: number;
   public_id: string;
-  legacy_index: number | null;
   file: string;
   world: "Real" | "VRChat";
 };
 
-/** The photo pages' ids, to look the rows up in one query. */
-export const photoRefsOf = (
-  pages: AccessStats["pages"],
-): { publicIds: string[]; legacyIndexes: number[] } => {
-  const publicIds = new Set<string>();
-  const legacyIndexes = new Set<number>();
+/** The public ids of the photo pages, to look the rows up. */
+export const photoIdsOf = (pages: AccessStats["pages"]): string[] => {
+  const ids = new Set<string>();
   for (const p of pages) {
-    const ref = parsePhotoPath(p.path);
-    if (!ref) continue;
-    if ("publicId" in ref) publicIds.add(ref.publicId);
-    else legacyIndexes.add(ref.legacyIndex);
+    const id = parsePhotoPath(p.path);
+    if (id) ids.add(id);
   }
-  return { publicIds: [...publicIds], legacyIndexes: [...legacyIndexes] };
+  return [...ids];
 };
 
 /**
- * Most viewed photos: page views per media row (its new and old paths
+ * Most viewed photos: page views per media row (both forms of its path
  * added up), most first, then by id; paths that match no row are dropped.
  */
 export const topPhotos = (
@@ -378,19 +364,10 @@ export const topPhotos = (
   limit = TOP_LIMIT,
 ): ({ row: PhotoMediaRow } & Counts)[] => {
   const byPublic = new Map(rows.map((r) => [r.public_id, r]));
-  const byLegacy = new Map(
-    rows
-      .filter((r) => r.legacy_index !== null)
-      .map((r) => [r.legacy_index!, r]),
-  );
   const acc = new Map<number, { row: PhotoMediaRow } & Counts>();
   for (const p of pages) {
-    const ref = parsePhotoPath(p.path);
-    if (!ref) continue;
-    const row =
-      "publicId" in ref
-        ? byPublic.get(ref.publicId)
-        : byLegacy.get(ref.legacyIndex);
+    const id = parsePhotoPath(p.path);
+    const row = id ? byPublic.get(id) : undefined;
     if (!row) continue;
     const a = acc.get(row.id) ?? { row, pageViews: 0, visits: 0 };
     a.pageViews += p.pageViews;
@@ -409,26 +386,20 @@ const CHUNK = 90;
 /** The media rows behind photo pages (ready rows only). */
 export const photoRowsFor = async (
   db: D1Database,
-  refs: { publicIds: string[]; legacyIndexes: number[] },
+  publicIds: string[],
 ): Promise<PhotoMediaRow[]> => {
   const out: PhotoMediaRow[] = [];
-  const cols = "id, public_id, legacy_index, file, world";
-  const run = async (col: string, ids: (string | number)[]) => {
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      const part = ids.slice(i, i + CHUNK);
-      const r = await db
-        .prepare(
-          `SELECT ${cols} FROM media WHERE status = 'ready' AND ${col} IN (${part.map(() => "?").join(", ")})`,
-        )
-        .bind(...part)
-        .all<PhotoMediaRow>();
-      out.push(...r.results);
-    }
-  };
-  await run("public_id", refs.publicIds);
-  await run("legacy_index", refs.legacyIndexes);
-  // A row found by both of its ids is listed once.
-  return [...new Map(out.map((r) => [r.id, r])).values()];
+  for (let i = 0; i < publicIds.length; i += CHUNK) {
+    const part = publicIds.slice(i, i + CHUNK);
+    const r = await db
+      .prepare(
+        `SELECT id, public_id, file, world FROM media WHERE status = 'ready' AND public_id IN (${part.map(() => "?").join(", ")})`,
+      )
+      .bind(...part)
+      .all<PhotoMediaRow>();
+    out.push(...r.results);
+  }
+  return out;
 };
 
 /** Referrer host for display: "" is a direct visit (no referrer). */

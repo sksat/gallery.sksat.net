@@ -42,8 +42,9 @@ test("dashboard: access card", async ({ page }) => {
     card.getByRole("link", { name: "7 日", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 
-  // Photo 2 adds up /photo/aaaaaaaaa3/ and its old /photo/1; links to its
-  // edit page. An unknown public id is left out.
+  // Photo 2 adds up /photo/aaaaaaaaa3/ and /photo/aaaaaaaaa3; links to its
+  // edit page. An unknown public id and the old /photo/1 are left out
+  // (the latter is only a page).
   const photos = card.getByRole("listitem").filter({ hasText: "PV" });
   await expect(photos).toHaveCount(2);
   await expect(photos.nth(0)).toContainText("/mock/vrchat1.png");
