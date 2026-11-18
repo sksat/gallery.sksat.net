@@ -24,22 +24,18 @@ let loading: Promise<MapLibreModule> | null = null;
 
 export const loadMapLibre = (): Promise<MapLibreModule> => {
   loading ??= (async () => {
+    // The CSS as a string in a lazy chunk (?inline), not a CSS asset
+    // (?url): Qwik puts every CSS asset of the build in every page's head.
     const [lib, worker, css] = await Promise.all([
       import("maplibre-gl"),
       import("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url"),
-      import("maplibre-gl/dist/maplibre-gl.css?url"),
+      import("maplibre-gl/dist/maplibre-gl.css?inline"),
     ]);
-    if (!document.querySelector("link[data-maplibre-css]")) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = css.default;
-      link.dataset.maplibreCss = "";
-      // The map is laid out by this CSS: wait for it (a failed load still
-      // shows the map, only less tidy).
-      await new Promise<void>((resolve) => {
-        link.onload = link.onerror = () => resolve();
-        document.head.append(link);
-      });
+    if (!document.querySelector("style[data-maplibre-css]")) {
+      const style = document.createElement("style");
+      style.dataset.maplibreCss = "";
+      style.textContent = css.default;
+      document.head.append(style);
     }
     lib.setWorkerUrl(worker.default);
     return lib;
