@@ -5,6 +5,8 @@ import {
   keepShown,
   inChunks,
   selectAll,
+  sharedCamera,
+  sharedPlatform,
   sharedVisibility,
   splitSelection,
   visibilityPending,
@@ -34,6 +36,26 @@ describe("visibilityPending", () => {
 
   it("a level they all have already changes nothing", () => {
     expect(visibilityPending([photos[1]], "public")).toEqual({});
+  });
+});
+
+describe("sharedCamera", () => {
+  it("is the camera all have, null for none, undefined when mixed", () => {
+    expect(sharedCamera([{ camera_id: 2 }, { camera_id: 2 }])).toBe(2);
+    expect(sharedCamera([{ camera_id: null }])).toBeNull();
+    expect(
+      sharedCamera([{ camera_id: 2 }, { camera_id: null }]),
+    ).toBeUndefined();
+    expect(sharedCamera([])).toBeUndefined();
+  });
+});
+
+describe("sharedPlatform", () => {
+  it("is the platform all have, else undefined", () => {
+    expect(sharedPlatform([{ platform: "Real" }])).toBe("Real");
+    expect(
+      sharedPlatform([{ platform: "Real" }, { platform: "VRChat" }]),
+    ).toBeUndefined();
   });
 });
 

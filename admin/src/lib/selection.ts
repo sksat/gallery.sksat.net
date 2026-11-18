@@ -97,6 +97,25 @@ export const sharedVisibility = (
 };
 
 /**
+ * The camera every photo has (null: none of them has one), or undefined
+ * when they differ (or there are none).
+ */
+export const sharedCamera = (
+  photos: readonly { camera_id: number | null }[],
+): number | null | undefined => {
+  const set = new Set(photos.map((p) => p.camera_id));
+  return set.size === 1 ? [...set][0] : undefined;
+};
+
+/** The platform every photo has, or undefined when they differ. */
+export const sharedPlatform = <P extends string>(
+  photos: readonly { platform: P }[],
+): P | undefined => {
+  const set = new Set(photos.map((p) => p.platform));
+  return set.size === 1 ? [...set][0] : undefined;
+};
+
+/**
  * `items` in runs of at most `size`, in order: a selection larger than one
  * request may carry goes as several, one after another.
  */

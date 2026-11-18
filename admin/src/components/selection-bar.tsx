@@ -10,10 +10,24 @@ import type { LevelChange } from "~/lib/bulk-metadata";
 import { isWithin, type FolderNode } from "~/lib/folders";
 import type { MetadataLevels } from "~/lib/metadata";
 import { exposing, previewOf } from "~/lib/review-pending";
-import { sharedVisibility, visibilityPending } from "~/lib/selection";
+import type { CameraChoice } from "~/lib/db-photo-bulk";
+import {
+  sharedCamera,
+  sharedPlatform,
+  sharedVisibility,
+  visibilityPending,
+} from "~/lib/selection";
 import { formatDecimalBytes } from "~/lib/storage";
-import { VISIBILITIES, type Visibility } from "~/lib/types";
+import {
+  isPlatform,
+  PLATFORMS,
+  VISIBILITIES,
+  type MediaPlatform,
+  type Visibility,
+} from "~/lib/types";
 import { BulkMetadataDialog } from "./bulk-metadata-dialog";
+import { ChoicePicker } from "./choice-picker";
+import { ContextMenu } from "./context-menu";
 import type { FileTile } from "./file-browser";
 import { Thumb } from "./thumb";
 import { buttonPrimary, buttonSecondary, field, label, muted } from "./ui";
@@ -27,7 +41,8 @@ import {
 // in a dialog, optionally into a new folder there), the visibility of the
 // selected photos (one button per level, in its own look; making photos
 // public or unlisted first shows them as thumbnails, as the viewer's 反映
-// does), 公開する情報 (bulk metadata levels), ゴミ箱へ, and clearing it.
+// does), 情報 (a menu: カメラ and プラットフォーム in choice-picker.tsx,
+// 公開する情報 in bulk-metadata-dialog.tsx), ゴミ箱へ, and clearing it.
 // Every change can be undone from the page's toast. A bar fixed at the
 // bottom on phones (replacing the tab bar, data-bottom-bar), sticky above
 // the grid from sm up.
@@ -37,6 +52,8 @@ export type SelectionAction =
   | { kind: "visibility"; visibility: Visibility }
   | { kind: "metadata"; levels: LevelChange }
   | { kind: "rename"; name: string }
+  | { kind: "camera"; cameraId: number | null; cameraName: string | null }
+  | { kind: "platform"; platform: MediaPlatform }
   | { kind: "trash" }
   | { kind: "clear" };
 
@@ -44,6 +61,8 @@ export type SelectionAction =
 export type BarCommand =
   | { kind: "move" }
   | { kind: "metadata" }
+  | { kind: "camera" }
+  | { kind: "platform" }
   | { kind: "visibility"; visibility: Visibility };
 
 type Props = {
@@ -58,6 +77,8 @@ type Props = {
   tree: FolderNode;
   imageBase: string | null;
   siteDefaults: MetadataLevels;
+  /** Registered cameras (the camera picker). */
+  cameras: CameraChoice[];
   /** A chunked action under way: photos done of total. */
   progress: { done: number; total: number } | null;
   busy: Signal<boolean>;
@@ -91,8 +112,12 @@ const RENAME_ICON =
 /** Folder with an arrow (移動). */
 const MOVE_ICON =
   "M2 5.5A1.5 1.5 0 0 1 3.5 4h4.09a1.5 1.5 0 0 1 1.06.44L9.7 5.5h6.8A1.5 1.5 0 0 1 18 7v8.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 15.5v-10Zm8.47 3.22a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1 0 1.06l-2 2a.75.75 0 1 1-1.06-1.06l.72-.72H7a.75.75 0 0 1 0-1.5h4.19l-.72-.72a.75.75 0 0 1 0-1.06Z";
-/** Sliders (公開する情報). */
-const LEVELS_ICON =
+/** The camera picker's key for a shared camera ("none" for none). */
+const keyOf = (c: number | null | undefined): string | undefined =>
+  c === undefined ? undefined : c === null ? "none" : String(c);
+
+/** Sliders (情報: camera, platform, what is public). */
+const INFO_ICON =
   "M3.75 5a.75.75 0 0 0 0 1.5h1.4a2.5 2.5 0 0 0 4.7 0h6.4a.75.75 0 0 0 0-1.5h-6.4a2.5 2.5 0 0 0-4.7 0h-1.4Zm0 8.5a.75.75 0 0 0 0 1.5h6.4a2.5 2.5 0 0 0 4.7 0h1.4a.75.75 0 0 0 0-1.5h-1.4a2.5 2.5 0 0 0-4.7 0h-6.4ZM7.5 6.75a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm5 8.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z";
 /** Bin (ゴミ箱へ). */
 const TRASH_ICON =
@@ -111,6 +136,7 @@ export const SelectionBar = component$<Props>(
     tree,
     imageBase,
     siteDefaults,
+    cameras,
     progress,
     busy,
     command,
@@ -119,6 +145,13 @@ export const SelectionBar = component$<Props>(
   }) => {
     const dialog = useSignal<HTMLDialogElement>();
     const metadataOpen = useSignal(false);
+    /** The 情報 menu (at its button), and the picker it opened. */
+    const infoMenu = useSignal<{
+      x: number;
+      y: number;
+      above: number;
+    } | null>(null);
+    const picker = useSignal<"camera" | "platform" | null>(null);
     const dest = useSignal(dir);
     /** A level waiting for a look at what becomes visible. */
     const confirming = useSignal<Visibility | null>(null);
@@ -165,7 +198,9 @@ export const SelectionBar = component$<Props>(
       command.value = null;
       if (c.kind === "move") await openMove();
       else if (c.kind === "metadata") metadataOpen.value = true;
-      else await pickVisibility(c.visibility);
+      else if (c.kind === "camera" || c.kind === "platform") {
+        picker.value = c.kind;
+      } else await pickVisibility(c.visibility);
     });
 
     const action =
@@ -182,7 +217,9 @@ export const SelectionBar = component$<Props>(
         aria-label="選択した項目"
         data-testid="selection-bar"
         class={[
-          "z-30 grid grid-cols-[1fr_auto] items-center gap-2 border-zinc-200 bg-white/95 backdrop-blur sm:flex sm:flex-wrap sm:gap-1 dark:border-zinc-800 dark:bg-zinc-900/95",
+          // Phones: the count, then (one item) rename and ×.
+          count === 1 ? "grid-cols-[1fr_auto_auto]" : "grid-cols-[1fr_auto]",
+          "z-30 grid items-center gap-2 border-zinc-200 bg-white/95 backdrop-blur sm:flex sm:flex-wrap sm:gap-1 dark:border-zinc-800 dark:bg-zinc-900/95",
           "max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:border-t max-sm:pt-2 max-sm:pr-[max(1rem,env(safe-area-inset-right))] max-sm:pb-[calc(0.5rem+env(safe-area-inset-bottom))] max-sm:pl-[max(1rem,env(safe-area-inset-left))] max-sm:shadow-[0_-4px_12px_rgb(0_0_0/0.06)]",
           // After the grid, held at the viewport's bottom while it scrolls.
           "sm:sticky sm:bottom-4 sm:rounded-xl sm:border sm:p-2 sm:shadow-lg",
@@ -195,7 +232,7 @@ export const SelectionBar = component$<Props>(
             data-testid="visibility-confirm"
             role="group"
             aria-label={`${VISIBILITY_LABELS_JA[confirming.value]}にする写真`}
-            class="col-span-2 flex w-full min-w-0 flex-wrap items-end gap-2 border-b border-zinc-200 pb-2 sm:flex-nowrap dark:border-zinc-800"
+            class="col-span-full flex w-full min-w-0 flex-wrap items-end gap-2 border-b border-zinc-200 pb-2 sm:flex-nowrap dark:border-zinc-800"
           >
             {/* Rows that scroll within a height of their own, so the
                 buttons stay on screen; past PREVIEW_MAX a "+N". */}
@@ -278,6 +315,19 @@ export const SelectionBar = component$<Props>(
             </span>
           )}
         </p>
+        {count === 1 && (
+          // Touch screens (no menu there: a long press selects); with a mouse,
+          // F2 or the context menu.
+          <button
+            type="button"
+            disabled={busy.value}
+            aria-label="名前を変更"
+            onClick$={onRename$}
+            class={[quiet, "[@media(hover:hover)_and_(pointer:fine)]:hidden"]}
+          >
+            <Icon d={RENAME_ICON} class="size-5" />
+          </button>
+        )}
         <button
           type="button"
           aria-label="選択解除"
@@ -294,7 +344,7 @@ export const SelectionBar = component$<Props>(
         <div
           role="group"
           aria-label="公開範囲"
-          class="col-span-2 grid grid-cols-3 gap-0.5 rounded-lg border border-zinc-300 p-0.5 sm:flex dark:border-zinc-700"
+          class="col-span-full grid grid-cols-3 gap-0.5 rounded-lg border border-zinc-300 p-0.5 sm:flex dark:border-zinc-700"
         >
           {[...VISIBILITIES].reverse().map((v) => (
             <button
@@ -318,24 +368,7 @@ export const SelectionBar = component$<Props>(
             </button>
           ))}
         </div>
-        <div
-          class={[
-            "col-span-2 grid gap-1 sm:contents",
-            count === 1 ? "grid-cols-4" : "grid-cols-3",
-          ]}
-        >
-          {count === 1 && (
-            <button
-              type="button"
-              disabled={busy.value}
-              title="名前を変更 (F2)"
-              onClick$={onRename$}
-              class={quietTool}
-            >
-              <Icon d={RENAME_ICON} />
-              名前を変更
-            </button>
-          )}
+        <div class="col-span-full grid grid-cols-3 gap-1 sm:contents">
           <button
             type="button"
             disabled={busy.value}
@@ -348,12 +381,17 @@ export const SelectionBar = component$<Props>(
           <button
             type="button"
             disabled={busy.value || photos.length === 0}
-            aria-haspopup="dialog"
-            onClick$={() => (metadataOpen.value = true)}
+            aria-haspopup="menu"
+            aria-expanded={infoMenu.value !== null}
+            // The photos' information: camera, platform, what is public.
+            onClick$={(_, el) => {
+              const r = el.getBoundingClientRect();
+              infoMenu.value = { x: r.left, y: r.bottom + 4, above: r.top };
+            }}
             class={quietTool}
           >
-            <Icon d={LEVELS_ICON} />
-            公開する情報…
+            <Icon d={INFO_ICON} />
+            情報…
           </button>
           <button
             type="button"
@@ -370,6 +408,73 @@ export const SelectionBar = component$<Props>(
           </button>
         </div>
 
+        {infoMenu.value && (
+          <ContextMenu
+            x={infoMenu.value.x}
+            y={infoMenu.value.y}
+            above={infoMenu.value.above}
+            label="情報"
+            items={[
+              { kind: "item", id: "camera", label: "カメラ…" },
+              { kind: "item", id: "platform", label: "プラットフォーム…" },
+              { kind: "item", id: "metadata", label: "公開する情報…" },
+            ]}
+            onClose$={() => (infoMenu.value = null)}
+            onPick$={(id) => {
+              if (id === "metadata") metadataOpen.value = true;
+              else picker.value = id as "camera" | "platform";
+            }}
+          />
+        )}
+        {picker.value === "camera" && (
+          <ChoicePicker
+            title="カメラ"
+            testId="camera-picker"
+            choices={[
+              { key: "none", label: "なし", image: "none" },
+              ...cameras.map((c) => ({
+                key: String(c.id),
+                label: c.name,
+                image: c.image,
+              })),
+            ]}
+            shared={keyOf(sharedCamera(photos))}
+            count={photos.length}
+            imageBase={imageBase}
+            busy={busy}
+            onClose$={() => (picker.value = null)}
+            onPick$={async (key) => {
+              const cam = cameras.find((c) => String(c.id) === key);
+              const ok = await onAction$({
+                kind: "camera",
+                cameraId: cam?.id ?? null,
+                cameraName: cam?.name ?? null,
+              });
+              if (ok) picker.value = null;
+            }}
+          />
+        )}
+        {picker.value === "platform" && (
+          <ChoicePicker
+            title="プラットフォーム"
+            testId="platform-picker"
+            choices={PLATFORMS.map((p) => ({
+              key: p,
+              label: p,
+              image: "badge",
+            }))}
+            shared={sharedPlatform(photos)}
+            count={photos.length}
+            imageBase={imageBase}
+            busy={busy}
+            onClose$={() => (picker.value = null)}
+            onPick$={async (key) => {
+              if (!isPlatform(key)) return;
+              const ok = await onAction$({ kind: "platform", platform: key });
+              if (ok) picker.value = null;
+            }}
+          />
+        )}
         {metadataOpen.value && (
           <BulkMetadataDialog
             photos={photos}

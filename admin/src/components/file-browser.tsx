@@ -30,6 +30,7 @@ import {
   type FolderNode,
 } from "~/lib/folders";
 import { formatJst, mediaEditHref, mediaListHref } from "~/lib/format";
+import type { CameraChoice } from "~/lib/db-photo-bulk";
 import type { MetadataLevels, MetadataOverrides } from "~/lib/metadata";
 import {
   clickItem,
@@ -86,6 +87,8 @@ export type FileTile = {
   timestamp: string | null;
   /** Its public metadata overrides (for a bulk change). */
   metadata: MetadataOverrides;
+  /** Its camera, if any. */
+  camera_id: number | null;
 };
 
 type Props = {
@@ -104,6 +107,8 @@ type Props = {
   date?: string | null;
   /** The site's metadata levels (what 既定 is in a bulk change). */
   siteDefaults: MetadataLevels;
+  /** Registered cameras (the camera picker). */
+  cameras: CameraChoice[];
   /** A chunked selection action under way (shown in the bar). */
   progress?: { done: number; total: number } | null;
   /**
@@ -358,6 +363,7 @@ export const FileBrowser = component$<Props>(
     q,
     date,
     siteDefaults,
+    cameras,
     progress,
     onSelection$,
   }) => {
@@ -740,6 +746,13 @@ export const FileBrowser = component$<Props>(
           visibility: v,
           disabled: !photos,
         })),
+        { kind: "item", id: "camera", label: "カメラ…", disabled: !photos },
+        {
+          kind: "item",
+          id: "platform",
+          label: "プラットフォーム…",
+          disabled: !photos,
+        },
         {
           kind: "item",
           id: "metadata",
@@ -760,8 +773,14 @@ export const FileBrowser = component$<Props>(
       if (id === "open") await open(key);
       else if (id === "rename") await startRename(key);
       else if (id === "trash") await run({ kind: "trash" });
-      else if (id === "move" || id === "metadata") command.value = { kind: id };
-      else if (id.startsWith("visibility:")) {
+      else if (
+        id === "move" ||
+        id === "metadata" ||
+        id === "camera" ||
+        id === "platform"
+      ) {
+        command.value = { kind: id };
+      } else if (id.startsWith("visibility:")) {
         command.value = {
           kind: "visibility",
           visibility: id.slice("visibility:".length) as Visibility,
@@ -1298,6 +1317,7 @@ export const FileBrowser = component$<Props>(
               tree={tree}
               imageBase={imageBase}
               siteDefaults={siteDefaults}
+              cameras={cameras}
               progress={progress ?? null}
               busy={busy}
               command={command}
