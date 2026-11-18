@@ -46,6 +46,7 @@ import {
   type StoredLevels,
 } from "~/lib/db-meta";
 import { storedOverrides, validateLevelChange } from "~/lib/bulk-metadata";
+import { inChunks } from "~/lib/selection";
 import { parseOverrides, type MetadataLevels } from "~/lib/metadata";
 import {
   loadTree,
@@ -91,6 +92,7 @@ import {
   dirOf,
   filesInDir,
   findFolder,
+  joinFolder,
   MAX_FOLDER_NAME_LEN,
   newFolderPath,
   normalizeDir,
@@ -312,6 +314,26 @@ export const useBulkVisibility = routeAction$(
   }),
 );
 
+/**
+ * Files view selection → a visibility, one chunk (the page sends a larger
+ * selection as several). Apart from useBulkVisibility, whose result the
+ * list view turns into its toast and undo as it arrives.
+ */
+export const useSelectionVisibility = routeAction$(
+  async (data, { platform }) => {
+    const { changed, previous } = await setVisibility(
+      getDB(platform),
+      data.ids,
+      data.visibility,
+    );
+    return { ok: true as const, changed, previous };
+  },
+  zod$({
+    ids: z.array(z.number().int().positive()).min(1).max(MAX_BULK_IDS),
+    visibility: z.enum(VISIBILITIES),
+  }),
+);
+
 /** Undo of a bulk change: each photo back to its previous visibility. */
 export const useRestoreVisibility = routeAction$(
   async (data, { platform, fail }) => {
@@ -477,6 +499,44 @@ export const useMoveSelection = routeAction$(
     dest: z.string().max(600),
     name: z.string().max(200).optional(),
     ...selectionItems,
+  }),
+);
+
+/**
+ * Files view → 名前を変更 (F2, the context menu or the bar) on one photo
+ * or folder: a new name in the same folder. Undone like a move.
+ */
+export const useRenameItem = routeAction$(
+  async (data, { platform, fail }) => {
+    const name = data.name.trim();
+    if (!name) return fail(400, { message: "名前を入れてください" });
+    if (name.includes("/")) {
+      return fail(400, { message: "名前に / は使えません" });
+    }
+    const db = getDB(platform);
+    let moves: Move[];
+    if (data.folder !== undefined) {
+      const v = newFolderPath(dirOf(data.folder), name);
+      if (!v.ok) return fail(400, { message: v.error });
+      moves = [{ kind: "folder", from: data.folder, to: v.path }];
+    } else if (data.photo !== undefined) {
+      const tree = await loadTree(db);
+      const from = tree.photos.find((p) => p.id === data.photo)?.path;
+      if (from === undefined) return fail(404, { message: "見つかりません" });
+      moves = [
+        { kind: "photo", id: data.photo, to: joinFolder(dirOf(from), name) },
+      ];
+    } else {
+      return fail(400, { message: "nothing to rename" });
+    }
+    const r = await moveItems(db, moves);
+    if (!r.ok) return fail(409, { message: r.error });
+    return { ok: true as const, name, undo: undoMoves(r.plan) };
+  },
+  zod$({
+    photo: z.number().int().positive().optional(),
+    folder: selectionItems.folders.element.optional(),
+    name: z.string().max(200),
   }),
 );
 
@@ -675,8 +735,12 @@ export default component$(() => {
   const lastMetadata = useSignal<StoredLevels[] | null>(null);
   const moveSelection = useMoveSelection();
   const trashSelection = useTrashSelection();
+  const renameItem = useRenameItem();
   const bulkMetadata = useBulkMetadata();
   const restoreMetadata = useRestoreMetadata();
+  const selectionVisibility = useSelectionVisibility();
+  /** A selection action going through in chunks: photos done of total. */
+  const progress = useSignal<{ done: number; total: number } | null>(null);
   /** The Files view's selection actions; true when it went through. */
   const onSelection = $(
     async (a: SelectionAction, items: SelectedItems): Promise<boolean> => {
@@ -684,51 +748,97 @@ export default component$(() => {
         data.value.kind === "ok" && data.value.files
           ? data.value.files.dir
           : "/";
-      if (a.kind === "metadata") {
-        if (items.photos.length > MAX_BULK_IDS) {
-          toast.value = {
-            tone: "error",
-            message: `公開する情報は一度に ${MAX_BULK_IDS} 枚までです`,
-          };
-          return false;
+      if (a.kind === "metadata" || a.kind === "visibility") {
+        // Any number of photos, MAX_BULK_IDS per request, one after
+        // another; the bar shows how far it got. A failure stops there
+        // and keeps the undo of what went through.
+        const total = items.photos.length;
+        progress.value = { done: 0, total };
+        const previous: StoredLevels[] = [];
+        const changes: VisibilityChange[] = [];
+        let changed = 0;
+        let error: string | null = null;
+        let done = 0;
+        for (const ids of inChunks(items.photos, MAX_BULK_IDS)) {
+          try {
+            const r =
+              a.kind === "metadata"
+                ? await bulkMetadata.submit({ ids, levels: a.levels })
+                : await selectionVisibility.submit({
+                    ids,
+                    visibility: a.visibility,
+                  });
+            if (r.value.failed) {
+              error =
+                ("message" in r.value ? String(r.value.message) : "") ||
+                "失敗しました";
+              break;
+            }
+            if ("changed" in r.value) {
+              changed += r.value.changed;
+              changes.push(...(r.value.previous as VisibilityChange[]));
+            } else {
+              previous.push(...(r.value.previous as StoredLevels[]));
+            }
+          } catch (err) {
+            // Offline, or the server failed: what went through stays
+            // undoable.
+            error = err instanceof Error ? err.message : String(err);
+            break;
+          }
+          done += ids.length;
+          progress.value = { done, total };
         }
-        const r = await bulkMetadata.submit({
-          ids: items.photos,
-          levels: a.levels,
+        progress.value = null;
+        lastFolderUndo.value = null;
+        lastMetadata.value =
+          a.kind === "metadata" && previous.length > 0 ? previous : null;
+        lastChange.value =
+          a.kind === "visibility" && changes.length > 0
+            ? { from: a.visibility, changes }
+            : null;
+        const canUndo =
+          lastMetadata.value !== null || lastChange.value !== null;
+        const what =
+          a.kind === "metadata"
+            ? `${previous.length} 枚の公開する情報を変えました。`
+            : `${total} selected, ${changed} changed to ${VISIBILITY_LABELS[a.visibility]}.`;
+        toast.value = error
+          ? {
+              tone: "error",
+              message: `${done} / ${total} 枚まで反映しました (${what}) 残りは失敗: ${error}`,
+              actionLabel: canUndo ? "元に戻す" : undefined,
+            }
+          : {
+              tone: "success",
+              message: what,
+              actionLabel: canUndo ? "元に戻す" : undefined,
+            };
+        return error === null;
+      }
+      lastMetadata.value = null;
+      if (a.kind === "rename") {
+        const r = await renameItem.submit({
+          photo: items.photos[0],
+          folder: items.folders[0],
+          name: a.name,
         });
         if (r.value.failed) {
           toast.value = {
             tone: "error",
-            message: r.value.message ?? "変更できませんでした",
+            message: r.value.message ?? "名前を変えられませんでした",
           };
           return false;
         }
         lastChange.value = null;
-        lastFolderUndo.value = null;
-        lastMetadata.value =
-          r.value.previous.length > 0 ? r.value.previous : null;
+        lastFolderUndo.value =
+          r.value.undo.length > 0 ? { back, moves: r.value.undo } : null;
         toast.value = {
           tone: "success",
-          message: `${r.value.previous.length} 枚の公開する情報を変えました。`,
-          actionLabel: r.value.previous.length > 0 ? "元に戻す" : undefined,
+          message: `${r.value.name} に名前を変えました。`,
+          actionLabel: lastFolderUndo.value ? "元に戻す" : undefined,
         };
         return true;
-      }
-      lastMetadata.value = null;
-      if (a.kind === "visibility") {
-        if (items.photos.length > MAX_BULK_IDS) {
-          toast.value = {
-            tone: "error",
-            message: `公開範囲は一度に ${MAX_BULK_IDS} 枚までです`,
-          };
-          return false;
-        }
-        // The bulk task shows the toast and keeps the undo.
-        const r = await bulk.submit({
-          ids: items.photos.map(String),
-          visibility: a.visibility,
-        });
-        return !r.value.failed;
       }
       if (a.kind === "move") {
         const r = await moveSelection.submit({
@@ -885,10 +995,9 @@ export default component$(() => {
   });
   useTask$(({ track }) => {
     const v = track(() => restore.value);
-    if (!v) return;
-    toast.value = v.failed
-      ? { tone: "error", message: `Undo failed: ${v.message ?? "error"}` }
-      : { tone: "success", message: "元に戻しました。" };
+    // A failure is reported by undo(), which keeps what is left to retry.
+    if (!v || v.failed) return;
+    toast.value = { tone: "success", message: "元に戻しました。" };
   });
   useTask$(({ track }) => {
     // Another folder (e.g. the one just created): the form starts closed.
@@ -952,16 +1061,43 @@ export default component$(() => {
     const metadata = lastMetadata.value;
     if (metadata) {
       lastMetadata.value = null;
-      const r = await restoreMetadata.submit({ previous: metadata });
-      toast.value = r.value.failed
-        ? { tone: "error", message: "元に戻せませんでした" }
-        : { tone: "success", message: "元に戻しました。" };
+      // In the same chunks as the change; on a failure the rest stays to
+      // try again.
+      const chunks = inChunks(metadata, MAX_BULK_IDS);
+      for (const [i, previous] of chunks.entries()) {
+        const r = await restoreMetadata.submit({ previous }).catch(() => null);
+        if (!r || r.value.failed) {
+          lastMetadata.value = chunks.slice(i).flat();
+          toast.value = {
+            tone: "error",
+            message: `元に戻せませんでした (${i * MAX_BULK_IDS} / ${metadata.length} 枚は戻しました)`,
+            actionLabel: "元に戻す",
+          };
+          return;
+        }
+      }
+      toast.value = { tone: "success", message: "元に戻しました。" };
       return;
     }
     const last = lastChange.value;
     if (!last || last.changes.length === 0) return;
     lastChange.value = null;
-    await restore.submit(last);
+    // The restore task reports each chunk; on a failure the rest stays.
+    const chunks = inChunks(last.changes, MAX_BULK_IDS);
+    for (const [i, changes] of chunks.entries()) {
+      const r = await restore
+        .submit({ from: last.from, changes })
+        .catch(() => null);
+      if (!r || r.value.failed) {
+        lastChange.value = { from: last.from, changes: chunks.slice(i).flat() };
+        toast.value = {
+          tone: "error",
+          message: `元に戻せませんでした (${i * MAX_BULK_IDS} / ${last.changes.length} 枚は戻しました)`,
+          actionLabel: "元に戻す",
+        };
+        return;
+      }
+    }
   });
 
   /** Sync the phone selection state with the ticked boxes. */
@@ -1340,6 +1476,7 @@ export default component$(() => {
               visibility={visibility}
               q={q}
               siteDefaults={files.siteDefaults}
+              progress={progress.value}
               onSelection$={onSelection}
             >
               <div q:slot="toolbar" class="max-sm:w-full">

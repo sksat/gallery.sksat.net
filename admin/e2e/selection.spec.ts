@@ -1,13 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { folderWith, tiles } from "./files-helpers";
+import { folderWith, tick, tile, tiles } from "./files-helpers";
 
 // The Files view's selection: picking tiles and what the selection bar
-// does with them, on photos uploaded into folders of its own.
+// does with them, the keyboard, the context menu, dragging onto folders
+// and the order / layout, on photos uploaded into folders of its own.
 
 const summary = (page: Page) => page.getByTestId("selection-summary");
 const bar = (page: Page) => page.getByTestId("selection-bar");
-const tick = (page: Page, name: string) =>
-  page.getByRole("checkbox", { name: `${name} を選ぶ` });
 const levelButton = (page: Page, name: "公開" | "限定公開" | "非公開") =>
   bar(page)
     .getByRole("group", { name: "公開範囲" })
@@ -22,7 +21,7 @@ test.describe("selection in the Files view", () => {
     await expect(summary(page)).toContainText("1 件選択");
     await tick(page, "c.png").click({ modifiers: ["Shift"] });
     await expect(summary(page)).toContainText("3 件選択");
-    await expect(page.locator("li[data-selected]")).toHaveCount(3);
+    await expect(page.locator("[role=option][aria-selected=true]")).toHaveCount(3);
 
     await bar(page).getByRole("button", { name: "移動…" }).click();
     const dialog = page.getByRole("dialog", { name: "3 件を移動" });
@@ -42,7 +41,7 @@ test.describe("selection in the Files view", () => {
 
   test("Ctrl-click, Ctrl+A, Esc and Delete", async ({ page }) => {
     await folderWith(page, "sel-keys", ["a.png", "b.png"]);
-    // Keys work right after ticking a box (it keeps the focus).
+    // Keys work right after a click on a tick mark.
     await tick(page, "a.png").click();
     await expect(summary(page)).toContainText("1 件選択");
     await page.keyboard.press("Escape");
@@ -158,6 +157,179 @@ test.describe("selection in the Files view", () => {
   });
 });
 
+test("more photos than one request takes go in chunks, and undo all", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const names = Array.from({ length: 105 }, (_, i) => `p${i}.png`);
+  await folderWith(page, "sel-many", names);
+  await page.keyboard.press("ControlOrMeta+a");
+  await expect(summary(page)).toContainText("105 件選択");
+
+  await levelButton(page, "公開").click();
+  const confirm = page.getByTestId("visibility-confirm");
+  await expect(confirm.getByRole("listitem")).toHaveCount(105);
+  await confirm.getByRole("button", { name: "105 枚を公開" }).click();
+  await expect(
+    page.getByText("105 selected, 105 changed to Public."),
+  ).toBeVisible();
+  await expect(
+    tiles(page).getByTestId("visibility-badge").filter({ hasText: "Public" }),
+  ).toHaveCount(105);
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(
+    tiles(page).getByTestId("visibility-badge").filter({ hasText: "Private" }),
+  ).toHaveCount(105);
+
+  await page.keyboard.press("ControlOrMeta+a");
+  await bar(page).getByRole("button", { name: "公開する情報…" }).click();
+  const dialog = page.getByRole("dialog", { name: /公開する情報/ });
+  await dialog.getByLabel("撮影設定").selectOption("hidden");
+  await dialog.getByRole("button", { name: "適用" }).click();
+  await expect(page.getByText("105 枚の公開する情報を変えました。")).toBeVisible();
+});
+
+test.describe("keyboard, menu and drag in the Files view", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("arrows move the focus, Space picks, F2 renames, Enter opens", async ({
+    page,
+  }) => {
+    await folderWith(page, "kb", ["a.png", "b.png", "c.png", "d.png", "e.png"]);
+    // One tab stop for the whole grid: the first tile.
+    await expect(page.locator("[role=option][tabindex='0']")).toHaveCount(1);
+    await tile(page, "a.png").focus();
+    // Four wide at 1280px: Down goes to the next row, then back.
+    await page.keyboard.press("ArrowDown");
+    await expect(tile(page, "e.png")).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(tile(page, "a.png")).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(tile(page, "b.png")).toBeFocused();
+    await expect(tile(page, "b.png")).toHaveAttribute("tabindex", "0");
+
+    await page.keyboard.press("Space");
+    await expect(tile(page, "b.png")).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect(summary(page)).toContainText("2 件選択");
+    await page.keyboard.press("Escape");
+    await expect(bar(page)).toHaveCount(0);
+
+    // F2: rename the focused photo, and undo it.
+    await page.keyboard.press("ArrowRight");
+    await expect(tile(page, "d.png")).toBeFocused();
+    await page.keyboard.press("F2");
+    const dialog = page.getByRole("dialog", { name: "名前を変更" });
+    await expect(dialog.getByLabel("名前")).toHaveValue("d.png");
+    await dialog.getByLabel("名前").fill("renamed.png");
+    await dialog.getByRole("button", { name: "変更" }).click();
+    await expect(page.getByText("renamed.png に名前を変えました。")).toBeVisible();
+    await expect(tile(page, "renamed.png")).toHaveCount(1);
+    await page.getByRole("button", { name: "元に戻す" }).click();
+    await expect(tile(page, "d.png")).toHaveCount(1);
+
+    // Enter opens the focused photo.
+    await tile(page, "a.png").focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/media\/\d+\/\?back=/);
+  });
+
+  test("right click: the context menu acts on that tile", async ({ page }) => {
+    await folderWith(page, "ctx", ["a.png", "b.png"]);
+    await tile(page, "b.png").click({ button: "right" });
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    await expect(summary(page)).toContainText("1 件選択");
+    await expect(menu.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+
+    // 公開 from the menu goes through the same look first.
+    await tile(page, "b.png").click({ button: "right" });
+    await menu.getByRole("menuitem", { name: "公開", exact: true }).click();
+    const confirm = page.getByTestId("visibility-confirm");
+    await expect(confirm.getByRole("listitem")).toHaveCount(1);
+    await confirm.getByRole("button", { name: "1 枚を公開" }).click();
+    await expect(
+      tile(page, "b.png").getByTestId("visibility-badge"),
+    ).toHaveText("Public");
+
+    // Keyboard: the menu key, then ゴミ箱へ.
+    await tile(page, "a.png").focus();
+    await page.keyboard.press("Shift+F10");
+    // The focus moves into the menu once it is shown.
+    await expect(menu.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(
+      menu.getByRole("menuitem", { name: /ゴミ箱へ/ }),
+    ).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("1 件をゴミ箱に入れました。")).toBeVisible();
+    await expect(tiles(page)).toHaveCount(1);
+    await page.getByRole("button", { name: "元に戻す" }).click();
+    await expect(tiles(page)).toHaveCount(2);
+  });
+
+  test("drag selected tiles onto a folder, then undo", async ({ page }) => {
+    await folderWith(page, "drag", ["a.png", "b.png", "c.png"]);
+    await page.getByRole("button", { name: "New folder" }).click();
+    await page.getByLabel("Folder name").fill("inner");
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page).toHaveURL(/dir=\/mock\/drag\/inner$/);
+    await page.goBack();
+    await expect(tiles(page)).toHaveCount(3);
+
+    await tick(page, "a.png").click();
+    await tick(page, "b.png").click();
+    await tile(page, "a.png").dragTo(tile(page, "inner"));
+    await expect(page.getByText("2 件を /mock/drag/inner に移動しました。")).toBeVisible();
+    await expect(tiles(page)).toHaveCount(1);
+    await page.getByRole("button", { name: "元に戻す" }).click();
+    await expect(tiles(page)).toHaveCount(3);
+
+    // An unselected tile drags alone; the tree's folders take drops too.
+    const tree = page.getByRole("navigation", { name: "Folders" });
+    await tile(page, "c.png").dragTo(tree.getByRole("link", { name: /^mock/ }));
+    await expect(page.getByText("1 件を /mock に移動しました。")).toBeVisible();
+    await expect(tiles(page)).toHaveCount(2);
+  });
+
+  test("sort and list layout, remembered", async ({ page }) => {
+    await folderWith(page, "sort", ["b.png", "a10.png", "a9.png"]);
+    await expect(tiles(page).first()).toHaveAccessibleName("a9.png");
+    await page.getByTestId("files-sort-dir").click();
+    await expect(tiles(page).first()).toHaveAccessibleName("b.png");
+    await page.getByTestId("files-sort").selectOption("size");
+    await expect(page.getByTestId("files-sort-dir")).toHaveAccessibleName(
+      "昇順",
+    );
+
+    await page.getByRole("button", { name: "リスト" }).click();
+    await expect(page.getByRole("button", { name: "リスト" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.locator("[data-file-browser]")).toHaveAttribute(
+      "data-layout",
+      "list",
+    );
+    // The column headers sort too: 名前, then again for the other way.
+    await page.getByRole("button", { name: "名前で並べ替え" }).click();
+    await expect(tiles(page).first()).toHaveAccessibleName("a9.png");
+    await page.getByRole("button", { name: "名前で並べ替え" }).click();
+    await expect(tiles(page).first()).toHaveAccessibleName("b.png");
+
+    await page.reload();
+    await expect(page.locator("[data-file-browser]")).toHaveAttribute(
+      "data-layout",
+      "list",
+    );
+    await expect(tiles(page).first()).toHaveAccessibleName("b.png");
+    await page.getByRole("button", { name: "タイル" }).click();
+    await page.getByTestId("files-sort").selectOption("name");
+  });
+});
+
 test.describe("selection on a phone", () => {
   test.use({
     viewport: { width: 390, height: 844 },
@@ -194,5 +366,30 @@ test.describe("selection on a phone", () => {
     await tick(page, "a.png").tap();
     await bar(page).getByRole("button", { name: "選択解除" }).tap();
     await expect(bar(page)).toHaveCount(0);
+  });
+
+  test("a long press starts selecting; one item can be renamed", async ({
+    page,
+  }) => {
+    await folderWith(page, "sel-long", ["a.png", "b.png"]);
+    const a = tile(page, "a.png");
+    const box = await a.boundingBox();
+    const at = {
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: (box?.x ?? 0) + 40,
+      clientY: (box?.y ?? 0) + 40,
+    };
+    await a.dispatchEvent("pointerdown", at);
+    await expect(bar(page)).toContainText("1 件選択");
+    await a.dispatchEvent("pointerup", at);
+    // The page stays (a long press does not open the photo).
+    await expect(page).toHaveURL(/dir=\/mock\/sel-long$/);
+
+    await bar(page).getByRole("button", { name: "名前を変更" }).tap();
+    const dialog = page.getByRole("dialog", { name: "名前を変更" });
+    await dialog.getByLabel("名前").fill("long.png");
+    await dialog.getByRole("button", { name: "変更" }).tap();
+    await expect(tile(page, "long.png")).toHaveCount(1);
   });
 });

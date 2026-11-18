@@ -2,6 +2,7 @@ import {
   $,
   component$,
   useSignal,
+  useVisibleTask$,
   type QRL,
   type Signal,
 } from "@builder.io/qwik";
@@ -35,8 +36,15 @@ export type SelectionAction =
   | { kind: "move"; dest: string; name: string }
   | { kind: "visibility"; visibility: Visibility }
   | { kind: "metadata"; levels: LevelChange }
+  | { kind: "rename"; name: string }
   | { kind: "trash" }
   | { kind: "clear" };
+
+/** Asked of the bar from elsewhere (the context menu). */
+export type BarCommand =
+  | { kind: "move" }
+  | { kind: "metadata" }
+  | { kind: "visibility"; visibility: Visibility };
 
 type Props = {
   count: number;
@@ -50,7 +58,13 @@ type Props = {
   tree: FolderNode;
   imageBase: string | null;
   siteDefaults: MetadataLevels;
+  /** A chunked action under way: photos done of total. */
+  progress: { done: number; total: number } | null;
   busy: Signal<boolean>;
+  /** Set to open the move dialog, the metadata sheet or a visibility. */
+  command: Signal<BarCommand | null>;
+  /** Rename the one selected item. */
+  onRename$: QRL<() => void>;
   /** Resolves true when the action went through. */
   onAction$: QRL<(a: SelectionAction) => Promise<boolean>>;
 };
@@ -71,6 +85,9 @@ const Icon = ({ d, class: cls = "size-4" }: { d: string; class?: string }) => (
   </svg>
 );
 
+/** Pencil (名前を変更). */
+const RENAME_ICON =
+  "M13.59 3.59a2 2 0 0 1 2.82 2.82l-8.5 8.5a1 1 0 0 1-.46.26l-3.2.8a.5.5 0 0 1-.6-.6l.8-3.2a1 1 0 0 1 .26-.46l8.88-8.12Z";
 /** Folder with an arrow (移動). */
 const MOVE_ICON =
   "M2 5.5A1.5 1.5 0 0 1 3.5 4h4.09a1.5 1.5 0 0 1 1.06.44L9.7 5.5h6.8A1.5 1.5 0 0 1 18 7v8.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 15.5v-10Zm8.47 3.22a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1 0 1.06l-2 2a.75.75 0 1 1-1.06-1.06l.72-.72H7a.75.75 0 0 1 0-1.5h4.19l-.72-.72a.75.75 0 0 1 0-1.06Z";
@@ -94,7 +111,10 @@ export const SelectionBar = component$<Props>(
     tree,
     imageBase,
     siteDefaults,
+    progress,
     busy,
+    command,
+    onRename$,
     onAction$,
   }) => {
     const dialog = useSignal<HTMLDialogElement>();
@@ -131,11 +151,26 @@ export const SelectionBar = component$<Props>(
       confirming.value = null;
       await onAction$({ kind: "visibility", visibility: v });
     });
+    const openMove = $(() => {
+      dest.value = dir;
+      dialog.value?.showModal();
+    });
+    // From the context menu. After render: the bar may have just appeared
+    // (a right click selects first), and its dialog with it.
+    // eslint-disable-next-line qwik/no-use-visible-task
+    useVisibleTask$(async ({ track }) => {
+      const c = track(() => command.value);
+      if (!c) return;
+      command.value = null;
+      if (c.kind === "move") await openMove();
+      else if (c.kind === "metadata") metadataOpen.value = true;
+      else await pickVisibility(c.visibility);
+    });
 
     const action =
-      "inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:px-3";
+      "inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9";
     // Phones: icon over a short label, as in a bottom toolbar.
-    const tool = `${action} max-sm:h-12 max-sm:flex-col max-sm:gap-0.5 max-sm:text-xs`;
+    const tool = `${action} max-sm:h-12 max-sm:flex-col max-sm:gap-0.5 max-sm:px-0.5 max-sm:text-[0.6875rem]`;
     const quiet = `${action} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800`;
     const quietTool = `${tool} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800`;
 
@@ -146,7 +181,7 @@ export const SelectionBar = component$<Props>(
         aria-label="選択した項目"
         data-testid="selection-bar"
         class={[
-          "z-30 grid grid-cols-[1fr_auto] items-center gap-2 border-zinc-200 bg-white/95 backdrop-blur sm:flex sm:flex-wrap dark:border-zinc-800 dark:bg-zinc-900/95",
+          "z-30 grid grid-cols-[1fr_auto] items-center gap-2 border-zinc-200 bg-white/95 backdrop-blur sm:flex sm:flex-wrap sm:gap-1 dark:border-zinc-800 dark:bg-zinc-900/95",
           "max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:border-t max-sm:pt-2 max-sm:pr-[max(1rem,env(safe-area-inset-right))] max-sm:pb-[calc(0.5rem+env(safe-area-inset-bottom))] max-sm:pl-[max(1rem,env(safe-area-inset-left))] max-sm:shadow-[0_-4px_12px_rgb(0_0_0/0.06)]",
           // After the grid, held at the viewport's bottom while it scrolls.
           "sm:sticky sm:bottom-4 sm:rounded-xl sm:border sm:p-2 sm:shadow-lg",
@@ -214,13 +249,33 @@ export const SelectionBar = component$<Props>(
           <span class={["ml-2 font-normal", muted]}>
             {formatDecimalBytes(bytes)}
           </span>
+          {progress && (
+            // A large selection goes in chunks: how far it got.
+            <span
+              data-testid="selection-progress"
+              class="ml-3 inline-flex items-center gap-2 font-normal"
+            >
+              <progress
+                max={progress.total}
+                value={progress.done}
+                class="h-1.5 w-20 overflow-hidden rounded-full accent-sky-600"
+              />
+              <span class={muted}>
+                {progress.done} / {progress.total}
+              </span>
+            </span>
+          )}
         </p>
         <button
           type="button"
           aria-label="選択解除"
           title="選択解除 (Esc)"
           onClick$={() => onAction$({ kind: "clear" })}
-          class={[quiet, "sm:order-last"]}
+          class={[
+            quiet,
+            // From sm: a round × on the bar's corner, out of the row.
+            "sm:absolute sm:-top-3 sm:-right-3 sm:size-8 sm:min-w-0 sm:rounded-full sm:border sm:border-zinc-200 sm:bg-white sm:p-0 sm:shadow dark:sm:border-zinc-700 dark:sm:bg-zinc-900",
+          ]}
         >
           <Icon d={CLEAR_ICON} class="size-5" />
         </button>
@@ -237,7 +292,7 @@ export const SelectionBar = component$<Props>(
               aria-pressed={current === v}
               onClick$={() => pickVisibility(v)}
               class={[
-                "inline-flex h-11 items-center justify-center gap-1 rounded-md px-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:h-8",
+                "inline-flex h-11 items-center justify-center gap-1 rounded-md px-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:px-1.5",
                 current === v || confirming.value === v
                   ? [VISIBILITY_STYLE[v].selected, "ring-2 ring-inset"]
                   : [
@@ -251,14 +306,28 @@ export const SelectionBar = component$<Props>(
             </button>
           ))}
         </div>
-        <div class="col-span-2 grid grid-cols-3 gap-1 sm:contents">
+        <div
+          class={[
+            "col-span-2 grid gap-1 sm:contents",
+            count === 1 ? "grid-cols-4" : "grid-cols-3",
+          ]}
+        >
+          {count === 1 && (
+            <button
+              type="button"
+              disabled={busy.value}
+              title="名前を変更 (F2)"
+              onClick$={onRename$}
+              class={quietTool}
+            >
+              <Icon d={RENAME_ICON} />
+              名前を変更
+            </button>
+          )}
           <button
             type="button"
             disabled={busy.value}
-            onClick$={() => {
-              dest.value = dir;
-              dialog.value?.showModal();
-            }}
+            onClick$={openMove}
             class={quietTool}
           >
             <Icon d={MOVE_ICON} />

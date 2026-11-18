@@ -17,6 +17,8 @@ export type MediaFileRow = {
   size: number | null;
   /** The photo's public metadata overrides (JSON), for bulk changes. */
   metadata_visibility: string | null;
+  /** When it was taken (ISO), if known: sorting and the list layout. */
+  timestamp: string | null;
 };
 
 export type FilesParams = {
@@ -53,7 +55,7 @@ export const filesQuery = (
   }
   const whereSql = ` WHERE ${where.join(" AND ")}`;
   return {
-    sql: `SELECT id, file, path, platform, visibility, size, metadata_visibility FROM media${whereSql} ORDER BY path LIMIT ?`,
+    sql: `SELECT id, file, path, platform, visibility, size, metadata_visibility, timestamp FROM media${whereSql} ORDER BY path LIMIT ?`,
     args: [...args, params.limit + 1],
   };
 };

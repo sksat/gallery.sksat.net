@@ -96,6 +96,18 @@ export const sharedVisibility = (
   return set.size === 1 ? [...set][0] : null;
 };
 
+/**
+ * `items` in runs of at most `size`, in order: a selection larger than one
+ * request may carry goes as several, one after another.
+ */
+export const inChunks = <T>(items: readonly T[], size: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+};
+
 /** The selection split into photo ids and folder paths. */
 export const splitSelection = (
   keys: readonly SelKey[],
