@@ -39,6 +39,19 @@ export type AdminImages = {
       }
     | { ok: false; status: number }
   >;
+  /**
+   * Up to 256 KiB of the original at `file`: from `offset`, or its last
+   * `suffix` bytes (workers/image/src/bytes.ts). `object` null: no such
+   * object.
+   */
+  bytes(
+    accessJwt: string | null,
+    file: string,
+    range: { offset: number; length: number } | { suffix: number },
+  ): Promise<
+    | { ok: true; object: { bytes: Uint8Array; size: number } | null }
+    | { ok: false; status: number }
+  >;
 };
 
 /** The `IMAGES` binding, or null when it is not bound. */

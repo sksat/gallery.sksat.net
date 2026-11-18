@@ -17,7 +17,8 @@
  * - `AdminImage` (a named RPC entrypoint, reachable only through a service
  *   binding that names it: the admin's) serves any photo, private included,
  *   and only after verifying the admin request's Cloudflare Access JWT. Its
- *   `stat` reports an object's size and hash metadata (upload checks).
+ *   `stat` reports an object's size and hash metadata (upload checks), and
+ *   `bytes` returns an original's first or last bytes (metadata backfill).
  *
  * The originals are never served as-is. With B2 credentials the Worker
  * fetches them through presigned URLs (origin.ts), so the bucket can be
@@ -28,6 +29,7 @@
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { parseAccessConfig, verifyAdminToken } from "./admin-auth";
+import { parseRange, readObjectBytes, type ObjectBytes } from "./bytes";
 import { edgeCacheKey, withEdgeCache } from "./cache";
 import { captionFor, type Caption, type CaptionSource } from "./caption";
 import { originFor, type OriginEnv } from "./origin";
@@ -327,6 +329,41 @@ export class AdminImage extends WorkerEntrypoint<Env> {
     } catch (err) {
       // A plain error result (502) instead of an exception across the RPC.
       console.error(`AdminImage.stat ${file} failed:`, err);
+      return { ok: false, status: 502 };
+    }
+  }
+
+  /**
+   * Some bytes of the original at `file` (at most MAX_RANGE_BYTES: its
+   * start, or its last bytes), with its size; `bytes` null when there is
+   * no such object. For the admin's metadata backfill, which reads the
+   * EXIF/XMP of photos uploaded before it existed (bytes.ts). Same Access
+   * check and path rules as `stat`.
+   */
+  async bytes(
+    accessJwt: string | null,
+    file: string,
+    range: unknown,
+  ): Promise<
+    { ok: true; object: ObjectBytes | null } | { ok: false; status: number }
+  > {
+    const auth = await verifyAdminToken(accessJwt, parseAccessConfig(this.env));
+    if (!auth.ok) {
+      console.error(`AdminImage.bytes: ${auth.status} ${auth.reason}`);
+      return { ok: false, status: auth.status };
+    }
+    // A path outside the rules is never served (404, as in `stat`); a bad
+    // range is the caller's mistake (400).
+    if (!parseAdminImage("h240", file)) return { ok: false, status: 404 };
+    const parsed = parseRange(range);
+    if (!parsed) return { ok: false, status: 400 };
+    try {
+      return {
+        ok: true,
+        object: await readObjectBytes(this.env, file, parsed),
+      };
+    } catch (err) {
+      console.error(`AdminImage.bytes ${file} failed:`, err);
       return { ok: false, status: 502 };
     }
   }
