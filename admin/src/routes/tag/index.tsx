@@ -34,7 +34,7 @@ export const useSetTagPublic = routeAction$(
   async (data, { platform }) => {
     const db = getDB(platform);
     await setTagPublic(db, data.name, data.public === "1");
-    await contentChanged(platform, db, { hide: data.public !== "1" });
+    await contentChanged(db);
     return { ok: true, name: data.name, public: data.public === "1" };
   },
   zod$({ name: z.string().min(1).max(200), public: z.enum(["0", "1"]) }),

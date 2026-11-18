@@ -126,7 +126,7 @@ export const useAddCameraImage = routeAction$(
       }
       throw err;
     }
-    await contentChanged(platform, db);
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({
@@ -161,8 +161,7 @@ export const useCameraImageOp = routeAction$(
     } else if (data.op === "remove") {
       const removed = await removeCameraImage(db, id, imageId);
       if (!removed) return fail(404, { message: "image not found" });
-      // /img no longer serves it by path.
-      await contentChanged(platform, db, { hide: true });
+      await contentChanged(db);
       // What 「元に戻す」 puts back.
       return { ok: true, op: data.op, removed };
     } else {
@@ -170,8 +169,7 @@ export const useCameraImageOp = routeAction$(
       done = await moveCameraImage(db, id, imageId, data.op);
     }
     if (!done) return fail(404, { message: "image not found" });
-    // A caption may have been cut or removed.
-    await contentChanged(platform, db, { hide: data.op === "caption" });
+    await contentChanged(db);
     return { ok: true, op: data.op };
   },
   zod$({
@@ -210,7 +208,7 @@ export const useRestoreCameraImage = routeAction$(
       }
       throw err;
     }
-    await contentChanged(platform, db);
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({
@@ -307,8 +305,7 @@ export const useUpdateCamera = routeAction$(
     if (!updated) {
       return fail(404, { message: "not found" });
     }
-    // Its page and its photos may show less (or under an old slug).
-    await contentChanged(platform, db, { hide: true });
+    await contentChanged(db);
     return { ok: true, updated_at: updated.updated_at };
   },
   zod$(cameraFormSchema),

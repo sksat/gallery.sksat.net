@@ -1,28 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseSync } from "node:sqlite";
-import { handleGet, withLastGood, type Context, type Respond } from "./last-good";
 import {
-  cacheSnapshotStore,
-  CHECK_MS,
   createMemo,
-  kvSnapshotStore,
-  lastGood,
-  SNAPSHOT_KEY,
+  dataKey,
+  handleGet,
+  LATEST_KEY,
+  RETRY_MS,
+  rpcAnswer,
+  VERSION_KEY,
+  VERSION_MS,
   type CacheLike,
-  type KVLike,
-} from "./last-good-store";
+  type Context,
+} from "./last-good";
 import {
-  buildSnapshot,
   CONTENT_VERSION_KEY,
-  getCamera,
-  getMedia,
   getPathAccess,
   getPhotoForImage,
-  listCameras,
-  listPublicMedia,
 } from "./query";
-import { parseRoute, jsonResponse, type Route } from "./route";
-import { indexSnapshot } from "./snapshot";
+import { respond } from "./respond";
+import { parseRoute, type Route } from "./route";
 import { d1, migratedDb } from "./sqlite-d1.test-helper";
 
 /** The message D1 fails every query with past the Free plan's daily limit. */
@@ -51,162 +47,126 @@ const FIXTURE = `
     (7, 'aaaaaaaaa8', '/up.png', 'Real', 'public', 'uploading');
 `;
 
-/** A D1 that can be switched to failing every query, counting reads. */
+/** A D1 that can be switched to failing every query, counting queries. */
 const flakyDb = (raw: DatabaseSync) => {
   const inner = d1(raw);
-  const state = { down: false, batches: 0, firsts: 0 };
+  const state = { down: false, queries: 0 };
   const check = () => {
+    state.queries++;
     if (state.down) throw new Error(D1_LIMIT_ERROR);
   };
+  const wrap = (st: D1PreparedStatement): D1PreparedStatement =>
+    ({
+      bind: (...args: unknown[]) => wrap(st.bind(...args)),
+      first: async () => {
+        check();
+        return st.first();
+      },
+      // Run by batch (counted there), or on its own.
+      all: async () => {
+        if (state.down) throw new Error(D1_LIMIT_ERROR);
+        return st.all();
+      },
+    }) as unknown as D1PreparedStatement;
   const db = {
-    prepare: (sql: string) => {
-      const s = inner.prepare(sql);
-      const wrap = (st: D1PreparedStatement): D1PreparedStatement =>
-        ({
-          ...st,
-          bind: (...args: unknown[]) => wrap(st.bind(...args)),
-          first: async () => {
-            check();
-            state.firsts++;
-            return st.first();
-          },
-          all: st.all,
-        }) as unknown as D1PreparedStatement;
-      return wrap(s);
-    },
+    prepare: (sql: string) => wrap(inner.prepare(sql)),
     batch: async (stmts: D1PreparedStatement[]) => {
       check();
-      state.batches++;
       return inner.batch(stmts);
     },
   } as unknown as D1Database;
   return { db, state };
 };
 
-/** caches.default stand-in: by URL. */
-const memoryCache = () => {
-  const entries = new Map<string, Response>();
+/** caches.default stand-in, honouring s-maxage, on a fake clock. */
+const memoryCache = (clock: { now: number }) => {
+  const entries = new Map<string, { res: Response; until: number }>();
+  const url = (key: Request | string) =>
+    typeof key === "string" ? key : key.url;
   const cache: CacheLike = {
-    match: async (key) => entries.get(key.url)?.clone(),
+    match: async (key) => {
+      const e = entries.get(url(key));
+      if (!e || e.until <= clock.now) return undefined;
+      return e.res.clone();
+    },
     put: async (key, res) => {
-      entries.set(key.url, res);
+      const age = Number(
+        /s-maxage=(\d+)/.exec(res.headers.get("Cache-Control") ?? "")?.[1],
+      );
+      entries.set(url(key), { res, until: clock.now + age * 1000 });
     },
   };
   return { cache, entries };
 };
 
-/** A KV namespace in memory, counting the operations that cost. */
-const memoryKV = () => {
-  const entries = new Map<string, { value: string; metadata: unknown }>();
-  const count = { reads: 0, puts: 0 };
-  const kv = {
-    get: async (key: string) => {
-      count.reads++;
-      return entries.get(key)?.value ?? null;
-    },
-    getWithMetadata: async (key: string) => {
-      count.reads++;
-      const e = entries.get(key);
-      return {
-        value: e ? new Response(e.value).body : null,
-        metadata: e?.metadata ?? null,
-      };
-    },
-    put: async (key: string, value: string, options?: { metadata?: unknown }) => {
-      count.puts++;
-      entries.set(key, { value, metadata: options?.metadata ?? null });
-    },
-    /** What the admin does when it hides something. */
-    delete: async (key: string) => {
-      entries.delete(key);
-    },
-  };
-  return { kv, entries, count };
-};
-
-/** Live answers from D1, as index.ts gives them. */
-const live = (db: D1Database): Respond => async (route) => {
-  switch (route.kind) {
-    case "media-list":
-      return jsonResponse(200, await listPublicMedia(db));
-    case "media": {
-      const item = await getMedia(db, route.id);
-      return item
-        ? jsonResponse(200, item)
-        : jsonResponse(404, { error: "not found" });
-    }
-    case "camera-list":
-      return jsonResponse(200, await listCameras(db));
-    case "camera": {
-      const c = await getCamera(db, route.slug);
-      return c ? jsonResponse(200, c) : jsonResponse(404, { error: "not found" });
-    }
-  }
-};
-
-const setup = (opts: { kv?: boolean } = {}) => {
+const setup = () => {
   const raw = migratedDb();
   raw.exec(FIXTURE);
   const { db, state } = flakyDb(raw);
-  const { cache, entries } = memoryCache();
-  const kv = memoryKV();
   const clock = { now: 1_000_000 };
-  const memo = createMemo();
-  const store = opts.kv
-    ? kvSnapshotStore(kv.kv as unknown as KVLike)
-    : cacheSnapshotStore(cache);
-  const lg = lastGood(store, memo, () => clock.now);
+  const { cache, entries } = memoryCache(clock);
   const pending: Promise<unknown>[] = [];
-  const ctx: Context = {
-    cache,
-    lastGood: lg,
-    // As index.ts: with KV only the cron trigger writes.
-    refresh: opts.kv
-      ? async () => {}
-      : () => lg.refresh(db, { throttle: true }),
-    waitUntil: (p) => void pending.push(p),
-  };
-  /** A cron run (index.ts `scheduled`). */
-  const tick = () => lg.refresh(db);
   const settle = async () => {
     while (pending.length > 0) await Promise.all(pending.splice(0));
   };
-  /** Forget the minute-long edge cache, as when it expires. */
-  const expireEdge = () => {
-    for (const url of entries.keys()) {
-      if (!url.includes("/last-good/")) entries.delete(url);
-    }
-  };
-  const get = async (path: string, method = "GET") => {
-    expireEdge();
+  /** An isolate of this data centre (they share the cache). */
+  const isolate = (): Context => ({
+    cache,
+    db,
+    waitUntil: (p) => void pending.push(p),
+    memo: createMemo(),
+    now: () => clock.now,
+  });
+  const ctx = isolate();
+  const get = async (path: string, c = ctx, method = "GET") => {
     const res = await handleGet(
       new Request(`https://gallery.sksat.net${path}`, { method }),
-      live(db),
-      ctx,
+      (route) => respond(db, route),
+      c,
     );
     await settle();
     return res;
   };
+  const photo = async (id: string, c = ctx) => {
+    const v = await rpcAnswer(
+      `rpc/photo/${id}`,
+      () => getPhotoForImage(db, id),
+      c,
+    );
+    await settle();
+    return v;
+  };
+  const pathAccess = async (path: string, c = ctx) => {
+    const v = await rpcAnswer(
+      `rpc/path/${encodeURIComponent(path)}`,
+      () => getPathAccess(db, path),
+      c,
+    );
+    await settle();
+    return v;
+  };
   /** As the admin does after a change. */
   const bump = (v: string) =>
-    raw.exec(`INSERT INTO setting (key, value) VALUES ('${CONTENT_VERSION_KEY}', '"${v}"')
-      ON CONFLICT (key) DO UPDATE SET value = excluded.value`);
-  const later = (ms = CHECK_MS) => {
+    raw
+      .prepare(
+        `INSERT INTO setting (key, value) VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(CONTENT_VERSION_KEY, JSON.stringify(v));
+  const later = (ms = VERSION_MS) => {
     clock.now += ms;
   };
   return {
-    tick,
     raw,
     db,
     state,
     entries,
-    kv,
     clock,
-    memo,
     ctx,
-    lg,
-    settle,
+    isolate,
     get,
+    photo,
+    pathAccess,
     bump,
     later,
   };
@@ -234,7 +194,9 @@ const PATHS = [
   "/api/camera/cam-c",
   "/api/camera/nope",
 ];
-
+const IDS = PATHS.filter((p) => p.startsWith("/api/media/")).map((p) =>
+  p.slice("/api/media/".length),
+);
 const IMG_PATHS = [
   "/p1.png",
   "/u.png",
@@ -248,49 +210,262 @@ const IMG_PATHS = [
   "/nothing.png",
 ];
 
-const IDS = PATHS.filter((p) => p.startsWith("/api/media/")).map((p) =>
-  p.slice("/api/media/".length),
-);
+/** Every answer, as [status, body] or the RPC value. */
+const everything = async (t: Setup, c = t.ctx) => {
+  const out: Record<string, unknown> = {};
+  for (const p of PATHS) {
+    const res = await t.get(p, c);
+    out[p] = [res.status, await res.json()];
+  }
+  for (const id of IDS) out[`photo ${id}`] = await t.photo(id, c);
+  for (const p of IMG_PATHS) out[`path ${p}`] = await t.pathAccess(p, c);
+  return out;
+};
 
-describe("the snapshot", () => {
-  it("answers every endpoint and RPC exactly as D1 does", async () => {
+/** The same, straight from D1. */
+const live = async (t: Setup) => {
+  const out: Record<string, unknown> = {};
+  for (const p of PATHS) {
+    const e = await respond(t.db, parseRoute(p) as Route);
+    out[p] = [e.status, JSON.parse(e.body)];
+  }
+  for (const id of IDS) out[`photo ${id}`] = await getPhotoForImage(t.db, id);
+  for (const p of IMG_PATHS) out[`path ${p}`] = await getPathAccess(t.db, p);
+  return out;
+};
+
+describe("answers", () => {
+  it("are what D1 answers, built and then from the cache", async () => {
     const t = setup();
-    const index = indexSnapshot((await buildSnapshot(t.db)).snapshot);
-    for (const path of PATHS) {
-      const route = parseRoute(path) as Route;
-      const fresh = await live(t.db)(route);
-      const answer = index.answer(route);
-      expect([path, answer.status]).toEqual([path, fresh.status]);
-      expect(answer.body).toEqual(await fresh.json());
-    }
-    for (const id of IDS) {
-      expect([id, index.photo(id)]).toEqual([
-        id,
-        await getPhotoForImage(t.db, id),
-      ]);
-    }
-    for (const p of IMG_PATHS) {
-      expect([p, index.pathAccess(p)]).toEqual([
-        p,
-        await getPathAccess(t.db, p),
-      ]);
-    }
+    const fresh = await live(t);
+    expect(await everything(t)).toEqual(fresh);
+    expect(await everything(t)).toEqual(fresh);
   });
 
-  it("never holds private, trashed or unfinished photos", async () => {
+  it("carry the API's headers", async () => {
     const t = setup();
-    const json = JSON.stringify((await buildSnapshot(t.db)).snapshot);
-    for (const s of ["aaaaaaaaa4", "aaaaaaaaa7", "aaaaaaaaa8", "secret"]) {
-      expect(json).not.toContain(s);
+    for (const _ of [1, 2]) {
+      const res = await t.get("/api/media");
+      expect(res.headers.get("Cache-Control")).toBe(
+        "public, max-age=10, s-maxage=60",
+      );
+      expect(res.headers.get("Content-Type")).toBe(
+        "application/json; charset=utf-8",
+      );
+      expect(res.headers.get("X-Stale")).toBeNull();
     }
+    const head = await t.get("/api/media", t.ctx, "HEAD");
+    expect(head.status).toBe(200);
+    expect(head.body).toBeNull();
+  });
+});
+
+describe("D1 reads", () => {
+  it("none while the version is unchanged, then one row a minute", async () => {
+    const t = setup();
+    await everything(t);
+    t.state.queries = 0;
+    for (let i = 0; i < 5; i++) await everything(t);
+    expect(t.state.queries).toBe(0);
+    t.later();
+    await everything(t);
+    expect(t.state.queries).toBe(1); // the version row
   });
 
-  it("stays small and quick to build with 2,000 photos", async () => {
+  it("other isolates of the data centre share the version check", async () => {
+    const t = setup();
+    await everything(t);
+    t.state.queries = 0;
+    await everything(t, t.isolate());
+    await everything(t, t.isolate());
+    expect(t.state.queries).toBe(0);
+  });
+
+  it("an unknown id reaches D1 once per version", async () => {
+    const t = setup();
+    await t.get("/api/media");
+    t.state.queries = 0;
+    for (let i = 0; i < 5; i++) {
+      expect((await t.get("/api/media/zzzzzzzzzz")).status).toBe(404);
+      expect(await t.photo("zzzzzzzzzz")).toBeNull();
+      expect(await t.pathAccess("/scan/x.png")).toBeNull();
+    }
+    expect(t.state.queries).toBe(3);
+  });
+
+  it("a malformed id never reaches D1", async () => {
+    const t = setup();
+    await t.get("/api/media");
+    t.state.queries = 0;
+    expect((await t.get("/api/media/not-an-id")).status).toBe(404);
+    expect(t.state.queries).toBe(0);
+  });
+});
+
+describe("after an admin change", () => {
+  it("new answers within a minute", async () => {
+    const t = setup();
+    const before = await everything(t);
+    t.raw.exec("UPDATE media SET visibility = 'public' WHERE id = 3");
+    t.bump("v2");
+    expect(await everything(t)).toEqual(before);
+    t.later();
+    expect(await everything(t)).toEqual(await live(t));
+    expect(
+      ((await (await t.get("/api/media")).json()) as { id: string }[]).map(
+        (p) => p.id,
+      ),
+    ).toContain("aaaaaaaaa4");
+  });
+
+  it("a hidden photo is gone within a minute", async () => {
+    const t = setup();
+    await everything(t);
+    t.raw.exec("UPDATE media SET visibility = 'private' WHERE id = 1");
+    t.bump("v2");
+    t.later();
+    expect((await t.get("/api/media/aaaaaaaaa2")).status).toBe(404);
+    expect(await t.photo("aaaaaaaaa2")).toBeNull();
+    expect(await t.pathAccess("/p1.png")).toBeNull();
+    expect(JSON.stringify(await (await t.get("/api/media")).json())).not.toContain(
+      "aaaaaaaaa2",
+    );
+  });
+});
+
+describe("while D1 fails", () => {
+  it("answers from the newest version seen, marked stale", async () => {
+    const t = setup();
+    const fresh = await everything(t);
+    t.later();
+    t.state.down = true;
+    const res = await t.get("/api/media");
+    expect(res.headers.get("X-Stale")).toBe("d1-error");
+    // A new isolate too (it finds the version in the data centre's cache).
+    expect(await everything(t, t.isolate())).toEqual(fresh);
+  });
+
+  it("does not retry D1 on every request", async () => {
+    const t = setup();
+    await everything(t);
+    t.later();
+    t.state.down = true;
+    t.state.queries = 0;
+    for (let i = 0; i < 10; i++) await t.get("/api/media");
+    expect(t.state.queries).toBe(1);
+    t.later(RETRY_MS);
+    await t.get("/api/media");
+    expect(t.state.queries).toBe(2);
+  });
+
+  it("answers 503 / rethrows what was never built", async () => {
+    const t = setup();
+    await t.get("/api/media");
+    t.later();
+    t.state.down = true;
+    const res = await t.get("/api/camera");
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("60");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    await expect(t.photo("aaaaaaaaa2")).rejects.toThrow();
+  });
+
+  it("answers 503 with nothing cached", async () => {
+    const t = setup();
+    t.state.down = true;
+    expect((await t.get("/api/media")).status).toBe(503);
+    await expect(t.photo("aaaaaaaaa2")).rejects.toThrow(D1_LIMIT_ERROR);
+  });
+
+  it("never falls back to answers from before a newer version", async () => {
+    const t = setup();
+    await everything(t);
+    // The admin hides photo 1; this data centre sees the new version...
+    t.raw.exec("UPDATE media SET visibility = 'private' WHERE id = 1");
+    t.bump("v2");
+    t.later();
+    await t.get("/api/camera");
+    // ...and D1 fails before the photo was asked for again.
+    t.later();
+    t.state.down = true;
+    expect((await t.get("/api/media/aaaaaaaaa2")).status).toBe(503);
+    await expect(t.photo("aaaaaaaaa2")).rejects.toThrow();
+    // An isolate idle since the old version also uses the newest one.
+    const idle = t.isolate();
+    expect((await t.get("/api/media/aaaaaaaaa2", idle)).status).toBe(503);
+    expect(t.entries.has(LATEST_KEY)).toBe(true);
+    expect(t.entries.has(VERSION_KEY)).toBe(true);
+  });
+});
+
+describe("edge cases", () => {
+  it("a version with odd characters keys entries apart", async () => {
+    const t = setup();
+    t.bump('a/b%2F"c');
+    expect(await everything(t)).toEqual(await live(t));
+    t.bump("a");
+    t.later();
+    t.raw.exec("UPDATE media SET visibility = 'private' WHERE id = 1");
+    expect((await t.get("/api/media/aaaaaaaaa2")).status).toBe(404);
+  });
+
+  it("an older version read never replaces a newer one", async () => {
+    const t = setup();
+    t.bump("v1");
+    const slow = t.isolate();
+    // The admin hides photo 1 and bumps; a fast isolate reads v2...
+    t.raw.exec("UPDATE media SET visibility = 'private' WHERE id = 1");
+    t.bump("v2");
+    t.later(1000);
+    await t.get("/api/media/aaaaaaaaa2");
+    // ...then an isolate whose read of v1 started earlier stores it.
+    t.bump("v1");
+    t.clock.now -= 500;
+    await t.get("/api/camera", slow);
+    t.clock.now += 500;
+    t.later();
+    t.state.down = true;
+    const res = await t.get("/api/media/aaaaaaaaa2", t.isolate());
+    // From v2: the photo is hidden (404 kept for v2), not v1's answer.
+    expect(res.status).toBe(404);
+    expect(res.headers.get("X-Stale")).toBe("d1-error");
+  });
+
+  it("rebuilds an entry after a day even without a new version", async () => {
+    const t = setup();
+    await t.get("/api/media/aaaaaaaaa2");
+    // A change whose version bump was lost.
+    t.raw.exec("UPDATE media SET visibility = 'private' WHERE id = 1");
+    t.later(23 * 60 * 60 * 1000);
+    expect((await t.get("/api/media/aaaaaaaaa2")).status).toBe(200);
+    t.later(60 * 60 * 1000);
+    expect((await t.get("/api/media/aaaaaaaaa2")).status).toBe(404);
+  });
+
+  it("marks cached answers stale while D1 is known to fail", async () => {
+    const t = setup();
+    await t.get("/api/media");
+    t.state.down = true;
+    // An entry fails to build within the version's minute...
+    expect((await t.get("/api/camera")).status).toBe(503);
+    // ...so a cached one is marked stale too.
+    const res = await t.get("/api/media");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Stale")).toBe("d1-error");
+    t.state.down = false;
+    t.later(RETRY_MS);
+    expect((await t.get("/api/media")).headers.get("X-Stale")).toBeNull();
+  });
+});
+
+describe("CPU", () => {
+  /** A data set like the real one: full metadata on every photo. */
+  const big = (n: number) => {
     const raw = migratedDb();
     raw.exec(FIXTURE);
     const insert = raw.prepare(
       `INSERT INTO media (public_id, file, platform, timestamp, tags, visibility, camera_id, exif, latitude, longitude, world_id, world_name, metadata_visibility)
-       VALUES (?, ?, 'VRChat', ?, '["pub","a-longer-tag-name"]', ?, 1, ?, 35.6812, 139.7671, 'wrld_0123456789abcdef0123456789abcdef', 'Some World Name', '{"file_name":"path","location":"exact","exif":"all"}')`,
+       VALUES (?, ?, 'VRChat', ?, '["pub","a-longer-tag-name"]', 'public', 1, ?, 35.6812, 139.7671, 'wrld_0123456789abcdef0123456789abcdef', 'Some World Name', '{"file_name":"path","location":"exact","exif":"all"}')`,
     );
     const exif = JSON.stringify({
       make: "Maker",
@@ -302,258 +477,82 @@ describe("the snapshot", () => {
       iso: 400,
     });
     const letters = "23456789abcdefghjkmnpqrstuvwxyz";
-    for (let i = 0; i < 2000; i++) {
+    for (let i = 0; i < n; i++) {
       let id = "";
-      for (let n = i, k = 0; k < 10; k++, n = Math.floor(n / 31)) {
-        id += letters[n % 31];
+      for (let k = 0, m = i; k < 10; k++, m = Math.floor(m / 31)) {
+        id += letters[m % 31];
       }
       insert.run(
         id,
         `/VRChat/2026-11/VRChat_2026-11-19_12-34-56.${String(i).padStart(4, "0")}_7680x4320.png`,
         `2026-11-19T12:34:${String(i % 60).padStart(2, "0")}+09:00`,
-        i % 10 === 0 ? "unlisted" : "public",
         exif,
       );
     }
-    const started = performance.now();
-    const { snapshot } = await buildSnapshot(d1(raw));
-    const ms = performance.now() - started;
-    const bytes = new TextEncoder().encode(JSON.stringify(snapshot)).length;
-    expect(snapshot.photos.length).toBe(2000 + 4);
-    // KV values may be 25 MB; a few hundred bytes a photo.
-    expect(bytes).toBeLessThan(2_500_000);
-    expect(ms).toBeLessThan(2000);
-    console.info(`snapshot of 2,004 photos: ${bytes} bytes, ${ms.toFixed(0)} ms`);
-  });
-});
-
-describe("keeping the snapshot in KV", () => {
-  it("is written by the cron run only, without expiry", async () => {
-    const t = setup({ kv: true });
-    // Answers from D1 never write to KV.
-    for (const p of PATHS) await t.get(p);
-    expect(t.kv.count.puts).toBe(0);
-    await t.tick();
-    expect(t.kv.count.puts).toBe(1);
-    const e = t.kv.entries.get(SNAPSHOT_KEY);
-    expect(e?.metadata).toMatchObject({ version: "", hash: expect.any(String) });
-  });
-
-  it("writes and rebuilds nothing while the content version is unchanged", async () => {
-    const t = setup({ kv: true });
-    await t.tick();
-    const batches = t.state.batches;
-    const firsts = t.state.firsts;
-    const reads = t.kv.count.reads;
-    for (let i = 0; i < 10; i++) {
-      t.later();
-      await t.tick();
-    }
-    expect(t.kv.count.puts).toBe(1);
-    expect(t.state.batches).toBe(batches); // no rebuild
-    expect(t.state.firsts - firsts).toBe(10); // one version row a run
-    expect(t.kv.count.reads).toBe(reads); // the memo knows the version
-  });
-
-  it("a new isolate reads the stored version, not the value, and stops", async () => {
-    const t = setup({ kv: true });
-    await t.tick();
-    const fresh = lastGood(
-      kvSnapshotStore(t.kv.kv as unknown as KVLike),
-      createMemo(),
-    );
-    const batches = t.state.batches;
-    await fresh.refresh(t.db);
-    expect(t.state.batches).toBe(batches);
-    expect(t.kv.count.puts).toBe(1);
-  });
-
-  it("writes once per content version, even when the content came out the same", async () => {
-    const t = setup({ kv: true });
-    await t.tick();
-    t.raw.exec("UPDATE media SET tags = '[\"other\"]' WHERE id = 3"); // private
-    t.bump("v2");
-    await t.tick();
-    // Recorded with the new version...
-    expect(t.kv.count.puts).toBe(2);
-    expect(t.kv.entries.get(SNAPSHOT_KEY)?.metadata).toMatchObject({
-      version: '"v2"',
-    });
-    // ...so later runs, and new isolates, stop at the metadata.
-    const batches = t.state.batches;
-    await t.tick();
-    await lastGood(
-      kvSnapshotStore(t.kv.kv as unknown as KVLike),
-      createMemo(),
-    ).refresh(t.db);
-    expect(t.state.batches).toBe(batches);
-    expect(t.kv.count.puts).toBe(2);
-  });
-
-  it("rebuilds with the change", async () => {
-    const t = setup({ kv: true });
-    await t.tick();
-    t.raw.exec("UPDATE media SET visibility = 'public' WHERE id = 3");
-    t.bump("v2");
-    await t.tick();
-    expect(t.kv.count.puts).toBe(2);
-    expect(t.kv.entries.get(SNAPSHOT_KEY)?.value).toContain("aaaaaaaaa4");
-  });
-
-  it("backs off after a failed write instead of rebuilding every minute", async () => {
-    const t = setup({ kv: true });
-    t.kv.kv.put = async () => {
-      throw new Error("KV put failed: daily limit exceeded");
-    };
-    await t.tick();
-    const batches = t.state.batches;
-    for (let i = 0; i < 14; i++) {
-      t.later();
-      await t.tick();
-    }
-    expect(t.state.batches).toBe(batches);
-    t.later(); // 15 minutes
-    await t.tick();
-    expect(t.state.batches).toBe(batches + 1);
-  });
-
-  it("without KV, request handlers refresh at most once a minute per isolate", async () => {
-    const t = setup();
-    await t.get("/api/media");
-    const firsts = t.state.firsts;
-    for (let i = 0; i < 5; i++) await t.get("/api/camera");
-    expect(t.state.firsts).toBe(firsts);
-    t.later();
-    await t.get("/api/camera");
-    expect(t.state.firsts).toBe(firsts + 1);
-  });
-});
-
-
-describe("serving the snapshot while D1 fails", () => {
-  const down = async (t: Setup) => {
-    await t.get("/api/media");
-    await t.tick();
-    t.state.down = true;
+    return d1(raw);
   };
 
-  for (const kv of [true, false]) {
-    describe(kv ? "KV" : "Cache API (no binding)", () => {
-      it("answers every endpoint, marked stale", async () => {
-        const t = setup({ kv });
-        const fresh: Record<string, [number, unknown]> = {};
-        for (const p of PATHS) {
-          const res = await t.get(p);
-          fresh[p] = [res.status, await res.json()];
-        }
-        if (kv) await t.tick();
-        t.state.down = true;
-        for (const p of PATHS) {
-          const res = await t.get(p);
-          expect(res.headers.get("X-Stale")).toBe("d1-error");
-          expect(res.headers.get("Cache-Control")).toBe(
-            "public, max-age=10, s-maxage=60",
-          );
-          expect([p, res.status, await res.json()]).toEqual([p, ...fresh[p]]);
-        }
-      });
+  /** A D1 whose batches answer from memory: the Worker's own CPU only. */
+  const preRead = (db: D1Database): D1Database => {
+    let replay: D1Result[] | null = null;
+    return {
+      prepare: (sql: string) => db.prepare(sql),
+      batch: async (stmts: D1PreparedStatement[]) =>
+        (replay ??= await db.batch(stmts)),
+    } as unknown as D1Database;
+  };
 
-      it("answers the RPCs", async () => {
-        const t = setup({ kv });
-        await down(t);
-        const photo = await withLastGood(
-          "photo",
-          () => getPhotoForImage(t.db, "aaaaaaaaa3"),
-          (i) => i.photo("aaaaaaaaa3"),
-          t.ctx,
+  const best = async (f: () => Promise<unknown>) => {
+    await f(); // warm up
+    const times: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const started = performance.now();
+      await f();
+      times.push(performance.now() - started);
+    }
+    return Math.min(...times);
+  };
+
+  for (const n of [2000, 5000]) {
+    it(`/api/media with ${n} photos`, async () => {
+      const route = parseRoute("/api/media") as Route;
+      const db = preRead(big(n));
+      const built = await respond(db, route);
+      // Projecting the rows and serialising them (D1 reads the rows).
+      const build = await best(() => respond(db, route));
+      // A request answered from the cache: the version from the memo, the
+      // entry's body passed on as is.
+      const clock = { now: 0 };
+      const { cache } = memoryCache(clock);
+      const ctx: Context = {
+        cache,
+        db,
+        waitUntil: () => {},
+        memo: { version: { value: "v", readAt: 0 }, retryAt: 0, error: null },
+        now: () => clock.now,
+      };
+      await cache.put(
+        dataKey("v", "http/api/media"),
+        new Response(built.body, {
+          headers: { "Cache-Control": "public, s-maxage=60" },
+        }),
+      );
+      const hit = await best(async () => {
+        const res = await handleGet(
+          new Request("https://gallery.sksat.net/api/media"),
+          () => {
+            throw new Error("not from D1");
+          },
+          ctx,
         );
-        expect(photo?.file).toBe("/u.png");
-        const access = await withLastGood(
-          "pathAccess",
-          () => getPathAccess(t.db, "/moved/new.png"),
-          (i) => i.pathAccess("/moved/new.png"),
-          t.ctx,
-        );
-        expect(access).toMatchObject({
-          kind: "photo",
-          photo: { file: "/old.png" },
-        });
+        expect(res.status).toBe(200); // from the cache: D1 would throw
+        await res.arrayBuffer();
       });
+      console.info(
+        `/api/media, ${n} photos (${(built.body.length / 1e6).toFixed(2)} MB): build ${build.toFixed(1)} ms, from the cache ${hit.toFixed(2)} ms`,
+      );
+      // Timings are printed, not asserted: they depend on the machine and
+      // on what else runs.
     });
   }
-
-  it("answers HEAD without a body", async () => {
-    const t = setup({ kv: true });
-    await down(t);
-    const res = await t.get("/api/media", "HEAD");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("X-Stale")).toBe("d1-error");
-    expect(res.body).toBeNull();
-  });
-
-  it("answers 503 / rethrows when there is no snapshot", async () => {
-    const t = setup({ kv: true });
-    t.state.down = true;
-    const res = await t.get("/api/media");
-    expect(res.status).toBe(503);
-    expect(res.headers.get("Retry-After")).toBe("60");
-    expect(res.headers.get("Cache-Control")).toBe("no-store");
-    await expect(
-      withLastGood(
-        "photo",
-        () => getPhotoForImage(t.db, "aaaaaaaaa2"),
-        (i) => i.photo("aaaaaaaaa2"),
-        t.ctx,
-      ),
-    ).rejects.toThrow(D1_LIMIT_ERROR);
-  });
-
-  it("serves nothing once the admin deleted the snapshot", async () => {
-    const t = setup({ kv: true });
-    await t.tick();
-    // The admin made a photo private: it deleted the snapshot.
-    t.raw.exec("UPDATE media SET visibility = 'private' WHERE id = 1");
-    t.bump("v2");
-    await t.kv.kv.delete(SNAPSHOT_KEY);
-    t.state.down = true;
-    expect((await t.get("/api/media/aaaaaaaaa2")).status).toBe(503);
-  });
-
-  it("is rebuilt without the hidden photo on the next cron run", async () => {
-    const t = setup({ kv: true });
-    await t.tick();
-    t.raw.exec("UPDATE media SET visibility = 'private' WHERE id = 1");
-    t.bump("v2");
-    await t.kv.kv.delete(SNAPSHOT_KEY);
-    await t.tick();
-    t.state.down = true;
-    expect((await t.get("/api/media/aaaaaaaaa2")).status).toBe(404);
-    expect((await t.get("/api/media/aaaaaaaaa3")).status).toBe(200);
-  });
-
-  it("a rebuild racing the admin's delete is replaced on the next run", async () => {
-    const t = setup({ kv: true });
-    t.bump("v1");
-    await t.tick();
-    const before = t.kv.entries.get(SNAPSHOT_KEY);
-    // The admin hides photo 1, deletes the snapshot and bumps the version;
-    // a run that read D1 before all that writes its snapshot afterwards.
-    t.raw.exec("UPDATE media SET visibility = 'private' WHERE id = 1");
-    await t.kv.kv.delete(SNAPSHOT_KEY);
-    t.bump("v2");
-    await t.kv.kv.put(SNAPSHOT_KEY, before?.value ?? "", {
-      metadata: before?.metadata,
-    });
-    await t.tick();
-    expect(t.kv.entries.get(SNAPSHOT_KEY)?.value).not.toContain("aaaaaaaaa2");
-    t.state.down = true;
-    expect((await t.get("/api/media/aaaaaaaaa2")).status).toBe(404);
-  });
-
-  it("ignores a snapshot of another format", async () => {
-    const t = setup({ kv: true });
-    await t.kv.kv.put(SNAPSHOT_KEY, JSON.stringify({ format: 0 }));
-    t.state.down = true;
-    expect((await t.get("/api/media")).status).toBe(503);
-  });
 });

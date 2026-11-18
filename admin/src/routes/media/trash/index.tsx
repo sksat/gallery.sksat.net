@@ -81,7 +81,7 @@ export const useRestore = routeAction$(async (data, { platform, fail }) => {
   try {
     const db = getDB(platform);
     const r = await restoreItems(db, picked);
-    await contentChanged(platform, db);
+    await contentChanged(db);
     return { ok: true, restored: r.restored.length };
   } catch (err) {
     if (err instanceof RestoreError) return fail(409, { message: err.message });
@@ -110,6 +110,8 @@ export const usePurge = routeAction$(async (data, { platform, fail }) => {
   const r = await purgeItems(db, picked, async (file) => {
     await deleteAllVersions(config, file);
   });
+  // A camera picture with a deleted row's file can be served by path again.
+  if (r.deleted.length > 0) await contentChanged(db);
   return {
     ok: true,
     deleted: r.deleted.length,

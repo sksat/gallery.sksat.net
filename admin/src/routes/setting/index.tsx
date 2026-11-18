@@ -55,26 +55,17 @@ export const useSettings = routeLoader$<SettingResult>(
 export const useSaveDefaults = routeAction$(
   async (data, { platform, fail }) => {
     const db = getDB(platform);
-    const current = await getSiteDefaults(db);
-    const next = { ...current };
+    const next = { ...(await getSiteDefaults(db)) };
     for (const f of EDITABLE_FIELDS) {
       const v = data[f];
       if (!isLevel(f, v)) return fail(400, { message: `${f}: ${v}` });
       (next as Record<string, string>)[f] = v;
     }
-    const embed = data.embed_exif === "on";
-    const currentEmbed = await getEmbedDefault(db);
     await Promise.all([
       setSiteDefaults(db, next),
-      setEmbedDefault(db, embed),
+      setEmbedDefault(db, data.embed_exif === "on"),
     ]);
-    // Every photo that follows a default may show less now.
-    if (
-      JSON.stringify(next) !== JSON.stringify(current) ||
-      embed !== currentEmbed
-    ) {
-      await contentChanged(platform, db, { hide: true });
-    }
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({

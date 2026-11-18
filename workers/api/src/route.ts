@@ -46,10 +46,10 @@ export const parseRoute = (pathname: string): Route | null => {
 };
 
 /**
- * Cache-Control for API responses, hits and misses alike: a minute at the
- * edge (Cache API, s-maxage) and ten seconds in browsers, so a visibility
- * change in the admin (in particular hiding a photo) is served everywhere
- * within about a minute. Nothing purges the cache.
+ * Cache-Control for API responses: ten seconds in browsers (and a minute
+ * in shared caches). The Worker itself keeps answers per content version
+ * (last-good.ts), so a change in the admin (in particular hiding a photo)
+ * is served everywhere within about a minute.
  */
 export const CACHE_CONTROL = "public, max-age=10, s-maxage=60";
 

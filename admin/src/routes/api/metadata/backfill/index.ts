@@ -27,8 +27,8 @@ export const onPost: RequestHandler = withErrorHandler(
     }
     const db = getDB(platform);
     const result = await backfillBatch(db, read);
-    // Only fills empty columns: shows more, never less.
-    if (result.found > 0) await contentChanged(platform, db);
+    // Any row read may have got a timestamp, even with no other metadata.
+    if (result.read > result.failed) await contentChanged(db);
     json(200, result);
   },
 );

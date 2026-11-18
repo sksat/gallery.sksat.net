@@ -29,7 +29,6 @@ import type {
   MediaCameraJSON,
   MediaItemJSON,
 } from "./types";
-import { SNAPSHOT_FORMAT, type Snapshot } from "./snapshot";
 
 /** media joined with its camera's names. */
 export type MediaJoinRow = {
@@ -224,6 +223,22 @@ const digitizedAt = (
 };
 
 /**
+ * effectiveLevels, remembered: most photos share the same overrides, so
+ * the list does not parse the same two JSON strings for every photo.
+ */
+const levelsMemo = new Map<string, ReturnType<typeof effectiveLevels>>();
+const levelsOf = (site: string | null, photo: string | null) => {
+  const key = `${site ?? ""}\u0000${photo ?? ""}`;
+  let levels = levelsMemo.get(key);
+  if (!levels) {
+    if (levelsMemo.size >= 1000) levelsMemo.clear();
+    levels = Object.freeze(effectiveLevels(site, photo));
+    levelsMemo.set(key, levels);
+  }
+  return levels;
+};
+
+/**
  * A photo as the public API shows it: each piece of metadata at the level
  * its visibility allows. `withKey` is for the image Worker's own lookups
  * (RPC): `file` is then the bucket key whatever the level, to fetch the
@@ -234,7 +249,7 @@ export const projectPhoto = (
   ctx: Context,
   withKey = false,
 ): MediaItemJSON => {
-  const levels = effectiveLevels(ctx.site, row.metadata_visibility);
+  const levels = levelsOf(ctx.site, row.metadata_visibility);
   const path = row.path ?? row.file;
   const name = path.slice(path.lastIndexOf("/") + 1);
   const timestamp = truncateTimestamp(row.timestamp, levels.taken_at);
@@ -471,73 +486,3 @@ export const readContentVersion = async (db: D1Database): Promise<string> =>
       .bind(CONTENT_VERSION_KEY)
       .first<{ value: string }>()
   )?.value ?? "";
-
-/**
- * Everything the API answers, read in one D1 batch (a transaction, so
- * consistent with the content version read with it): every public and
- * unlisted photo, the cameras and their pictures. About one row read per
- * photo, camera and camera picture. See snapshot.ts.
- */
-export const buildSnapshot = async (
-  db: D1Database,
-): Promise<{ snapshot: Snapshot; version: string }> => {
-  const [site, tags, version, photos, cameras, images, free] = await db.batch([
-    ...contextStatements(db),
-    db
-      .prepare("SELECT value FROM setting WHERE key = ?")
-      .bind(CONTENT_VERSION_KEY),
-    db.prepare(
-      `${MEDIA_SELECT.replace("SELECT", "SELECT m.visibility,")}
-         WHERE ${VIEWABLE}
-         ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
-    ),
-    db.prepare("SELECT * FROM camera"),
-    db.prepare("SELECT * FROM camera_image"),
-    // Camera pictures /img serves by path (see getPathAccess).
-    db.prepare(
-      `SELECT DISTINCT i.file FROM camera_image i
-         WHERE NOT EXISTS (SELECT 1 FROM media WHERE file = i.file)
-         ORDER BY i.file`,
-    ),
-  ]);
-  const ctx = toContext(site, tags);
-  const snapshotPhotos = (
-    (photos.results ?? []) as (MediaJoinRow & { visibility: string })[]
-  ).map((r) => ({
-    item: projectPhoto(r, ctx),
-    key: r.file,
-    listed: r.visibility === "public",
-  }));
-  // A camera is shown through photos that show it at "model" (cameraUsed):
-  // exactly those whose projected camera has a slug.
-  const shownBy = (listed: boolean) =>
-    new Set(
-      snapshotPhotos
-        .filter((p) => !listed || p.listed)
-        .map((p) => p.item.camera?.slug)
-        .filter((s): s is string => typeof s === "string"),
-    );
-  const viewable = shownBy(false);
-  const listedSlugs = shownBy(true);
-  const imageRows = (images.results ?? []) as CameraImageRow[];
-  const snapshot: Snapshot = {
-    format: SNAPSHOT_FORMAT,
-    photos: snapshotPhotos,
-    cameras: ((cameras.results ?? []) as CameraRow[])
-      .filter((c) => viewable.has(c.slug))
-      .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
-      .map((c) => ({
-        camera: rowToCamera(c, imageRows),
-        listed: listedSlugs.has(c.slug),
-      })),
-    cameraImages: ((free.results ?? []) as { file: string }[]).map(
-      (r) => r.file,
-    ),
-  };
-  return {
-    snapshot,
-    version:
-      ((version.results ?? [])[0] as { value?: string } | undefined)?.value ??
-      "",
-  };
-};
