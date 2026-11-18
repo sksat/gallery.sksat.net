@@ -71,8 +71,10 @@ test("a folder to the trash, and back", async ({ page }) => {
 
 test("move a photo, trash it and delete it for good", async ({ page }) => {
   await folderWith(page, "ops-purge", ["a.png"]);
-  await tiles(page).first().click();
-  await expect(page).toHaveURL(/\/media\/\d+\//);
+  // Straight to the edit page: the Files view may still be refreshing
+  // after the upload, and that could take a client-side click back.
+  await page.goto((await tiles(page).first().getAttribute("href")) ?? "");
+  await expect(page.getByLabel("場所と名前")).toBeVisible();
 
   // Moving changes the display path only: the B2 key stays.
   await page.getByLabel("場所と名前").fill("/mock/ops-purge/moved.png");

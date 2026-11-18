@@ -235,6 +235,10 @@ test("an incomplete upload can be deleted", async ({ page }) => {
   });
   await page.reload();
   const incomplete = page.getByTestId("incomplete-uploads");
+  // Let the page's own re-check finish first (it disables the buttons).
+  await expect(incomplete.getByTestId("incomplete-reason")).toHaveText(
+    "B2 にファイルがありません",
+  );
   await incomplete
     .getByRole("button", {
       name: "/mock/up-5/z.png の未完了のアップロードを削除",
