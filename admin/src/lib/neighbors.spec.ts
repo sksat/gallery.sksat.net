@@ -1,12 +1,16 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   neighborLinks,
-  neighborsQuery,
+  neighborsStatements,
   parseListHref,
+  queryNeighbors,
   type ListQuery,
+  type NeighborAnchor,
   type NeighborRow,
 } from "./neighbors";
+import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
+import { LIVE_PHOTO } from "./types";
 
 const list = (over: Partial<ListQuery> = {}): ListQuery => ({
   view: "list",
@@ -44,16 +48,9 @@ describe("parseListHref", () => {
   });
 });
 
-// The real query against SQLite: window functions and the folder match.
+// The real queries against SQLite with the D1 migrations applied.
 const db = (extra: [number, string][]) => {
-  const d = new DatabaseSync(":memory:");
-  d.exec(
-    "CREATE TABLE media (id INTEGER PRIMARY KEY, file TEXT, platform TEXT, visibility TEXT, timestamp TEXT, status TEXT NOT NULL DEFAULT 'ready', path TEXT, trashed_at TEXT)",
-  );
-  // Shown where the file is unless moved (migration 0005's trigger).
-  d.exec(
-    "CREATE TRIGGER p AFTER INSERT ON media WHEN NEW.path IS NULL BEGIN UPDATE media SET path = NEW.file WHERE id = NEW.id; END",
-  );
+  const d = migratedSqlite();
   // In the trash: in no list.
   d.exec(
     "INSERT INTO media (id, file, platform, visibility, timestamp, trashed_at) VALUES (91, '/a/00.png', 'Real', 'public', '2023-12-02', '2026-01-01')",
@@ -76,44 +73,55 @@ const db = (extra: [number, string][]) => {
   return d;
 };
 
-const run = (q: ListQuery, id: number, extra: [number, string][] = []) => {
-  const { sql, args } = neighborsQuery(q, id);
-  const row = db(extra)
-    .prepare(sql)
-    .get(...(args as (string | number)[])) as NeighborRow | undefined;
-  if (!row) return row;
+const anchorOf = (d: DatabaseSync, id: number) =>
+  d
+    .prepare("SELECT id, path, timestamp FROM media WHERE id = ?")
+    .get(id) as NeighborAnchor;
+
+const neighbours = async (d: DatabaseSync, q: ListQuery, id: number) =>
+  queryNeighbors(sqliteD1(d), q, anchorOf(d, id));
+
+const run = async (
+  q: ListQuery,
+  id: number,
+  extra: [number, string][] = [],
+) => {
   // The files are checked on their own below.
-  const { prev_id, next_id, pos, total } = row;
+  const { prev_id, next_id, pos, total } = await neighbours(db(extra), q, id);
   return { prev_id, next_id, pos, total };
 };
 
-describe("neighborsQuery files", () => {
-  it("returns the neighbours' files too", () => {
-    const { sql, args } = neighborsQuery(list(), 3);
-    expect(
-      db([])
-        .prepare(sql)
-        .get(...(args as (string | number)[])),
-    ).toMatchObject({ prev_file: "/a/1.png", next_file: "/a/2.png" });
+describe("queryNeighbors files", () => {
+  it("returns the neighbours' files too", async () => {
+    expect(await neighbours(db([]), list(), 3)).toMatchObject({
+      prev_file: "/a/1.png",
+      next_file: "/a/2.png",
+    });
   });
 });
 
-describe("neighborsQuery", () => {
-  it("follows the list order (date desc, then id desc, undated last)", () => {
+describe("queryNeighbors", () => {
+  it("follows the list order (date desc, then id desc, undated last)", async () => {
     // Order: 5, 2 (same date, id desc), 3, 1, 4 (no date).
-    expect(run(list(), 5)).toEqual({
+    expect(await run(list(), 5)).toEqual({
       prev_id: null,
       next_id: 2,
       pos: 1,
       total: 5,
     });
-    expect(run(list(), 3)).toEqual({
+    expect(await run(list(), 3)).toEqual({
       prev_id: 2,
       next_id: 1,
       pos: 3,
       total: 5,
     });
-    expect(run(list(), 4)).toEqual({
+    expect(await run(list(), 1)).toEqual({
+      prev_id: 3,
+      next_id: 4,
+      pos: 4,
+      total: 5,
+    });
+    expect(await run(list(), 4)).toEqual({
       prev_id: 1,
       next_id: null,
       pos: 5,
@@ -121,8 +129,10 @@ describe("neighborsQuery", () => {
     });
   });
 
-  it("applies the filter", () => {
-    expect(run(list({ platform: "VRChat", visibility: "public" }), 5)).toEqual({
+  it("applies the filter", async () => {
+    expect(
+      await run(list({ platform: "VRChat", visibility: "public" }), 5),
+    ).toEqual({
       prev_id: null,
       next_id: 3,
       pos: 1,
@@ -130,21 +140,19 @@ describe("neighborsQuery", () => {
     });
     // No longer in the filtered list (VRChat): it still gets neighbours,
     // so the next photo is one tap away. Order: 2, 1, 4.
-    expect(run(list({ platform: "Real" }), 2)).toEqual({
+    expect(await run(list({ platform: "Real" }), 2)).toEqual({
       prev_id: null,
       next_id: 1,
       pos: 1,
       total: 3,
     });
-    expect(run(list(), 99)).toBeUndefined();
   });
 
-  it("walks a folder by where photos are shown, not their files", () => {
-    const { sql, args } = neighborsQuery(list({ view: "files", dir: "/z" }), 5);
+  it("walks a folder by where photos are shown, not their files", async () => {
     const d = db([]);
     // Photo 5's file stays /a/3.png; it is shown in /z now.
     d.exec("UPDATE media SET path = '/z/3.png' WHERE id = 5");
-    expect(d.prepare(sql).get(...(args as (string | number)[]))).toEqual({
+    expect(await neighbours(d, list({ view: "files", dir: "/z" }), 5)).toEqual({
       prev_id: null,
       next_id: null,
       prev_file: null,
@@ -154,26 +162,154 @@ describe("neighborsQuery", () => {
     });
   });
 
-  it("walks one folder by name in the files view", () => {
+  it("walks one folder by name in the files view", async () => {
     const a = list({ view: "files", dir: "/a" });
     // /a/1.png (2), /a/2.png (1), /a/3.png (5); not /a/b/3.png.
-    expect(run(a, 1)).toEqual({ prev_id: 2, next_id: 5, pos: 2, total: 3 });
+    expect(await run(a, 1)).toEqual({
+      prev_id: 2,
+      next_id: 5,
+      pos: 2,
+      total: 3,
+    });
     // Opened from /a but in /a/b: still walks from where it sorts.
-    expect(run(a, 3)).toEqual({ prev_id: 5, next_id: null, pos: 4, total: 4 });
+    expect(await run(a, 3)).toEqual({
+      prev_id: 5,
+      next_id: null,
+      pos: 4,
+      total: 4,
+    });
     // Folder names outside the BMP (SQLite counts characters).
     expect(
-      run(list({ view: "files", dir: "/😀" }), 7, [
+      await run(list({ view: "files", dir: "/😀" }), 7, [
         [6, "/😀/a.png"],
         [7, "/😀/b.png"],
       ]),
     ).toEqual({ prev_id: 6, next_id: null, pos: 2, total: 2 });
-    expect(run(list({ view: "files", dir: "/" }), 4)).toEqual({
+    expect(await run(list({ view: "files", dir: "/" }), 4)).toEqual({
       prev_id: null,
       next_id: null,
       pos: 1,
       total: 1,
     });
   });
+
+  it("does not take a sibling folder sharing the name as a prefix", async () => {
+    const d = db([
+      [6, "/a-b/x.png"],
+      [7, "/a0/x.png"],
+      [8, "/ab/x.png"],
+    ]);
+    expect(
+      await neighbours(d, list({ view: "files", dir: "/a" }), 1),
+    ).toMatchObject({ prev_id: 2, next_id: 5, pos: 2, total: 3 });
+  });
+});
+
+// The window query this replaced, as the reference for the order.
+const windowReference = (
+  d: DatabaseSync,
+  q: ListQuery,
+  id: number,
+): NeighborRow => {
+  const where = [LIVE_PHOTO];
+  const args: (string | number)[] = [];
+  if (q.platform) {
+    where.push("platform = ?");
+    args.push(q.platform);
+  }
+  if (q.visibility) {
+    where.push("visibility = ?");
+    args.push(q.visibility);
+  }
+  if (q.view === "files") {
+    const prefix = q.dir === "/" ? "/" : `${q.dir}/`;
+    where.push(
+      "substr(path, 1, length(?)) = ?",
+      "instr(substr(path, length(?) + 1), '/') = 0",
+    );
+    args.push(prefix, prefix, prefix);
+  }
+  const order =
+    q.view === "files" ? "path" : "timestamp IS NULL, timestamp DESC, id DESC";
+  return d
+    .prepare(
+      `SELECT prev_id, next_id, prev_file, next_file, pos, total FROM (SELECT id,` +
+        ` LAG(id) OVER w AS prev_id, LEAD(id) OVER w AS next_id,` +
+        ` LAG(file) OVER w AS prev_file, LEAD(file) OVER w AS next_file,` +
+        ` ROW_NUMBER() OVER w AS pos, COUNT(*) OVER () AS total` +
+        ` FROM media WHERE (${where.join(" AND ")}) OR id = ?` +
+        ` WINDOW w AS (ORDER BY ${order})) WHERE id = ?`,
+    )
+    .get(...args, id, id) as NeighborRow;
+};
+
+describe("queryNeighbors against the window query", () => {
+  // Ties on the date, undated photos, both platforms and levels, folders.
+  const d = migratedSqlite();
+  const insert = d.prepare(
+    "INSERT INTO media (id, file, platform, visibility, timestamp, status, trashed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  );
+  for (let i = 1; i <= 60; i++) {
+    insert.run(
+      i,
+      `/${["a", "b", "a/c"][i % 3]}/${String((i * 37) % 61).padStart(2, "0")}.png`,
+      i % 2 ? "Real" : "VRChat",
+      ["private", "unlisted", "public"][i % 3],
+      i % 7 === 0 ? null : `2024-01-${String((i % 9) + 1).padStart(2, "0")}`,
+      i % 23 === 0 ? "uploading" : "ready",
+      i % 19 === 0 ? "2026-01-01" : null,
+    );
+  }
+  const lists = [
+    list(),
+    list({ visibility: "public" }),
+    list({ platform: "VRChat", visibility: "private" }),
+    list({ view: "files", dir: "/a" }),
+    list({ view: "files", dir: "/a/c", platform: "Real" }),
+    list({ view: "files", dir: "/" }),
+  ];
+  it.each(lists.map((q) => [JSON.stringify(q), q] as const))(
+    "%s",
+    async (_, q) => {
+      for (let id = 1; id <= 60; id++) {
+        expect(await neighbours(d, q, id), `photo ${id}`).toEqual(
+          windowReference(d, q, id),
+        );
+      }
+    },
+  );
+});
+
+describe("neighborsStatements plans", () => {
+  // Each statement starts from an index on the list's order: no full scan
+  // of media and no sort (D1 bills the rows a query reads).
+  const d = migratedSqlite();
+  const plan = (sql: string, args: unknown[]) =>
+    (
+      d.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...(args as string[])) as {
+        detail: string;
+      }[]
+    ).map((r) => r.detail);
+  const anchors: NeighborAnchor[] = [
+    { id: 5, path: "/a/b.png", timestamp: "2024-01-01" },
+    { id: 5, path: "/a/b.png", timestamp: null },
+  ];
+  const lists = [
+    list(),
+    list({ visibility: "private", platform: "Real" }),
+    list({ view: "files", dir: "/a" }),
+  ];
+  for (const q of lists) {
+    for (const a of anchors) {
+      it(`${JSON.stringify(q)} ${a.timestamp}`, () => {
+        for (const s of Object.values(neighborsStatements(q, a))) {
+          const details = plan(s.sql, s.args);
+          expect(details.join("\n")).not.toMatch(/SCAN media\b|TEMP B-TREE/);
+          expect(details.some((x) => /USING .*INDEX/.test(x))).toBe(true);
+        }
+      });
+    }
+  }
 });
 
 describe("neighborLinks", () => {

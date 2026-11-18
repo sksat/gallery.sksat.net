@@ -1206,6 +1206,7 @@ export default component$(() => {
           >
             {viewTabs.map((t) => (
               <Link
+                prefetch="js"
                 // Keyed by href: Qwik City's Link keeps the href it was
                 // first rendered with, and filters apply without leaving
                 // this route.
@@ -1260,6 +1261,7 @@ export default component$(() => {
         </button>
         {chips.map((c) => (
           <Link
+            prefetch="js"
             key={c.href}
             href={c.href}
             aria-label={`${c.label} の絞り込みを外す`}
@@ -1399,6 +1401,7 @@ export default component$(() => {
             </button>
             {filtered && (
               <Link
+                prefetch="js"
                 key={mediaListHref({ view, dir })}
                 href={mediaListHref({ view, dir })}
                 class={buttonSecondary}
@@ -1593,6 +1596,7 @@ export default component$(() => {
                       </>
                     )}
                     <Link
+                      prefetch="js"
                       href="/media/trash/"
                       class={[
                         buttonSecondary,
@@ -1765,6 +1769,7 @@ export default component$(() => {
                     </td>
                     <td class="px-4 py-3">
                       <Link
+                        prefetch="js"
                         key={back}
                         href={mediaEditHref(row.id, back)}
                         title={row.path}
@@ -1858,6 +1863,7 @@ export default component$(() => {
                   </label>
                 ) : (
                   <Link
+                    prefetch="js"
                     key={back}
                     href={mediaEditHref(row.id, back)}
                     title={row.path}
@@ -1945,6 +1951,7 @@ export default component$(() => {
           <div class="flex gap-2">
             {page > 1 && (
               <Link
+                prefetch="js"
                 key={pageUrl(page - 1)}
                 href={pageUrl(page - 1)}
                 class={buttonSecondary}
@@ -1954,6 +1961,7 @@ export default component$(() => {
             )}
             {page < pageCount && (
               <Link
+                prefetch="js"
                 key={pageUrl(page + 1)}
                 href={pageUrl(page + 1)}
                 class={buttonSecondary}

@@ -49,6 +49,7 @@ export const StatePanel = component$<Props>(
         {action && (
           <div class="mt-6">
             <Link
+              prefetch="js"
               // Keyed by href: Qwik City's Link keeps the href it was first
               // rendered with while the route stays the same (e.g. /media
               // filters applied in place).

@@ -139,6 +139,7 @@ const RangeTabs = component$<{ range: AccessRange }>(({ range }) => (
   <nav aria-label="期間" class="flex gap-1">
     {ACCESS_RANGES.map((r) => (
       <Link
+        prefetch="js"
         key={r}
         href={r === "7d" ? "/" : `/?range=${r}`}
         aria-current={r === range ? "page" : undefined}
@@ -214,6 +215,7 @@ export const AccessCard = component$<{
               {photos.map((p) => (
                 <li key={p.row.id}>
                   <Link
+                    prefetch="js"
                     href={`/media/${p.row.id}/`}
                     class="flex min-h-11 items-center gap-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
                   >

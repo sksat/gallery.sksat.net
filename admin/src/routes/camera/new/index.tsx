@@ -59,7 +59,7 @@ export default component$(() => {
     <div class="mx-auto max-w-3xl space-y-6">
       <div>
         <nav aria-label="Breadcrumb" class="text-sm">
-          <Link href="/camera/" class={backLink}>
+          <Link prefetch="js" href="/camera/" class={backLink}>
             ← Cameras
           </Link>
         </nav>

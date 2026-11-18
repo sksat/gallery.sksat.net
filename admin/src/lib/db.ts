@@ -364,6 +364,20 @@ export const listCameras = async (
   }));
 };
 
+export type CameraOption = { id: number; name: string; slug: string };
+
+/** The cameras for a <select>, sorted like listCameras, without counts. */
+export const listCameraOptions = async (
+  db: D1Database,
+): Promise<CameraOption[]> => {
+  const res = await db
+    .prepare(
+      "SELECT id, name, slug FROM camera ORDER BY name COLLATE NOCASE, id",
+    )
+    .all<CameraOption>();
+  return res.results ?? [];
+};
+
 export const getCamera = async (
   db: D1Database,
   id: number,

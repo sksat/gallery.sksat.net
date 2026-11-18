@@ -768,6 +768,7 @@ export const FileBrowser = component$<Props>(
       return (
         <li key={node.path}>
           <Link
+            prefetch="js"
             // Keyed by href: Qwik City's Link keeps the href it was first
             // rendered with, and a filter applies without leaving /media.
             key={href(node.path)}
@@ -959,6 +960,7 @@ export const FileBrowser = component$<Props>(
                       </span>
                     ) : (
                       <Link
+                        prefetch="js"
                         key={href(c.path)}
                         href={href(c.path)}
                         data-drop={c.path}
@@ -990,6 +992,7 @@ export const FileBrowser = component$<Props>(
                 const current = visibility === t.value;
                 return (
                   <Link
+                    prefetch="js"
                     key={target}
                     href={target}
                     aria-current={current ? "true" : undefined}

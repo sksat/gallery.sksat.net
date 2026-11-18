@@ -40,7 +40,7 @@ export default component$(() => {
         <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">
           Cameras <span class={["font-normal", muted]}>({cameras.length})</span>
         </h1>
-        <Link href="/camera/new/" class={buttonPrimary}>
+        <Link prefetch="js" href="/camera/new/" class={buttonPrimary}>
           New camera
         </Link>
       </div>
@@ -61,6 +61,7 @@ export default component$(() => {
           {cameras.map((c) => (
             <li key={c.id}>
               <Link
+                prefetch="js"
                 href={`/camera/${c.id}/`}
                 class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors hover:bg-sky-50/60 sm:px-5 dark:hover:bg-sky-950/30"
               >

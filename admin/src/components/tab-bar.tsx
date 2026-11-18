@@ -24,6 +24,7 @@ export const TabBar = component$<{ items: TabItem[] }>(({ items }) => (
       const { active } = item;
       return (
         <Link
+          prefetch="js"
           key={item.href}
           href={item.href}
           aria-current={active ? "page" : undefined}

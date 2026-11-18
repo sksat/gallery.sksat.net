@@ -86,7 +86,9 @@ export const listFolders = async (db: D1Database): Promise<string[]> => {
   const [folders, pending] = await db.batch<{ path?: string }>([
     db.prepare("SELECT path FROM folder"),
     db.prepare(
-      "SELECT path FROM media WHERE status <> 'ready' AND trashed_at IS NULL",
+      // = status <> 'ready' (the only other status); matches the partial
+      // index idx_media_uploading (0007).
+      "SELECT path FROM media WHERE status = 'uploading' AND trashed_at IS NULL",
     ),
   ]);
   const paths = new Set<string>();
