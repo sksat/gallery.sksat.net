@@ -32,6 +32,9 @@ import { parseAccessConfig, verifyAdminToken } from "./admin-auth";
 import { parseRange, readObjectBytes, type ObjectBytes } from "./bytes";
 import { edgeCacheKey, withEdgeCache } from "./cache";
 import { captionFor, type Caption, type CaptionSource } from "./caption";
+import { embedExif } from "./exif-embed";
+import { encodeTiff } from "./exif-encode";
+import { publicExif, type PublicMeta } from "./public-exif";
 import { originFor, type OriginEnv } from "./origin";
 import { statObject, type ObjectStat } from "./stat";
 import {
@@ -41,6 +44,7 @@ import {
   transformFailed,
   transformOptions,
   variesByAccept,
+  withoutAvif,
   type PresetName,
   type TransformOptions,
 } from "./request";
@@ -50,7 +54,7 @@ import {
  * null over HTTP when the file name is not public; the `photo` RPC always
  * has it.
  */
-type Photo = CaptionSource & { id: string; file: string | null };
+type Photo = CaptionSource & PublicMeta & { id: string; file: string | null };
 
 /** The API's getFileAccess (workers/api/src/query.ts). */
 type FileAccess = { kind: "photo"; photo: Photo } | { kind: "camera-image" };
@@ -177,6 +181,49 @@ const respond = (
   return new Response(upstream.body, { status: upstream.status, headers });
 };
 
+/**
+ * A transformed image with `tiff` as its EXIF (exif-embed.ts). Only a
+ * finished 200 is touched; anything else, or a format the edit does not
+ * support, passes through as it was.
+ */
+const withExif = async (
+  upstream: Response,
+  tiff: Uint8Array,
+): Promise<Response> => {
+  if (
+    upstream.status !== 200 ||
+    transformFailed(upstream.status, upstream.headers.get("Cf-Resized"))
+  ) {
+    return upstream;
+  }
+  const image = new Uint8Array(await upstream.arrayBuffer());
+  const { bytes, embedded } = embedExif(
+    image,
+    upstream.headers.get("Content-Type"),
+    tiff,
+  );
+  const headers = new Headers(upstream.headers);
+  if (embedded) {
+    headers.delete("Content-Length");
+    // The upstream validators describe the image without this EXIF: a
+    // revalidation must not confirm a copy carrying older metadata.
+    const base = (upstream.headers.get("ETag") ?? String(image.length))
+      .replace(/^W\//, "")
+      .replace(/"/g, "");
+    headers.set("ETag", `W/"${base}-${await exifKey(tiff)}"`);
+    headers.delete("Last-Modified");
+  }
+  return new Response(bytes, { status: upstream.status, headers });
+};
+
+/** A short digest of the EXIF block, for the edge cache key and ETag. */
+const exifKey = async (tiff: Uint8Array): Promise<string> => {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", tiff));
+  return Array.from(digest.subarray(0, 8), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+};
+
 /** The public route: public (and, by id, unlisted) photos only. */
 export default {
   async fetch(
@@ -197,6 +244,8 @@ export default {
 
     let file: string;
     let caption: Caption = {};
+    /** The photo's public metadata, to embed as EXIF (not in cards). */
+    let meta: PublicMeta | null = null;
     const notFound = () =>
       new Response("Not Found", {
         status: 404,
@@ -215,6 +264,7 @@ export default {
       if (!photo) return notFound();
       file = photo.file;
       if (parsed.preset === "og") caption = captionFor(photo);
+      meta = photo;
     } else {
       // By bucket path, only a public photo or a camera picture: unlisted
       // and private photos have guessable file names, so they are reachable
@@ -233,11 +283,20 @@ export default {
         if (access.kind !== "photo") return notFound();
         if (parsed.preset === "og") caption = captionFor(access.photo);
       }
+      if (access.kind === "photo") meta = access.photo;
     }
 
-    const accept = request.headers.get("Accept");
+    // The public metadata as EXIF, for resized photos (cards carry none).
+    // It cannot go into AVIF here, so a photo with any gets WebP or JPEG.
+    const tiff =
+      meta && !isCardPreset(parsed.preset)
+        ? encodeTiff(publicExif(meta))
+        : null;
+    const accept = tiff
+      ? withoutAvif(request.headers.get("Accept"))
+      : request.headers.get("Accept");
     const produce = async () => {
-      const { upstream, degraded } = await render(
+      const rendered = await render(
         env,
         file,
         parsed.preset,
@@ -245,6 +304,12 @@ export default {
         url.origin,
         caption,
       );
+      const { degraded } = rendered;
+      // HEAD has no body to put it in.
+      const upstream =
+        tiff && request.method === "GET"
+          ? await withExif(rendered.upstream, tiff)
+          : rendered.upstream;
       const response = respond(
         upstream,
         parsed.preset,
@@ -262,7 +327,14 @@ export default {
     if (request.method !== "GET") return (await produce()).response;
     return withEdgeCache(
       caches.default,
-      edgeCacheKey(url.origin, parsed.preset, file, accept, caption),
+      edgeCacheKey(
+        url.origin,
+        parsed.preset,
+        file,
+        accept,
+        caption,
+        tiff ? await exifKey(tiff) : null,
+      ),
       variesByAccept(parsed.preset) ? "Accept" : null,
       (promise) => ctx.waitUntil(promise),
       produce,

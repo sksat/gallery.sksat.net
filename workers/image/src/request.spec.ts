@@ -6,7 +6,16 @@ import {
   transformFailed,
   transformOptions,
   variesByAccept,
+  withoutAvif,
 } from "./request";
+
+describe("withoutAvif", () => {
+  it("drops AVIF so WebP (or JPEG) is picked", () => {
+    expect(pickFormat(withoutAvif("image/avif,image/webp,*/*"))).toBe("webp");
+    expect(pickFormat(withoutAvif("image/avif;q=0.9, */*"))).toBe("jpeg");
+    expect(withoutAvif(null)).toBeNull();
+  });
+});
 
 describe("parseAdminImage", () => {
   it("accepts a resize preset and a bucket path", () => {
