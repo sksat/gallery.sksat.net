@@ -32,12 +32,19 @@ export const folderWith = async (page: Page, name: string, files: string[]) => {
   await page
     .getByTestId("upload-input")
     .setInputFiles(files.map((f) => png(f, `${name}/${f}`)));
+  // Up to 150 files at 2–3 at a time: the default 5 s is not enough on a
+  // busy CI runner, so allow time per file.
   await expect(
     page.getByTestId("upload-panel").getByRole("heading"),
-  ).toHaveText(`${files.length} 件アップロードしました`);
+  ).toHaveText(`${files.length} 件アップロードしました`, {
+    timeout: 10_000 + files.length * 300,
+  });
   await page.getByRole("button", { name: "閉じる" }).click();
-  // The view reloads once the uploads are photos: wait for every tile.
-  await expect(tiles(page)).toHaveCount(files.length);
+  // The view reloads once the uploads are photos: wait for every tile
+  // (150 of them can take more than 5 s to render on CI, too).
+  await expect(tiles(page)).toHaveCount(files.length, {
+    timeout: 10_000 + files.length * 50,
+  });
   // ...and may reload once more (checks of uploads): let it settle, or
   // the next click can land on an element that is being replaced.
   await page.waitForLoadState("networkidle");
