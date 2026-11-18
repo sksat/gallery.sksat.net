@@ -8,11 +8,13 @@ import {
   type MediaInfoJSON,
 } from "./types";
 import {
+  dateParam,
   galleryUrl,
   navigateImage,
   photoIdFromPath,
   visibleMedia,
 } from "./logic";
+import { DateHeader } from "./date-header";
 import {
   cameraHref,
   cameraLabel,
@@ -56,6 +58,8 @@ interface GalleryState {
   sort: SortOrder;
   /** Camera slug on a camera page, else null. */
   camera: null | string;
+  /** A year, month or day picked in the calendar (`?date=`), else null. */
+  date: null | string;
 }
 
 type GalleryProps = {
@@ -96,6 +100,11 @@ const stateFromUrl = (url: URL) => ({
   camera:
     cameraSlugFromPath(url.pathname) ??
     (url.searchParams.get("camera") || null),
+  // The calendar leads to the whole gallery only; a camera page has no date.
+  date:
+    cameraSlugFromPath(url.pathname) === null && !url.searchParams.get("camera")
+      ? dateParam(url.searchParams)
+      : null,
 });
 
 export default component$<GalleryProps>((props) => {
@@ -125,14 +134,16 @@ export default component$<GalleryProps>((props) => {
           : findCamera(index.value.cameras, media, state.camera);
     const camera = cameraInfo === null ? null : state.camera;
     // On a camera page, "every photo" means every photo taken with that
-    // camera: the tag counts and the arrow-key fallback use it.
+    // camera (and on a calendar date, then): the tag counts and the
+    // arrow-key fallback use it.
     const scope = visibleMedia(
       media,
       { tags: [], mode: state.filter.mode },
       camera,
+      state.date,
     );
     const filteredMedia = sortMedia(
-      visibleMedia(media, state.filter, camera),
+      visibleMedia(media, state.filter, camera, state.date),
       state.sort,
     );
     return {
@@ -141,8 +152,16 @@ export default component$<GalleryProps>((props) => {
       camera,
       scope,
       filteredMedia,
-      /** Every listed photo's id in display order (arrow-key fallback). */
-      allIds: sortMedia(scope, state.sort).map((m) => m.value.id),
+      /**
+       * Every listed photo's id in display order (arrow-key fallback): the
+       * date's when the photo is on it, else the whole camera or gallery.
+       */
+      allIds: sortMedia(
+        selected && scope.some((m) => m.value.id === selected.id)
+          ? scope
+          : visibleMedia(media, { tags: [], mode: state.filter.mode }, camera),
+        state.sort,
+      ).map((m) => m.value.id),
       /** The filtered photos' ids in display order. */
       filteredIds: filteredMedia.map((m) => m.value.id),
     };
@@ -155,7 +174,13 @@ export default component$<GalleryProps>((props) => {
     window.history.replaceState(
       null,
       "",
-      galleryUrl(state.selectedImageId, filter, state.sort, state.camera),
+      galleryUrl(
+        state.selectedImageId,
+        filter,
+        state.sort,
+        state.camera,
+        state.date,
+      ),
     );
   });
 
@@ -164,7 +189,13 @@ export default component$<GalleryProps>((props) => {
     window.history.replaceState(
       null,
       "",
-      galleryUrl(state.selectedImageId, state.filter, sort, state.camera),
+      galleryUrl(
+        state.selectedImageId,
+        state.filter,
+        sort,
+        state.camera,
+        state.date,
+      ),
     );
   });
 
@@ -178,7 +209,7 @@ export default component$<GalleryProps>((props) => {
     window.history.pushState(
       null,
       "",
-      galleryUrl(imageId, state.filter, state.sort, state.camera),
+      galleryUrl(imageId, state.filter, state.sort, state.camera, state.date),
     );
   });
 
@@ -204,7 +235,7 @@ export default component$<GalleryProps>((props) => {
     window.history.replaceState(
       null,
       "",
-      galleryUrl(imageId, state.filter, state.sort, state.camera),
+      galleryUrl(imageId, state.filter, state.sort, state.camera, state.date),
     );
   });
 
@@ -264,6 +295,7 @@ export default component$<GalleryProps>((props) => {
                 count={scope.length}
               />
             )}
+            {state.date !== null && <DateHeader date={state.date} />}
             <div class="mb-3 flex flex-col gap-3 px-1">
               <div class="flex min-h-8 flex-wrap items-center gap-4 text-sm">
                 <span

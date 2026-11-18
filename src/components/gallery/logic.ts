@@ -1,3 +1,5 @@
+import { inDate, parseDateKey } from "@shared/calendar/calendar";
+
 import { cameraHref, takenWith } from "./cameras";
 import { DEFAULT_SORT, serializeSort, type SortOrder } from "./sort";
 import { filterMediaByTags, serializeTagFilter, type TagFilter } from "./tags";
@@ -5,18 +7,26 @@ import { PUBLIC_ID_RE, type MediaIndex, type MediaInfo } from "./types";
 
 /**
  * Photos passing the tag filter and, on a camera page, taken with that
- * camera. Indices stay those of the full media array (they order ties when
- * sorting); the caller sorts.
+ * camera, and with a date (from the calendar), taken then. Indices stay
+ * those of the full media array (they order ties when sorting); the caller
+ * sorts.
  */
 export const visibleMedia = (
   media: MediaIndex,
   filter: TagFilter,
   camera: string | null,
-): { index: number; value: MediaInfo }[] => {
-  const tagged = filterMediaByTags(media, filter);
-  return camera === null
-    ? tagged
-    : tagged.filter(({ value }) => takenWith(value, camera));
+  date: string | null = null,
+): { index: number; value: MediaInfo }[] =>
+  filterMediaByTags(media, filter).filter(
+    ({ value }) =>
+      (camera === null || takenWith(value, camera)) &&
+      (date === null || inDate(value.takenDate ?? null, date)),
+  );
+
+/** `?date=` of a gallery URL: a year, month or day, else null. */
+export const dateParam = (params: URLSearchParams): string | null => {
+  const raw = params.get("date");
+  return raw !== null && parseDateKey(raw) ? raw : null;
 };
 
 /**
@@ -51,13 +61,15 @@ export const navigateImage = <T>(
  * URL for a gallery state: `/`, `/camera/{slug}/` or `/photo/{id}`, with the
  * tag filter and the sort order kept in the query so closing or sharing a
  * photo preserves them. A photo opened from a camera page carries
- * `?camera={slug}` so closing it returns to that page.
+ * `?camera={slug}` so closing it returns to that page. A date from the
+ * calendar is kept as `?date=` on either.
  */
 export const galleryUrl = (
   imageId: string | null,
   filter: TagFilter,
   sort: SortOrder = DEFAULT_SORT,
   camera: string | null = null,
+  date: string | null = null,
 ): string => {
   const params = new URLSearchParams();
   let path: string;
@@ -67,6 +79,7 @@ export const galleryUrl = (
   } else {
     path = camera === null ? "/" : cameraHref(camera);
   }
+  if (date !== null) params.set("date", date);
   for (const [key, value] of new URLSearchParams(serializeTagFilter(filter)))
     params.append(key, value);
   for (const [key, value] of serializeSort(sort)) params.append(key, value);

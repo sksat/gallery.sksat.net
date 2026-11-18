@@ -59,7 +59,7 @@ pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
 
 - **File-based routing**: Routes defined in `src/routes/` directory
 - **Layout system**: `src/routes/layout.tsx` provides shared layout (Header/Footer) with caching configuration
-- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing (`imageId` is the photo's public id; old numeric URLs are gone), `/camera/` (list of cameras with photos) and `/camera/[slug]/` for a camera's details and its photos (route paths are singular; see `src/components/gallery/cameras.ts`)
+- **Dynamic routes**: `/photo/[imageId]/` for individual photo viewing (`imageId` is the photo's public id; old numeric URLs are gone), `/camera/` (list of cameras with photos) and `/camera/[slug]/` for a camera's details and its photos (route paths are singular; see `src/components/gallery/cameras.ts`), and `/calendar/` (the newest month with photos), `/calendar/<yyyy>/` (the year, days shaded by count) and `/calendar/<yyyy>/<mm>/` (a month, each day with its first photo). The calendar is counted from the same `/api/media` list the layout loads (no extra API call), by each photo's public date in its own offset, cut to its `taken_at` level: month-only photos count in the month but on no day, year-only ones only in the year, hidden ones nowhere (`shared/calendar/calendar.ts`, shared with the admin; `src/components/gallery/calendar.ts`). A day opens the gallery with `?date=YYYY-MM-DD` (or `YYYY-MM` / `YYYY`), which the overlay's `/photo/<id>?date=…` keeps
 - **Path alias**: `~/` maps to `./src/` (configured in tsconfig.json)
 
 ### Core Components

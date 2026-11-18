@@ -1,5 +1,7 @@
 // Photo and camera types, as served by the API Worker (workers/api, see its
 // src/types.ts) and as used at runtime.
+import { takenDateKey } from "@shared/calendar/calendar";
+
 import { takenAt } from "./taken";
 
 /** Where a photo was taken (the API's `platform`). */
@@ -99,6 +101,11 @@ export type MediaInfo = Omit<MediaInfoJSON, "timestamp"> & {
   takenText?: string | null;
   /** `timestamp` as the API wrote it (in the photo's own offset). */
   takenIso?: string | null;
+  /**
+   * The date it was taken in its own offset, as precisely as it is public
+   * ("2023-12-04", "2023-12" or "2023"): the calendar's `?date=` filter.
+   */
+  takenDate?: string | null;
 };
 
 /**
@@ -138,6 +145,7 @@ export const transformMediaInfo = (item: MediaInfoJSON): MediaInfo => ({
   timestamp: parseMediaTimestamp(item.timestamp),
   takenText: formatTaken(item.timestamp, item.timestamp_precision ?? null),
   takenIso: item.timestamp,
+  takenDate: takenDateKey(item.timestamp, item.timestamp_precision),
 });
 
 const PRECISIONS: readonly string[] = [

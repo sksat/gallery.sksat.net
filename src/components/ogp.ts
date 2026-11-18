@@ -183,6 +183,34 @@ export const cameraListOgp = (
   url: SITE_URL + CAMERA_LIST_HREF,
 });
 
+/** Card for the calendar (/calendar/…): the site card, like the top. */
+export const calendarOgp = (
+  bases: ImageBases,
+  media: MediaInfoJSON[],
+  /** "2023年12月", "2023年", or null for /calendar/ itself. */
+  label: string | null,
+  path: string,
+): Ogp => ({
+  ...topOgp(bases, media),
+  title: `${label ? `カレンダー ${label}` : "カレンダー"} | ${SITE_NAME}`,
+  description: `${SITE_NAME} の写真を撮影日のカレンダーで見られます。`,
+  url: SITE_URL + path,
+});
+
+/**
+ * Keeps a calendar page with no photos (any year or month can be opened by
+ * URL) out of search results.
+ */
+export const noindexIfEmpty = <
+  H extends { meta: readonly { name?: string; content?: string }[] },
+>(
+  head: H,
+  count: number,
+): H =>
+  count > 0
+    ? head
+    : { ...head, meta: [...head.meta, { name: "robots", content: "noindex" }] };
+
 /** Fallback when the photos could not be read: text-only card. */
 export const fallbackOgp = (path: string): Ogp => ({
   title: SITE_NAME,
