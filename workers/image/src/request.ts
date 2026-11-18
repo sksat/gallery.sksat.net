@@ -117,6 +117,14 @@ export type TransformOptions = {
   gravity?: "auto";
   format: OutputFormat;
   quality?: number;
+  /**
+   * Always "none": strip EXIF/XMP/ICC text from the output. Originals carry
+   * camera serials, GPS, and VRChat XMP (world, author ids); what the
+   * public sees of them is decided by the API's metadata levels, never by
+   * what survives in the image file. ("copyright", Cloudflare's default,
+   * would keep the EXIF copyright tag.)
+   */
+  metadata: "none";
   draw?: (DrawImage | DrawText)[];
 };
 
@@ -192,6 +200,7 @@ export const transformOptions = (
       gravity: "auto",
       format: outputFormat(preset, accept),
       quality: 85,
+      metadata: "none",
       draw: cardDraw(origin, preset === "og" ? caption : {}),
     };
   }
@@ -199,6 +208,7 @@ export const transformOptions = (
     ...PRESETS[preset],
     fit: "scale-down",
     format: outputFormat(preset, accept),
+    metadata: "none",
   };
 };
 

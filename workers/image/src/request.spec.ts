@@ -92,12 +92,20 @@ describe("transformOptions", () => {
       height: 240,
       fit: "scale-down",
       format: "avif",
+      metadata: "none",
     });
     expect(transformOptions("w1920", "image/webp", origin)).toEqual({
       width: 1920,
       fit: "scale-down",
       format: "webp",
+      metadata: "none",
     });
+  });
+
+  it("strips the originals' metadata from every preset", () => {
+    for (const preset of ["h240", "w3840", "og", "og-site"] as const) {
+      expect(transformOptions(preset, null, origin).metadata).toBe("none");
+    }
   });
 
   const card = {
@@ -107,6 +115,7 @@ describe("transformOptions", () => {
     gravity: "auto",
     format: "jpeg",
     quality: 85,
+    metadata: "none",
   };
   const badge = {
     url: "https://gallery.sksat.net/og-badge.png",
