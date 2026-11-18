@@ -137,7 +137,13 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
   // once it is no longer inert.
   const openSheet = $(async () => {
     await setOpen(true);
-    requestAnimationFrame(() => closeButton.value?.focus());
+    // The render that lifts `inert` may take a few frames.
+    const focus = (frames: number) => {
+      const el = closeButton.value;
+      if (el && !el.closest("[inert]")) el.focus();
+      else if (frames > 0) requestAnimationFrame(() => focus(frames - 1));
+    };
+    requestAnimationFrame(() => focus(30));
   });
 
   const i = info.value;
