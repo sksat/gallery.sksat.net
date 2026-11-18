@@ -13,12 +13,12 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   getCamera,
-  getFileAccess,
+  getPathAccess,
   getMedia,
   getPhotoForImage,
   listCameras,
   listPublicMedia,
-  type FileAccess,
+  type PathAccess,
 } from "./query";
 import type { MediaItemJSON } from "./types";
 import { jsonResponse, parseRoute, type Route } from "./route";
@@ -77,11 +77,12 @@ export default class extends WorkerEntrypoint<Env> {
   }
 
   /**
-   * Whether the image Worker may serve a bucket path by file name (public
-   * photos and camera pictures only; see getFileAccess).
+   * What the image Worker may serve at /img/<path>: a public photo by its
+   * display path (file name level "path"), with its bucket key, or a
+   * camera picture (see getPathAccess).
    */
-  async fileAccess(file: string): Promise<FileAccess | null> {
-    return getFileAccess(this.env.DB, file);
+  async pathAccess(path: string): Promise<PathAccess | null> {
+    return getPathAccess(this.env.DB, path);
   }
 
   /**

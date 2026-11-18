@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseAdminImage,
-  parseImagePath,
+  parseImageUrl,
   pickFormat,
   transformFailed,
   transformOptions,
@@ -46,41 +46,85 @@ describe("parseAdminImage", () => {
   });
 });
 
-describe("parseImagePath", () => {
-  it("parses a preset and a nested file", () => {
-    expect(
-      parseImagePath("/img/h240/VRChat/2023-12/VRChat_2023-12-11_01.png"),
-    ).toEqual({ preset: "h240", file: "/VRChat/2023-12/VRChat_2023-12-11_01.png" });
-  });
+describe("parseImageUrl", () => {
+  const p = (s: string) => parseImageUrl(new URL(s, "https://gallery.sksat.net"));
 
-  it("accepts JPG in any case", () => {
-    expect(parseImagePath("/img/w1200/2023-12-comsys2023/DSC1.JPG")).toEqual({
-      preset: "w1200",
-      file: "/2023-12-comsys2023/DSC1.JPG",
+  it("reads a public id, with or without a size", () => {
+    expect(p("/img/abcdefghjk?size=h240")).toEqual({
+      preset: "h240",
+      id: "abcdefghjk",
     });
-  });
-
-  it("parses a photo's public id", () => {
-    expect(parseImagePath("/img/og/abcdefghjk")).toEqual({
+    expect(p("/img/abcdefghjk")).toEqual({ preset: "w1200", id: "abcdefghjk" });
+    expect(p("/img/abcdefghjk?size=og")).toEqual({
       preset: "og",
+      id: "abcdefghjk",
+    });
+    expect(p("/img/abcdefghjk?size=og-site")).toEqual({
+      preset: "og-site",
       id: "abcdefghjk",
     });
   });
 
+  it("reads a path, nested or top-level, JPG in any case", () => {
+    expect(p("/img/VRChat/2023-12/a.png?size=h480")).toEqual({
+      preset: "h480",
+      path: "/VRChat/2023-12/a.png",
+    });
+    expect(p("/img/2023-12-comsys2023/DSC1.JPG")).toEqual({
+      preset: "w1200",
+      path: "/2023-12-comsys2023/DSC1.JPG",
+    });
+    expect(p("/img/camera/vl2/front.png?size=w1920")).toEqual({
+      preset: "w1920",
+      path: "/camera/vl2/front.png",
+    });
+  });
+
+  it("tells ids and paths apart", () => {
+    // A top-level file named like a public id is a path (it has an
+    // extension; an id never does).
+    expect(p("/img/abcdefghjk.png")).toEqual({
+      preset: "w1200",
+      path: "/abcdefghjk.png",
+    });
+    // A preset name as a folder is just a folder.
+    expect(p("/img/h240/a.png")).toEqual({ preset: "w1200", path: "/h240/a.png" });
+    // The old /img/<preset>/<public_id> form, kept until the gallery has
+    // deployed the new URLs (only without a query).
+    expect(p("/img/h240/abcdefghjk")).toEqual({
+      preset: "h240",
+      id: "abcdefghjk",
+    });
+    expect(p("/img/og/abcdefghjk")).toEqual({ preset: "og", id: "abcdefghjk" });
+    expect(p("/img/h241/abcdefghjk")).toBeNull();
+    // The badge-only card may be asked for a path (camera pictures).
+    expect(p("/img/camera/vl2/a.png?size=og-site")).toEqual({
+      preset: "og-site",
+      path: "/camera/vl2/a.png",
+    });
+  });
+
   it.each([
-    ["malformed public id", "/img/h240/abcdefghjo"],
-    ["public id with a trailing slash", "/img/h240/abcdefghjk/"],
-    ["unknown preset", "/img/h241/a.png"],
-    ["prototype key as preset", "/img/toString/a.png"],
-    ["no file", "/img/h240/"],
-    ["no file segment", "/img/h240"],
-    ["outside /img", "/foo/h240/a.png"],
-    ["dot-dot segment", "/img/h240/../a.png"],
-    ["empty segment", "/img/h240/a//b.png"],
-    ["encoded characters", "/img/h240/a%2F..%2Fb.png"],
-    ["not an image", "/img/h240/media.json"],
-  ])("rejects %s", (_, path) => {
-    expect(parseImagePath(path)).toBeNull();
+    ["an unknown size", "/img/abcdefghjk?size=h241"],
+    ["a prototype key as size", "/img/abcdefghjk?size=toString"],
+    ["two sizes", "/img/abcdefghjk?size=h240&size=h480"],
+    ["another parameter", "/img/abcdefghjk?size=h240&v=2"],
+    ["a captioned card for a path", "/img/a.png?size=og"],
+  ])("answers 400 for %s", (_, url) => {
+    expect(p(url)).toEqual({ status: 400 });
+  });
+
+  it.each([
+    ["a malformed public id", "/img/abcdefghjo"],
+    ["a public id with a trailing slash", "/img/abcdefghjk/"],
+    ["nothing", "/img/"],
+    ["outside /img", "/foo/a.png"],
+    ["a dot-dot segment", "/img/../a.png"],
+    ["an empty segment", "/img/a//b.png"],
+    ["encoded characters", "/img/a%2F..%2Fb.png"],
+    ["not an image", "/img/media.json"],
+  ])("does not find %s", (_, url) => {
+    expect(p(url)).toBeNull();
   });
 });
 
@@ -179,14 +223,6 @@ describe("transformOptions", () => {
       ...card,
       draw: [badge],
     });
-  });
-
-  it("parses the card presets", () => {
-    expect(parseImagePath("/img/og/VRChat/2023-12/a.png")).toEqual({
-      preset: "og",
-      file: "/VRChat/2023-12/a.png",
-    });
-    expect(parseImagePath("/img/og-site/a.png")?.preset).toBe("og-site");
   });
 });
 

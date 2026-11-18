@@ -44,7 +44,7 @@ describe("imageUrl", () => {
   it("never needs the name of a photo whose name is not public", () => {
     const hidden = { id: "abcdefghjk", file: null };
     expect(imageUrl(s3, hidden, base, "h240")).toBe(
-      "https://gallery.sksat.net/img/h240/abcdefghjk",
+      "https://gallery.sksat.net/img/abcdefghjk?size=h240",
     );
     // Without the image Worker there is no URL for it: a stand-in.
     expect(imageUrl(s3, hidden, undefined, "h240")).toBe(HIDDEN_ORIGINAL);
@@ -53,21 +53,21 @@ describe("imageUrl", () => {
 
   it("points at the image Worker preset", () => {
     expect(imageUrl(s3, file, base, "h240")).toBe(
-      "https://gallery.sksat.net/img/h240/VRChat/a.png",
+      "https://gallery.sksat.net/img/VRChat/a.png?size=h240",
     );
   });
 
   it("addresses a photo by its public id", () => {
     const photo = { id: "abcdefghjk", file };
     expect(imageUrl(s3, photo, base, "h240")).toBe(
-      "https://gallery.sksat.net/img/h240/abcdefghjk",
+      "https://gallery.sksat.net/img/abcdefghjk?size=h240",
     );
     expect(imageUrl(s3, photo, undefined, "h240")).toBe(
       originalUrl(s3, file),
     );
     expect(srcSet(s3, photo, base, GRID_CANDIDATES)).toBe(
-      "https://gallery.sksat.net/img/h240/abcdefghjk 1x, " +
-        "https://gallery.sksat.net/img/h480/abcdefghjk 2x",
+      "https://gallery.sksat.net/img/abcdefghjk?size=h240 1x, " +
+        "https://gallery.sksat.net/img/abcdefghjk?size=h480 2x",
     );
   });
 
@@ -85,8 +85,8 @@ describe("srcSet", () => {
 
   it("lists one URL per candidate", () => {
     expect(srcSet(s3, file, base, GRID_CANDIDATES)).toBe(
-      "https://gallery.sksat.net/img/h240/VRChat/a.png 1x, " +
-        "https://gallery.sksat.net/img/h480/VRChat/a.png 2x",
+      "https://gallery.sksat.net/img/VRChat/a.png?size=h240 1x, " +
+        "https://gallery.sksat.net/img/VRChat/a.png?size=h480 2x",
     );
   });
 });

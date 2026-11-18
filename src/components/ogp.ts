@@ -79,6 +79,8 @@ export const ogImage = (
   alt: string,
   preset: "og" | "og-site",
 ): OgImage => ({
+  // A photo by its public id, or a camera picture by its bucket path (the
+  // Worker draws the badge-only `og-site` card for those).
   url: imageUrl(s3Base, src, imageBase, preset),
   alt,
   ...(imageBase

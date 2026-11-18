@@ -1,7 +1,8 @@
 /**
  * Pure request parsing for the image Worker (tested with Vitest).
  *
- * URL shape: /img/<preset>/<file>, e.g. /img/h240/VRChat/2023-12/a.png.
+ * URL shape: /img/<public_id>?size=<preset> or /img/<path>?size=<preset>
+ * (parseImageUrl).
  * Only the presets below can be requested, so the number of distinct
  * transformations (the unit Cloudflare's free tier counts) stays bounded.
  */
@@ -32,8 +33,11 @@ export type ImageRequest =
     }
   | {
       preset: PresetName;
-      /** Path of the original under the bucket, starting with "/". */
-      file: string;
+      /**
+       * A path: a public photo's display path (its file name level is
+       * "path") or a camera picture's bucket path. Starts with "/".
+       */
+      path: string;
     };
 
 /** A photo's public id (workers/api/src/route.ts, admin migration 0003). */
@@ -45,27 +49,73 @@ const IMAGE_EXTENSION = /\.(png|jpe?g)$/i;
 const isPreset = (name: string): name is PresetName =>
   Object.prototype.hasOwnProperty.call(PRESETS, name);
 
+/** The size used when a URL gives none: the overlay's phone size. */
+export const DEFAULT_PRESET: PresetName = "w1200";
+
 /**
- * Parse `/img/<preset>/<public_id>` (gallery photos: the API checks the
- * photo may be shown) or `/img/<preset>/<file>` (a bucket path: the admin's
- * thumbnails, camera pictures, and URLs from before public ids); null for
- * anything else. A file path always has an image extension, so the two
- * never overlap.
+ * A path of an original (a bucket key or a display path): "/" then
+ * segments of [A-Za-z0-9._-] (no "." or ".."), ending in an image
+ * extension. Null otherwise.
  */
-export const parseImagePath = (pathname: string): ImageRequest | null => {
-  const match = /^\/img\/([^/]+)(\/.+)$/.exec(pathname);
-  if (!match) return null;
-  const [, preset, file] = match;
-  if (!isPreset(preset)) return null;
-  if (PUBLIC_ID_RE.test(file.slice(1))) return { preset, id: file.slice(1) };
-  const segments = file.slice(1).split("/");
+export const parseFilePath = (path: string): string | null => {
+  if (!path.startsWith("/")) return null;
+  const segments = path.slice(1).split("/");
   if (
     segments.some((s) => s === "." || s === ".." || !SEGMENT.test(s)) ||
-    !IMAGE_EXTENSION.test(file)
+    !IMAGE_EXTENSION.test(path)
   ) {
     return null;
   }
-  return { preset, file };
+  return path;
+};
+
+/**
+ * Parse a public image URL:
+ *
+ * - `/img/<public_id>?size=<preset>`: a photo by its public id (the API
+ *   checks it may be shown). Card presets (`og`, `og-site`) only here.
+ * - `/img/<path>?size=<preset>`: a public photo by its display path, or a
+ *   camera picture by its bucket path; resize presets, and `og-site` (the
+ *   badge-only card) for camera pictures (checked by the handler).
+ *
+ * A path always has an image extension and a public id never does, so a
+ * single segment of 10 id letters is an id and anything else a path (a
+ * top-level `abcdefghjk.png` is a path). `size` is optional (w1200); it is
+ * the only query parameter. `{ status: 400 }` for a bad query, null (404)
+ * for any other path.
+ */
+export const parseImageUrl = (
+  url: URL,
+): ImageRequest | { status: 400 } | null => {
+  if (!url.pathname.startsWith("/img/")) return null;
+  // Remove after the gallery deploys the new URLs: the old id form
+  // /img/<preset>/<public_id>, which the gallery and og:image tags of the
+  // deployment before this one still request. (Old path forms stay 404.)
+  const legacy = /^\/img\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+  if (
+    legacy &&
+    url.search === "" &&
+    isPreset(legacy[1]) &&
+    PUBLIC_ID_RE.test(legacy[2])
+  ) {
+    return { preset: legacy[1], id: legacy[2] };
+  }
+  const rest = url.pathname.slice("/img".length);
+  for (const key of url.searchParams.keys()) {
+    if (key !== "size") return { status: 400 };
+  }
+  const sizes = url.searchParams.getAll("size");
+  if (sizes.length > 1) return { status: 400 };
+  const size = sizes[0] ?? DEFAULT_PRESET;
+  if (!isPreset(size)) return { status: 400 };
+  if (PUBLIC_ID_RE.test(rest.slice(1)))
+    return { preset: size, id: rest.slice(1) };
+  const path = parseFilePath(rest);
+  if (!path) return null;
+  // Paths get no `og` (its caption is a photo's); `og-site` only if the
+  // handler finds a camera picture there.
+  if (size === "og") return { status: 400 };
+  return { preset: size, path };
 };
 
 export type OutputFormat = "avif" | "webp" | "jpeg";
@@ -155,12 +205,9 @@ export const parseAdminImage = (
   file: unknown,
 ): { preset: PresetName; file: string } | null => {
   if (typeof preset !== "string" || typeof file !== "string") return null;
-  if (preset.includes("/") || !file.startsWith("/")) return null;
-  const parsed = parseImagePath(`/img/${preset}${file}`);
-  if (!parsed || !("file" in parsed) || isCardPreset(parsed.preset)) {
-    return null;
-  }
-  return parsed;
+  if (!isPreset(preset) || isCardPreset(preset)) return null;
+  const path = parseFilePath(file);
+  return path ? { preset, file: path } : null;
 };
 
 /**

@@ -7,7 +7,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   getCamera,
-  getFileAccess,
+  getPathAccess,
   getMedia,
   getPhotoForImage,
   listCameras,
@@ -122,13 +122,14 @@ describe("getMedia", () => {
   });
 });
 
-describe("getFileAccess", () => {
+describe("getPathAccess", () => {
   it("allows public photos (with metadata) and camera pictures", async () => {
     const { db } = setup();
-    const p = await getFileAccess(db, "/p1.png");
+    const p = await getPathAccess(db, "/p1.png");
     expect(p?.kind === "photo" && p.photo.id).toBe("aaaaaaaaa2");
-    expect(await getFileAccess(db, "/c/a.png")).toEqual({
+    expect(await getPathAccess(db, "/c/a.png")).toEqual({
       kind: "camera-image",
+      file: "/c/a.png",
     });
   });
 
@@ -139,18 +140,22 @@ describe("getFileAccess", () => {
       raw,
       "INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/x.png', 5)",
     );
-    expect(await getFileAccess(db, "/x.png")).toBeNull();
-    expect(await getFileAccess(db, "/u.png")).toBeNull();
-    expect(await getFileAccess(db, "/none.png")).toBeNull();
+    expect(await getPathAccess(db, "/x.png")).toBeNull();
+    expect(await getPathAccess(db, "/u.png")).toBeNull();
+    expect(await getPathAccess(db, "/none.png")).toBeNull();
   });
 
-  it("needs the file name public with its folder, and the photo unmoved", async () => {
+  it("finds a photo by its display path, needing the file name public", async () => {
     const { raw, db } = setup();
     run(raw, `UPDATE media SET metadata_visibility = '{"file_name":"name"}' WHERE id = 1`);
-    expect(await getFileAccess(db, "/p1.png")).toBeNull();
+    expect(await getPathAccess(db, "/p1.png")).toBeNull();
+    // Moved: found at the new path, with the bucket key to fetch; the old
+    // path (which would give the old place away) is not found.
     run(raw, "UPDATE media SET path = '/moved/p2.png' WHERE id = 2");
-    expect(await getFileAccess(db, "/p2.png")).toBeNull();
-    expect(await getFileAccess(db, "/moved/p2.png")).toBeNull();
+    expect(await getPathAccess(db, "/p2.png")).toBeNull();
+    const moved = await getPathAccess(db, "/moved/p2.png");
+    expect(moved?.kind === "photo" && moved.photo.file).toBe("/p2.png");
+    expect(moved?.kind === "photo" && moved.photo.path).toBe("/moved/p2.png");
   });
 });
 
@@ -166,7 +171,7 @@ describe("a photo whose file name is hidden", () => {
   });
 
   it("is not served by its bucket path", async () => {
-    expect(await getFileAccess(setup().db, "/p3.png")).toBeNull();
+    expect(await getPathAccess(setup().db, "/p3.png")).toBeNull();
   });
 
   it("gives its file to the image Worker only (RPC)", async () => {
@@ -211,7 +216,7 @@ describe("world and exif", () => {
     const all = JSON.stringify([
       await listPublicMedia(db),
       await getPhotoForImage(db, "aaaaaaaaa3"),
-      await getFileAccess(db, "/p2.png"),
+      await getPathAccess(db, "/p2.png"),
     ]);
     expect(all).not.toContain("usr_secret");
     expect(all).not.toContain("secret-lens");
@@ -228,7 +233,7 @@ describe("location", () => {
     const all = JSON.stringify([
       await listPublicMedia(db),
       await getPhotoForImage(db, "aaaaaaaaa3"),
-      await getFileAccess(db, "/p2.png"),
+      await getPathAccess(db, "/p2.png"),
     ]);
     expect(all).not.toContain("35.68");
     run(
@@ -250,7 +255,7 @@ describe("tags", () => {
       await listPublicMedia(db),
       await getMedia(db, "aaaaaaaaa3"),
       await getPhotoForImage(db, "aaaaaaaaa3"),
-      await getFileAccess(db, "/p2.png"),
+      await getPathAccess(db, "/p2.png"),
     ]);
     expect(everything).toContain("VRChat");
     expect(everything).not.toContain("secret");
@@ -330,7 +335,7 @@ describe("photos in the admin's trash", () => {
     expect(listed).not.toContain("aaaaaaaaa3");
     expect(await getMedia(db, "aaaaaaaaa2")).toBeNull();
     expect(await getMedia(db, "aaaaaaaaa4")).toBeNull(); // unlisted
-    expect(await getFileAccess(db, "/p1.png")).toBeNull();
+    expect(await getPathAccess(db, "/p1.png")).toBeNull();
   });
 
   it("do not make their camera visible", async () => {
@@ -351,7 +356,7 @@ describe("uploads that have not completed", () => {
     expect(await getMedia(db, "aaaaaaaaa8")).toBeNull();
     expect(await getMedia(db, "aaaaaaaaa9")).toBeNull();
     // Also listed as a camera picture: still hidden.
-    expect(await getFileAccess(db, "/up.png")).toBeNull();
+    expect(await getPathAccess(db, "/up.png")).toBeNull();
   });
 
   it("do not make their camera visible", async () => {
@@ -366,7 +371,7 @@ describe("uploads that have not completed", () => {
     const { raw, db } = setup();
     run(raw, "UPDATE media SET status = 'ready'");
     expect((await getMedia(db, "aaaaaaaaa8"))?.file).toBe("/up.png");
-    expect((await getFileAccess(db, "/up.png"))?.kind).toBe("photo");
+    expect((await getPathAccess(db, "/up.png"))?.kind).toBe("photo");
     expect((await getCamera(db, "pentax-sp"))?.slug).toBe("pentax-sp");
   });
 });
