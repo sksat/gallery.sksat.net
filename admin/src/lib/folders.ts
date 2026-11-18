@@ -9,9 +9,59 @@ export type FolderNode = {
   path: string;
   /** Files in this folder and all of its subfolders. */
   count: number;
+  /** Their total size in bytes (files with no recorded size count 0). */
+  bytes: number;
+  /** How many of them are public. */
+  publicCount: number;
   /** Subfolders, sorted by name. */
   children: FolderNode[];
+  /**
+   * The same numbers without the list's filter (set by withAllStats when
+   * a filter is on), so "公開" counts and sizes are the folder's own.
+   */
+  all?: FolderTotals;
 };
+
+export type FolderTotals = {
+  count: number;
+  bytes: number;
+  publicCount: number;
+};
+
+/** The folder's own totals: `all` when filtered, else its numbers. */
+export const folderTotals = (node: FolderNode): FolderTotals =>
+  node.all ?? {
+    count: node.count,
+    bytes: node.bytes,
+    publicCount: node.publicCount,
+  };
+
+/**
+ * Give every folder of `tree` (built from filtered rows) the totals of
+ * the same folder in `unfiltered`.
+ */
+export const withAllStats = (
+  tree: FolderNode,
+  unfiltered: FolderNode,
+): FolderNode => {
+  const walk = (node: FolderNode) => {
+    const other = findFolder(unfiltered, node.path);
+    node.all = other
+      ? {
+          count: other.count,
+          bytes: other.bytes,
+          publicCount: other.publicCount,
+        }
+      : { count: 0, bytes: 0, publicCount: 0 };
+    node.children.forEach(walk);
+  };
+  walk(tree);
+  return tree;
+};
+
+/** A file for buildFolderTree: its path, or the path with size/visibility. */
+export type TreeFile =
+  string | { path: string; size?: number | null; visibility?: string };
 
 /**
  * Normalise a `dir` query value to a folder path: leading slash, no
@@ -41,30 +91,52 @@ const byName = (a: { name: string }, b: { name: string }) =>
  * nothing themselves.
  */
 export const buildFolderTree = (
-  files: readonly string[],
+  files: readonly TreeFile[],
   folders: readonly string[] = [],
 ): FolderNode => {
-  const root: FolderNode = { name: "", path: "/", count: 0, children: [] };
+  const empty = (name: string, path: string): FolderNode => ({
+    name,
+    path,
+    count: 0,
+    bytes: 0,
+    publicCount: 0,
+    children: [],
+  });
+  const root = empty("", "/");
   const index = new Map<string, FolderNode>([["/", root]]);
-  /** Walk to `dir`, creating nodes; add `n` to every folder on the way. */
-  const visit = (dir: string, n: number) => {
-    root.count += n;
+  type Add = { count: number; bytes: number; publicCount: number };
+  const add = (node: FolderNode, a: Add) => {
+    node.count += a.count;
+    node.bytes += a.bytes;
+    node.publicCount += a.publicCount;
+  };
+  /** Walk to `dir`, creating nodes; add `a` to every folder on the way. */
+  const visit = (dir: string, a: Add) => {
+    add(root, a);
     let node = root;
     for (const segment of dir === "/" ? [] : dir.slice(1).split("/")) {
       const path =
         node.path === "/" ? `/${segment}` : `${node.path}/${segment}`;
       let child = index.get(path);
       if (!child) {
-        child = { name: segment, path, count: 0, children: [] };
+        child = empty(segment, path);
         index.set(path, child);
         node.children.push(child);
       }
-      child.count += n;
+      add(child, a);
       node = child;
     }
   };
-  for (const file of files) visit(dirOf(file), 1);
-  for (const folder of folders) visit(normalizeDir(folder), 0);
+  for (const f of files) {
+    const file = typeof f === "string" ? { path: f } : f;
+    visit(dirOf(file.path), {
+      count: 1,
+      bytes: file.size ?? 0,
+      publicCount: file.visibility === "public" ? 1 : 0,
+    });
+  }
+  const none = { count: 0, bytes: 0, publicCount: 0 };
+  for (const folder of folders) visit(normalizeDir(folder), none);
   for (const node of index.values()) node.children.sort(byName);
   return root;
 };

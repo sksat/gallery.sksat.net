@@ -10,14 +10,14 @@ import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 describe("filesQuery", () => {
   it("selects only what the files view needs, by path, one past the limit", () => {
     expect(filesQuery({ limit: 10 })).toEqual({
-      sql: "SELECT id, file, path, platform FROM media WHERE status = 'ready' AND trashed_at IS NULL ORDER BY path LIMIT ?",
+      sql: "SELECT id, file, path, platform, visibility, size FROM media WHERE status = 'ready' AND trashed_at IS NULL ORDER BY path LIMIT ?",
       args: [11],
     });
   });
 
   it("applies the platform filter and an escaped substring of the path", () => {
     expect(filesQuery({ platform: "VRChat", q: "50%_x", limit: 5 })).toEqual({
-      sql: "SELECT id, file, path, platform FROM media WHERE status = 'ready' AND trashed_at IS NULL AND platform = ? AND path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?",
+      sql: "SELECT id, file, path, platform, visibility, size FROM media WHERE status = 'ready' AND trashed_at IS NULL AND platform = ? AND path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?",
       args: ["VRChat", "%50\\%\\_x%", 6],
     });
   });

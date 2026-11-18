@@ -81,6 +81,7 @@ import {
   newFolderPath,
   normalizeDir,
   validateFolderPath,
+  withAllStats,
   type FolderNode,
 } from "~/lib/folders";
 import {
@@ -178,10 +179,16 @@ export const useMediaList = routeLoader$<MediaListResult>(
         onPlatform || visibility || q ? [] : await listFolders(db);
       // Folders are where photos are shown (path), not where their files
       // are in the bucket.
-      const tree = buildFolderTree(
-        rows.map((r) => r.path),
-        folders,
-      );
+      const filtered = Boolean(onPlatform || visibility || q);
+      // Sizes and 公開 counts are each folder's own, filter or not.
+      const tree = filtered
+        ? withAllStats(
+            buildFolderTree(rows, folders),
+            buildFolderTree(
+              (await listMediaFiles(db, { limit: FILES_LIMIT })).rows,
+            ),
+          )
+        : buildFolderTree(rows, folders);
       return {
         kind: "ok",
         view: "files",

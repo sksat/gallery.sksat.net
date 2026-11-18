@@ -4,6 +4,7 @@ import {
   buildFolderTree,
   dirOf,
   filesInDir,
+  folderTotals,
   findFolder,
   isWithin,
   MAX_FOLDER_DEPTH,
@@ -13,6 +14,7 @@ import {
   normalizeDir,
   validateFolderName,
   validateFolderPath,
+  withAllStats,
 } from "./folders";
 
 const FILES = [
@@ -76,8 +78,42 @@ describe("buildFolderTree", () => {
       name: "",
       path: "/",
       count: 0,
+      bytes: 0,
+      publicCount: 0,
       children: [],
     });
+  });
+
+  it("keeps each folder's own totals under a filter", () => {
+    const all = buildFolderTree([
+      { path: "/a/x.png", size: 100, visibility: "public" },
+      { path: "/a/y.png", size: 50, visibility: "private" },
+    ]);
+    const filtered = withAllStats(
+      buildFolderTree([{ path: "/a/x.png", size: 100, visibility: "public" }]),
+      all,
+    );
+    const a = findFolder(filtered, "/a");
+    expect(a?.count).toBe(1);
+    expect(a && folderTotals(a)).toEqual({
+      count: 2,
+      bytes: 150,
+      publicCount: 1,
+    });
+  });
+
+  it("adds up sizes and public photos recursively", () => {
+    const t = buildFolderTree([
+      { path: "/a/x.png", size: 100, visibility: "public" },
+      { path: "/a/b/y.png", size: 50, visibility: "private" },
+      { path: "/a/b/z.png", size: null, visibility: "public" },
+      { path: "/top.png", size: 7, visibility: "unlisted" },
+    ]);
+    expect([t.count, t.bytes, t.publicCount]).toEqual([4, 157, 2]);
+    const a = findFolder(t, "/a");
+    expect([a?.count, a?.bytes, a?.publicCount]).toEqual([3, 150, 2]);
+    const b = findFolder(t, "/a/b");
+    expect([b?.count, b?.bytes, b?.publicCount]).toEqual([2, 50, 1]);
   });
 });
 
@@ -156,6 +192,8 @@ describe("buildFolderTree with created folders", () => {
       name: "deep",
       path: "/new/deep",
       count: 0,
+      bytes: 0,
+      publicCount: 0,
       children: [],
     });
   });
