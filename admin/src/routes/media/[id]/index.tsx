@@ -11,6 +11,7 @@ import {
   type DocumentHead,
 } from "@builder.io/qwik-city";
 import { MissingBindingError } from "~/components/missing-binding-error";
+import { PhotoViews } from "~/components/photo-views";
 import { StatePanel } from "~/components/state-panel";
 import { SubmitButton } from "~/components/submit-button";
 import { Toast, type ToastState } from "~/components/toast";
@@ -589,6 +590,7 @@ export default component$(() => {
           <span class={worldBadge(row.world)}>{row.world}</span>
           <VisibilityBadge visibility={row.visibility} />
         </div>
+        <PhotoViews public_id={row.public_id} legacy_index={row.legacy_index} />
       </div>
 
       {/* A tap opens the photo full screen (shared/overlay/ look). */}

@@ -22,10 +22,56 @@ test("dashboard: storage card adds up the fixture", async ({ page }) => {
   await expect(storage).toContainText("アップロード中 なし");
 });
 
-test("dashboard: D1 card without the analytics token", async ({ page }) => {
+// The analytics numbers come from e2e/fake-graphql.mjs (the E2E server's
+// token is a test value; the real API is never asked).
+test("dashboard: D1 card with today's reads and writes", async ({ page }) => {
   await page.goto("/");
   const d1 = page.getByRole("region", { name: "D1" });
   await expect(d1).toContainText("データベースのサイズ");
   await expect(d1).toContainText("/ 500 MB");
-  await expect(d1).toContainText("読み書きの回数は API トークン設定後に表示");
+  await expect(d1).toContainText("45,000 / 5,000,000 (0.9%)");
+  await expect(d1).toContainText("300 / 100,000 (0.3%)");
+});
+
+test("dashboard: access card", async ({ page }) => {
+  await page.goto("/");
+  const card = page.getByRole("region", { name: "アクセス" });
+  await expect(card).toContainText("ページビュー約 250");
+  await expect(card).toContainText("訪問約 140");
+  await expect(
+    card.getByRole("link", { name: "7 日", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+
+  // Photo 2 adds up /photo/aaaaaaaaa3/ and its old /photo/1; links to its
+  // edit page. An unknown public id is left out.
+  const photos = card.getByRole("listitem").filter({ hasText: "PV" });
+  await expect(photos).toHaveCount(2);
+  await expect(photos.nth(0)).toContainText("/mock/vrchat1.png");
+  await expect(photos.nth(0)).toContainText("50 PV");
+  await expect(photos.nth(1)).toContainText("/mock/vrchat2.png");
+  await expect(photos.nth(0).getByRole("link")).toHaveAttribute(
+    "href",
+    "/media/2/",
+  );
+
+  await expect(card).toContainText("日本");
+  await expect(card).toContainText("t.co");
+  await expect(card).toContainText("(直接)");
+  // The admin is not a referrer.
+  await expect(card).not.toContainText("admin.gallery.sksat.net");
+
+  await card.getByRole("link", { name: "24 時間" }).click();
+  await expect(page).toHaveURL(/\?range=24h$/);
+  await expect(card.getByRole("link", { name: "24 時間" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(card).toContainText("時間ごとのページビュー");
+});
+
+test("media edit page: the photo's views", async ({ page }) => {
+  await page.goto("/media/2/");
+  await expect(page.getByTestId("photo-views")).toHaveText(
+    "閲覧数 (概数) 7 日 50 · 30 日 50",
+  );
 });

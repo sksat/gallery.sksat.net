@@ -1,12 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  GRAPHQL_ENDPOINT,
-  fetchD1Usage,
-  formatCount,
-  getAnalyticsConfig,
-  parseD1Usage,
-  type SimpleCache,
-} from "./d1-usage";
+import { GRAPHQL_ENDPOINT, formatCount, type SimpleCache } from "./cf-graphql";
+import { fetchD1Usage, getAnalyticsConfig, parseD1Usage } from "./d1-usage";
 
 const cfg = { token: "t0k", accountId: "acc", databaseId: "db-1" };
 const now = new Date("2026-11-18T03:04:05Z");

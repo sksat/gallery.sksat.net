@@ -41,7 +41,14 @@ NOAUTH_PID=$!
 FAKE_B2_PORT=$((PORT + 2))
 node e2e/fake-b2.mjs "$FAKE_B2_PORT" sksat-gallery e2e-key-id e2e-secret us-west-002 &
 FAKE_B2_PID=$!
-trap 'kill "$NOAUTH_PID" "$FAKE_B2_PID" 2>/dev/null || true' EXIT INT TERM
+
+# The dashboard's usage and access cards ask a fake GraphQL Analytics API
+# on PORT+3 (e2e/fake-graphql.mjs) with this test token. Never the real one.
+FAKE_GRAPHQL_PORT=$((PORT + 3))
+node e2e/fake-graphql.mjs "$FAKE_GRAPHQL_PORT" e2e-analytics-token \
+  5e9a7cb92cdd4aedafe02f1f547e7b4c gallery.sksat.net &
+FAKE_GRAPHQL_PID=$!
+trap 'kill "$NOAUTH_PID" "$FAKE_B2_PID" "$FAKE_GRAPHQL_PID" 2>/dev/null || true' EXIT INT TERM
 
 # ACCESS_DISABLED=1: there is no Cloudflare Access in front of the local
 # server, so skip JWT verification for the functional E2E server only.
@@ -59,5 +66,7 @@ pnpm exec wrangler pages dev ./dist \
   --binding B2_UPLOAD_KEY_ID=e2e-key-id \
   --binding B2_UPLOAD_APPLICATION_KEY=e2e-secret \
   --binding "E2E_FAKE_B2_STAT_URL=http://127.0.0.1:${FAKE_B2_PORT}/__stat" \
+  --binding CF_ANALYTICS_API_TOKEN=e2e-analytics-token \
+  --binding "E2E_FAKE_GRAPHQL_URL=http://127.0.0.1:${FAKE_GRAPHQL_PORT}/" \
   --ip 127.0.0.1 --port "$PORT" &
 wait $!

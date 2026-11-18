@@ -1,69 +1,111 @@
 import { component$ } from "@builder.io/qwik";
 import { Link, routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
+import { AccessCard, type TopPhoto } from "~/components/access-card";
 import { D1Card } from "~/components/d1-card";
 import { StorageCard } from "~/components/storage-card";
 import { buttonSecondary, card, muted } from "~/components/ui";
+import { defaultCache, graphqlEndpoint } from "~/lib/cf-graphql";
 import {
   fetchD1Usage,
   getAnalyticsConfig,
   type D1UsageResult,
-  type SimpleCache,
 } from "~/lib/d1-usage";
-import { getDB } from "~/lib/env";
+import { getDB, getImageBase } from "~/lib/env";
 import {
   fetchStorageRows,
   summarizeStorage,
   type StorageSummary,
 } from "~/lib/storage";
+import {
+  fetchAccess,
+  getWebAnalyticsConfig,
+  parseAccessRange,
+  photoRefsOf,
+  photoRowsFor,
+  topPhotos,
+  type AccessRange,
+  type AccessResult,
+} from "~/lib/web-analytics";
 
 type DashboardData = {
   /** null without a D1 binding (pnpm dev, previews); "error" if the query failed. */
   storage: StorageSummary | null | "error";
   dbBytes: number | null;
   usage: D1UsageResult;
+  range: AccessRange;
+  access: AccessResult;
+  photos: TopPhoto[];
+  imageBase: string | null;
 };
 
-// The Workers Cache API (caches.default), absent outside workerd.
-const defaultCache = (): SimpleCache | null => {
-  const c = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  return c
-    ? {
-        match: (key) => c.match(new Request(key)),
-        put: (key, res) => c.put(new Request(key), res),
-      }
-    : null;
+// Most viewed photos: the photo pages of the access stats mapped to rows.
+const topPhotosOf = async (
+  db: D1Database | null,
+  access: AccessResult,
+): Promise<TopPhoto[]> => {
+  if (!db || access.kind !== "ok") return [];
+  try {
+    const rows = await photoRowsFor(db, photoRefsOf(access.stats.pages));
+    return topPhotos(access.stats.pages, rows);
+  } catch (err) {
+    console.error("/ loader: photo lookup failed:", err);
+    return [];
+  }
 };
 
-// The dashboard renders without D1 (the cards then say so), so a missing
-// binding is not an error page here.
+// The dashboard renders without D1 or the analytics token (the cards then
+// say so), so neither is an error page here.
 export const useDashboard = routeLoader$<DashboardData>(
-  async ({ platform }) => {
-    const usagePromise = fetchD1Usage(getAnalyticsConfig(platform), {
+  async ({ platform, url }) => {
+    const deps = {
       fetch,
       cache: defaultCache(),
       now: new Date(),
-    });
-    let db: D1Database;
+      endpoint: graphqlEndpoint(platform, url),
+    };
+    const range = parseAccessRange(url.searchParams.get("range"));
+    const usagePromise = fetchD1Usage(getAnalyticsConfig(platform), deps);
+    const accessPromise = fetchAccess(
+      getWebAnalyticsConfig(platform),
+      range,
+      deps,
+    );
+    const imageBase = getImageBase(platform);
+    let db: D1Database | null = null;
     try {
       db = getDB(platform);
     } catch (err) {
       console.error("/ loader: getDB failed:", err);
-      return { storage: null, dbBytes: null, usage: await usagePromise };
     }
-    const [storage, usage] = await Promise.all([
-      fetchStorageRows(db).catch((err) => {
-        console.error("/ loader: storage query failed:", err);
-        return null;
-      }),
+    const [storage, usage, access] = await Promise.all([
+      db
+        ? fetchStorageRows(db).catch((err) => {
+            console.error("/ loader: storage query failed:", err);
+            return "error" as const;
+          })
+        : null,
       usagePromise,
+      accessPromise,
     ]);
-    return storage
-      ? {
-          storage: summarizeStorage(storage.rows),
-          dbBytes: storage.dbBytes,
-          usage,
-        }
-      : { storage: "error", dbBytes: null, usage };
+    const photos = await topPhotosOf(db, access);
+    // The card lists only the top pages; the rest (up to PAGE_LIMIT) were
+    // for the photo ranking and stay out of the page's serialized data.
+    const shown: AccessResult =
+      access.kind === "ok"
+        ? {
+            kind: "ok",
+            stats: { ...access.stats, pages: access.stats.pages.slice(0, 10) },
+          }
+        : access;
+    const common = { usage, range, access: shown, photos, imageBase };
+    if (storage === null || storage === "error") {
+      return { ...common, storage, dbBytes: null };
+    }
+    return {
+      ...common,
+      storage: summarizeStorage(storage.rows),
+      dbBytes: storage.dbBytes,
+    };
   },
 );
 
@@ -87,6 +129,13 @@ export default component$(() => {
         </div>
         <D1Card dbBytes={data.value.dbBytes} usage={data.value.usage} />
       </div>
+
+      <AccessCard
+        range={data.value.range}
+        access={data.value.access}
+        photos={data.value.photos}
+        imageBase={data.value.imageBase}
+      />
 
       <div class="grid gap-4 md:grid-cols-2">
         <section class={[card, "flex flex-col p-5"]}>
