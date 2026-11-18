@@ -1,7 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // The edit page on a phone: the save bar, prev/next through the list it was
-// opened from, the unsaved-changes guard and the folded metadata.
+// opened from (links and swipes on the photo), the unsaved-changes guard
+// and the folded metadata.
 // Fixture (e2e/fixture.sql): VRChat rows by date desc are #5, #4, #2.
 test.use({
   viewport: { width: 390, height: 844 },
@@ -87,6 +88,95 @@ test("unsaved changes ask before leaving", async ({ page }) => {
   await expect(page.getByLabel("Tags (comma-separated)")).not.toHaveValue(
     "not saved",
   );
+});
+
+/** A horizontal (or vertical) swipe of `dx` px on `selector`. */
+const swipeOn = (page: Page, selector: string, dx: number, dy = 0) =>
+  page.locator(selector).evaluate(
+    (el, [dx, dy]) => {
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      const touch = (tx: number, ty: number) =>
+        new Touch({ identifier: 1, target: el, clientX: tx, clientY: ty });
+      el.dispatchEvent(
+        new TouchEvent("touchstart", {
+          bubbles: true,
+          touches: [touch(x, y)],
+          changedTouches: [touch(x, y)],
+        }),
+      );
+      el.dispatchEvent(
+        new TouchEvent("touchend", {
+          bubbles: true,
+          touches: [],
+          changedTouches: [touch(x + dx, y + dy)],
+        }),
+      );
+    },
+    [dx, dy],
+  );
+
+const photo = 'button[aria-label="写真を全画面で表示"]';
+
+test("swipe the photo to step, like ←/→", async ({ page }) => {
+  await page.goto("/media/?platform=VRChat");
+  await page
+    .getByTestId("media-card")
+    .filter({ hasText: "vrchat3.png" })
+    .getByText("vrchat3.png")
+    .tap();
+  await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
+
+  // To the left: the next photo; to the right: back.
+  await swipeOn(page, photo, -120);
+  await expect(page.getByRole("heading", { name: "Edit #4" })).toBeVisible();
+  await expect(page.getByTestId("position")).toHaveText("2 / 3");
+  await swipeOn(page, photo, 120);
+  await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
+
+  // A mostly vertical move is a scroll, and the form is not a swipe area.
+  await swipeOn(page, photo, -60, 120);
+  await swipeOn(page, "form[aria-busy]", -120);
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
+
+  // Unsaved edits ask first, as with the keys; cancel stays.
+  await page.getByLabel("Tags (comma-separated)").fill("not saved");
+  page.once("dialog", (d) => d.dismiss());
+  await swipeOn(page, photo, -120);
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
+  await expect(page.getByLabel("Tags (comma-separated)")).toHaveValue(
+    "not saved",
+  );
+});
+
+test("no swipe while a save is running", async ({ page }) => {
+  await page.goto("/media/?platform=VRChat");
+  await page
+    .getByTestId("media-card")
+    .filter({ hasText: "vrchat2.png" })
+    .getByText("vrchat2.png")
+    .tap();
+  await expect(page.getByRole("heading", { name: "Edit #4" })).toBeVisible();
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  await page.route(/qaction=/, async (route) => {
+    if (route.request().method() === "POST") await released;
+    await route.continue();
+  });
+  // A save (even without changes) is running: the photo stays.
+  await page.getByRole("button", { name: "Save" }).tap();
+  await expect(page.locator('form[aria-busy="true"]')).toHaveCount(1);
+  await swipeOn(page, photo, -120);
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("heading", { name: "Edit #4" })).toBeVisible();
+  release();
+  await expect(page.getByText(/^Saved at /)).toBeVisible();
+  // Once saved it steps again.
+  await swipeOn(page, photo, -120);
+  await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
 });
 
 test("a choice survives the page re-rendering around the form", async ({
