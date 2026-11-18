@@ -34,6 +34,7 @@ type RawRow = {
   world_id?: string | null;
   world_name?: string | null;
   world_author_id?: string | null;
+  trashed_at?: string | null;
   updated_at: string;
 };
 
@@ -96,6 +97,7 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     world_id: raw.world_id ?? null,
     world_name: raw.world_name ?? null,
     world_author_id: raw.world_author_id ?? null,
+    trashed_at: raw.trashed_at ?? null,
     updated_at: raw.updated_at,
   };
 };

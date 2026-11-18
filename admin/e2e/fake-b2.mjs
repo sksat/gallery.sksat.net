@@ -14,6 +14,7 @@ import { createServer } from "node:http";
 
 const [port, bucket, keyId, secret, region] = process.argv.slice(2);
 const uploads = [];
+let versions = 0;
 
 const enc = (s) =>
   encodeURIComponent(s).replace(
@@ -43,7 +44,11 @@ const checkSignature = (req, url) => {
   if (!(Date.now() < t + Number(q.get("X-Amz-Expires")) * 1000)) {
     return "expired";
   }
-  for (const h of ["host", "content-type", "x-amz-meta-sha256"]) {
+  const required =
+    req.method === "PUT"
+      ? ["host", "content-type", "x-amz-meta-sha256"]
+      : ["host"];
+  for (const h of required) {
     if (!signed.includes(h)) return `unsigned ${h}`;
   }
   const query = [...q]
@@ -112,6 +117,53 @@ createServer((req, res) => {
     res.end(JSON.stringify({ size: found.size, sha256: found.sha256 }));
     return;
   }
+  // Deleting for good (admin's b2-delete.ts): ListObjectVersions, then a
+  // DELETE per versionId. Keys containing "nodelete" answer 403, like a
+  // key without the deleteFiles capability.
+  if (
+    (req.method === "GET" && url.pathname === `/${bucket}`) ||
+    (req.method === "DELETE" && url.pathname.startsWith(`/${bucket}/`))
+  ) {
+    const bad = checkSignature(req, url);
+    if (bad) {
+      res.writeHead(403, { "Content-Type": "text/plain" }).end(bad);
+      return;
+    }
+    if (req.method === "GET") {
+      if (!url.searchParams.has("versions")) {
+        res.writeHead(400).end();
+        return;
+      }
+      const prefix = url.searchParams.get("prefix") ?? "";
+      const xml = uploads
+        .filter((u) => u.key.slice(1).startsWith(prefix))
+        .map(
+          (u) =>
+            `<Version><Key>${u.key.slice(1)}</Key><VersionId>${u.versionId}</VersionId></Version>`,
+        )
+        .join("");
+      res.writeHead(200, { "Content-Type": "application/xml" });
+      res.end(
+        `<?xml version="1.0" encoding="UTF-8"?><ListVersionsResult><IsTruncated>false</IsTruncated>${xml}</ListVersionsResult>`,
+      );
+      return;
+    }
+    const key = url.pathname.slice(bucket.length + 1);
+    if (key.includes("nodelete")) {
+      res.writeHead(403).end("AccessDenied");
+      return;
+    }
+    const i = uploads.findIndex(
+      (u) => u.key === key && u.versionId === url.searchParams.get("versionId"),
+    );
+    if (i < 0) {
+      res.writeHead(404).end();
+      return;
+    }
+    uploads.splice(i, 1);
+    res.writeHead(204).end();
+    return;
+  }
   if (req.method !== "PUT" || !url.pathname.startsWith(`/${bucket}/`)) {
     res.writeHead(404).end();
     return;
@@ -134,6 +186,7 @@ createServer((req, res) => {
       return;
     }
     uploads.push({
+      versionId: `v${++versions}`,
       key: url.pathname.slice(bucket.length + 1),
       size,
       sha256,

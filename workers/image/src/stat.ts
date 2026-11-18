@@ -2,7 +2,7 @@
  * What the bucket has at a path, for the admin's upload check (the
  * AdminImage entrypoint's `stat`; tested with Vitest).
  *
- * The admin's upload key is B2 "Write Only" and cannot read the bucket;
+ * The admin's B2 key has no readFiles and cannot read the bucket;
  * this Worker's key can. So the admin asks here, after the browser's PUT,
  * whether the object exists with the size and SHA-256 metadata it
  * announced, before it marks the photo ready.

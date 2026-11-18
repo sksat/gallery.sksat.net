@@ -1,6 +1,6 @@
-// How the admin checks what an upload put in the bucket. Its own B2 key is
-// "Write Only" (no HEAD), so production asks the image Worker, whose key
-// can read, through the AdminImage entrypoint's `stat` (Access JWT
+// How the admin checks what an upload put in the bucket. Its own B2 key has
+// writeFiles + listFiles + deleteFiles but no readFiles (no HEAD), so
+// production asks the image Worker, whose key can read, through the AdminImage entrypoint's `stat` (Access JWT
 // checked there too). The local E2E server instead binds
 // E2E_FAKE_B2_STAT_URL to the fake bucket (e2e/fake-b2.mjs), honoured only
 // on loopback hostnames like ACCESS_DISABLED.
