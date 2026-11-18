@@ -81,6 +81,19 @@ export const pickFormat = (accept: string | null): OutputFormat => {
 };
 
 /**
+ * An Accept header without AVIF, for a photo whose public metadata goes
+ * into the image as EXIF: that is done for JPEG and WebP only
+ * (exif-embed.ts), so such a photo is never negotiated to AVIF.
+ */
+export const withoutAvif = (accept: string | null): string | null =>
+  accept === null
+    ? null
+    : accept
+        .split(",")
+        .filter((t) => !/^\s*image\/avif\b/i.test(t))
+        .join(",");
+
+/**
  * Card assets, served by Cloudflare Pages from public/ on the same host as
  * the Worker. Regenerate them with workers/image/og-assets.sh.
  */

@@ -2,6 +2,8 @@
  * The Worker's handlers with the platform stubbed out: which paths use the
  * edge cache. The admin's private images must never reach it.
  */
+import { readFileSync } from "node:fs";
+import exifr from "exifr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("cloudflare:workers", () => ({
@@ -208,6 +210,93 @@ describe("a photo whose file name is not public", () => {
     // ...and fails (503) for a hidden name, rather than guessing.
     const oldHidden = { ...hiddenName, API: { ...hiddenName.API, photo: old.API.photo } };
     expect((await getWith(oldHidden, `/img/h240/${ID}`)).status).toBe(503);
+  });
+});
+
+describe("public EXIF", () => {
+  const webp = new Uint8Array(
+    readFileSync(new URL("./fixtures/lossy.webp", import.meta.url)),
+  );
+  const withMeta = {
+    ...photo,
+    timestamp: "2026-11-18T01:02:03+09:00",
+    timestamp_precision: "date",
+    camera: { slug: null, name: "Sony", manufacturer: "Sony", model: null },
+    exif: { f_number: 2.8, iso: 100 },
+    location: null,
+    world: null,
+  };
+  const metaEnv = (p: unknown) => ({
+    ...env,
+    API: {
+      fetch: async () => Response.json(p),
+      fileAccess: async () => ({ kind: "photo" as const, photo: p }),
+    },
+  });
+  const formats: string[] = [];
+  const stubWebp = () => {
+    formats.length = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { cf?: { image?: { format?: string } } }) => {
+        transforms.push(url);
+        formats.push(init?.cf?.image?.format ?? "");
+        return new Response(webp, {
+          headers: { "Content-Type": "image/webp", "Content-Length": "62" },
+        });
+      }),
+    );
+  };
+  const getWith = (e: unknown, path: string) =>
+    worker.fetch(
+      new Request(`https://gallery.sksat.net${path}`, {
+        headers: { Accept: AVIF },
+      }),
+      e as never,
+      ctx,
+    );
+
+  it("embeds only the public fields, as WebP instead of AVIF", async () => {
+    stubWebp();
+    const res = await getWith(metaEnv(withMeta), `/img/w1200/${ID}`);
+    expect(res.status).toBe(200);
+    expect(formats).toEqual(["webp"]);
+    expect(res.headers.get("Content-Length")).toBeNull();
+    // Its own validator, tied to the EXIF in it.
+    expect(res.headers.get("ETag")).toMatch(/^W\/"62-[0-9a-f]{16}"$/);
+    // exifr does not read WebP: take the EXIF chunk out, parse that.
+    const out = new Uint8Array(await res.arrayBuffer());
+    const at = Buffer.from(out).indexOf("EXIF");
+    const size = new DataView(out.buffer).getUint32(at + 4, true);
+    const tiff = await exifr.parse(Buffer.from(out.subarray(at + 8, at + 8 + size)), {
+      tiff: true,
+      exif: true,
+      gps: true,
+      translateKeys: false,
+      reviveValues: false,
+      mergeOutput: false,
+    });
+    // Make only (the camera's level is "manufacturer"), nothing else.
+    expect(tiff.ifd0).toEqual({ 0x010f: "Sony" });
+    // Date precision: the time blank (exifr trims the trailing blanks).
+    expect(tiff.exif[0x9003]).toBe("2026:11:18   :  :");
+    expect(tiff.exif[0x829d]).toBeCloseTo(2.8);
+    expect(tiff.exif[0x8827]).toBe(100);
+    expect(tiff.gps).toBeUndefined();
+    // The edge cache keys on what was embedded.
+    await Promise.all(pending);
+    expect([...store.keys()][0]).toMatch(/format=webp&exif=[0-9a-f]{16}$/);
+  });
+
+  it("leaves photos without public metadata, and cards, alone", async () => {
+    stubWebp();
+    const res = await getWith(metaEnv(photo), `/img/w1200/${ID}`);
+    expect(formats).toEqual(["avif"]);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(webp);
+    formats.length = 0;
+    const card = await getWith(metaEnv(withMeta), `/img/og/${ID}`);
+    expect(formats).toEqual(["jpeg"]);
+    expect(new Uint8Array(await card.arrayBuffer())).toEqual(webp);
   });
 });
 

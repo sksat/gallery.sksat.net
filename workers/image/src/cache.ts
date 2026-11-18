@@ -25,7 +25,10 @@ export const CACHE_STATUS_HEADER = "X-Image-Cache";
  * on the Worker's own `origin`. The Accept-dependent format is part of the
  * key, so browsers that differ in AVIF/WebP support get separate entries.
  * A photo by public id and by bucket path share an entry. `og` cards also
- * key on their caption, which changes with the photo's metadata.
+ * key on their caption, which changes with the photo's metadata; resized
+ * photos on a digest of the EXIF embedded in them (`exif`), so a change to
+ * what is public gets a new entry instead of waiting for the old one to
+ * expire. (Browsers may still keep the old image for its max-age, 1 h.)
  */
 export const edgeCacheKey = (
   origin: string,
@@ -33,9 +36,11 @@ export const edgeCacheKey = (
   file: string,
   accept: string | null,
   caption: Caption = {},
+  exif: string | null = null,
 ): string => {
   const url = new URL(`/img/${preset}${file}`, origin);
   url.searchParams.set("format", outputFormat(preset, accept));
+  if (exif) url.searchParams.set("exif", exif);
   if (preset === "og") {
     if (caption.primary) url.searchParams.set("primary", caption.primary);
     if (caption.secondary) url.searchParams.set("secondary", caption.secondary);
