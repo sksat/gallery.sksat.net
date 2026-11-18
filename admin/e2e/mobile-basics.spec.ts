@@ -24,7 +24,10 @@ const holdActions = async (page: Page) => {
 test("form controls use 16px text on phones", async ({ page }) => {
   await page.goto("/media/2/");
   const sizes = await page
-    .locator("main input:not([type=radio]):not([type=hidden]), main select")
+    // Fields that take typing (iOS zooms into those under 16px).
+    .locator(
+      "main input:not([type=radio]):not([type=checkbox]):not([type=hidden]), main select",
+    )
     .evaluateAll((els) =>
       els.map((el) => parseFloat(getComputedStyle(el).fontSize)),
     );

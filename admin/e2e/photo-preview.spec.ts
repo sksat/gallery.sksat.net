@@ -110,8 +110,11 @@ test("closing before the larger image arrives cancels its download", async ({
     if (r.url().includes("/w1920/")) failed.push(r.url());
   });
   await page.goto("/e2e/preview/");
+  const requested = page.waitForRequest(/\/w1920\//);
   await page.getByRole("button", { name: "写真を全画面で表示" }).click();
   await expect(page.getByTestId("fullscreen-thumb")).toBeVisible();
+  // (Once the download has started.)
+  await requested;
   await page.keyboard.press("Escape");
   await expect(fullscreen(page)).toBeHidden();
   await expect.poll(() => failed.length).toBe(1);

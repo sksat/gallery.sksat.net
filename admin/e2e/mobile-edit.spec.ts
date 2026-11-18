@@ -105,7 +105,9 @@ test("a choice survives the page re-rendering around the form", async ({
 
 test("file and last updated are folded away", async ({ page }) => {
   await page.goto("/media/2/");
-  const file = page.getByText("vrchat1.png", { exact: true });
+  const file = page
+    .locator("#media-meta")
+    .getByText("vrchat1.png", { exact: true });
   await expect(file).toBeHidden();
   await expect(page.getByTestId("public-url")).toBeVisible();
   await page.getByRole("button", { name: "ファイル・更新日時" }).tap();

@@ -1,10 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-test("media list: renders fixture rows and filters by world", async ({ page }) => {
+test("media list: renders fixture rows and filters by world", async ({
+  page,
+}) => {
   const response = await page.goto("/media/");
   expect(response?.status()).toBe(200);
 
-  await expect(page.getByRole("heading", { name: /Media \(5\)/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Media \(5\)/ }),
+  ).toBeVisible();
   await expect(page.locator("table tbody tr")).toHaveCount(5);
 
   await page.locator('select[name="world"]').selectOption("VRChat");

@@ -84,8 +84,9 @@ export const neighborsQuery = (
   const order = list.view === "files" ? FILES_ORDER : LIST_ORDER;
   return {
     sql:
-      `SELECT prev_id, next_id, pos, total FROM (SELECT id,` +
+      `SELECT prev_id, next_id, prev_file, next_file, pos, total FROM (SELECT id,` +
       ` LAG(id) OVER w AS prev_id, LEAD(id) OVER w AS next_id,` +
+      ` LAG(file) OVER w AS prev_file, LEAD(file) OVER w AS next_file,` +
       ` ROW_NUMBER() OVER w AS pos, COUNT(*) OVER () AS total` +
       ` FROM media${whereSql} WINDOW w AS (ORDER BY ${order})) WHERE id = ?`,
     args: [...args, id],
@@ -95,6 +96,9 @@ export const neighborsQuery = (
 export type NeighborRow = {
   prev_id: number | null;
   next_id: number | null;
+  /** Their files (to preload their images); absent in older callers. */
+  prev_file?: string | null;
+  next_file?: string | null;
   pos: number;
   total: number;
 };
@@ -103,6 +107,9 @@ export type Neighbors = {
   /** Edit page hrefs (keeping the list in `?back=`), or null at an end. */
   prev: string | null;
   next: string | null;
+  /** The neighbours' files, to preload their images. */
+  prevFile: string | null;
+  nextFile: string | null;
   /** 1-based position in the list, and its length. */
   pos: number;
   total: number;
@@ -135,6 +142,8 @@ export const neighborLinks = (
       row.next_id === null
         ? null
         : mediaEditHref(row.next_id, back(row.pos + 1)),
+    prevFile: row.prev_file ?? null,
+    nextFile: row.next_file ?? null,
     pos: row.pos,
     total: row.total,
   };
