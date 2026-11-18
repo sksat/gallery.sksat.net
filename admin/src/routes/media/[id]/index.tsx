@@ -32,9 +32,13 @@ import {
   getMedia,
   listCameras,
   MAX_BULK_IDS,
+  setVisibility,
   updateMedia,
 } from "~/lib/db";
-import { PhotoPreview } from "~/components/photo-preview";
+import {
+  PhotoPreview,
+  type QuickVisibilityResult,
+} from "~/components/photo-preview";
 import { getDB, getImageBase } from "~/lib/env";
 import {
   formatJst,
@@ -48,6 +52,7 @@ import { VISIBILITIES, type MediaRow, type Visibility } from "~/lib/types";
 import {
   parseCameraIdInput,
   parseTagsInput,
+  validateBulkVisibility,
   validatePatch,
 } from "~/lib/validate";
 
@@ -152,6 +157,44 @@ export const useUpdateMedia = routeAction$(
     // Required: a submission without it must not change who can see the
     // photo.
     visibility: z.enum(VISIBILITIES),
+  }),
+);
+
+/**
+ * The viewer's quick visibility (keys 1/2/3 and its buttons), and its
+ * undo: one photo's visibility only, given by id since the viewer may
+ * have moved on to the next photo by the time an undo is sent. Returns
+ * the visibility it had before.
+ */
+export const useQuickVisibility = routeAction$(
+  async (data, { platform, fail }) => {
+    const v = validateBulkVisibility(
+      { ids: [String(data.id)], visibility: data.visibility },
+      1,
+    );
+    if (!v.ok) return fail(400, { message: v.error });
+    let db: D1Database;
+    try {
+      db = getDB(platform);
+    } catch (err) {
+      console.error("/media/[id] quick visibility: getDB failed:", err);
+      return fail(500, { message: "D1 binding unavailable" });
+    }
+    const row = await getMedia(db, v.ids[0]);
+    if (!row) return fail(404, { message: "not found" });
+    // The previous value from the update's own batch (unchanged rows are
+    // not listed: then it already had this visibility).
+    const { previous } = await setVisibility(db, v.ids, v.visibility);
+    return {
+      ok: true,
+      id: row.id,
+      visibility: v.visibility,
+      previous: previous[0]?.visibility ?? v.visibility,
+    };
+  },
+  zod$({
+    id: z.number().int().positive(),
+    visibility: z.string().max(20),
   }),
 );
 
@@ -289,6 +332,19 @@ const navButton =
 export default component$(() => {
   const media = useMedia();
   const action = useUpdateMedia();
+  const quick = useQuickVisibility();
+  /** The full-screen viewer's 1/2/3 (and its undo). */
+  const setQuickVisibility = $(
+    async (
+      id: number,
+      visibility: Visibility,
+    ): Promise<QuickVisibilityResult> => {
+      const { value } = await quick.submit({ id, visibility });
+      return value.failed
+        ? { ok: false, message: value.message ?? "unknown error" }
+        : { ok: true, previous: value.previous };
+    },
+  );
   // The list this page was opened from (view, folder, filter, page).
   const backHref = safeBackHref(useLocation().url.searchParams.get("back"));
   const toast = useSignal<ToastState | null>(null);
@@ -436,7 +492,17 @@ export default component$(() => {
       </div>
 
       {/* A tap opens the photo full screen (shared/overlay/ look). */}
-      <PhotoPreview file={row.file} world={row.world} imageBase={previewBase} />
+      <PhotoPreview
+        id={row.id}
+        file={row.file}
+        world={row.world}
+        timestamp={row.timestamp}
+        visibility={row.visibility}
+        imageBase={previewBase}
+        neighbors={neighbors}
+        dirty={dirty.value}
+        onVisibility$={setQuickVisibility}
+      />
 
       <div class={[card, "p-5 text-sm"]}>
         <dl

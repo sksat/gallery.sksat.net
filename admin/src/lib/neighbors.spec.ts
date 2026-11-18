@@ -70,10 +70,25 @@ const db = (extra: [number, string][]) => {
 
 const run = (q: ListQuery, id: number, extra: [number, string][] = []) => {
   const { sql, args } = neighborsQuery(q, id);
-  return db(extra)
+  const row = db(extra)
     .prepare(sql)
-    .get(...(args as (string | number)[]));
+    .get(...(args as (string | number)[])) as NeighborRow | undefined;
+  if (!row) return row;
+  // The files are checked on their own below.
+  const { prev_id, next_id, pos, total } = row;
+  return { prev_id, next_id, pos, total };
 };
+
+describe("neighborsQuery files", () => {
+  it("returns the neighbours' files too", () => {
+    const { sql, args } = neighborsQuery(list(), 3);
+    expect(
+      db([])
+        .prepare(sql)
+        .get(...(args as (string | number)[])),
+    ).toMatchObject({ prev_file: "/a/1.png", next_file: "/a/2.png" });
+  });
+});
 
 describe("neighborsQuery", () => {
   it("follows the list order (date desc, then id desc, undated last)", () => {
@@ -145,6 +160,8 @@ describe("neighborLinks", () => {
     expect(neighborLinks(list({ q: "x" }), row, 100)).toEqual({
       prev: "/media/7/?back=%2Fmedia%2F%3Fq%3Dx",
       next: "/media/9/?back=%2Fmedia%2F%3Fq%3Dx%26page%3D2",
+      prevFile: null,
+      nextFile: null,
       pos: 100,
       total: 150,
     });
@@ -154,12 +171,21 @@ describe("neighborLinks", () => {
     expect(
       neighborLinks(
         list({ view: "files", dir: "/a" }),
-        { prev_id: null, next_id: 2, pos: 1, total: 2 },
+        {
+          prev_id: null,
+          next_id: 2,
+          prev_file: null,
+          next_file: "/a/2.png",
+          pos: 1,
+          total: 2,
+        },
         100,
       ),
     ).toEqual({
       prev: null,
       next: "/media/2/?back=%2Fmedia%2F%3Fview%3Dfiles%26dir%3D%2Fa",
+      prevFile: null,
+      nextFile: "/a/2.png",
       pos: 1,
       total: 2,
     });

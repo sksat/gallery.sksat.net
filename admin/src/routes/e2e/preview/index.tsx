@@ -1,4 +1,4 @@
-import { component$ } from "@builder.io/qwik";
+import { $, component$ } from "@builder.io/qwik";
 import { routeLoader$ } from "@builder.io/qwik-city";
 import { PhotoPreview } from "~/components/photo-preview";
 import { e2eRoutesEnabled } from "~/lib/e2e-routes";
@@ -21,9 +21,18 @@ export default component$(() => {
   return (
     <div class="mx-auto max-w-3xl">
       <PhotoPreview
+        id={2}
         file="/mock/vrchat1.png"
         world="VRChat"
+        timestamp="2023-12-02T00:00:00Z"
+        visibility="public"
         imageBase="/e2e-thumb"
+        neighbors={null}
+        dirty={false}
+        onVisibility$={$(async () => ({
+          ok: false as const,
+          message: "not on this page",
+        }))}
       />
     </div>
   );
