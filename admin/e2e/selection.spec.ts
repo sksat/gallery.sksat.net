@@ -234,7 +234,13 @@ test.describe("keyboard, menu and drag in the Files view", () => {
   test("arrows move the focus, Space picks, F2 renames, Enter opens", async ({
     page,
   }) => {
-    await folderWith(page, "kb", ["a.png", "b.png", "c.png", "d.png", "e.png"]);
+    await folderWith(page, `kb${test.info().repeatEachIndex || ""}`, [
+      "a.png",
+      "b.png",
+      "c.png",
+      "d.png",
+      "e.png",
+    ]);
     // One tab stop for the whole grid: the first tile.
     await expect(page.locator("[role=option][tabindex='0']")).toHaveCount(1);
     await tile(page, "a.png").focus();

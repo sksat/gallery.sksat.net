@@ -475,40 +475,48 @@ export const FileBrowser = component$<Props>(
       document.getElementById(optionId(key))?.focus();
     });
 
-    /** Runs an action on the selection; true when it went through. */
-    const run = $(async (a: SelectionAction): Promise<boolean> => {
-      if (a.kind === "clear") {
-        sel.value = EMPTY_SELECTION;
-        return true;
-      }
-      // One at a time (a held Delete must not trash twice).
-      if (!onSelection$ || busy.value) return false;
-      busy.value = true;
-      try {
-        // Where the focus was, for when its item goes away.
-        const at = focusKey.value ? order.indexOf(focusKey.value) : -1;
-        const ok = await onSelection$(a, splitSelection(sel.value.keys));
-        if (ok) sel.value = EMPTY_SELECTION;
-        if (ok && at >= 0) {
-          // Once the folder is shown again: keyboard users stay in the
-          // list (the item at the same place, or the last one).
-          await new Promise((r) => setTimeout(r, 50));
-          if (document.activeElement === document.body) {
-            const items = document.querySelectorAll<HTMLElement>(
-              "[data-file-browser] [role=option]",
-            );
-            const el = items[Math.min(at, items.length - 1)];
-            if (el) {
-              focusKey.value = el.dataset.selKey as SelKey;
-              el.focus();
+    /**
+     * Runs an action on the selection (or on `keys`, when the action is
+     * about one known item); true when it went through.
+     */
+    const run = $(
+      async (a: SelectionAction, keys?: SelKey[]): Promise<boolean> => {
+        if (a.kind === "clear") {
+          sel.value = EMPTY_SELECTION;
+          return true;
+        }
+        // One at a time (a held Delete must not trash twice).
+        if (!onSelection$ || busy.value) return false;
+        busy.value = true;
+        try {
+          // Where the focus was, for when its item goes away.
+          const at = focusKey.value ? order.indexOf(focusKey.value) : -1;
+          const ok = await onSelection$(
+            a,
+            splitSelection(keys ?? sel.value.keys),
+          );
+          if (ok) sel.value = EMPTY_SELECTION;
+          if (ok && at >= 0) {
+            // Once the folder is shown again: keyboard users stay in the
+            // list (the item at the same place, or the last one).
+            await new Promise((r) => setTimeout(r, 50));
+            if (document.activeElement === document.body) {
+              const items = document.querySelectorAll<HTMLElement>(
+                "[data-file-browser] [role=option]",
+              );
+              const el = items[Math.min(at, items.length - 1)];
+              if (el) {
+                focusKey.value = el.dataset.selKey as SelKey;
+                el.focus();
+              }
             }
           }
+          return ok;
+        } finally {
+          busy.value = false;
         }
-        return ok;
-      } finally {
-        busy.value = false;
-      }
-    });
+      },
+    );
     /** Select just `key` unless it is already part of the selection. */
     const selectFor = $((key: SelKey) => {
       if (!sel.value.keys.includes(key)) {
@@ -754,7 +762,10 @@ export const FileBrowser = component$<Props>(
       const name = String(new FormData(form).get("name") ?? "").trim();
       const r = renaming.value;
       if (!r || !name) return;
-      if (await run({ kind: "rename", name })) {
+      // The item the dialog was opened for, not whatever is selected now:
+      // the selection follows the shown items and can change meanwhile
+      // (a reload that briefly lacks it, a click elsewhere).
+      if (await run({ kind: "rename", name }, [r.key])) {
         renameDialog.value?.close();
       }
     });
