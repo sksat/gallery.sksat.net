@@ -15,13 +15,23 @@ const openPhoto = async (page: Page, id: string) => {
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
 };
 
+/** Open the panel with its ⓘ button (it starts closed everywhere). */
+const openInfo = async (page: Page) => {
+  await page.getByTestId("info-toggle").click();
+  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await expect(panel(page)).toBeInViewport();
+};
+
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test("shows every field the API gives", async ({ page }) => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
-    await expect(p).toBeInViewport();
+    await openInfo(page);
     await expect(p.getByTestId("info-taken")).toHaveText(
       "撮影日時2023/12/02 00:00",
     );
@@ -61,6 +71,7 @@ test.describe("desktop", () => {
   test("hidden fields are absent", async ({ page }) => {
     await openPhoto(page, "vrcxxxxxxb");
     const p = panel(page);
+    await openInfo(page);
     await expect(p.getByTestId("info-taken")).toHaveText("撮影日時2023/12/04");
     // The maker only, as text.
     await expect(p.getByTestId("info-camera")).toHaveText("カメラRICOH");
@@ -74,6 +85,7 @@ test.describe("desktop", () => {
     expect(await page.content()).not.toContain("wrld_fedcba98");
 
     await openPhoto(page, "reaxxxxxxb");
+    await openInfo(page);
     await expect(p.getByTestId("info-camera")).toHaveCount(0);
     await expect(p.getByTestId("info-exposure")).toHaveText(
       "撮影設定f/5.6 · 1/1000 s · ISO 200 · 18.3 mm",
@@ -91,35 +103,70 @@ test.describe("desktop", () => {
     );
   });
 
-  test("toggles with i and the button, and remembers it", async ({ page }) => {
+  test("closed at first, the photo as large as without it", async ({
+    page,
+  }) => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
     const toggle = page.getByTestId("info-toggle");
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(p).not.toBeInViewport();
+    // A one-line summary at the bottom edge instead, below the photo.
+    const summary = page.getByTestId("info-summary");
+    await expect(summary).toHaveText(
+      "2023/12/02 00:00 · VirtualLens2 · Fixture World",
+    );
+    const box = await page.getByTestId("overlay-box").boundingBox();
+    // The photo box is 90vw wide, as without the panel.
+    expect(box?.width).toBeCloseTo(1280 * 0.9, 0);
 
+    // The summary opens the panel over the photo; the box stays put.
+    await summary.click();
+    await expect(p).toBeInViewport();
+    await expect(p.getByTestId("info-close")).toBeFocused();
+    expect(await page.getByTestId("overlay-box").boundingBox()).toEqual(box);
+  });
+
+  test("toggles with i and the button", async ({ page }) => {
+    await openPhoto(page, "vrcxxxxxxa");
+    const p = panel(page);
+    const toggle = page.getByTestId("info-toggle");
+
+    await page.keyboard.press("i");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(p).toBeInViewport();
     await page.keyboard.press("i");
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(p).not.toBeInViewport();
 
-    // Remembered: a reload (and the next photo) keeps it closed.
+    // Not remembered: a reload starts closed again.
+    await page.keyboard.press("i");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await page.reload();
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
       "false",
     );
     await page.keyboard.press("ArrowRight");
-    // Newest first: vrcxxxxxxa is followed by reaxxxxxxa.
+    // Newest first: vrcxxxxxxa is followed by reaxxxxxxa, also closed.
     await expect(page).toHaveURL(/\/photo\/reaxxxxxxa/);
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
       "false",
     );
 
-    // The button opens it again; clicks on it do not close the photo.
-    await page.getByTestId("info-toggle").click();
-    await expect(p).toBeInViewport();
+    // The button opens it, over the summary; clicks on it do not close
+    // the photo.
+    await openInfo(page);
+    await expect(page.getByTestId("info-summary")).toBeHidden();
     await p.getByTestId("info-taken").click();
     await expect(page.getByTestId("overlay")).toBeVisible();
+
+    // `i` with the focus in the sheet closes it and hands the focus back.
+    await p.getByTestId("info-close").focus();
+    await page.keyboard.press("i");
+    await expect(page.getByTestId("info-toggle")).toBeFocused();
+    await openInfo(page);
 
     // The close button hands focus back to the toggle.
     await p.getByTestId("info-close").click();
@@ -139,6 +186,7 @@ test.describe("desktop", () => {
     await page.goto("/");
     await page.getByTestId("gallery-image").nth(1).dispatchEvent("click");
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb$/);
+    await openInfo(page);
     const night = panel(page).getByTestId("info-tag").filter({ hasText: "night" });
     await expect(night).toHaveAttribute("href", "/?tag=night");
     await night.click();
@@ -173,7 +221,9 @@ test.describe("phone", () => {
     );
     await expect(p).not.toBeInViewport();
     const summary = page.getByTestId("info-summary");
-    await expect(summary).toHaveText("2023/12/02 00:00 · VirtualLens2");
+    await expect(summary).toHaveText(
+      "2023/12/02 00:00 · VirtualLens2 · Fixture World",
+    );
 
     await summary.click();
     await expect(p).toBeInViewport();
@@ -192,7 +242,7 @@ test.describe("phone", () => {
   test("hidden fields are absent", async ({ page }) => {
     await openPhoto(page, "vrcxxxxxxb");
     await expect(page.getByTestId("info-summary")).toHaveText(
-      "2023/12/04 · RICOH",
+      "2023/12/04 · RICOH · Name Only World",
     );
     await page.getByTestId("info-toggle").click();
     const p = panel(page);

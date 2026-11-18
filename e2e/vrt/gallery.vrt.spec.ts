@@ -47,21 +47,21 @@ const settled = (page: Page) =>
         ?.getAnimations().length === 0,
   );
 
-test("photo overlay: direct navigation (info panel open)", async ({ page }) => {
+test("photo overlay: direct navigation (summary)", async ({ page }) => {
   await openPhoto(page);
   await settled(page);
   await expect(page).toHaveScreenshot("photo-1.png");
 });
 
-test("photo overlay: info panel closed", async ({ page }) => {
+test("photo overlay: info panel open", async ({ page }) => {
   await openPhoto(page);
-  await page.keyboard.press("i");
+  await page.getByTestId("info-summary").click();
   await expect(page.getByTestId("info-toggle")).toHaveAttribute(
     "aria-expanded",
-    "false",
+    "true",
   );
   await settled(page);
-  await expect(page).toHaveScreenshot("photo-1-info-closed.png");
+  await expect(page).toHaveScreenshot("photo-1-info-open.png");
 });
 
 test.describe("phone", () => {

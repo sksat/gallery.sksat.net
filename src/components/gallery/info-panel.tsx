@@ -4,50 +4,18 @@ import {
   sync$,
   useComputed$,
   useSignal,
-  useVisibleTask$,
   type QRL,
-  type Signal,
 } from "@builder.io/qwik";
 
 import { hasDetails, infoSummary, photoInfo } from "./photo-info";
 import type { MediaInfo } from "./types";
 
-/** Where the desktop open/closed choice is remembered. */
-const STORAGE_KEY = "gallery.infoPanel";
-/** Tailwind's `md`: a side panel from here up, a bottom sheet below. */
-const DESKTOP_QUERY = "(min-width: 768px)";
 /** How far (px) a swipe has to go to open or close the sheet. */
 const SWIPE_PX = 30;
 
 /** A click meant for a new tab or window. */
 const isModified = (e: MouseEvent) =>
   e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
-
-const isDesktop = () => window.matchMedia(DESKTOP_QUERY).matches;
-
-const readStored = (): boolean | null => {
-  try {
-    const v = window.localStorage.getItem(STORAGE_KEY);
-    return v === "open" ? true : v === "closed" ? false : null;
-  } catch {
-    return null;
-  }
-};
-
-const store = (open: boolean) => {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, open ? "open" : "closed");
-  } catch {
-    // Private mode or blocked storage: just not remembered.
-  }
-};
-
-/**
- * Whether the panel starts open, in the browser: on desktops as last left
- * (open at first), on phones closed.
- */
-export const initialOpen = (): boolean =>
-  isDesktop() ? (readStored() ?? true) : false;
 
 export type TagLink = { tag: string; href: string };
 
@@ -57,41 +25,35 @@ interface InfoPanelProps {
   tagLinks: TagLink[];
   /** Filter the gallery by a tag (and close the photo). */
   onTag$: QRL<(tag: string) => void>;
-  /**
-   * Open or closed; null until the browser decides (the breakpoint's
-   * default). Owned by the overlay, which makes room for the panel.
-   */
-  open: Signal<boolean | null>;
 }
 
 /**
- * The photo's metadata in the overlay, exactly as the API gave it: a side
- * panel on desktops (open by default, remembered), a bottom sheet on
- * phones (closed by default, with a one-line summary on the photo).
- * Toggled with the ⓘ button or the `i` key.
+ * The photo's metadata in the overlay, exactly as the API gave it, without
+ * taking any room from the photo: a one-line summary at the bottom edge
+ * (date · camera · world), and a translucent sheet that slides up over the
+ * photo from it, the ⓘ button or the `i` key. Closed on every screen size
+ * until asked for.
  *
- * Rendered on the server (open on desktops, closed on phones, by CSS
- * alone) so /photo/<id> carries the metadata without JS. Every part takes
- * its own clicks, so the overlay's "click outside closes" never sees them.
+ * Rendered on the server (closed) so the metadata is in the page without
+ * JS. Every part takes its own clicks, so the overlay's "click outside
+ * closes" never sees them.
  */
 export const InfoPanel = component$<InfoPanelProps>((props) => {
-  const open = props.open;
+  const open = useSignal(false);
   const toggle = useSignal<HTMLButtonElement>();
   const closeButton = useSignal<HTMLButtonElement>();
   const touchY = useSignal<number | null>(null);
 
   const info = useComputed$(() => photoInfo(props.photo));
 
-  // A visible task is intended: the viewport and localStorage are only
-  // known in the browser.
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(() => {
-    if (open.value === null) open.value = initialOpen();
-  });
-
+  const panel = useSignal<HTMLElement>();
   const setOpen = $((value: boolean) => {
+    // Closing (by `i` or a swipe) with the focus inside: hand it back to
+    // the ⓘ button rather than lose it when the sheet goes inert.
+    if (!value && panel.value?.contains(document.activeElement)) {
+      toggle.value?.focus();
+    }
     open.value = value;
-    if (isDesktop()) store(value);
   });
 
   const onKeyDown = $((event: KeyboardEvent) => {
@@ -111,7 +73,7 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
       (t instanceof HTMLElement && t.isContentEditable)
     )
       return;
-    setOpen(!(open.value ?? isDesktop()));
+    setOpen(!open.value);
   });
 
   const onTouchStart = $((event: TouchEvent) => {
@@ -153,9 +115,8 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
 
   return (
     <>
-      {/* Toggle: next to the share button (bottom right). It is the first
-          element, so it is what the visible task waits to see; it also
-          carries the `i` key (on an element: see gallery.tsx on why not
+      {/* Toggle: next to the share button (bottom right). It also carries
+          the `i` key (on an element: see gallery.tsx on why not
           useOnDocument). */}
       <button
         ref={toggle}
@@ -166,11 +127,12 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
         title="情報 (i)"
         aria-controls="photo-info"
         // A string: Qwik writes a boolean true as an empty attribute.
-        aria-expanded={state === null ? undefined : state ? "true" : "false"}
+        aria-expanded={state ? "true" : "false"}
         stoppropagation:click
-        onClick$={() => setOpen(!(open.value ?? isDesktop()))}
+        onClick$={() => setOpen(!open.value)}
         class={[
-          "absolute right-[3.75rem] bottom-3 rounded-full p-2 hover:bg-black/70 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white",
+          // Above the open sheet (it closes it), like the share button.
+          "absolute right-[3.75rem] bottom-3 z-20 rounded-full p-2 hover:bg-black/70 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white",
           state
             ? "bg-white/90 text-black hover:bg-white hover:text-black"
             : "bg-black/50 text-white/80",
@@ -194,7 +156,7 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
         </svg>
       </button>
 
-      {/* Phones: the summary on the photo; a tap or swipe up opens. */}
+      {/* The summary at the bottom edge; a click, tap or swipe up opens. */}
       {summary && (
         <button
           type="button"
@@ -206,7 +168,7 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
           onTouchStart$={onTouchStart}
           onTouchEnd$={onTouchEnd}
           class={[
-            "absolute bottom-3 left-3 max-w-[calc(100%-7.5rem)] truncate rounded-full bg-black/50 px-3 py-2 text-left text-sm text-white/90 md:hidden",
+            "absolute bottom-3 left-3 max-w-[calc(100%-7.5rem)] truncate rounded-full bg-black/50 px-3 py-2 text-left text-sm text-white/90 hover:bg-black/70 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white",
             state ? "invisible" : "",
           ]}
         >
@@ -215,38 +177,33 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
       )}
 
       <section
+        ref={panel}
         id="photo-info"
         data-testid="info-panel"
         aria-labelledby="photo-info-title"
         stoppropagation:click
-        inert={state === false}
+        inert={!state}
         class={[
-          "absolute z-10 overflow-y-auto text-sm text-white transition-[translate,opacity] duration-200 ease-out",
-          // Phone: a bottom sheet.
-          "inset-x-0 bottom-0 max-h-[60vh] rounded-t-2xl bg-neutral-900 px-4 pb-6 shadow-2xl",
-          // Desktop: a card along the right edge, above the buttons.
-          "md:inset-x-auto md:top-14 md:right-3 md:bottom-16 md:max-h-none md:w-72 md:rounded-xl md:bg-neutral-900/80 md:px-4 md:pb-4 md:ring-1 md:ring-white/10 md:backdrop-blur-md",
-          state === null
-            ? "translate-y-full md:translate-none"
-            : state
-              ? "translate-none"
-              : "translate-y-full md:translate-x-[calc(100%+1rem)] md:translate-y-0 md:opacity-0",
+          // A sheet from the bottom edge over the photo, translucent like
+          // the overlay's backdrop; on wide screens narrower and centred.
+          // Its list scrolls under a fixed header, and its foot leaves
+          // room for the ⓘ and share buttons, which stay above it.
+          "absolute inset-x-0 bottom-0 z-10 flex max-h-[60vh] flex-col rounded-t-2xl bg-black/75 text-sm text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md transition-[translate,opacity] duration-200 ease-out",
+          "md:inset-x-auto md:left-1/2 md:max-h-[50vh] md:w-[min(44rem,calc(100%-2rem))] md:-translate-x-1/2",
+          state ? "translate-y-0" : "translate-y-full opacity-0",
         ]}
       >
         <div
-          class="sticky top-0 -mx-4 flex items-center justify-between bg-inherit px-4 pt-2 pb-2 md:static md:bg-transparent md:pt-3"
+          class="relative flex shrink-0 items-center justify-between px-4 pt-2 pb-2"
           onTouchStart$={onTouchStart}
           onTouchEnd$={onTouchEnd}
         >
-          {/* Drag handle (phones). */}
+          {/* Drag handle. */}
           <div
             aria-hidden="true"
-            class="absolute top-2 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-white/30 md:hidden"
+            class="absolute top-2 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-white/30"
           />
-          <h2
-            id="photo-info-title"
-            class="mt-3 !text-base font-semibold md:mt-0"
-          >
+          <h2 id="photo-info-title" class="mt-3 !text-base font-semibold">
             情報
           </h2>
           <button
@@ -256,7 +213,7 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
             aria-label="閉じる"
             title="閉じる"
             onClick$={closeAndRefocus}
-            class="mt-3 rounded-full p-1.5 text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white md:mt-0"
+            class="mt-3 rounded-full p-1.5 text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
           >
             <svg
               viewBox="0 0 24 24"
@@ -273,7 +230,8 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
             </svg>
           </button>
         </div>
-        <dl class="mt-2 grid gap-y-3 [&_dd]:break-words [&_dt]:text-xs [&_dt]:text-white/60">
+        {/* Two columns where there is room, so the sheet stays low. */}
+        <dl class="grid min-h-0 gap-y-3 overflow-y-auto px-4 pt-2 pb-16 sm:grid-cols-2 sm:gap-x-6 md:pb-6 [&_dd]:break-words [&_dt]:text-xs [&_dt]:text-white/60">
           {i.taken && (
             <div data-testid="info-taken">
               <dt>撮影日時</dt>

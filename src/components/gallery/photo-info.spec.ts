@@ -125,7 +125,7 @@ describe("photoInfo", () => {
       tags: ["VRChat", "night"],
       file: "/2023/a.png",
     });
-    expect(infoSummary(i)).toBe("2023/12/16 23:12 · VirtualLens2");
+    expect(infoSummary(i)).toBe("2023/12/16 23:12 · VirtualLens2 · Home");
   });
 
   it("leaves out what the API did not give", () => {

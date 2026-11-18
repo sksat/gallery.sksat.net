@@ -131,9 +131,12 @@ export const hasDetails = (info: PhotoInfo): boolean =>
     info.file,
   );
 
-/** The one-line summary on a phone: 「2023/12/16 23:12 · VirtualLens2」. */
+/**
+ * The one-line summary at the overlay's bottom edge:
+ * 「2023/12/16 23:12 · VirtualLens2 · Home」 (what of it is public).
+ */
 export const infoSummary = (info: PhotoInfo): string | null => {
-  const parts = [info.taken?.text, info.camera?.label].filter(
+  const parts = [info.taken?.text, info.camera?.label, info.world?.name].filter(
     (p): p is string => Boolean(p),
   );
   return parts.length > 0 ? parts.join(" · ") : null;
