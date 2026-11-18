@@ -30,7 +30,7 @@ import {
   type TrashedPhoto,
 } from "~/lib/db-ops";
 import { getDB, getImageBase } from "~/lib/env";
-import { invalidateLastGood } from "~/lib/last-good";
+import { contentChanged } from "~/lib/last-good";
 import { formatJst, splitPath } from "~/lib/format";
 import { formatDecimalBytes } from "~/lib/storage";
 
@@ -81,9 +81,7 @@ export const useRestore = routeAction$(async (data, { platform, fail }) => {
   try {
     const db = getDB(platform);
     const r = await restoreItems(db, picked);
-    await invalidateLastGood(platform, db, {
-      photos: r.restored.map((p) => p.id),
-    });
+    await contentChanged(platform, db);
     return { ok: true, restored: r.restored.length };
   } catch (err) {
     if (err instanceof RestoreError) return fail(409, { message: err.message });

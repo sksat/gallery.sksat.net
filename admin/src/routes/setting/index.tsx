@@ -19,7 +19,7 @@ import {
   setSiteDefaults,
 } from "~/lib/db-meta";
 import { getDB } from "~/lib/env";
-import { invalidateLastGood } from "~/lib/last-good";
+import { contentChanged } from "~/lib/last-good";
 import {
   EDITABLE_FIELDS,
   EMBED_LABEL,
@@ -68,13 +68,12 @@ export const useSaveDefaults = routeAction$(
       setSiteDefaults(db, next),
       setEmbedDefault(db, embed),
     ]);
-    // Every photo that follows a default changes: retire every copy (only
-    // when something did change, as every copy is then written again).
+    // Every photo that follows a default may show less now.
     if (
       JSON.stringify(next) !== JSON.stringify(current) ||
       embed !== currentEmbed
     ) {
-      await invalidateLastGood(platform, db, { all: true });
+      await contentChanged(platform, db, { hide: true });
     }
     return { ok: true };
   },

@@ -76,7 +76,12 @@ import {
   VisibilityIcon,
 } from "~/components/visibility-style";
 import { getDB, getImageBase } from "~/lib/env";
-import { invalidateLastGood, movedStale, staleBefore } from "~/lib/last-good";
+import {
+  contentChanged,
+  lowersVisibility,
+  movedShown,
+  safeAnyShown,
+} from "~/lib/last-good";
 import {
   formatJst,
   publicPhotoUrl,
@@ -300,13 +305,13 @@ export const useUpdateMedia = routeAction$(
     ) {
       return fail(400, { message: "unknown スキャン機材" });
     }
-    // Its camera page too if the camera changes.
-    const before = await staleBefore(platform, db, { photos: [id] });
+    // Shown before: the edit may show less of it.
+    const hide = await safeAnyShown(db, [id]);
     const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
       return fail(404, { message: "not found" });
     }
-    await invalidateLastGood(platform, db, { photos: [id], names: before });
+    await contentChanged(platform, db, { hide });
     // Tags seen for the first time get a row, private: say so.
     const newTags = await ensureTags(db, v.patch.tags ?? []);
     return { ok: true, updated_at: updated.updated_at, newTags };
@@ -349,6 +354,10 @@ export const useUpdateMedia = routeAction$(
     photo_data_loaded: z.string().max(4000).optional(),
   }),
 );
+
+/** Whether a 反映 (its undo list: `to` is what each photo had) hid one. */
+const lowered = (undo: readonly { from: Visibility; to: Visibility }[]) =>
+  lowersVisibility(undo.map((u) => ({ from: u.to, to: u.from })));
 
 /** Most pending choices one 反映 applies. */
 const MAX_PENDING = 2000;
@@ -399,12 +408,10 @@ export const useApplyPending = routeAction$(
       // Each chunk commits on its own: the ones before stay applied, and
       // their undo goes back with the error.
       console.error("/media/[id] apply failed:", err);
-      await invalidateLastGood(platform, db, {
-        photos: undo.map((u) => u.id),
-      });
+      await contentChanged(platform, db, { hide: lowered(undo) });
       return fail(500, { message: "update failed", undo });
     }
-    await invalidateLastGood(platform, db, { photos: undo.map((u) => u.id) });
+    await contentChanged(platform, db, { hide: lowered(undo) });
     return { ok: true, changed: undo.length, undo };
   },
   zod$({ changes: changeSchema }),
@@ -443,8 +450,8 @@ export const useUndoPending = routeAction$(
       return fail(500, { message: "D1 binding unavailable" });
     }
     let changed = 0;
-    // Whatever went back before a failure.
-    const touched = { photos: data.changes.map((c) => c.id) };
+    // Whatever went back, also before a failure: each from → to.
+    const hide = lowersVisibility(data.changes);
     try {
       for (const from of VISIBILITIES) {
         for (const to of VISIBILITIES) {
@@ -460,10 +467,10 @@ export const useUndoPending = routeAction$(
       }
     } catch (err) {
       console.error("/media/[id] undo failed:", err);
-      await invalidateLastGood(platform, db, touched);
+      await contentChanged(platform, db, { hide });
       return fail(500, { message: "undo failed" });
     }
-    await invalidateLastGood(platform, db, touched);
+    await contentChanged(platform, db, { hide });
     return { ok: true, changed };
   },
   zod$({
@@ -498,7 +505,7 @@ export const useMovePhoto = routeAction$(
       { kind: "photo", id, to: data.path.trim() },
     ]);
     if (!r.ok) return fail(409, { message: r.error });
-    await invalidateLastGood(platform, db, movedStale(r.plan));
+    await contentChanged(platform, db, { hide: await movedShown(db, r.plan) });
     return { ok: true, undo: undoMoves(r.plan) };
   },
   zod$({ path: z.string().max(600) }),
@@ -510,7 +517,7 @@ export const useUndoMove = routeAction$(
     const db = getDB(platform);
     const r = await moveItems(db, data.moves);
     if (!r.ok) return fail(409, { message: r.error });
-    await invalidateLastGood(platform, db, movedStale(r.plan));
+    await contentChanged(platform, db, { hide: await movedShown(db, r.plan) });
     return { ok: true };
   },
   zod$({
@@ -542,7 +549,7 @@ export const useTrashPhoto = routeAction$(
     if (data.restore === "true") {
       try {
         const r = await restoreItems(db, [id]);
-        await invalidateLastGood(platform, db, { photos: [id] });
+        await contentChanged(platform, db);
         return { ok: true, restored: r.restored[0]?.path ?? null };
       } catch (err) {
         if (err instanceof RestoreError) {
@@ -551,8 +558,8 @@ export const useTrashPhoto = routeAction$(
         throw err;
       }
     }
-    await trashItems(db, { photos: [id], folders: [] });
-    await invalidateLastGood(platform, db, { photos: [id] });
+    const t = await trashItems(db, { photos: [id], folders: [] });
+    await contentChanged(platform, db, { hide: await safeAnyShown(db, t.ids) });
     return { ok: true, restored: null };
   },
   zod$({ restore: z.string().max(5).optional() }),

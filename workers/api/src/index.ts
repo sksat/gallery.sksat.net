@@ -5,9 +5,9 @@
  *
  * Only public and unlisted data is ever returned (see query.ts), so the
  * Worker needs no authentication. Responses are cached at the edge for a
- * minute (Cache API) to keep D1 reads low, and kept for two days as
- * last-good copies served when D1 fails (see last-good.ts; in the
- * LAST_GOOD KV namespace when it is bound, see last-good-store.ts).
+ * minute (Cache API) to keep D1 reads low, and kept as a last-good
+ * snapshot served when D1 fails (see last-good.ts; in the LAST_GOOD KV
+ * namespace when it is bound, see last-good-store.ts).
  *
  * Other Workers reach it through a service binding and call the RPC
  * methods below; those are not reachable over HTTP.
@@ -24,19 +24,18 @@ import {
 } from "./query";
 import type { MediaItemJSON } from "./types";
 import { jsonResponse, type Route } from "./route";
+import { handleGet, withLastGood, type Context } from "./last-good";
 import {
-  handleGet,
-  lastGoodName,
-  withLastGood,
-  type Context,
-} from "./last-good";
-import { cacheStore, kvStore } from "./last-good-store";
+  cacheSnapshotStore,
+  kvSnapshotStore,
+  lastGood as makeLastGood,
+} from "./last-good-store";
 
 export interface Env {
   DB: D1Database;
   /**
-   * Last-good copies (last-good-store.ts). Optional: without it they stay
-   * in the Cache API.
+   * The last-good snapshot (last-good-store.ts). Optional: without it the
+   * snapshot stays in the Cache API.
    */
   LAST_GOOD?: KVNamespace;
 }
@@ -64,16 +63,32 @@ const respond = async (db: D1Database, route: Route): Promise<Response> => {
 // callable over RPC.
 const lastGood = (env: Env, ctx: ExecutionContext): Context => {
   const cache = caches.default;
+  const lastGood = makeLastGood(
+    env.LAST_GOOD ? kvSnapshotStore(env.LAST_GOOD) : cacheSnapshotStore(cache),
+  );
   return {
     cache,
-    store: env.LAST_GOOD
-      ? kvStore(env.LAST_GOOD, cacheStore(cache))
-      : cacheStore(cache),
+    lastGood,
+    // With KV only the cron trigger writes (scheduled below).
+    refresh: env.LAST_GOOD
+      ? async () => {}
+      : () => lastGood.refresh(env.DB, { throttle: true }),
     waitUntil: (p) => ctx.waitUntil(p),
   };
 };
 
 export default class extends WorkerEntrypoint<Env> {
+  /**
+   * The cron trigger (wrangler.jsonc, every minute): the one writer of
+   * the KV snapshot (last-good-store.ts).
+   */
+  async scheduled(): Promise<void> {
+    if (!this.env.LAST_GOOD) return;
+    await makeLastGood(kvSnapshotStore(this.env.LAST_GOOD)).refresh(
+      this.env.DB,
+    );
+  }
+
   async fetch(request: Request): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed", {
@@ -95,8 +110,9 @@ export default class extends WorkerEntrypoint<Env> {
    */
   async pathAccess(path: string): Promise<PathAccess | null> {
     return withLastGood(
-      lastGoodName.pathAccess(path),
+      "pathAccess",
       () => getPathAccess(this.env.DB, path),
+      (index) => index.pathAccess(path),
       lastGood(this.env, this.ctx),
     );
   }
@@ -108,8 +124,9 @@ export default class extends WorkerEntrypoint<Env> {
    */
   async photo(publicId: string): Promise<MediaItemJSON | null> {
     return withLastGood(
-      lastGoodName.photo(publicId),
+      "photo",
       () => getPhotoForImage(this.env.DB, publicId),
+      (index) => index.photo(publicId),
       lastGood(this.env, this.ctx),
     );
   }

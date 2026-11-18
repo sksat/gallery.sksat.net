@@ -2,7 +2,7 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { getCamera, getMedia, updateMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
-import { invalidateLastGood, staleBefore } from "~/lib/last-good";
+import { contentChanged, safeAnyShown } from "~/lib/last-good";
 import { validatePatch } from "~/lib/validate";
 
 const parseId = (raw: string): number | null => {
@@ -63,13 +63,14 @@ export const onPatch: RequestHandler = withErrorHandler(
       json(400, { error: "unknown digitized_with" });
       return;
     }
-    const before = await staleBefore(platform, db, { photos: [id] });
+    // Shown before: the edit may show less of it.
+    const hide = await safeAnyShown(db, [id]);
     const updated = await updateMedia(db, id, res.patch);
     if (!updated) {
       json(404, { error: "not found" });
       return;
     }
-    await invalidateLastGood(platform, db, { photos: [id], names: before });
+    await contentChanged(platform, db, { hide });
     json(200, updated);
   },
 );

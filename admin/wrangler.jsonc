@@ -62,8 +62,8 @@
       "migrations_dir": "migrations",
     },
   ],
-  // The API Worker's last-good copies (workers/api/src/last-good-store.ts):
-  // the admin deletes the ones a change affects (src/lib/last-good.ts).
+  // The API Worker's last-good snapshot (workers/api/src/last-good-store.ts):
+  // the admin deletes it when a change hides something (src/lib/last-good.ts).
   // The namespace (gallery-api-last-good) is created outside this repo.
   // TODO: replace the placeholder with the namespace id (also in
   // workers/api/wrangler.jsonc) before deploying: a deploy with it fails.
@@ -92,8 +92,8 @@
       // production Access app's tokens anyway.
       "services": [],
       "d1_databases": [],
-      // Nor the last-good copies: previews could delete (or, worse, bump
-      // the generation of) the production copies.
+      // Nor the last-good snapshot: previews could delete the production
+      // one.
       "kv_namespaces": [],
     },
   },

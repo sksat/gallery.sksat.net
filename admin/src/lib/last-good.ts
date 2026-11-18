@@ -1,271 +1,168 @@
-// Deleting the API Worker's last-good copies that an admin change makes
-// wrong (last-good.spec.ts, on the real schema).
+// Keeping the API Worker's last-good snapshot in step with admin changes
+// (last-good.spec.ts, on the real schema).
 //
-// While D1 fails, the API Worker serves the copies it kept in the
-// `LAST_GOOD` KV namespace (workers/api/src/last-good-store.ts). A photo
-// made private, moved, renamed, trashed or with less of its metadata
-// shown must not come back from such a copy, so every action that changes
-// what the public API answers deletes the affected copies here. Copies
-// are written again by the API on its next answer from D1.
+// The API Worker keeps everything it answers as one snapshot in the
+// `LAST_GOOD` KV namespace and serves it while D1 fails
+// (workers/api/src/last-good-store.ts). It rebuilds the snapshot when the
+// `setting` row `content_version` changes, so every action that changes
+// what the public API answers calls contentChanged afterwards:
+// - when the change hides something (`hide`: a photo less visible,
+//   moved, renamed, trashed, with less metadata shown, a tag or camera
+//   picture withdrawn or re-captioned, the site defaults changed), it
+//   first deletes the snapshot (one KV delete), so a stale one cannot
+//   bring that back during a D1 outage before the rebuild. If D1 is down
+//   at that moment, the admin cannot write either;
+// - then it rewrites `content_version` (a new random value; the row is
+//   created on first use, no migration), and the API's cron rebuilds the
+//   snapshot within a minute.
 //
-// Keys are `<generation>:<name>`; the names are the API Worker's
-// (`lastGoodName` in workers/api/src/last-good.ts), copied here because
-// the two apps share no code: keep them in step. When more than
-// MAX_DELETES keys would go (bulk changes, the site defaults, a tag on
-// many photos) or a deletion fails, the generation is bumped instead:
-// one write that retires every copy (the Free plan allows 1,000 KV writes
-// and deletes a day).
-//
-// Left out on purpose, as they can only show less than D1 now would:
-// creating a camera or a folder (nothing public yet), the metadata
-// backfill (fills only empty columns), deleting a trashed photo for good
-// (its copies went when it was trashed) and incomplete uploads (private).
+// Left out, as they cannot change what the API answers: creating a camera
+// or a folder, deleting a trashed photo for good (it left the snapshot
+// when it was trashed), and uploads, which are private (unless the file
+// is a camera picture's: uploadsHideCameraPicture). The metadata backfill
+// only fills empty columns, so it bumps the version without deleting.
 //
 // Never fails an action: errors are logged. Without the binding
-// (previews, `pnpm dev`) nothing happens.
+// (previews, `pnpm dev`) only the version is written.
+
+import type { Visibility } from "./types";
 
 /** The part of a KV namespace used here. */
-export type LastGoodKV = {
-  get(key: string): Promise<string | null>;
-  put(key: string, value: string): Promise<void>;
-  delete(key: string): Promise<void>;
-};
+export type LastGoodKV = { delete(key: string): Promise<void> };
 
-type Platform =
-  | {
-      env?: Record<string, unknown>;
-      ctx?: { waitUntil(promise: Promise<unknown>): void };
-    }
-  | undefined;
+type Platform = { env?: Record<string, unknown> } | undefined;
 
 /** The `LAST_GOOD` binding, or null when it is not bound. */
 export const getLastGoodKV = (platform: Platform): LastGoodKV | null =>
   (platform?.env?.LAST_GOOD as LastGoodKV | undefined) ?? null;
 
-/** Same key as the API Worker's GENERATION_KEY. */
-export const GENERATION_KEY = "generation";
+/** The snapshot's KV key: the API Worker's SNAPSHOT_KEY. */
+export const SNAPSHOT_KEY = "snapshot";
 
-/** Most keys deleted one by one; past it the generation is bumped. */
-export const MAX_DELETES = 40;
+/** The `setting` key the API Worker watches (CONTENT_VERSION_KEY). */
+export const CONTENT_VERSION_KEY = "content_version";
 
-/** The API Worker's copy names (workers/api/src/last-good.ts). */
-export const lastGoodName = {
-  http: (pathname: string) => `http:${pathname.replace(/\/$/, "")}`,
-  photo: (publicId: string) => `rpc:photo:${publicId}`,
-  pathAccess: (path: string) => `rpc:pathAccess:${path}`,
+const randomVersion = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 };
 
-const MEDIA_LIST = lastGoodName.http("/api/media");
-const CAMERA_LIST = lastGoodName.http("/api/camera");
-
-/** What an admin change touched. */
-export type Stale = {
-  /** Photos (media ids): their copies, their cameras' and the lists. */
-  photos?: readonly number[];
-  /** Photos with this tag (a tag's public flag changed). */
-  tag?: string;
-  /** Cameras (ids): their pages and the list. */
-  cameras?: readonly number[];
-  /** A camera whose details changed: also every photo with it. */
-  cameraPhotos?: number;
-  /** Bucket or display paths whose /img access may have changed. */
-  paths?: readonly string[];
-  /** Uploads (media ids): only a camera picture at the same file. */
-  uploads?: readonly number[];
-  /** Names worked out before the change (`staleBefore`). */
-  names?: readonly string[];
-  /** Everything (the site's metadata defaults). */
-  all?: boolean;
-};
-
-const json = (v: unknown) => JSON.stringify(v);
-
-/**
- * The copy names `stale` covers, as the database is now, or "all". Old
- * values (a previous path or camera) come from `stale.paths` or from
- * names worked out before the change.
- */
-export const staleNames = async (
-  db: D1Database,
-  stale: Stale,
-): Promise<string[] | "all"> => {
-  if (stale.all) return "all";
-  const names = new Set<string>(stale.names ?? []);
-  const photos = [...(stale.photos ?? [])];
-  const cameras = [...(stale.cameras ?? [])];
-  if (stale.cameraPhotos !== undefined) cameras.push(stale.cameraPhotos);
-
-  const statements: D1PreparedStatement[] = [];
-  if (stale.tag !== undefined) {
-    statements.push(
-      db
-        .prepare(
-          `SELECT id FROM media WHERE json_valid(tags)
-             AND EXISTS (SELECT 1 FROM json_each(media.tags) j WHERE j.value = ?1)`,
-        )
-        .bind(stale.tag),
-    );
-  }
-  if (stale.cameraPhotos !== undefined) {
-    statements.push(
-      db
-        .prepare("SELECT id FROM media WHERE camera_id = ?1")
-        .bind(stale.cameraPhotos),
-    );
-  }
-  if (statements.length > 0) {
-    for (const r of await db.batch<{ id: number }>(statements)) {
-      for (const row of r.results ?? []) photos.push(row.id);
-    }
-  }
-
-  const [photoRows, cameraRows, uploadRows] = await db.batch<{
-    public_id?: string;
-    path?: string;
-    slug?: string | null;
-    file?: string;
-  }>([
-    db
-      .prepare(
-        `SELECT m.public_id, m.path, c.slug FROM media m
-           LEFT JOIN camera c ON c.id = m.camera_id
-         WHERE m.id IN (SELECT value FROM json_each(?1))`,
-      )
-      .bind(json(photos)),
-    db
-      .prepare(
-        "SELECT slug FROM camera WHERE id IN (SELECT value FROM json_each(?1))",
-      )
-      .bind(json(cameras)),
-    // A new photo is private; it can only take an /img path from a camera
-    // picture that has the same bucket file.
-    db
-      .prepare(
-        `SELECT m.file FROM media m WHERE m.id IN (SELECT value FROM json_each(?1))
-           AND EXISTS (SELECT 1 FROM camera_image c WHERE c.file = m.file)`,
-      )
-      .bind(json(stale.uploads ?? [])),
-  ]);
-  for (const r of photoRows.results ?? []) {
-    if (r.public_id) {
-      names.add(lastGoodName.http(`/api/media/${r.public_id}`));
-      names.add(lastGoodName.photo(r.public_id));
-    }
-    if (r.path) names.add(lastGoodName.pathAccess(r.path));
-    if (r.slug) names.add(lastGoodName.http(`/api/camera/${r.slug}`));
-  }
-  for (const r of cameraRows.results ?? []) {
-    if (r.slug) names.add(lastGoodName.http(`/api/camera/${r.slug}`));
-  }
-  for (const r of uploadRows.results ?? []) {
-    if (r.file) names.add(lastGoodName.pathAccess(r.file));
-  }
-  for (const p of stale.paths ?? []) names.add(lastGoodName.pathAccess(p));
-  if (photos.length > 0 || cameras.length > 0 || stale.tag !== undefined) {
-    names.add(MEDIA_LIST);
-    names.add(CAMERA_LIST);
-  }
-  return [...names].sort();
+/** Give `content_version` a new value (setting values are JSON). */
+export const bumpContentVersion = async (db: D1Database): Promise<void> => {
+  await db
+    .prepare(
+      `INSERT INTO setting (key, value) VALUES (?1, json_quote(?2))
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+    )
+    .bind(CONTENT_VERSION_KEY, randomVersion())
+    .run();
 };
 
 /**
- * Retire every copy: the API Worker reads only the new generation's. A
- * fresh random value, not old + 1: KV reads may be a minute old, and two
- * bumps from the same stale value would write the same generation (the
- * second retiring nothing).
+ * After an admin change to what the public API answers: a new content
+ * version, and the snapshot deleted when `hide`. Never rejects.
  */
-export const bumpGeneration = async (kv: LastGoodKV): Promise<void> => {
-  await kv.put(GENERATION_KEY, crypto.randomUUID().replace(/-/g, ""));
-};
-
-/**
- * Delete the copies `names` (or all of them). Bumps the generation when
- * there are too many or a deletion fails. Never rejects.
- */
-export const dropCopies = async (
-  kv: LastGoodKV,
-  names: readonly string[] | "all",
-): Promise<void> => {
-  try {
-    if (names === "all" || names.length > MAX_DELETES) {
-      await bumpGeneration(kv);
-      return;
-    }
-    if (names.length === 0) return;
-    const generation = (await kv.get(GENERATION_KEY)) ?? "0";
-    const results = await Promise.allSettled(
-      names.map((n) => kv.delete(`${generation}:${n}`)),
-    );
-    const failed = results.find((r) => r.status === "rejected");
-    if (failed) {
-      console.error(
-        "last-good: delete failed, bumping the generation:",
-        failed.reason,
-      );
-      await bumpGeneration(kv);
-    }
-  } catch (err) {
-    // E.g. the generation could not be read: retire everything rather
-    // than leave a copy that may show what was just hidden.
-    console.error("last-good: invalidation failed, bumping:", err);
-    await bumpGeneration(kv).catch((e) =>
-      console.error("last-good: bump failed:", e),
-    );
-  }
-};
-
-/**
- * The names `stale` covers before a change that moves them (a photo's
- * camera, a camera's slug), to pass as `names` afterwards. Empty without
- * the binding (and on error).
- */
-export const staleBefore = async (
+export const contentChanged = async (
   platform: Platform,
   db: D1Database,
-  stale: Stale,
-): Promise<string[]> => {
-  if (!getLastGoodKV(platform)) return [];
-  try {
-    const names = await staleNames(db, stale);
-    return names === "all" ? [] : names;
-  } catch (err) {
-    console.error("last-good: reading the names before a change failed:", err);
-    return [];
-  }
-};
-
-/**
- * After an admin change: delete the copies it made wrong, in the
- * background when the platform has waitUntil. Never rejects.
- */
-export const invalidateLastGood = async (
-  platform: Platform,
-  db: D1Database,
-  stale: Stale,
+  { hide = false }: { hide?: boolean } = {},
 ): Promise<void> => {
+  // Delete first, then bump: a rebuild between the two still sees the old
+  // version and is replaced on the next run; the other order could delete
+  // a snapshot already rebuilt for the new version, leaving none.
   const kv = getLastGoodKV(platform);
-  if (!kv) return;
-  const work = (async () => {
-    try {
-      await dropCopies(kv, await staleNames(db, stale));
-    } catch (err) {
-      // The names could not be read: retire everything rather than leave
-      // a copy that may show what was just hidden.
-      console.error("last-good: names failed, bumping the generation:", err);
-      await bumpGeneration(kv).catch((e) =>
-        console.error("last-good: bump failed:", e),
+  if (hide && kv) {
+    await kv
+      .delete(SNAPSHOT_KEY)
+      .catch((err) =>
+        console.error("last-good: deleting the snapshot failed:", err),
       );
-    }
-  })();
-  const ctx = platform?.ctx;
-  if (ctx?.waitUntil) ctx.waitUntil(work);
-  else await work;
+  }
+  try {
+    await bumpContentVersion(db);
+  } catch (err) {
+    console.error("last-good: bumping the content version failed:", err);
+  }
 };
 
-/** Stale of a move plan (moveItems): the photos and their old paths. */
-export const movedStale = (plan: {
-  photos: readonly { id: number; from: string }[];
-}): Stale => ({
-  photos: plan.photos.map((p) => p.id),
-  paths: plan.photos.map((p) => p.from),
-});
+const RANK: Record<Visibility, number> = { private: 0, unlisted: 1, public: 2 };
+
+/** Whether any change makes a photo less visible than it was. */
+export const lowersVisibility = (
+  changes: readonly { from: Visibility; to: Visibility }[],
+): boolean => changes.some((c) => RANK[c.to] < RANK[c.from]);
+
+/**
+ * Whether any of these photos is one the API may show (finished, public
+ * or unlisted; the trash aside, so it also works right after trashing).
+ * A change to one of them can hide something; to private ones, not.
+ */
+export const anyShown = async (
+  db: D1Database,
+  ids: readonly number[],
+): Promise<boolean> => {
+  if (ids.length === 0) return false;
+  const row = await db
+    .prepare(
+      `SELECT 1 AS found FROM media WHERE status = 'ready'
+         AND visibility IN ('public', 'unlisted')
+         AND id IN (SELECT value FROM json_each(?1)) LIMIT 1`,
+    )
+    .bind(JSON.stringify(ids))
+    .first<{ found: number }>();
+  return row !== null;
+};
+
+/**
+ * Whether these uploads have the bucket file of a camera picture: the new
+ * row hides that picture from /img (and the upload replaces its object).
+ * Otherwise a new, private upload changes nothing the API answers.
+ */
+export const uploadsHideCameraPicture = async (
+  db: D1Database,
+  ids: readonly number[],
+): Promise<boolean> => {
+  if (ids.length === 0) return false;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT 1 AS found FROM media m
+         WHERE m.id IN (SELECT value FROM json_each(?1))
+           AND EXISTS (SELECT 1 FROM camera_image c WHERE c.file = m.file)
+         LIMIT 1`,
+      )
+      .bind(JSON.stringify(ids))
+      .first<{ found: number }>();
+    return row !== null;
+  } catch (err) {
+    console.error("last-good: checking camera pictures failed:", err);
+    return true;
+  }
+};
+
+/**
+ * Whether a move (moveItems' plan) moved a photo the API may show: its old
+ * display path no longer serves it on /img.
+ */
+export const movedShown = (
+  db: D1Database,
+  plan: { photos: readonly { id: number }[] },
+): Promise<boolean> =>
+  safeAnyShown(
+    db,
+    plan.photos.map((p) => p.id),
+  );
+
+/** `anyShown`, but true (hide, to be safe) instead of throwing. */
+export const safeAnyShown = async (
+  db: D1Database,
+  ids: readonly number[],
+): Promise<boolean> => {
+  try {
+    return await anyShown(db, ids);
+  } catch (err) {
+    console.error("last-good: reading visibility failed, hiding:", err);
+    return true;
+  }
+};

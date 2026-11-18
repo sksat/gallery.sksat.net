@@ -2,6 +2,7 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { backfillBatch } from "~/lib/backfill";
 import { getDB } from "~/lib/env";
+import { contentChanged } from "~/lib/last-good";
 import { getObjectBytes } from "~/lib/object-bytes";
 
 /**
@@ -24,6 +25,10 @@ export const onPost: RequestHandler = withErrorHandler(
       json(503, { error: "the image Worker is not bound" });
       return;
     }
-    json(200, await backfillBatch(getDB(platform), read));
+    const db = getDB(platform);
+    const result = await backfillBatch(db, read);
+    // Only fills empty columns: shows more, never less.
+    if (result.found > 0) await contentChanged(platform, db);
+    json(200, result);
   },
 );

@@ -88,7 +88,12 @@ import {
 } from "~/components/visibility-style";
 import { Toast, type ToastState } from "~/components/toast";
 import { getDB, getImageBase } from "~/lib/env";
-import { invalidateLastGood, movedStale } from "~/lib/last-good";
+import {
+  contentChanged,
+  lowersVisibility,
+  movedShown,
+  safeAnyShown,
+} from "~/lib/last-good";
 import {
   buildFolderTree,
   dirOf,
@@ -304,8 +309,10 @@ export const useBulkVisibility = routeAction$(
       return fail(500, { message: "D1 binding unavailable" });
     }
     const { changed, previous } = await setVisibility(db, v.ids, v.visibility);
-    await invalidateLastGood(platform, db, {
-      photos: previous.map((p) => p.id),
+    await contentChanged(platform, db, {
+      hide: lowersVisibility(
+        previous.map((p) => ({ from: p.visibility, to: v.visibility })),
+      ),
     });
     return {
       ok: true,
@@ -339,8 +346,10 @@ export const useSelectionVisibility = routeAction$(
       data.ids,
       data.visibility,
     );
-    await invalidateLastGood(platform, db, {
-      photos: previous.map((p) => p.id),
+    await contentChanged(platform, db, {
+      hide: lowersVisibility(
+        previous.map((p) => ({ from: p.visibility, to: data.visibility })),
+      ),
     });
     return { ok: true as const, changed, previous };
   },
@@ -367,8 +376,9 @@ export const useRestoreVisibility = routeAction$(
       return fail(500, { message: "D1 binding unavailable" });
     }
     const changed = await restoreVisibility(db, data.from, v.groups);
-    await invalidateLastGood(platform, db, {
-      photos: v.groups.flatMap((g) => g.ids),
+    const from = data.from;
+    await contentChanged(platform, db, {
+      hide: lowersVisibility(v.groups.map((g) => ({ from, to: g.visibility }))),
     });
     return { ok: true, changed };
   },
@@ -447,7 +457,9 @@ export const useFolderOp = routeAction$(
         { kind: "folder", from: dir, to: v.path },
       ]);
       if (!r.ok) return fail(409, { message: r.error });
-      await invalidateLastGood(platform, db, movedStale(r.plan));
+      await contentChanged(platform, db, {
+        hide: await movedShown(db, r.plan),
+      });
       return {
         ok: true as const,
         op: "rename" as const,
@@ -458,7 +470,9 @@ export const useFolderOp = routeAction$(
       };
     }
     const t = await trashItems(db, { photos: [], folders: [dir] });
-    await invalidateLastGood(platform, db, { photos: t.ids });
+    await contentChanged(platform, db, {
+      hide: await safeAnyShown(db, t.ids),
+    });
     return {
       ok: true as const,
       op: "trash" as const,
@@ -509,7 +523,7 @@ export const useMoveSelection = routeAction$(
     const items = { photos: data.photos, folders: data.folders };
     const r = await moveItems(db, intoFolder(await loadTree(db), dest, items));
     if (!r.ok) return fail(409, { message: r.error });
-    await invalidateLastGood(platform, db, movedStale(r.plan));
+    await contentChanged(platform, db, { hide: await movedShown(db, r.plan) });
     if (data.name?.trim()) await createFolder(db, dest);
     const undo = undoMoves(r.plan);
     // What moved: each moved folder, and each photo not inside one.
@@ -551,7 +565,7 @@ export const useRenameItem = routeAction$(
     }
     const r = await moveItems(db, moves);
     if (!r.ok) return fail(409, { message: r.error });
-    await invalidateLastGood(platform, db, movedStale(r.plan));
+    await contentChanged(platform, db, { hide: await movedShown(db, r.plan) });
     return { ok: true as const, name, undo: undoMoves(r.plan) };
   },
   zod$({
@@ -568,7 +582,7 @@ export const useTrashSelection = routeAction$(async (data, { platform }) => {
     photos: data.photos,
     folders: data.folders,
   });
-  await invalidateLastGood(platform, db, { photos: t.ids });
+  await contentChanged(platform, db, { hide: await safeAnyShown(db, t.ids) });
   return { ok: true as const, trashed: t };
 }, zod$(selectionItems));
 
@@ -583,8 +597,11 @@ export const useBulkMetadata = routeAction$(
     if (!v.ok) return fail(400, { message: v.error });
     const db = getDB(platform);
     const previous = await setMetadataLevels(db, data.ids, v.value);
-    await invalidateLastGood(platform, db, {
-      photos: previous.map((p) => p.id),
+    await contentChanged(platform, db, {
+      hide: await safeAnyShown(
+        db,
+        previous.map((p) => p.id),
+      ),
     });
     return { ok: true as const, selected: data.ids.length, previous };
   },
@@ -606,8 +623,11 @@ export const useRestoreMetadata = routeAction$(
         levels: storedOverrides(parseOverrides(r.levels)),
       })),
     );
-    await invalidateLastGood(platform, db, {
-      photos: data.previous.map((r) => r.id),
+    await contentChanged(platform, db, {
+      hide: await safeAnyShown(
+        db,
+        data.previous.map((r) => r.id),
+      ),
     });
     return { ok: true as const };
   },
@@ -630,7 +650,9 @@ export const useUndoFolderOp = routeAction$(
     if (data.moves) {
       const r = await moveItems(db, data.moves);
       if (!r.ok) return fail(409, { message: r.error });
-      await invalidateLastGood(platform, db, movedStale(r.plan));
+      await contentChanged(platform, db, {
+        hide: await movedShown(db, r.plan),
+      });
     }
     if (data.restore) {
       for (const f of data.restore.folders) {
@@ -643,9 +665,7 @@ export const useUndoFolderOp = routeAction$(
           data.restore.ids,
           data.restore.folders,
         );
-        await invalidateLastGood(platform, db, {
-          photos: r.restored.map((p) => p.id),
-        });
+        if (r.restored.length > 0) await contentChanged(platform, db);
       } catch (err) {
         if (err instanceof RestoreError) {
           return fail(409, { message: err.message });

@@ -29,6 +29,7 @@ import type {
   MediaCameraJSON,
   MediaItemJSON,
 } from "./types";
+import { SNAPSHOT_FORMAT, type Snapshot } from "./snapshot";
 
 /** media joined with its camera's names. */
 export type MediaJoinRow = {
@@ -453,4 +454,90 @@ export const getCamera = async (
   return row
     ? rowToCamera(row, (images.results ?? []) as CameraImageRow[])
     : null;
+};
+
+/**
+ * The `setting` row the admin rewrites (to a new random value) after
+ * every change to what this API answers (admin/src/lib/last-good.ts).
+ * Missing until the admin's first change: "".
+ */
+export const CONTENT_VERSION_KEY = "content_version";
+
+/** The current content version: one single-row read. */
+export const readContentVersion = async (db: D1Database): Promise<string> =>
+  (
+    await db
+      .prepare("SELECT value FROM setting WHERE key = ?")
+      .bind(CONTENT_VERSION_KEY)
+      .first<{ value: string }>()
+  )?.value ?? "";
+
+/**
+ * Everything the API answers, read in one D1 batch (a transaction, so
+ * consistent with the content version read with it): every public and
+ * unlisted photo, the cameras and their pictures. About one row read per
+ * photo, camera and camera picture. See snapshot.ts.
+ */
+export const buildSnapshot = async (
+  db: D1Database,
+): Promise<{ snapshot: Snapshot; version: string }> => {
+  const [site, tags, version, photos, cameras, images, free] = await db.batch([
+    ...contextStatements(db),
+    db
+      .prepare("SELECT value FROM setting WHERE key = ?")
+      .bind(CONTENT_VERSION_KEY),
+    db.prepare(
+      `${MEDIA_SELECT.replace("SELECT", "SELECT m.visibility,")}
+         WHERE ${VIEWABLE}
+         ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
+    ),
+    db.prepare("SELECT * FROM camera"),
+    db.prepare("SELECT * FROM camera_image"),
+    // Camera pictures /img serves by path (see getPathAccess).
+    db.prepare(
+      `SELECT DISTINCT i.file FROM camera_image i
+         WHERE NOT EXISTS (SELECT 1 FROM media WHERE file = i.file)
+         ORDER BY i.file`,
+    ),
+  ]);
+  const ctx = toContext(site, tags);
+  const snapshotPhotos = (
+    (photos.results ?? []) as (MediaJoinRow & { visibility: string })[]
+  ).map((r) => ({
+    item: projectPhoto(r, ctx),
+    key: r.file,
+    listed: r.visibility === "public",
+  }));
+  // A camera is shown through photos that show it at "model" (cameraUsed):
+  // exactly those whose projected camera has a slug.
+  const shownBy = (listed: boolean) =>
+    new Set(
+      snapshotPhotos
+        .filter((p) => !listed || p.listed)
+        .map((p) => p.item.camera?.slug)
+        .filter((s): s is string => typeof s === "string"),
+    );
+  const viewable = shownBy(false);
+  const listedSlugs = shownBy(true);
+  const imageRows = (images.results ?? []) as CameraImageRow[];
+  const snapshot: Snapshot = {
+    format: SNAPSHOT_FORMAT,
+    photos: snapshotPhotos,
+    cameras: ((cameras.results ?? []) as CameraRow[])
+      .filter((c) => viewable.has(c.slug))
+      .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0))
+      .map((c) => ({
+        camera: rowToCamera(c, imageRows),
+        listed: listedSlugs.has(c.slug),
+      })),
+    cameraImages: ((free.results ?? []) as { file: string }[]).map(
+      (r) => r.file,
+    ),
+  };
+  return {
+    snapshot,
+    version:
+      ((version.results ?? [])[0] as { value?: string } | undefined)?.value ??
+      "",
+  };
 };
