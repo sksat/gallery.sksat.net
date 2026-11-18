@@ -213,14 +213,26 @@ export const parseExif = (raw: string | null | undefined): ExifJSON => {
   return out as ExifJSON;
 };
 
-/** The camera settings at a level; null when hidden or nothing is known. */
+/**
+ * The camera settings at a level; null when hidden or nothing is known.
+ * Even at "all" they never say more than the other levels allow: the body
+ * (make, model) only when the camera is shown as a model, and the original
+ * time only when the time is shown to the second.
+ */
 export const exifAt = (
   raw: string | null | undefined,
   level: MetadataLevels["exif"],
+  others: Pick<MetadataLevels, "camera" | "taken_at">,
 ): ExifJSON | null => {
   if (level === "hidden") return null;
   const exif = parseExif(raw);
-  const keys = level === "basic" ? BASIC_EXIF_KEYS : EXIF_KEYS;
+  const keys = (level === "basic" ? BASIC_EXIF_KEYS : EXIF_KEYS).filter(
+    (key) =>
+      !(
+        (others.camera !== "model" && (key === "make" || key === "model")) ||
+        (others.taken_at !== "second" && key === "taken_at_original")
+      ),
+  );
   const out: Record<string, unknown> = {};
   for (const key of keys) if (exif[key] !== undefined) out[key] = exif[key];
   return Object.keys(out).length > 0 ? (out as ExifJSON) : null;

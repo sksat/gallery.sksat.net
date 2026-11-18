@@ -40,6 +40,33 @@ export type TimestampPrecision =
   "second" | "minute" | "date" | "month" | "year";
 
 /**
+ * Camera settings as the API gives them (workers/api/src/metadata.ts,
+ * ExifJSON): at "basic" the exposure only, at "all" the body and lens too.
+ * `orientation` and `taken_at_original` are not read: the latter would
+ * show the time more precisely than `timestamp` may.
+ */
+export type MediaExif = {
+  make?: string;
+  model?: string;
+  lens?: string;
+  focal_length_mm?: number;
+  f_number?: number;
+  /** As photographers write it: "1/250", "2", "0.5". */
+  exposure_time?: string;
+  iso?: number;
+};
+
+/** The VRChat world: with its id at the "link" level, else the name only. */
+export type MediaWorld = { id: string | null; name: string | null };
+
+/** Where it was taken, rounded to its level (workers/api, locationAt). */
+export type MediaLocation = {
+  latitude: number;
+  longitude: number;
+  precision: "exact" | "city" | "prefecture" | "country";
+};
+
+/**
  * One photo from /api/media. `id` is its public id (/photo/<id>). The API
  * leaves out (null) what the photo's metadata settings do not make public.
  */
@@ -47,6 +74,8 @@ export type MediaInfoJSON = {
   id: string;
   /** Bucket path; null unless the file name is public with its folder. */
   file: string | null;
+  /** The display path (folder + name), at the "path" level. */
+  path?: string | null;
   /** The file name, without its folder. */
   name?: string | null;
   platform: MediaPlatform;
@@ -56,6 +85,9 @@ export type MediaInfoJSON = {
   camera: null | MediaCamera;
   /** Only the camera's maker is public (no camera page). */
   maker?: string | null;
+  world?: MediaWorld | null;
+  exif?: MediaExif | null;
+  location?: MediaLocation | null;
   tags: string[];
 };
 
@@ -63,6 +95,8 @@ export type MediaInfo = Omit<MediaInfoJSON, "timestamp"> & {
   timestamp: null | Date;
   /** The time it was taken, as precisely as it is public, for display. */
   takenText?: string | null;
+  /** `timestamp` as the API wrote it (in the photo's own offset). */
+  takenIso?: string | null;
 };
 
 const TAKEN_PARTS = /^(\d{4})-(\d\d)-(\d\d)T/;
@@ -125,6 +159,7 @@ export const transformMediaInfo = (item: MediaInfoJSON): MediaInfo => ({
   ...item,
   timestamp: parseMediaTimestamp(item.timestamp),
   takenText: formatTaken(item.timestamp, item.timestamp_precision ?? null),
+  takenIso: item.timestamp,
 });
 
 const PRECISIONS: readonly string[] = [
@@ -140,6 +175,64 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 const strOrNull = (v: unknown): string | null =>
   typeof v === "string" && v !== "" ? v : null;
+
+const finiteOrNull = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
+
+/** A VRChat world id; it goes into a vrchat.com URL. */
+const WORLD_ID_RE = /^wrld_[A-Za-z0-9-]+$/;
+
+const parseWorld = (v: unknown): MediaWorld | null => {
+  if (!isRecord(v)) return null;
+  const id = typeof v.id === "string" && WORLD_ID_RE.test(v.id) ? v.id : null;
+  const name = strOrNull(v.name);
+  return id || name ? { id, name } : null;
+};
+
+const EXIF_STRINGS = ["make", "model", "lens", "exposure_time"] as const;
+const EXIF_NUMBERS = ["focal_length_mm", "f_number", "iso"] as const;
+
+const parseExif = (v: unknown): MediaExif | null => {
+  if (!isRecord(v)) return null;
+  const out: MediaExif = {};
+  for (const key of EXIF_STRINGS) {
+    const s = strOrNull(v[key]);
+    if (s !== null) out[key] = s;
+  }
+  for (const key of EXIF_NUMBERS) {
+    const n = finiteOrNull(v[key]);
+    if (n !== null && n > 0) out[key] = n;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+};
+
+const LOCATION_PRECISIONS: readonly string[] = [
+  "exact",
+  "city",
+  "prefecture",
+  "country",
+];
+
+const parseLocation = (v: unknown): MediaLocation | null => {
+  if (!isRecord(v)) return null;
+  const latitude = finiteOrNull(v.latitude);
+  const longitude = finiteOrNull(v.longitude);
+  if (
+    latitude === null ||
+    longitude === null ||
+    Math.abs(latitude) > 90 ||
+    Math.abs(longitude) > 180 ||
+    typeof v.precision !== "string" ||
+    !LOCATION_PRECISIONS.includes(v.precision)
+  ) {
+    return null;
+  }
+  return {
+    latitude,
+    longitude,
+    precision: v.precision as MediaLocation["precision"],
+  };
+};
 
 /**
  * One photo from an API response, or null if it is malformed. The id and
@@ -176,6 +269,7 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
   return {
     id,
     file,
+    path: strOrNull(v.path),
     name: strOrNull(v.name),
     platform,
     timestamp: typeof timestamp === "string" ? timestamp : null,
@@ -185,6 +279,9 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
         : null,
     camera: cam,
     maker,
+    world: parseWorld(v.world),
+    exif: parseExif(v.exif),
+    location: parseLocation(v.location),
     tags: Array.isArray(tags)
       ? tags.filter((t): t is string => typeof t === "string")
       : [],

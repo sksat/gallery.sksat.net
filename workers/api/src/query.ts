@@ -202,7 +202,7 @@ export const projectPhoto = (
     camera: cameraAt(row, levels.camera),
     location: locationAt(row.latitude, row.longitude, levels.location),
     world: worldAt(row.world_id, row.world_name, levels.world),
-    exif: exifAt(row.exif, levels.exif),
+    exif: exifAt(row.exif, levels.exif, levels),
     tags:
       levels.tags === "public"
         ? parseTags(row.tags).filter((t) => ctx.publicTags.has(t))

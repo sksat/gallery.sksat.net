@@ -39,3 +39,38 @@ INSERT INTO tag (name, public) VALUES
 --   +09:00 offset).
 UPDATE media SET metadata_visibility = '{"file_name":"path"}' WHERE id <> 3;
 UPDATE media SET metadata_visibility = '{"file_name":"path","taken_at":"date"}' WHERE id = 4;
+-- The info panel of the photo overlay (e2e/info-panel.spec.ts) shows
+-- exactly what the API returns; these rows cover each level:
+-- - vrcxxxxxxa: everything (time to the second, camera with its page, the
+--   world with its link, every EXIF value, its exact location);
+-- - vrcxxxxxxb: the date only, the camera's maker only (RICOH), the world
+--   name without a link, and its EXIF hidden;
+-- - reaxxxxxxb: its camera hidden and the basic EXIF only (no lens, body
+--   or file name);
+-- - reaxxxxxxa: the time to the minute.
+-- Camera 3 is never shown at the "model" level, so it has no page and is
+-- not in the camera list.
+INSERT INTO camera (id, slug, name, manufacturer, manufacturer_url, model, kind, description, product_url) VALUES
+  (3, 'ricoh-gr3', 'GR III', 'RICOH', NULL, 'GR III', 'digital', NULL, NULL);
+UPDATE media SET
+  world_id = 'wrld_0123abcd-4567-89ab-cdef-0123456789ab',
+  world_name = 'Fixture World',
+  exif = '{"make":"Canon","model":"EOS R5","lens":"RF35mm F1.8 MACRO IS STM","f_number":2.8,"exposure_time":"1/250","iso":100,"focal_length_mm":35,"taken_at_original":"2023-12-02T09:00:00+09:00"}',
+  latitude = 35.681236, longitude = 139.767125,
+  metadata_visibility = '{"file_name":"path","exif":"all","location":"exact"}'
+  WHERE id = 2;
+UPDATE media SET
+  camera_id = 3,
+  world_id = 'wrld_fedcba98-7654-3210-fedc-ba9876543210',
+  world_name = 'Name Only World',
+  exif = '{"f_number":4,"exposure_time":"1/60","iso":800}',
+  metadata_visibility = '{"file_name":"path","taken_at":"date","camera":"manufacturer","world":"name","exif":"hidden"}'
+  WHERE id = 4;
+UPDATE media SET
+  camera_id = 3,
+  exif = '{"make":"RICOH","model":"GR III","lens":"GR LENS 18.3mm","f_number":5.6,"exposure_time":"1/1000","iso":200,"focal_length_mm":18.3}',
+  metadata_visibility = '{"camera":"hidden"}'
+  WHERE id = 3;
+UPDATE media SET
+  metadata_visibility = '{"file_name":"path","taken_at":"minute"}'
+  WHERE id = 1;

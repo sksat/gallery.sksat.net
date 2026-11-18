@@ -26,12 +26,16 @@ describe("parseMediaTimestamp", () => {
 const item: MediaInfoJSON = {
   id: "abcdefghjk",
   file: "/media/test.jpg",
+  path: null,
   platform: "Real",
   name: null,
   timestamp: "2023-12-01T00:00:00Z",
   timestamp_precision: null,
   camera: null,
   maker: null,
+  world: null,
+  exif: null,
+  location: null,
   tags: [],
 };
 
@@ -105,6 +109,52 @@ describe("parseMediaItem", () => {
     expect(
       parseMediaItem({ ...item, timestamp_precision: "fortnight" })
         ?.timestamp_precision,
+    ).toBeNull();
+  });
+
+  it("reads the world, exif, location and path", () => {
+    expect(
+      parseMediaItem({
+        ...item,
+        path: "/2023/test.jpg",
+        world: { id: "wrld_0a-b", name: "Home" },
+        exif: {
+          make: "Canon",
+          lens: "",
+          f_number: 2.8,
+          iso: "100",
+          exposure_time: "1/250",
+          focal_length_mm: Infinity,
+          taken_at_original: "2023-12-01T09:00:00+09:00",
+        },
+        location: { latitude: 35.68, longitude: 139.77, precision: "city" },
+      }),
+    ).toEqual({
+      ...item,
+      path: "/2023/test.jpg",
+      world: { id: "wrld_0a-b", name: "Home" },
+      // Only known keys of the right type; never the original time.
+      exif: { make: "Canon", f_number: 2.8, exposure_time: "1/250" },
+      location: { latitude: 35.68, longitude: 139.77, precision: "city" },
+    });
+  });
+
+  it("drops a world id that is not one, and empty or odd objects", () => {
+    const p = (v: Record<string, unknown>) => parseMediaItem({ ...item, ...v });
+    expect(p({ world: { id: "../x", name: "Home" } })?.world).toEqual({
+      id: null,
+      name: "Home",
+    });
+    expect(p({ world: { name: null } })?.world).toBeNull();
+    expect(p({ exif: {} })?.exif).toBeNull();
+    expect(p({ exif: [] })?.exif).toBeNull();
+    expect(
+      p({ location: { latitude: 91, longitude: 0, precision: "exact" } })
+        ?.location,
+    ).toBeNull();
+    expect(
+      p({ location: { latitude: 1, longitude: 2, precision: "street" } })
+        ?.location,
     ).toBeNull();
   });
 

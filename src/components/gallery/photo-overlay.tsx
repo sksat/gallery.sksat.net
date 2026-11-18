@@ -4,6 +4,7 @@ import {
   useVisibleTask$,
   type QRL,
 } from "@builder.io/qwik";
+import { isBrowser } from "@builder.io/qwik/build";
 
 import {
   OVERLAY_BOX_WIDTH_RATIO,
@@ -13,7 +14,9 @@ import {
 } from "@shared/overlay/progress";
 import { overlayClass } from "@shared/overlay/styles";
 import { GRID_CANDIDATES, imageUrl, srcSet, type ImageSource } from "./images";
+import { InfoPanel, initialOpen, type TagLink } from "./info-panel";
 import { ShareButton } from "./share-button";
+import type { MediaInfo } from "./types";
 
 const S3_BASE = import.meta.env.VITE_S3_BASE_URL;
 const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
@@ -24,6 +27,12 @@ interface PhotoOverlayProps {
   onClose$: QRL<() => void>;
   /** Show the share button (default); off where the URL is not the photo's. */
   share?: boolean;
+  /** The photo, for its info panel; none for a camera picture. */
+  info?: MediaInfo;
+  /** The info panel's tags with their gallery URLs. */
+  tagLinks?: TagLink[];
+  /** Filter the gallery by a tag from the info panel. */
+  onTag$?: QRL<(tag: string) => void>;
 }
 
 /**
@@ -41,6 +50,12 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
   // Fraction downloaded in [0, 1], null while the size is unknown, and
   // undefined once there is nothing to show (done or failed).
   const progress = useSignal<number | null | undefined>(0);
+  // The info panel: null on the server (CSS shows the breakpoint's
+  // default until the browser picks); decided at once when the overlay is
+  // created in the browser, so stepping photos does not flicker it.
+  const infoOpen = useSignal<boolean | null>(() =>
+    isBrowser ? initialOpen() : null,
+  );
 
   // A visible task is intended: the download must start when the overlay is
   // on screen, including when it was server-rendered. The task only starts
@@ -93,9 +108,15 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     <div
       data-testid="overlay"
       onClick$={() => props.onClose$()}
-      class={overlayClass.backdrop}
+      class={[
+        overlayClass.backdrop,
+        // On desktops the open info panel takes the right edge; the photo
+        // moves left of it rather than under it.
+        props.info && "md:transition-[padding] md:duration-200",
+        props.info && infoOpen.value !== false && "md:pr-[19.5rem]",
+      ]}
     >
-      <div class={overlayClass.box}>
+      <div class={[overlayClass.box, "max-w-full"]}>
         <img
           aria-hidden="true"
           src={imageUrl(S3_BASE, props.src, IMAGE_BASE, "h240")}
@@ -135,6 +156,14 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
         />
       </div>
       {props.share !== false && <ShareButton />}
+      {props.info && props.onTag$ && (
+        <InfoPanel
+          photo={props.info}
+          tagLinks={props.tagLinks ?? []}
+          onTag$={props.onTag$}
+          open={infoOpen}
+        />
+      )}
     </div>
   );
 });
