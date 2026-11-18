@@ -1,5 +1,6 @@
 import { component$, Slot } from "@builder.io/qwik";
 import { Link, useLocation } from "@builder.io/qwik-city";
+import { MetadataReader } from "~/components/metadata-reader";
 import { TabBar } from "~/components/tab-bar";
 import { ThemeToggle } from "~/components/theme-toggle";
 
@@ -97,12 +98,14 @@ export default component$(() => {
               </Link>
             ))}
           </nav>
-          <div class="ml-auto hidden sm:block">
+          {/* Pushes what follows to the right; a spinner while reading. */}
+          <MetadataReader />
+          <div class="hidden sm:block">
             <ThemeToggle />
           </div>
           {/* Phones: settings behind a small menu. */}
           {/* Keyed by path: closed again after moving to another page. */}
-          <details key={path} class="relative ml-auto sm:hidden">
+          <details key={path} class="relative sm:hidden">
             <summary
               aria-label="Menu"
               class="grid size-11 cursor-pointer list-none place-items-center rounded-md text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 [&::-webkit-details-marker]:hidden"

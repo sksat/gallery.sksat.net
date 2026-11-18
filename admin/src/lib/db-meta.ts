@@ -1,16 +1,8 @@
 // Site-wide metadata defaults (`setting`) and tags (`tag`), migration 0005
 // (db-meta.spec.ts, on the real schema).
 
-import {
-  storedOverrides,
-  withLevels,
-  type LevelChange,
-} from "./bulk-metadata";
-import {
-  parseOverrides,
-  siteDefaults,
-  type MetadataLevels,
-} from "./metadata";
+import { storedOverrides, withLevels, type LevelChange } from "./bulk-metadata";
+import { parseOverrides, siteDefaults, type MetadataLevels } from "./metadata";
 import { LIVE_PHOTO } from "./types";
 
 const KEY = "metadata_visibility";

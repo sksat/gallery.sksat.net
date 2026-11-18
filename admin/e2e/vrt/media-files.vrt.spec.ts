@@ -3,8 +3,14 @@ import { expect, test, type Page } from "@playwright/test";
 /** Every tile selected, and 公開 picked: the bar with its look first. */
 const selectForPublic = async (page: Page, phone: boolean) => {
   if (phone) {
-    await page.getByRole("option", { name: "vrchat2.png" }).getByTestId("tile-check").click();
-    await page.getByRole("option", { name: "vrchat3.png" }).getByTestId("tile-check").click();
+    await page
+      .getByRole("option", { name: "vrchat2.png" })
+      .getByTestId("tile-check")
+      .click();
+    await page
+      .getByRole("option", { name: "vrchat3.png" })
+      .getByTestId("tile-check")
+      .click();
   } else {
     await page.keyboard.press("ControlOrMeta+a");
   }

@@ -3,8 +3,9 @@
 // no upload progress). Thin wrappers; the logic is in upload-queue.ts.
 
 import { imageSize } from "./image-size";
-import { readPhotoMeta } from "./photo-meta";
-import { vrchatTakenAt } from "./taken-at";
+import { markUnread } from "./read-state";
+import { PHOTO_META_PARSER_DATE, readPhotoMeta } from "./photo-meta";
+import { pickTakenAt } from "./taken-at";
 import { checkUploadLimits, uploadContentType } from "./upload";
 import {
   UploadError,
@@ -43,16 +44,19 @@ export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
     crypto.subtle.digest("SHA-256", bytes),
     readPhotoMeta(new Uint8Array(bytes)),
   ]);
-  const { takenAt, ...stored } = meta;
+  const { takenAt: _, dates, ...stored } = meta;
+  // EXIF, then XMP, then the VRChat name (taken-at.ts).
+  const taken = pickTakenAt(dates, f.name);
   return {
     sha256: hex(digest),
     contentType,
     width: size?.width ?? null,
     height: size?.height ?? null,
-    // The VRChat name is exact to the millisecond; then EXIF.
-    timestamp: vrchatTakenAt(f.name) ?? takenAt,
+    timestamp: taken?.at ?? null,
+    ...(taken ? { timestampSource: taken.source } : {}),
     // Always sent, even empty: the server then knows the file was read.
     meta: stored,
+    parserDate: PHOTO_META_PARSER_DATE,
   };
 };
 
@@ -112,6 +116,8 @@ export const initUploadRequest = (
 
 export const completeUploadRequest = async (id: number): Promise<void> => {
   await api("POST", `/api/upload/${id}`);
+  // A new photo: the background reader looks again (it may need reading).
+  markUnread();
 };
 
 /** PUT the file to the presigned URL, reporting bytes sent. */

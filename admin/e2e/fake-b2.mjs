@@ -15,6 +15,8 @@ import { createServer } from "node:http";
 const [port, bucket, keyId, secret, region] = process.argv.slice(2);
 const uploads = [];
 let versions = 0;
+/** What was PUT, by key (GET /__bytes reads it). */
+const bodies = new Map();
 
 const enc = (s) =>
   encodeURIComponent(s).replace(
@@ -164,6 +166,27 @@ createServer((req, res) => {
     res.writeHead(204).end();
     return;
   }
+  // Stands in for the image Worker's AdminImage.bytes (metadata reader):
+  // ?key=&offset=&length= or ?key=&suffix=, the object's size in a header.
+  if (req.method === "GET" && url.pathname === "/__bytes") {
+    const body = bodies.get(url.searchParams.get("key"));
+    if (!body) {
+      res.writeHead(404).end();
+      return;
+    }
+    const suffix = url.searchParams.get("suffix");
+    const part =
+      suffix !== null
+        ? body.subarray(Math.max(0, body.length - Number(suffix)))
+        : body.subarray(
+            Number(url.searchParams.get("offset")),
+            Number(url.searchParams.get("offset")) +
+              Number(url.searchParams.get("length")),
+          );
+    res.writeHead(200, { "x-object-size": String(body.length) });
+    res.end(part);
+    return;
+  }
   if (req.method !== "PUT" || !url.pathname.startsWith(`/${bucket}/`)) {
     res.writeHead(404).end();
     return;
@@ -175,9 +198,11 @@ createServer((req, res) => {
   }
   const hash = createHash("sha256");
   let size = 0;
+  const chunks = [];
   req.on("data", (chunk) => {
     size += chunk.length;
     hash.update(chunk);
+    chunks.push(chunk);
   });
   req.on("end", () => {
     const sha256 = hash.digest("hex");
@@ -185,13 +210,15 @@ createServer((req, res) => {
       res.writeHead(400, { "Content-Type": "text/plain" }).end("BadDigest");
       return;
     }
+    const key = url.pathname.slice(bucket.length + 1);
     uploads.push({
       versionId: `v${++versions}`,
-      key: url.pathname.slice(bucket.length + 1),
+      key,
       size,
       sha256,
       contentType: req.headers["content-type"],
     });
+    bodies.set(key, Buffer.concat(chunks));
     res.writeHead(200, { ETag: `"${sha256.slice(0, 32)}"` }).end();
   });
 }).listen(Number(port), "127.0.0.1");

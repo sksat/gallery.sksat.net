@@ -16,6 +16,14 @@
 // of range is left out, and a truncated or corrupt file yields whatever
 // was read before the damage.
 
+/**
+ * When this parser last learned to find something new: photos read before
+ * it are read again (backfill.ts). Bump it with every such change; a date
+ * slightly ahead of the deploy is fine. (2026-11-19: the XMP CreateDate,
+ * film scanners' dates.)
+ */
+export const PHOTO_META_PARSER_DATE = "2026-11-19T00:00:00.000Z";
+
 /** Offset assumed when a date in the file has none (cameras on JST). */
 export const DEFAULT_OFFSET = "+09:00";
 
@@ -90,9 +98,24 @@ export type WorldMeta = {
   authorId: string | null;
 };
 
+/**
+ * The times a file records, each an ISO date-time with an offset (JST
+ * when the file has none), to the millisecond. Pick with takenAtOf
+ * (taken-at.ts adds the VRChat file name).
+ */
+export type FileDates = {
+  /** EXIF DateTimeOriginal (+ OffsetTimeOriginal). */
+  exifOriginal: string | null;
+  /** XMP xmp:CreateDate, else exif:DateTimeOriginal / tiff:DateTime in XMP. */
+  xmp: string | null;
+  /** EXIF IFD0 DateTime (when the file was last written). */
+  exifDateTime: string | null;
+};
+
 export type PhotoMeta = {
-  /** When it was taken (DateTimeOriginal, else DateTime; JST if no offset). */
+  /** When it was taken, from the file alone (takenAtOf(dates)). */
   takenAt: string | null;
+  dates: FileDates;
   exif: ExifJSON | null;
   /** WGS 84 degrees from the GPS IFD. */
   location: { latitude: number; longitude: number } | null;
@@ -283,18 +306,45 @@ const gpsCoord = (
   return round(v, 7) + 0;
 };
 
-type TiffMeta = Pick<PhotoMeta, "takenAt" | "exif" | "location">;
+type TiffMeta = Pick<PhotoMeta, "exif" | "location"> & {
+  exifOriginal: string | null;
+  exifDateTime: string | null;
+};
+
+const NO_TIFF: TiffMeta = {
+  exif: null,
+  location: null,
+  exifOriginal: null,
+  exifDateTime: null,
+};
+
+/**
+ * Whether EXIF Make/Model name a film scanner rather than a camera: its
+ * dates are when the film was scanned, not when the photo was taken. A
+ * short list of the common lab and desktop scanners.
+ */
+export const isFilmScanner = (
+  make: string | undefined,
+  model: string | undefined,
+): boolean => {
+  const mk = make ?? "";
+  const md = model ?? "";
+  return (
+    /noritsu|plustek|pacific image/i.test(mk) ||
+    // Fuji Frontier (SP-500/1500/2000/3000, LP-…).
+    (/fuji/i.test(mk) && /^(SP|LP)-?\d|frontier/i.test(md)) ||
+    /frontier|pakon|flextight|coolscan|^LS-\d|perfection|opticfilm|^QSS-|^HS-1800|^EZ ?controller/i.test(
+      md,
+    )
+  );
+};
 
 /** What a TIFF/EXIF block starting at `tiff` holds. Throws on bad headers. */
 const fromTiff = (view: DataView, tiff: number): TiffMeta => {
   const order = view.getUint16(tiff, false);
-  if (order !== 0x4949 && order !== 0x4d4d) {
-    return { takenAt: null, exif: null, location: null };
-  }
+  if (order !== 0x4949 && order !== 0x4d4d) return NO_TIFF;
   const little = order === 0x4949;
-  if (view.getUint16(tiff + 2, little) !== 42) {
-    return { takenAt: null, exif: null, location: null };
-  }
+  if (view.getUint16(tiff + 2, little) !== 42) return NO_TIFF;
   const ifd0 = readIfd(view, tiff, view.getUint32(tiff + 4, little), little);
   const sub = (tag: number) => {
     const at = int(ifd0, tag);
@@ -344,14 +394,15 @@ const fromTiff = (view: DataView, tiff: number): TiffMeta => {
       : null;
 
   const dateTime = str(ifd0, T.dateTime);
-  const takenAt =
-    (original ? exifDateToIso(original, offset ?? null) : null) ??
-    (dateTime ? exifDateToIso(dateTime, null) : null);
+  // A scanner's dates are the scan's: kept in exif, never the taken-at.
+  const scanner = isFilmScanner(make, model);
 
   return {
-    takenAt,
     exif: Object.keys(exif).length > 0 ? exif : null,
     location,
+    exifOriginal:
+      original && !scanner ? exifDateToIso(original, offset ?? null) : null,
+    exifDateTime: dateTime && !scanner ? exifDateToIso(dateTime, null) : null,
   };
 };
 
@@ -382,15 +433,15 @@ const decodeEntities = (s: string) =>
   });
 
 /**
- * One property of the `vrc` namespace, written as an attribute
+ * One XMP property (`prefix:Name`), written as an attribute
  * (vrc:WorldID="…") or an element (<vrc:WorldID>…</vrc:WorldID>).
  */
 const xmpValue = (xmp: string, name: string): string | null => {
-  const attr = new RegExp(
-    `\\bvrc:${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,
-  ).exec(xmp);
+  const attr = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`).exec(
+    xmp,
+  );
   const elem = new RegExp(
-    `<vrc:${name}(?:\\s[^>]*)?>(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([^<]*))</vrc:${name}>`,
+    `<${name}(?:\\s[^>]*)?>(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([^<]*))</${name}>`,
   ).exec(xmp);
   const raw = attr?.[1] ?? attr?.[2] ?? elem?.[1] ?? elem?.[2];
   if (raw === undefined) return null;
@@ -398,14 +449,60 @@ const xmpValue = (xmp: string, name: string): string | null => {
   return v === "" ? null : cut(v, MAX_META_TEXT);
 };
 
+const XMP_DATE_RE =
+  /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d)(?:\.(\d+))?)?(Z|[+-]\d\d:\d\d)?$/;
+
+/**
+ * An XMP date ("2026-11-02T11:31:36.9591864+09:00") as stored: cut to the
+ * millisecond (not rounded, so it never moves to the next second), the
+ * offset kept ("Z" as +00:00, none as JST). Null for anything else,
+ * including XMP's date-only forms.
+ */
+export const xmpDateToIso = (value: string): string | null => {
+  const m = XMP_DATE_RE.exec(value.trim());
+  if (!m) return null;
+  const [, y, mo, d, h, mi, s = "00", frac, off] = m;
+  const ms =
+    frac === undefined ? null : Number(frac.slice(0, 3).padEnd(3, "0"));
+  const offset =
+    off === undefined ? DEFAULT_OFFSET : off === "Z" ? "+00:00" : off;
+  return isoDateTime(+y, +mo, +d, +h, +mi, +s, ms, offset);
+};
+
+/**
+ * When the photo was taken by its XMP: xmp:CreateDate (VRChat writes it,
+ * with the real offset and sub-second time), else the EXIF / TIFF dates
+ * copied into XMP.
+ */
+export const xmpTakenAt = (xmp: string): string | null => {
+  for (const name of [
+    "xmp:CreateDate",
+    "exif:DateTimeOriginal",
+    "tiff:DateTime",
+  ]) {
+    const v = xmpValue(xmp, name);
+    const iso = v === null ? null : xmpDateToIso(v);
+    if (iso) return iso;
+  }
+  return null;
+};
+
+/**
+ * The taken-at time among a file's own dates: EXIF DateTimeOriginal, then
+ * the XMP date, then EXIF DateTime. (taken-at.ts puts the VRChat file name
+ * before DateTime.)
+ */
+export const takenAtOf = (d: FileDates): string | null =>
+  d.exifOriginal ?? d.xmp ?? d.exifDateTime;
+
 const WORLD_ID_RE = /^wrld_[0-9A-Za-z-]+$/;
 const USER_ID_RE = /^usr_[0-9A-Za-z-]+$/;
 
 /** The VRChat world in an XMP packet, or null. */
 export const worldFromXmp = (xmp: string): WorldMeta | null => {
-  const id = xmpValue(xmp, "WorldID");
-  const name = xmpValue(xmp, "WorldDisplayName");
-  const author = xmpValue(xmp, "AuthorID");
+  const id = xmpValue(xmp, "vrc:WorldID");
+  const name = xmpValue(xmp, "vrc:WorldDisplayName");
+  const author = xmpValue(xmp, "vrc:AuthorID");
   const world = {
     id: id && WORLD_ID_RE.test(id) ? id : null,
     name,
@@ -560,7 +657,7 @@ export const needsTail = (head: Uint8Array): boolean => {
 
 const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
   const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
-  let tiffMeta: TiffMeta = { takenAt: null, exif: null, location: null };
+  let tiffMeta: TiffMeta = NO_TIFF;
   for (const at of found.tiff) {
     try {
       tiffMeta = fromTiff(view, at);
@@ -574,7 +671,25 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
     world = worldFromXmp(x);
     if (world) break;
   }
-  return { ...tiffMeta, world };
+  // A scanner's XMP dates are the scan's too.
+  const scanner = isFilmScanner(tiffMeta.exif?.make, tiffMeta.exif?.model);
+  let xmpDate: string | null = null;
+  for (const x of scanner ? [] : xmp) {
+    xmpDate = xmpTakenAt(x);
+    if (xmpDate) break;
+  }
+  const dates: FileDates = {
+    exifOriginal: tiffMeta.exifOriginal,
+    xmp: xmpDate,
+    exifDateTime: tiffMeta.exifDateTime,
+  };
+  return {
+    takenAt: takenAtOf(dates),
+    dates,
+    exif: tiffMeta.exif,
+    location: tiffMeta.location,
+    world,
+  };
 };
 
 /**
@@ -642,7 +757,7 @@ export const readPhotoMetaSync = (head: Uint8Array): PhotoMeta => {
 };
 
 /** What is stored from a file (takenAt goes to media.timestamp apart). */
-export type StoredMeta = Omit<PhotoMeta, "takenAt">;
+export type StoredMeta = Omit<PhotoMeta, "takenAt" | "dates">;
 
 export const EMPTY_STORED: StoredMeta = {
   exif: null,

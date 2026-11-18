@@ -1,17 +1,54 @@
-// Reading the metadata of photos uploaded before the uploader did it
-// (covered by backfill.spec.ts on the real schema). The admin cannot read
-// the bucket, so the image Worker's AdminImage.bytes hands it the first
-// (and for some PNGs the last) bytes of each original; photo-meta.ts reads
-// them, and only the columns still empty are filled.
+// Reading the metadata in the originals (covered by backfill.spec.ts on
+// the real schema), for photos the uploader did not read (uploaded before
+// it could) and again whenever the parser improves (PHOTO_META_PARSER_DATE).
+// The admin cannot read the bucket, so the image Worker's AdminImage.bytes
+// hands it the first (and for some PNGs the last) bytes of each original;
+// photo-meta.ts reads them, and metadata-source.ts decides field by field
+// what the reading may replace (never a value entered by hand).
 //
-// Idempotent: a photo is read once (media.metadata_read_at), and a run
-// goes through the photos by id in small batches so that each request
-// stays well under the Pages Functions subrequest limit (50; each photo
-// takes one or two AdminImage calls).
+// Admin pages call it on their own while open (MetadataReader), a batch
+// at a time. media.metadata_read_at says where a photo stands:
+//   NULL                      never read (or reset): waiting
+//   <ISO time>                read; waiting again once older than the
+//                             parser date
+//   'reading:<ISO time>[!new]' claimed by a batch, so two tabs never read
+//                             the same photo; taken again after
+//                             CLAIM_STALE_MS (a request that died)
+//   'failed:<ISO time>[!new]'  could not be read or written; tried again
+//                             after FAILED_RETRY_MS
+// '!new' carries "never read before" through a claim (applyReading's
+// firstRead). Each request stays well under the Pages Functions
+// subrequest limit (50; each photo takes one or two AdminImage calls).
 
-import { metaColumns } from "./db-upload";
-import { LIVE_PHOTO } from "./types";
-import { EMPTY_STORED, hasMeta, needsTail, readPhotoMeta } from "./photo-meta";
+import { applyReading, type Reading, type SourcedRow } from "./metadata-source";
+import {
+  EMPTY_STORED,
+  hasMeta,
+  needsTail,
+  PHOTO_META_PARSER_DATE,
+  readPhotoMeta,
+  type FileDates,
+} from "./photo-meta";
+import { pickTakenAt } from "./taken-at";
+/**
+ * types.ts LIVE_PHOTO with its columns kept off their indexes (unary +):
+ * idx_media_status would match nearly every row, and the planner (no
+ * statistics on D1) may prefer it to idx_media_metadata_read_at, which
+ * finds the few rows waiting (backfill.spec.ts checks the plan).
+ */
+const LIVE = "+status = 'ready' AND +trashed_at IS NULL";
+
+export { PHOTO_META_PARSER_DATE };
+
+/** A claim older than this is taken to be abandoned. */
+export const CLAIM_STALE_MS = 10 * 60 * 1000;
+
+/** A photo that could not be read is tried again after this. */
+export const FAILED_RETRY_MS = 24 * 60 * 60 * 1000;
+
+const CLAIM = "reading:";
+const FAILED = "failed:";
+const NEW = "!new";
 
 /** Photos per request. */
 export const BACKFILL_BATCH = 12;
@@ -25,6 +62,12 @@ export const HEAD_BYTES = 128 * 1024;
 /** Bytes read from the end of a PNG whose text chunks follow the image. */
 export const TAIL_BYTES = 64 * 1024;
 
+const NO_DATES: FileDates = {
+  exifOriginal: null,
+  xmp: null,
+  exifDateTime: null,
+};
+
 export type ReadBytes = (
   file: string,
   range: { offset: number; length: number } | { suffix: number },
@@ -35,127 +78,223 @@ export type BackfillResult = {
   read: number;
   /** Of those, the ones something was found in. */
   found: number;
-  /** Ones that could not be read now (left for a later run). */
+  /** Ones that could not be read or written now (tried again later). */
   failed: number;
-  /** Pass as `after` for the next batch; null when this was the last. */
-  next: number | null;
+  /** Whether there may be more to read (a full batch was claimed). */
+  more: boolean;
 };
 
-/** How many ready photos have not been read yet. */
-export const countUnread = async (db: D1Database): Promise<number> => {
+const iso = (ms: number) => new Date(ms).toISOString();
+
+/**
+ * metadata_read_at for a photo read now: never earlier than the parser
+ * date, so a parser date set slightly ahead (before the code is deployed)
+ * does not make the new code read the same photos again.
+ */
+export const readStamp = (nowMs: number) => {
+  const now = iso(nowMs);
+  return now > PHOTO_META_PARSER_DATE ? now : PHOTO_META_PARSER_DATE;
+};
+
+/**
+ * A photo to read, in SQL (?1 the parser date, ?2 the cut-off for claims,
+ * ?3 the cut-off for failures).
+ */
+// Ranges only, so idx_media_metadata_read_at (0008) answers each term:
+// read times start with a digit, below 'failed:' and 'reading:', and a
+// marker compares by its fixed-width time.
+const UNREAD = `(metadata_read_at IS NULL
+  OR metadata_read_at < ?1
+  OR (metadata_read_at >= '${CLAIM}' AND metadata_read_at < ?2)
+  OR (metadata_read_at >= '${FAILED}' AND metadata_read_at < ?3))`;
+
+/** The photos waiting to be read, in SQL (bind unreadArgs). */
+export const WAITING_SQL = `${UNREAD} AND ${LIVE}`;
+
+export const unreadArgs = (nowMs: number) => [
+  PHOTO_META_PARSER_DATE,
+  CLAIM + iso(nowMs - CLAIM_STALE_MS),
+  FAILED + iso(nowMs - FAILED_RETRY_MS),
+];
+
+/**
+ * How many photos are waiting to be read (tests and one-off checks only:
+ * the pages never count, to spare D1's daily row reads).
+ */
+export const countUnread = async (
+  db: D1Database,
+  nowMs: number = Date.now(),
+): Promise<number> => {
   const row = await db
-    .prepare(
-      `SELECT COUNT(*) AS c FROM media WHERE ${LIVE_PHOTO} AND metadata_read_at IS NULL`,
-    )
+    .prepare(`SELECT COUNT(*) AS c FROM media WHERE ${WAITING_SQL}`)
+    .bind(...unreadArgs(nowMs))
     .first<{ c: number }>();
   return row?.c ?? 0;
 };
 
-const FILL_SQL = `UPDATE media SET
-  exif = COALESCE(exif, ?2),
-  latitude = CASE WHEN latitude IS NULL THEN ?3 ELSE latitude END,
-  longitude = CASE WHEN latitude IS NULL THEN ?4 ELSE longitude END,
-  location_source = CASE WHEN latitude IS NULL AND ?3 IS NOT NULL
-                         THEN 'exif' ELSE location_source END,
-  world_id = CASE WHEN world_id IS NULL AND world_name IS NULL
-                  THEN ?5 ELSE world_id END,
-  world_name = CASE WHEN world_id IS NULL AND world_name IS NULL
-                    THEN ?6 ELSE world_name END,
-  world_author_id = CASE WHEN world_id IS NULL AND world_name IS NULL
-                         THEN ?7 ELSE world_author_id END,
-  timestamp = COALESCE(timestamp, ?8),
-  metadata_read_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-WHERE id = ?1 AND metadata_read_at IS NULL`;
+type ClaimedRow = SourcedRow & {
+  id: number;
+  file: string;
+  /** The claim as written (the guard of every later write). */
+  metadata_read_at: string;
+  updated_at: string;
+};
 
 /**
- * Read the next batch of unread photos after id `after`. A photo whose
- * original is missing is marked read (there is nothing to read); one that
- * fails (the Worker or the bucket) is skipped and stays unread.
+ * Read the next batch of photos waiting to be read (in no particular
+ * order: once claimed, read or failed, a photo no longer waits, so
+ * calling this until `more` is false goes through them all). A photo
+ * whose original is missing is marked read (there is nothing more to read
+ * than its name); one that cannot be read or written is marked failed
+ * and tried again after FAILED_RETRY_MS.
  */
 export const backfillBatch = async (
   db: D1Database,
   read: ReadBytes,
-  after: number,
   limit: number = BACKFILL_BATCH,
+  nowMs: number = Date.now(),
 ): Promise<BackfillResult> => {
-  const rows =
-    (
+  // Claim atomically: a second tab's claim finds these rows taken.
+  const claimed = (
+    ((
       await db
         .prepare(
-          `SELECT id, file FROM media
-           WHERE ${LIVE_PHOTO} AND metadata_read_at IS NULL AND id > ?1
-           ORDER BY id LIMIT ?2`,
+          `UPDATE media SET metadata_read_at = ?4 ||
+             CASE WHEN metadata_read_at IS NULL
+                    OR metadata_read_at LIKE '%${NEW}' THEN '${NEW}' ELSE '' END
+           WHERE id IN (SELECT id FROM media
+                        WHERE ${WAITING_SQL} LIMIT ?5)
+             AND ${UNREAD}
+           RETURNING id, file, timestamp, exif, latitude, longitude,
+                     location_source, world_id, world_name, world_author_id,
+                     metadata_source, metadata_read_at, updated_at`,
         )
-        .bind(after, limit)
-        .all<{ id: number; file: string }>()
-    ).results ?? [];
+        .bind(...unreadArgs(nowMs), CLAIM + iso(nowMs), limit)
+        .all<ClaimedRow>()
+    ).results ?? []) as ClaimedRow[]
+  ).sort((a, b) => a.id - b.id);
+
   const errors: string[] = [];
   const results = await Promise.all(
-    rows.map(async ({ id, file }) => {
+    claimed.map(async (row) => {
       try {
-        const head = await read(file, { offset: 0, length: HEAD_BYTES });
+        const head = await read(row.file, { offset: 0, length: HEAD_BYTES });
         let tail: Uint8Array | undefined;
         if (head && head.size > head.bytes.length && needsTail(head.bytes)) {
-          tail = (await read(file, { suffix: TAIL_BYTES }))?.bytes;
+          tail = (await read(row.file, { suffix: TAIL_BYTES }))?.bytes;
         }
-        const { takenAt, ...meta } = head
-          ? await readPhotoMeta(head.bytes, tail)
-          : { takenAt: null, ...EMPTY_STORED };
-        return { id, meta, takenAt };
+        let reading: Reading;
+        if (!head) {
+          // Not in the bucket: nothing to read, but the name may say.
+          reading = {
+            ...EMPTY_STORED,
+            takenAt: pickTakenAt(NO_DATES, row.file),
+          };
+        } else {
+          const {
+            takenAt: _,
+            dates,
+            ...meta
+          } = await readPhotoMeta(head.bytes, tail);
+          reading = { ...meta, takenAt: pickTakenAt(dates, row.file) };
+        }
+        return { row, reading };
       } catch (err) {
-        console.error(`backfill ${file} failed:`, err);
+        console.error(`backfill ${row.file} failed:`, err);
         errors.push(err instanceof Error ? err.message : String(err));
         return null;
       }
     }),
   );
-  let done = results.filter((r) => r !== null);
-  // Nothing could be read at all: the Worker or the login is the problem,
-  // not the photos. Stop here with the reason rather than going through
-  // every photo the same way.
-  if (rows.length > 0 && done.length === 0) {
-    throw new Error(`no original could be read: ${errors[0]}`);
-  }
-  const fill = ({ id, meta, takenAt }: (typeof done)[number]) => {
-    const c = metaColumns(meta);
+  const readOk = results.filter((r) => r !== null);
+
+  // Only while the claim is ours and the row was not edited meanwhile
+  // (every edit bumps updated_at; the claim does not).
+  const GUARD = "id = ?1 AND metadata_read_at = ?2 AND updated_at IS ?3";
+  const write = ({ row, reading }: (typeof readOk)[number]) => {
+    const next = applyReading(row, reading, row.metadata_read_at.endsWith(NEW));
     return db
-      .prepare(FILL_SQL)
+      .prepare(
+        `UPDATE media SET timestamp = ?4, exif = ?5, latitude = ?6,
+           longitude = ?7, location_source = ?8, world_id = ?9,
+           world_name = ?10, world_author_id = ?11, metadata_source = ?12,
+           metadata_read_at = ?13
+         WHERE ${GUARD}`,
+      )
       .bind(
-        id,
-        c.exif,
-        c.latitude,
-        c.longitude,
-        c.world_id,
-        c.world_name,
-        c.world_author_id,
-        takenAt,
+        row.id,
+        row.metadata_read_at,
+        row.updated_at,
+        next.timestamp,
+        next.exif,
+        next.latitude,
+        next.longitude,
+        next.location_source,
+        next.world_id,
+        next.world_name,
+        next.world_author_id,
+        next.metadata_source,
+        readStamp(nowMs),
       );
   };
-  if (done.length > 0) {
+  const written = new Set<number>();
+  if (readOk.length > 0) {
     try {
-      await db.batch(done.map(fill));
+      const out = (await db.batch(readOk.map(write))) as D1Result[];
+      out.forEach((r, i) => {
+        if ((r.meta?.changes ?? 0) > 0) written.add(readOk[i].row.id);
+      });
     } catch (err) {
       // One row the schema refuses would roll back the whole batch, every
-      // run: write them one by one, and leave the refused ones unread.
+      // run: write them one by one.
       console.error("backfill batch failed, retrying one by one:", err);
-      const ok: typeof done = [];
-      for (const r of done) {
+      for (const r of readOk) {
         try {
-          await fill(r).run();
-          ok.push(r);
+          const res = await write(r).run();
+          if ((res.meta?.changes ?? 0) > 0) written.add(r.row.id);
         } catch (e) {
-          console.error(`backfill row ${r.id} refused:`, e);
+          console.error(`backfill row ${r.row.id} refused:`, e);
         }
       }
-      done = ok;
     }
   }
-  const found = done.filter(({ meta }) => hasMeta(meta)).length;
-  const failed = rows.length - done.length;
+
+  // The rest failed (or were edited meanwhile: tried again later too).
+  const failed = claimed.filter((r) => !written.has(r.id));
+  // Several photos and not one could be read: most likely the Worker or
+  // the login, not the photos. Their claims expire in CLAIM_STALE_MS
+  // rather than putting real photos off for a day. (A lone photo that
+  // fails is marked, or it would come back every ten minutes.)
+  const outage = readOk.length === 0 && claimed.length > 1;
+  if (failed.length > 0 && !outage) {
+    await db.batch(
+      failed.map((row) =>
+        db
+          .prepare(`UPDATE media SET metadata_read_at = ?4 WHERE ${GUARD}`)
+          .bind(
+            row.id,
+            row.metadata_read_at,
+            row.updated_at,
+            FAILED +
+              iso(nowMs) +
+              (row.metadata_read_at.endsWith(NEW) ? NEW : ""),
+          ),
+      ),
+    );
+  }
+  // Nothing could be read at all: the Worker or the login is the problem,
+  // not the photos. Say so (the reader stops until the next page view).
+  if (claimed.length > 0 && readOk.length === 0) {
+    throw new Error(`no original could be read: ${errors[0]}`);
+  }
+  const found = readOk.filter(
+    ({ row, reading }) =>
+      written.has(row.id) && (hasMeta(reading) || reading.takenAt !== null),
+  ).length;
   return {
-    read: rows.length,
+    read: claimed.length,
     found,
-    failed,
-    next: rows.length < limit ? null : rows[rows.length - 1].id,
+    failed: failed.length,
+    more: claimed.length === limit,
   };
 };

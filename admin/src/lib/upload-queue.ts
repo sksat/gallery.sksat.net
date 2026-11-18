@@ -10,6 +10,7 @@
 // time with a fresh init, which resumes the same `uploading` row and signs
 // a new URL (so an expired URL is not a dead end).
 
+import type { TakenAtSource } from "./metadata-source";
 import type { StoredMeta } from "./photo-meta";
 import { checkUploadLimits, uploadTarget } from "./upload";
 
@@ -54,6 +55,10 @@ export type Prepared = {
   sha256: string;
   contentType: string;
   timestamp: string | null;
+  /** Where `timestamp` came from (taken-at.ts). */
+  timestampSource?: Exclude<TakenAtSource, "manual">;
+  /** PHOTO_META_PARSER_DATE of the parser that read `meta`. */
+  parserDate?: string;
   /** Metadata read from the file (photo-meta.ts), when there is any. */
   meta?: StoredMeta;
   /** From the header (image-size.ts); null when it could not be read. */

@@ -565,6 +565,46 @@ describe("0005_path_trash.sql", () => {
     expect(() => db.prepare("SELECT legacy_index FROM media").all()).toThrow();
   });
 
+  it("0008 marks what was filled in so far as the weakest automatic source", () => {
+    const db = migrate5([]);
+    db.exec(`INSERT INTO media (file, platform, timestamp, exif, world_name, latitude, longitude, location_source)
+      VALUES ('/a.png', 'VRChat', '2026-01-01T00:00:00+09:00', '{"make":"x"}', 'W', 1, 2, 'manual'),
+             ('/b.png', 'Real', NULL, NULL, NULL, NULL, NULL, NULL),
+             ('/c.png', 'Real', '2026-01-01T00:00:00+09:00', NULL, NULL, NULL, NULL, NULL),
+             ('/d.png', 'VRChat', NULL, '{"make":"y"}', 'V', NULL, NULL, NULL),
+             ('/e.png', 'Real', NULL, '{"lens":"hand"}', NULL, NULL, NULL, NULL)`);
+    db.exec(`UPDATE media SET metadata_read_at = '2026-11-01T00:00:00.000Z',
+               updated_at = '2026-01-01T00:00:00.000Z';
+             UPDATE media SET updated_at = '2026-11-02T00:00:00.000Z'
+               WHERE file = '/d.png';
+             UPDATE media SET metadata_read_at = NULL WHERE file = '/e.png'`);
+    db.exec(migration("0008_metadata_source.sql"));
+    const rows = db
+      .prepare(
+        "SELECT file, metadata_source, location_source FROM media ORDER BY file",
+      )
+      .all() as { file: string; metadata_source: string | null }[];
+    expect(
+      rows.map((r) => [
+        r.file,
+        r.metadata_source && JSON.parse(r.metadata_source),
+      ]),
+    ).toEqual([
+      ["/a.png", { taken_at: "filename", exif: "file", world: "file" }],
+      ["/b.png", null],
+      ["/c.png", { taken_at: "filename" }],
+      // Edited after its file was read: kept as if by hand.
+      ["/d.png", { exif: "manual", world: "manual" }],
+      // Never read, yet filled: only a hand could have.
+      ["/e.png", { exif: "manual" }],
+    ]);
+    // Location keeps its own column.
+    expect(rows[0]).toMatchObject({ location_source: "manual" });
+    expect(() =>
+      db.exec("UPDATE media SET metadata_source = '[1]' WHERE file = '/b.png'"),
+    ).toThrow(/CHECK/);
+  });
+
   it("rejects malformed paths", () => {
     const db = migrate5([]);
     for (const bad of ["a.png", "/a/", "/a//b.png", "/"]) {

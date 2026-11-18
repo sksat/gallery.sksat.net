@@ -1,5 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { exifDateToIso, exifTakenAt, vrchatTakenAt } from "./taken-at";
+import {
+  exifDateToIso,
+  exifTakenAt,
+  pickTakenAt,
+  vrchatTakenAt,
+} from "./taken-at";
+
+describe("pickTakenAt", () => {
+  const NAME = "/VRChat/VRChat_2026-11-02_11-31-36.959_3840x2160.png";
+  const none = { exifOriginal: null, xmp: null, exifDateTime: null };
+  it("goes EXIF original > XMP > VRChat name > EXIF DateTime", () => {
+    const all = {
+      exifOriginal: "2026-01-01T00:00:00+09:00",
+      xmp: "2026-01-02T00:00:00.123-05:00",
+      exifDateTime: "2026-01-03T00:00:00+09:00",
+    };
+    expect(pickTakenAt(all, NAME)).toEqual({
+      at: all.exifOriginal,
+      source: "exif",
+    });
+    expect(pickTakenAt({ ...all, exifOriginal: null }, NAME)).toEqual({
+      at: all.xmp,
+      source: "xmp",
+    });
+    expect(
+      pickTakenAt({ ...none, exifDateTime: all.exifDateTime }, NAME),
+    ).toEqual({ at: "2026-11-02T11:31:36.959+09:00", source: "filename" });
+    expect(
+      pickTakenAt({ ...none, exifDateTime: all.exifDateTime }, "a.png"),
+    ).toEqual({ at: all.exifDateTime, source: "file_date" });
+    expect(pickTakenAt(none, "a.png")).toBeNull();
+  });
+});
 
 /**
  * A TIFF block: IFD0 with `ifd0` ASCII tags (and a pointer to the EXIF IFD
