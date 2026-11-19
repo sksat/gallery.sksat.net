@@ -143,8 +143,6 @@ export type PhotoMeta = {
   world: WorldMeta | null;
   /** XMP xmp:CreatorTool ("VRChat", "Adobe Lightroom …"). */
   creatorTool: string | null;
-  /** Pixel size as stored (before the EXIF orientation is applied). */
-  dimensions: { width: number; height: number } | null;
 };
 
 // --- TIFF / EXIF ----------------------------------------------------------
@@ -585,19 +583,7 @@ type Found = {
   xmp: string[];
   /** zlib-compressed XMP (a PNG iTXt with its compression flag). */
   compressedXmp: Uint8Array[];
-  /** From a PNG's IHDR or a JPEG's start-of-frame. */
-  dimensions: { width: number; height: number } | null;
 };
-
-const newFound = (): Found => ({
-  tiff: [],
-  xmp: [],
-  compressedXmp: [],
-  dimensions: null,
-});
-
-const size = (width: number, height: number) =>
-  width > 0 && height > 0 ? { width, height } : null;
 
 /** A PNG iTXt chunk's text if it is XMP. */
 const pngItxt = (data: Uint8Array, found: Found) => {
@@ -635,12 +621,7 @@ const scanPng = (b: Uint8Array, found: Found): { complete: boolean } => {
     const data = p + 8;
     if (type === "IEND") return { complete: true };
     if (data + len > b.length) return { complete: false };
-    if (type === "IHDR" && len >= 8) {
-      found.dimensions = size(
-        view.getUint32(data, false),
-        view.getUint32(data + 4, false),
-      );
-    } else if (type === "eXIf") {
+    if (type === "eXIf") {
       // Some writers keep JPEG's "Exif\0\0" in front of the TIFF block.
       const prefixed = latin1(b.subarray(data, data + 6)) === "Exif\0\0";
       found.tiff.push(prefixed ? data + 6 : data);
@@ -665,21 +646,6 @@ const scanJpeg = (b: Uint8Array, found: Found) => {
     if (marker === 0xda || marker === 0xd9) return;
     const len = view.getUint16(p + 2, false);
     const data = p + 4;
-    // Start of frame (SOF0–SOF15 except DHT, JPG and DAC): precision,
-    // height, width.
-    if (
-      marker >= 0xc0 &&
-      marker <= 0xcf &&
-      marker !== 0xc4 &&
-      marker !== 0xc8 &&
-      marker !== 0xcc &&
-      data + 5 <= b.length
-    ) {
-      found.dimensions = size(
-        view.getUint16(data + 3, false),
-        view.getUint16(data + 1, false),
-      );
-    }
     if (marker === 0xe1 && data + len - 2 <= b.length) {
       const seg = b.subarray(data, data + len - 2);
       if (latin1(seg.subarray(0, 6)) === "Exif\0\0") found.tiff.push(data + 6);
@@ -709,7 +675,7 @@ const scanPngTail = (b: Uint8Array, found: Found) => {
 };
 
 const find = (head: Uint8Array, tail?: Uint8Array): Found => {
-  const found = newFound();
+  const found: Found = { tiff: [], xmp: [], compressedXmp: [] };
   try {
     if (isPng(head)) {
       const { complete } = scanPng(head, found);
@@ -730,7 +696,7 @@ const find = (head: Uint8Array, tail?: Uint8Array): Found => {
  */
 export const needsTail = (head: Uint8Array): boolean => {
   if (!isPng(head)) return false;
-  const found = newFound();
+  const found: Found = { tiff: [], xmp: [], compressedXmp: [] };
   try {
     const { complete } = scanPng(head, found);
     return !complete && found.xmp.length + found.compressedXmp.length === 0;
@@ -781,7 +747,6 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
     location: tiffMeta.location,
     world,
     creatorTool,
-    dimensions: found.dimensions,
   };
 };
 
@@ -852,33 +817,20 @@ export const readPhotoMetaSync = (head: Uint8Array): PhotoMeta => {
 /** What is stored from a file (takenAt goes to media.timestamp apart). */
 export type StoredMeta = Omit<
   PhotoMeta,
-  "takenAt" | "dates" | "creatorTool" | "dimensions"
+  "takenAt" | "dates" | "creatorTool"
 >;
 
 /**
  * What the upload rules (upload-rules.ts) look at besides the stored
- * metadata; not stored.
+ * metadata; not stored. (The pixel size is the init's own width / height,
+ * image-size.ts.)
  */
-export type FileHints = Pick<PhotoMeta, "creatorTool" | "dimensions">;
-
-const MAX_DIMENSION = 1 << 20;
+export type FileHints = Pick<PhotoMeta, "creatorTool">;
 
 /** Hints from a request, malformed parts left out. */
 export const normalizeHints = (v: unknown): FileHints => {
-  if (typeof v !== "object" || v === null) {
-    return { creatorTool: null, dimensions: null };
-  }
-  const o = v as Record<string, unknown>;
-  const d = o.dimensions as Record<string, unknown> | null | undefined;
-  const dim = (n: unknown) =>
-    typeof n === "number" && Number.isInteger(n) && n > 0 && n <= MAX_DIMENSION;
-  return {
-    creatorTool: text(o.creatorTool),
-    dimensions:
-      d && typeof d === "object" && dim(d.width) && dim(d.height)
-        ? { width: d.width as number, height: d.height as number }
-        : null,
-  };
+  if (typeof v !== "object" || v === null) return { creatorTool: null };
+  return { creatorTool: text((v as Record<string, unknown>).creatorTool) };
 };
 
 export const EMPTY_STORED: StoredMeta = {

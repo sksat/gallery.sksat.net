@@ -14,7 +14,8 @@ import { validateUploadInit } from "~/lib/upload";
  * return a presigned PUT for the browser to send the file to the bucket.
  * Body: { file, size, contentType, sha256, timestamp, meta?, hints? }
  * (validateUploadInit; `meta` is what the browser read from the file,
- * `hints` its CreatorTool and size for the upload rules).
+ * `hints` its CreatorTool for the upload rules, `width` / `height` its
+ * header's size, checked against the limits and seen by the rules).
  *
  * 200 { status: "upload", id, file, url, headers, applied? } — PUT the
  *     file to `url` with exactly `headers`, then POST /api/upload/<id>.

@@ -97,7 +97,8 @@ export const decideUpload = async (
   const d = applyUploadRules(rules, {
     path: init.file,
     creatorTool: init.hints ? init.hints.creatorTool : undefined,
-    dimensions: init.hints ? init.hints.dimensions : undefined,
+    // From the header (the init's width / height), unknown when not read.
+    dimensions: init.dimensions,
     hasWorld: meta ? meta.world !== null : undefined,
     exif: meta?.exif ?? null,
     hasGps: meta ? meta.location !== null : undefined,

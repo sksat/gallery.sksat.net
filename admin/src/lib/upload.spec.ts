@@ -106,6 +106,17 @@ describe("validateUploadInit", () => {
     });
   });
 
+  it("keeps the header's pixel size for the upload rules when both are known", () => {
+    expect(validateUploadInit({ ...ok, width: 3840, height: 2160 })).toEqual({
+      ok: true,
+      init: { ...ok, dimensions: { width: 3840, height: 2160 } },
+    });
+    expect(validateUploadInit({ ...ok, width: 3840, height: null })).toEqual({
+      ok: true,
+      init: ok,
+    });
+  });
+
   it("keeps only the well-formed parts of the file's metadata", () => {
     const meta = {
       exif: { make: " Sony ", iso: 100, f_number: "2.8", serial: "123" },
@@ -217,10 +228,10 @@ describe("validateUploadInit", () => {
     expect(
       validateUploadInit({ ...ok, width: 12_000, height: 10_000 }),
     ).toEqual({ ok: false, error: TOO_DENSE });
-    // Within them (or unknown): accepted, and not stored.
+    // Within them (or unknown): accepted (kept for the upload rules only).
     expect(validateUploadInit({ ...ok, width: 3840, height: 2160 })).toEqual({
       ok: true,
-      init: ok,
+      init: { ...ok, dimensions: { width: 3840, height: 2160 } },
     });
     expect(validateUploadInit({ ...ok, width: null, height: null })).toEqual({
       ok: true,

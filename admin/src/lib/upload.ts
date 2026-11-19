@@ -233,8 +233,14 @@ export type UploadInit = {
    * browser did not read the file (the backfill reads it later).
    */
   meta?: StoredMeta;
-  /** XMP CreatorTool and pixel size, for the upload rules only. */
+  /** XMP CreatorTool, for the upload rules only. */
   hints?: FileHints;
+  /**
+   * The pixel size from the file's header (`width` / `height` of the
+   * request, image-size.ts), when both were read: checked against the
+   * limits and looked at by the upload rules, not stored.
+   */
+  dimensions?: { width: number; height: number };
 };
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -325,6 +331,9 @@ export const validateUploadInit = (
       // Present (even empty) when the browser read the file.
       ...(o.meta !== undefined ? { meta } : {}),
       ...(o.hints !== undefined ? { hints: normalizeHints(o.hints) } : {}),
+      ...(dims[0] != null && dims[1] != null
+        ? { dimensions: { width: dims[0], height: dims[1] } }
+        : {}),
     },
   };
 };

@@ -162,8 +162,13 @@ describe("decideUpload", () => {
     ]);
     const file = { ...init, file: "/a/b.png" };
     expect((await decideUpload(db, file)).row.platform).toBe("Real");
-    const hints = { creatorTool: "VRChat", dimensions: { width: 1920, height: 1080 } };
-    expect((await decideUpload(db, { ...file, hints })).row.platform).toBe("VRChat");
+    const hints = { creatorTool: "VRChat" };
+    // The size is the init's own (from the header, image-size.ts).
+    const dimensions = { width: 1920, height: 1080 };
+    expect((await decideUpload(db, { ...file, hints })).row.platform).toBe("Real");
+    expect(
+      (await decideUpload(db, { ...file, hints, dimensions })).row.platform,
+    ).toBe("VRChat");
   });
 });
 
