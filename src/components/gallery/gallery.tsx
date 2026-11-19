@@ -10,7 +10,7 @@ import {
 import {
   dateParam,
   galleryUrl,
-  navigateImage,
+  neighborIds,
   photoIdFromPath,
   visibleMedia,
 } from "./logic";
@@ -146,24 +146,34 @@ export default component$<GalleryProps>((props) => {
       visibleMedia(media, state.filter, camera, state.date),
       state.sort,
     );
+    // Every listed photo's id in display order (the arrows' fallback): the
+    // date's when the photo is on it, else the whole camera or gallery.
+    const allIds = sortMedia(
+      selected && scope.some((m) => m.value.id === selected.id)
+        ? scope
+        : visibleMedia(media, { tags: [], mode: state.filter.mode }, camera),
+      state.sort,
+    ).map((m) => m.value.id);
+    const filteredIds = filteredMedia.map((m) => m.value.id);
+    const around =
+      state.selectedImageId === null
+        ? { prev: null, next: null }
+        : neighborIds(state.selectedImageId, filteredIds, allIds);
     return {
       selected,
       cameraInfo,
       camera,
       scope,
       filteredMedia,
-      /**
-       * Every listed photo's id in display order (arrow-key fallback): the
-       * date's when the photo is on it, else the whole camera or gallery.
-       */
-      allIds: sortMedia(
-        selected && scope.some((m) => m.value.id === selected.id)
-          ? scope
-          : visibleMedia(media, { tags: [], mode: state.filter.mode }, camera),
-        state.sort,
-      ).map((m) => m.value.id),
+      /** Every listed photo's id in display order (arrow-key fallback). */
+      allIds,
       /** The filtered photos' ids in display order. */
-      filteredIds: filteredMedia.map((m) => m.value.id),
+      filteredIds,
+      /** Whether the open photo has one before / after it (swipes). */
+      neighbors: {
+        prev: around.prev !== null,
+        next: around.next !== null,
+      },
     };
   });
 
@@ -244,6 +254,17 @@ export default component$<GalleryProps>((props) => {
     Object.assign(state, stateFromUrl(new URL(window.location.href)));
   });
 
+  // ←/→ and swipes. A photo opened from a URL may not match the filter;
+  // browse everything then instead of leaving them dead. An unlisted photo
+  // is in neither list, so they do nothing on it.
+  const step = $((direction: "prev" | "next") => {
+    const current = state.selectedImageId;
+    if (current === null) return;
+    const { allIds, filteredIds } = view.value;
+    const nextId = neighborIds(current, filteredIds, allIds)[direction];
+    if (nextId !== null) stepImage(nextId);
+  });
+
   const onKeyDown = $((event: KeyboardEvent) => {
     const current = state.selectedImageId;
     // Alt/Cmd+Arrow is the browser's Back/Forward; leave it alone.
@@ -258,16 +279,7 @@ export default component$<GalleryProps>((props) => {
       return;
 
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-      // A photo opened from a URL may not match the filter; browse
-      // everything then instead of leaving the arrows dead. An unlisted
-      // photo is in neither list, so the arrows do nothing on it.
-      const { allIds, filteredIds } = view.value;
-      const indices = filteredIds.includes(current) ? filteredIds : allIds;
-      const direction = event.key === "ArrowRight" ? "next" : "prev";
-      const nextId = navigateImage(current, indices, direction);
-      if (nextId !== null) {
-        stepImage(nextId);
-      }
+      step(event.key === "ArrowRight" ? "next" : "prev");
     }
   });
 
@@ -451,6 +463,8 @@ export default component$<GalleryProps>((props) => {
                       href: galleryUrl(null, tagOnly(tag), state.sort, camera),
                     }))}
                     onTag$={filterByTag}
+                    neighbors={view.value.neighbors}
+                    onStep$={step}
                   />
                 )
               }

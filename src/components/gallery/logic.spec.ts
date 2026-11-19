@@ -3,10 +3,32 @@ import {
   dateParam,
   galleryUrl,
   navigateImage,
+  neighborIds,
   photoIdFromPath,
   visibleMedia,
 } from "./logic";
 import type { MediaInfo } from "./types";
+
+describe("neighborIds", () => {
+  it("steps within the filter", () => {
+    expect(neighborIds("b", ["a", "b", "c"], ["a", "x", "b", "c"])).toEqual({
+      prev: "a",
+      next: "c",
+    });
+    expect(neighborIds("a", ["a", "b"], ["a", "b"])).toEqual({
+      prev: null,
+      next: "b",
+    });
+  });
+
+  it("falls back to every photo outside the filter, none when unlisted", () => {
+    expect(neighborIds("x", ["a", "b"], ["a", "x", "b"])).toEqual({
+      prev: "a",
+      next: "b",
+    });
+    expect(neighborIds("u", ["a"], ["a"])).toEqual({ prev: null, next: null });
+  });
+});
 
 describe("navigateImage", () => {
   const ids = ["aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc"];
