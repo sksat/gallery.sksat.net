@@ -5,8 +5,10 @@ import {
   infoChanged,
   infoProblem,
   KEEP,
+  markManual,
   nextTagState,
   shared,
+  sourcePatch,
   tagChanges,
   tagCounts,
   takenAtFor,
@@ -28,6 +30,7 @@ const row = (over: Partial<InfoRow> = {}): InfoRow => ({
   longitude: 139,
   location_source: "exif",
   exif: '{"lens":"50mm","iso":100}',
+  metadata_source: '{"taken_at":"exif","exif":"file","world":"file"}',
   ...over,
 });
 
@@ -127,11 +130,68 @@ describe("validateInfoRestore", () => {
       { timestamp: "yesterday" },
       { world_author_id: "x" },
       { id: 0 },
+      { metadata_source: "not json" },
+      { metadata_source: "[]" },
+      { metadata_source: '{"exif":1}' },
+      { metadata_source: undefined },
     ];
     for (const b of bad) {
       expect(validateInfoRestore([{ ...row(), ...b }], 100).ok).toBe(false);
     }
     expect(validateInfoRestore([row(), row()], 1).ok).toBe(false);
+  });
+
+  it("takes metadata_source as stored, or null", () => {
+    const odd = '{"digitized_with":"manual","taken_at":"filename"}';
+    for (const s of [odd, null]) {
+      const r = validateInfoRestore([row({ metadata_source: s })], 100);
+      expect(r.ok && r.rows[0].metadata_source).toBe(s);
+    }
+    expect(
+      validateInfoRestore([row({ metadata_source: "x".repeat(1001) })], 100).ok,
+    ).toBe(false);
+  });
+
+  it("keeps a position cleared by hand, and refuses one read from no file", () => {
+    const cleared = row({ latitude: null, longitude: null, location_source: "manual" });
+    const r = validateInfoRestore([cleared], 100);
+    expect(r.ok && r.rows[0].location_source).toBe("manual");
+    expect(
+      validateInfoRestore(
+        [row({ latitude: null, longitude: null, location_source: "exif" })],
+        100,
+      ).ok,
+    ).toBe(false);
+  });
+});
+
+describe("sourcePatch", () => {
+  it("puts back the sheet's fields only, removing those that had none", () => {
+    expect(JSON.parse(sourcePatch('{"taken_at":"exif","digitized_with":"manual"}'))).toEqual({
+      taken_at: "exif",
+      exif: null,
+      world: null,
+    });
+    expect(JSON.parse(sourcePatch(null))).toEqual({
+      taken_at: null,
+      exif: null,
+      world: null,
+    });
+  });
+});
+
+describe("markManual", () => {
+  it("marks the fields, keeps every other key, and leaves nothing to mark alone", () => {
+    expect(
+      markManual('{"taken_at":"exif","digitized_with":"manual"}', [
+        "taken_at",
+        "world",
+      ]),
+    ).toBe('{"taken_at":"manual","digitized_with":"manual","world":"manual"}');
+    expect(markManual(null, ["exif"])).toBe('{"exif":"manual"}');
+    expect(markManual("garbage", ["exif"])).toBe('{"exif":"manual"}');
+    expect(markManual('{"exif":"file"}', [])).toBe('{"exif":"file"}');
+    expect(markManual(null, [])).toBeNull();
   });
 });
 
@@ -173,10 +233,11 @@ describe("applyInfo", () => {
       location_source: "manual",
     });
     const cleared = applyInfo(row(), { location: null });
+    // Cleared by hand, as on the edit page: the reader must not refill it.
     expect(cleared).toMatchObject({
       latitude: null,
       longitude: null,
-      location_source: null,
+      location_source: "manual",
     });
   });
 
@@ -210,6 +271,37 @@ describe("applyInfo", () => {
       infoChanged(r, applyInfo(r, { location: { latitude: 35, longitude: 139 } })),
     ).toBe(false);
     expect(infoChanged(r, applyInfo(r, { tagsAdd: ["x"] }))).toBe(true);
+  });
+
+  it("marks each sourced field it changes as manual, and only those", () => {
+    const src = (e: Parameters<typeof applyInfo>[1], r = row()) =>
+      JSON.parse(applyInfo(r, e).metadata_source ?? "null");
+    expect(
+      src({ takenAt: { date: "1999-08-01", time: KEEP, offset: KEEP } }),
+    ).toEqual({ taken_at: "manual", exif: "file", world: "file" });
+    expect(src({ exif: { iso: 400 } })).toEqual({
+      taken_at: "exif",
+      exif: "manual",
+      world: "file",
+    });
+    expect(src({ world: { name: "B" } })).toEqual({
+      taken_at: "exif",
+      exif: "file",
+      world: "manual",
+    });
+    // Tags and the position have no entry; the same values change nothing.
+    const r = row();
+    for (const e of [
+      { tagsAdd: ["x"] },
+      { location: { latitude: 1, longitude: 2 } },
+      { exif: { iso: 100 } },
+      { world: { id: "wrld_a", name: "A" } },
+    ]) {
+      expect(applyInfo(r, e).metadata_source).toBe(r.metadata_source);
+    }
+    expect(
+      src({ exif: { iso: 400 } }, row({ metadata_source: null })),
+    ).toEqual({ exif: "manual" });
   });
 });
 

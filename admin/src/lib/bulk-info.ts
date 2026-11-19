@@ -3,11 +3,10 @@
 // the time taken, the VRChat world, the position and the shooting
 // settings. Only what was touched is part of an edit; each photo keeps
 // everything else. The same validators as the single edit page check
-// every value.
-//
-// TODO(metadata_source): once migration 0008 (media.metadata_source, PR
-// #200) is on main, mark each field written here as 'manual' in
-// `applyInfo` (the position already is, through location_source).
+// every value. A time taken, world or shooting settings changed here are
+// marked 'manual' in media.metadata_source, as on the edit page, so the
+// metadata reader never replaces them (the position is, through
+// location_source, a cleared one too); the undo puts those sources back.
 
 import { storedOverrides } from "./bulk-metadata";
 import { parseOverrides } from "./metadata";
@@ -64,6 +63,8 @@ export type InfoRow = {
   longitude: number | null;
   location_source: string | null;
   exif: string | null;
+  /** Where each value came from (metadata-source.ts), as stored. */
+  metadata_source: string | null;
 };
 
 /** A selected photo's values, as the sheet shows them. */
@@ -253,9 +254,54 @@ export const takenAtFor = (
   return { timestamp: `${date}T${hms}${offset}`, withTime: time !== null };
 };
 
+/** The fields written here that have a source (metadata-source.ts). */
+type SourcedField = "taken_at" | "exif" | "world";
+
+/** A stored metadata_source as an object (null when not one). */
+const sourceObject = (raw: string | null): Record<string, unknown> | null => {
+  try {
+    const v: unknown = JSON.parse(raw ?? "{}");
+    return typeof v === "object" && v !== null && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * `raw` (media.metadata_source) with `fields` marked 'manual', every other
+ * key kept as it is; `raw` itself when there is nothing to mark.
+ */
+export const markManual = (
+  raw: string | null,
+  fields: readonly SourcedField[],
+): string | null => {
+  if (fields.length === 0) return raw;
+  const o = sourceObject(raw) ?? {};
+  for (const f of fields) o[f] = "manual";
+  return JSON.stringify(o);
+};
+
+const SOURCED_FIELDS: readonly SourcedField[] = ["taken_at", "exif", "world"];
+
+/**
+ * For the undo: a JSON merge patch (SQLite json_patch) that puts back the
+ * keys of the fields written here as they were in `raw` (a key it lacked
+ * is removed), leaving every other key as it is now.
+ */
+export const sourcePatch = (raw: string | null): string => {
+  const o = sourceObject(raw) ?? {};
+  return JSON.stringify(
+    Object.fromEntries(SOURCED_FIELDS.map((f) => [f, o[f] ?? null])),
+  );
+};
+
 /**
  * A photo's columns after `edit` (nothing else changes). A date alone also
  * makes the public site show the date only (the photo's 撮影日時 level).
+ * Each of the time taken, world and shooting settings that changed becomes
+ * 'manual' (markManual).
  */
 export const applyInfo = (row: InfoRow, edit: InfoEdit): InfoRow => {
   const out = { ...row };
@@ -295,7 +341,8 @@ export const applyInfo = (row: InfoRow, edit: InfoEdit): InfoRow => {
     if (lat !== row.latitude || lon !== row.longitude) {
       out.latitude = lat;
       out.longitude = lon;
-      out.location_source = lat === null ? null : "manual";
+      // Cleared too, as on the edit page: the reader must not fill it again.
+      out.location_source = "manual";
     }
   }
   if (edit.exif) {
@@ -303,6 +350,13 @@ export const applyInfo = (row: InfoRow, edit: InfoEdit): InfoRow => {
     // As stored when the values are the same.
     if (merged !== mergeExif(row.exif, {})) out.exif = merged;
   }
+  const manual: SourcedField[] = [];
+  if (out.timestamp !== row.timestamp) manual.push("taken_at");
+  if (out.exif !== row.exif) manual.push("exif");
+  if (out.world_id !== row.world_id || out.world_name !== row.world_name) {
+    manual.push("world");
+  }
+  out.metadata_source = markManual(row.metadata_source, manual);
   return out;
 };
 
@@ -317,6 +371,7 @@ export const INFO_COLUMNS = [
   "longitude",
   "location_source",
   "exif",
+  "metadata_source",
 ] as const satisfies readonly (keyof InfoRow)[];
 
 /**
@@ -387,6 +442,15 @@ export const validateInfoRestore = (
     const source = o.location_source;
     const mv = optText(o.metadata_visibility, 1000);
     const exif = optText(o.exif, 10_000);
+    // An object of short strings, or null (restoreInfo puts back only the
+    // keys of the fields written here, sourcePatch).
+    const sources = optText(o.metadata_source, 1000);
+    const sourcesOk =
+      sources === null ||
+      (sources !== undefined &&
+        Object.values(sourceObject(sources) ?? { bad: 0 }).every(
+          (s) => typeof s === "string" && s.length <= 20,
+        ));
     if (
       !tags.ok ||
       timestamp === undefined ||
@@ -398,9 +462,14 @@ export const validateInfoRestore = (
       lat === undefined ||
       lon === undefined ||
       (lat === null) !== (lon === null) ||
-      !(source === null || source === "exif" || source === "manual") ||
+      !(
+        source === null ||
+        source === "manual" ||
+        (source === "exif" && lat !== null)
+      ) ||
       mv === undefined ||
-      exif === undefined
+      exif === undefined ||
+      !sourcesOk
     ) {
       return bad;
     }
@@ -414,8 +483,9 @@ export const validateInfoRestore = (
       world_author_id: author,
       latitude: lat,
       longitude: lon,
-      location_source: lat === null ? null : (source as string | null),
+      location_source: source as string | null,
       exif: mergeExif(exif, {}),
+      metadata_source: sources ?? null,
     });
   }
   return { ok: true, rows };

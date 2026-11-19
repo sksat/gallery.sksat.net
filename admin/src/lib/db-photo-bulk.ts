@@ -10,6 +10,7 @@ import {
   infoChanged,
   infoProblem,
   infoValues,
+  sourcePatch,
   type InfoEdit,
   type InfoRow,
   type InfoValues,
@@ -25,6 +26,17 @@ const INFO_UPDATE = `UPDATE media SET ${INFO_COLUMNS.map((c) => `${c} = ?`).join
 /** Only while the row still has `was` (changed meanwhile: left alone). */
 const INFO_UPDATE_IF = `${INFO_UPDATE} AND ${INFO_COLUMNS.map((c) => `${c} IS ?`).join(" AND ")}`;
 
+const RESTORED_COLUMNS = INFO_COLUMNS.filter((c) => c !== "metadata_source");
+
+/**
+ * The undo's UPDATE: the columns as they were, and in metadata_source only
+ * the keys of the fields this sheet writes (sourcePatch), so a mark set
+ * since by another edit (e.g. digitized_with) stays.
+ */
+const INFO_RESTORE = `UPDATE media SET ${RESTORED_COLUMNS.map((c) => `${c} = ?`).join(", ")},
+   metadata_source = NULLIF(json_patch(COALESCE(metadata_source, '{}'), ?), '{}'),
+   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`;
+
 const writeInfo = async (
   db: D1Database,
   rows: readonly InfoRow[],
@@ -33,7 +45,13 @@ const writeInfo = async (
   // One batch (a transaction): every photo or none.
   await db.batch(
     rows.map((r) =>
-      db.prepare(INFO_UPDATE).bind(...INFO_COLUMNS.map((c) => r[c]), r.id),
+      db
+        .prepare(INFO_RESTORE)
+        .bind(
+          ...RESTORED_COLUMNS.map((c) => r[c]),
+          sourcePatch(r.metadata_source),
+          r.id,
+        ),
     ),
   );
 };

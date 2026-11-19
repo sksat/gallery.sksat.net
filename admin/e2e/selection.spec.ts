@@ -413,6 +413,15 @@ test("tags and shooting data for the selection, and undo", async ({
     "placeholder",
     "そのまま（写真ごと）",
   );
+  await sheet.getByRole("button", { name: "やめる" }).click();
+
+  // a.png keeps the first edit, entered by hand like on the edit page (so
+  // the metadata reader leaves it).
+  await page.keyboard.press("Escape");
+  await tile(page, "a.png").focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/media\/\d+\/\?back=/);
+  await expect(page.getByTestId("manual-exif")).toBeVisible();
   expect(external).toEqual([]);
 });
 
