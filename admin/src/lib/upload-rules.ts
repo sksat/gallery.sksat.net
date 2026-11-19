@@ -21,12 +21,8 @@ import {
   type MetadataOverrides,
 } from "./metadata";
 import type { ExifJSON } from "./photo-meta";
-import {
-  isPlatform,
-  isVisibility,
-  type MediaPlatform,
-  type Visibility,
-} from "./types";
+import { isPlatformKey, REAL, VRCHAT } from "./platform";
+import { isVisibility, type MediaPlatform, type Visibility } from "./types";
 
 export const UPLOAD_RULES_KEY = "upload_rules";
 
@@ -95,19 +91,19 @@ export const DEFAULT_UPLOAD_RULES: readonly UploadRule[] = [
     name: "/VRChat/ フォルダ",
     enabled: true,
     conditions: { folder: "/VRChat" },
-    actions: { platform: "VRChat" },
+    actions: { platform: VRCHAT },
   },
   {
     id: "vrchat-name",
     name: "VRChat のファイル名",
     enabled: true,
     conditions: { name: { preset: "vrchat" } },
-    actions: { platform: "VRChat" },
+    actions: { platform: VRCHAT },
   },
 ];
 
 /** Platform when no rule sets one. */
-export const FALLBACK_PLATFORM: MediaPlatform = "Real";
+export const FALLBACK_PLATFORM: MediaPlatform = REAL;
 
 /**
  * What is known about a photo. `undefined` = unknown (a photo uploaded
@@ -355,7 +351,8 @@ const actions = (v: unknown): Result<RuleActions> => {
   if (!isObject(v)) return { ok: false, error: "動作がありません" };
   const out: RuleActions = {};
   if (v.platform !== undefined) {
-    if (!isPlatform(v.platform)) return { ok: false, error: "Platform" };
+    // Whether it exists is checked against D1 when saving (like cameras).
+    if (!isPlatformKey(v.platform)) return { ok: false, error: "Platform" };
     out.platform = v.platform;
   }
   if (v.cameraId !== undefined) {
@@ -502,9 +499,14 @@ export const levelLabel = (field: EditableField, level: string): string =>
   `${FIELD_LABELS[field]}: ${(LEVEL_LABELS[field] as Record<string, string>)[level] ?? level}`;
 
 /** One action each, as short text. */
-export const actionLabels = (a: RuleActions, cameras: CameraNames): string[] => {
+export const actionLabels = (
+  a: RuleActions,
+  cameras: CameraNames,
+  /** A platform's name by key (the key itself by default). */
+  platformName: (key: string) => string = (k) => k,
+): string[] => {
   const out: string[] = [];
-  if (a.platform !== undefined) out.push(a.platform);
+  if (a.platform !== undefined) out.push(platformName(a.platform));
   if (a.cameraId !== undefined) out.push(cameraLabel(a.cameraId, cameras));
   for (const t of a.tags ?? []) out.push(`#${t}`);
   if (a.visibility !== undefined) out.push(VISIBILITY_LABEL_JA[a.visibility]);

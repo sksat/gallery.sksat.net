@@ -1,6 +1,7 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { getCamera, getMedia, updateMedia } from "~/lib/db";
+import { platformExists } from "~/lib/db-platform";
 import { resolveTagValuePatch } from "~/lib/db-tag-field";
 import { getDB } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
@@ -62,6 +63,13 @@ export const onPatch: RequestHandler = withErrorHandler(
       !(await getCamera(db, res.patch.digitized_with))
     ) {
       json(400, { error: "unknown digitized_with" });
+      return;
+    }
+    if (
+      res.patch.platform !== undefined &&
+      !(await platformExists(db, res.patch.platform))
+    ) {
+      json(400, { error: "unknown platform" });
       return;
     }
     const tf = await resolveTagValuePatch(

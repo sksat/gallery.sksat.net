@@ -7,7 +7,9 @@ import {
   srcSet,
   THUMB_EXACT,
 } from "~/lib/images";
+import { platformOf } from "~/lib/platform";
 import type { MediaPlatform } from "~/lib/types";
+import { usePlatformList } from "~/routes/layout";
 import { ProgressivePreview } from "./preview";
 
 // Photo thumbnail (the /thumb route), in a fixed 16:9 box so rows and the
@@ -48,15 +50,19 @@ export const Thumb = component$<Props>(
         {fileExtension(file) || "IMG"}
       </span>
     );
+    // Read during every render, so the list always reaches the browser.
+    const platforms = usePlatformList().value;
     if (!imageBase) {
+      const kind =
+        platform === null ? null : platformOf(platforms, platform).kind;
       return (
         <div
           class={[
             box,
             "grid place-items-center",
-            platform === "VRChat"
+            kind === "virtual"
               ? "bg-violet-100 text-violet-500 dark:bg-violet-950 dark:text-violet-300"
-              : platform === "Real"
+              : kind === "real"
                 ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
                 : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
           ]}

@@ -26,7 +26,9 @@ import { MAX_BULK_IDS } from "~/lib/db";
 import { getDB } from "~/lib/env";
 import { EXIF_EDIT_KEYS, EXIF_LABELS } from "~/lib/photo-data";
 import { inChunks } from "~/lib/selection";
+import { hasRealPlace, platformOf, VRCHAT } from "~/lib/platform";
 import type { MediaPlatform } from "~/lib/types";
+import { usePlatformList } from "~/routes/layout";
 import {
   buttonPrimary,
   buttonSecondary,
@@ -208,6 +210,7 @@ type TagRow = {
 export const BulkInfoDialog = component$<Props>(
   ({ ids, platforms, busy, onApply$, onClose$ }) => {
     const ref = useSignal<HTMLDialogElement>();
+    const platformList = usePlatformList().value;
     const loaded = useSignal<Loaded | "error" | null>(null);
     const tags = useStore<{ rows: TagRow[] }>({ rows: [] });
     const error = useSignal("");
@@ -342,7 +345,11 @@ export const BulkInfoDialog = component$<Props>(
     const sharedDate = shared(parts.map((p) => p?.date ?? ""));
     const sharedTime = shared(parts.map((p) => p?.time ?? ""));
     const sharedOffset = shared(parts.map((p) => p?.offset ?? ""));
-    const vrchat = platforms.includes("VRChat");
+    // The world is VRChat's own; the map is for real places.
+    const vrchat = platforms.includes(VRCHAT);
+    const realPlace = platforms.some((p) =>
+      hasRealPlace(platformOf(platformList, p).kind),
+    );
 
     return (
       <dialog
@@ -589,10 +596,10 @@ export const BulkInfoDialog = component$<Props>(
                       value={sharedOf((p) => p.longitude)}
                     />
                   </div>
-                  {/* As on the edit page: no map for VRChat photos alone
-                      unless one has a position. It fills the inputs. */}
-                  {(platforms.some((p) => p !== "VRChat") ||
-                    photos.some((p) => p.latitude !== null)) && (
+                  {/* As on the edit page: no map for photos on virtual
+                      platforms alone unless one has a position. It fills
+                      the inputs. */}
+                  {(realPlace || photos.some((p) => p.latitude !== null)) && (
                     <LocationPicker
                       latitude={shared(photos.map((p) => p.latitude)) ?? null}
                       longitude={shared(photos.map((p) => p.longitude)) ?? null}

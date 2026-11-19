@@ -9,15 +9,11 @@ import type { ExifJSON, FileExifJSON } from "./photo-meta";
 // review it when changing columns.
 
 /**
- * Where a photo was taken (media.platform; "world" until migration 0005,
- * a name now kept for the VRChat world itself).
+ * Where a photo was taken: the key of a `platform` row (media.platform;
+ * "world" until migration 0005, a name now kept for the VRChat world
+ * itself; a fixed 'Real' / 'VRChat' until 0014). See platform.ts.
  */
-export type MediaPlatform = "Real" | "VRChat";
-
-export const PLATFORMS: readonly MediaPlatform[] = ["Real", "VRChat"];
-
-export const isPlatform = (v: unknown): v is MediaPlatform =>
-  v === "Real" || v === "VRChat";
+export type MediaPlatform = string;
 
 export const CAMERA_KINDS = [
   "digital",

@@ -202,8 +202,12 @@ describe("validatePatch", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("rejects an unknown platform", () => {
-    expect(validatePatch({ platform: "Mars" }).ok).toBe(false);
+  it("rejects a malformed platform key", () => {
+    expect(validatePatch({ platform: "Neos VR" }).ok).toBe(false);
+    expect(validatePatch({ platform: "" }).ok).toBe(false);
+    expect(validatePatch({ platform: 1 }).ok).toBe(false);
+    // Any key of the right shape: D1 checks it exists.
+    expect(validatePatch({ platform: "Neos-VR" }).ok).toBe(true);
   });
 
   it("takes the platform; world is not the platform", () => {

@@ -2,6 +2,7 @@
 // they stay covered by Vitest (see format.spec.ts).
 
 import { formatDateKey } from "@shared/calendar/calendar";
+import { isPlatformKey } from "./platform";
 
 /** Split a media path into its folder (with trailing slash) and basename. */
 export const splitPath = (file: string): { dir: string; base: string } => {
@@ -37,12 +38,13 @@ export const formatJst = (ts: string | null): string | null => {
 
 export type MediaView = "list" | "files";
 
-/** The platform filter of a /media URL (`platform`). */
-export const platformParam = (
-  params: URLSearchParams,
-): "Real" | "VRChat" | null => {
+/**
+ * The platform filter of a /media URL (`platform`): a platform key, or
+ * null for none or a malformed one (an unknown key matches no photo).
+ */
+export const platformParam = (params: URLSearchParams): string | null => {
   const v = params.get("platform");
-  return v === "Real" || v === "VRChat" ? v : null;
+  return isPlatformKey(v) ? v : null;
 };
 
 /** The `view` query value; anything but "files" is the default list. */
@@ -113,6 +115,8 @@ export const filterChips = (opts: {
   date?: string | null;
   /** Display name of a visibility value. */
   visibilityLabel: (v: string) => string;
+  /** Display name of a platform key (the key itself by default). */
+  platformLabel?: (key: string) => string;
 }): FilterChip[] => {
   const base = {
     view: opts.view,
@@ -126,7 +130,7 @@ export const filterChips = (opts: {
   if (opts.platform) {
     chips.push({
       key: "platform",
-      label: opts.platform,
+      label: opts.platformLabel?.(opts.platform) ?? opts.platform,
       href: mediaListHref({ ...base, platform: null }),
     });
   }

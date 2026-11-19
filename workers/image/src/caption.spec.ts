@@ -60,6 +60,12 @@ describe("captionFor", () => {
     ).toEqual({ secondary: "PENTAX SP · #Real #film" });
   });
 
+  it("tags the platform by its name", () => {
+    expect(
+      captionFor({ ...real, platform: "Neos-VR", platform_name: "Neos VR" }),
+    ).toEqual({ secondary: "#Neos_VR #film" });
+  });
+
   it("omits the date and camera when unknown", () => {
     expect(captionFor(real)).toEqual({ secondary: "#Real #film" });
   });

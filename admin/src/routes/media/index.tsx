@@ -30,8 +30,11 @@ import {
   tagChip,
   VISIBILITY_LABELS,
   PLATFORM_LABEL,
-  platformBadge,
 } from "~/components/ui";
+import { PlatformBadge } from "~/components/platform-badge";
+import { platformExists } from "~/lib/db-platform";
+import { PLATFORM_KEY_RE, platformOf } from "~/lib/platform";
+import { usePlatformList } from "~/routes/layout";
 import {
   listMedia,
   MAX_BULK_IDS,
@@ -144,10 +147,8 @@ import {
 } from "~/lib/format";
 import {
   isVisibility,
-  PLATFORMS,
   VISIBILITIES,
   type MediaRow,
-  type MediaPlatform,
   type Visibility,
 } from "~/lib/types";
 import {
@@ -190,7 +191,8 @@ type MediaListResult =
       rows: MediaRow[];
       total: number;
       page: number;
-      platform: MediaPlatform | null;
+      /** A platform key (?platform=). */
+      platform: string | null;
       visibility: Visibility | null;
       q: string;
       /** Taken in this year, month or day (`?date=`, from the calendar). */
@@ -660,17 +662,17 @@ export const useBulkCamera = routeAction$(
 
 /** Files view selection → プラットフォーム, one chunk; with the undo. */
 export const useBulkPlatform = routeAction$(
-  async (data, { platform }) => {
-    const previous = await setPlatforms(
-      getDB(platform),
-      data.ids,
-      data.platform,
-    );
+  async (data, { platform, fail }) => {
+    const db = getDB(platform);
+    if (!(await platformExists(db, data.platform))) {
+      return fail(400, { message: "そのプラットフォームはありません" });
+    }
+    const previous = await setPlatforms(db, data.ids, data.platform);
     return { ok: true as const, previous };
   },
   zod$({
     ids: z.array(z.number().int().positive()).min(1).max(MAX_BULK_IDS),
-    platform: z.enum(PLATFORMS as [MediaPlatform, ...MediaPlatform[]]),
+    platform: z.string().regex(PLATFORM_KEY_RE),
   }),
 );
 
@@ -721,7 +723,7 @@ export const useRestorePlatform = routeAction$(
       .array(
         z.object({
           id: z.number().int().positive(),
-          platform: z.enum(PLATFORMS as [MediaPlatform, ...MediaPlatform[]]),
+          platform: z.string().regex(PLATFORM_KEY_RE),
         }),
       )
       .max(MAX_BULK_IDS),
@@ -937,6 +939,7 @@ const Tags = component$<{ tags: string[] }>(({ tags }) =>
 
 export default component$(() => {
   const data = useMediaList();
+  const platformList = usePlatformList();
   const bulk = useBulkVisibility();
   const restore = useRestoreVisibility();
   const newFolder = useCreateFolder();
@@ -1124,7 +1127,7 @@ export default component$(() => {
             : a.kind === "info"
               ? `${infos.length} 枚のタグと撮影データを変えました。${tagNote}`
               : a.kind === "platform"
-                ? `${platforms.length} 枚を ${a.platform} にしました。`
+                ? `${platforms.length} 枚を ${platformOf(platformList.value, a.platform).name} にしました。`
                 : a.kind === "camera"
                   ? a.cameraName
                     ? `${cameras.length} 枚のカメラを「${a.cameraName}」にしました。`
@@ -1569,6 +1572,7 @@ export default component$(() => {
     q,
     date,
     visibilityLabel: (v) => (isVisibility(v) ? VISIBILITY_LABELS[v] : v),
+    platformLabel: (k) => platformOf(platformList.value, k).name,
   });
   const dir = files?.dir ?? "/";
   const pageUrl = (p: number) =>
@@ -1594,7 +1598,7 @@ export default component$(() => {
           </span>
         </div>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          <span class={platformBadge(row.platform)}>{row.platform}</span>
+          <PlatformBadge platform={row.platform} />
           <VisibilityBadge visibility={row.visibility} />
           <span class="tabular-nums">{formatJst(row.timestamp) ?? "—"}</span>
           {row.tags.length > 0 && <Tags tags={row.tags} />}
@@ -1818,12 +1822,11 @@ export default component$(() => {
               <option value="" selected={platform === null}>
                 (any)
               </option>
-              <option value="Real" selected={platform === "Real"}>
-                Real
-              </option>
-              <option value="VRChat" selected={platform === "VRChat"}>
-                VRChat
-              </option>
+              {platformList.value.map((p) => (
+                <option key={p.key} value={p.key} selected={platform === p.key}>
+                  {p.name}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -2252,9 +2255,7 @@ export default component$(() => {
                     </td>
                     <td class="px-4 py-3">
                       <span class="flex flex-col items-start gap-1">
-                        <span class={platformBadge(row.platform)}>
-                          {row.platform}
-                        </span>
+                        <PlatformBadge platform={row.platform} />
                         <VisibilityBadge visibility={row.visibility} />
                       </span>
                     </td>

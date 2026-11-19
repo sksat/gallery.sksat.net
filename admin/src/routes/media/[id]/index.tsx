@@ -27,8 +27,8 @@ import {
   muted,
   VISIBILITY_LABELS,
   PLATFORM_LABEL,
-  platformBadge,
 } from "~/components/ui";
+import { PlatformBadge } from "~/components/platform-badge";
 import {
   digitizerOptions,
   getCamera,
@@ -81,6 +81,9 @@ import {
   VisibilityIcon,
 } from "~/components/visibility-style";
 import { getDB, getImageBase } from "~/lib/env";
+import { platformExists } from "~/lib/db-platform";
+import { platformOf } from "~/lib/platform";
+import { usePlatformList } from "~/routes/layout";
 import { contentChanged } from "~/lib/last-good";
 import {
   formatJst,
@@ -306,6 +309,12 @@ export const useUpdateMedia = routeAction$(
     ) {
       return fail(400, { message: "unknown スキャン機材" });
     }
+    if (
+      v.patch.platform !== undefined &&
+      !(await platformExists(db, v.patch.platform))
+    ) {
+      return fail(400, { message: "そのプラットフォームはありません" });
+    }
     const checked = await resolveTagValuePatch(
       db,
       v.patch.tag_values,
@@ -324,7 +333,7 @@ export const useUpdateMedia = routeAction$(
     return { ok: true, updated_at: updated.updated_at, newTags };
   },
   zod$({
-    platform: z.enum(["Real", "VRChat"]),
+    platform: z.string().max(32),
     // Required (no default): a submission without the field must not
     // silently clear the photo's camera. "" = none.
     camera_id: z.string().max(20),
@@ -727,303 +736,318 @@ const MediaFields = component$<{
     onReset$,
     tagFields,
     inheritedTags,
-  }) => (
-    <>
-      <fieldset class="space-y-3">
-        <legend class={legend}>Visibility</legend>
-        <div class="grid gap-2 sm:grid-cols-3">
-          {VISIBILITIES.map((v) => (
-            <label
-              key={v}
-              // The level's icon and colour (visibility-style.tsx), tinted
-              // once checked.
-              class={[
-                "flex cursor-pointer gap-2 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800",
-                VISIBILITY_STYLE[v].card,
-              ]}
-            >
-              <input
-                type="radio"
-                name="visibility"
-                value={v}
-                checked={row.visibility === v}
-                class="mt-0.5"
-              />
-              <span>
-                <span
-                  class={[
-                    "flex items-center gap-1.5 font-medium",
-                    VISIBILITY_STYLE[v].accent,
-                  ]}
-                >
-                  <VisibilityIcon visibility={v} />
-                  {VISIBILITY_LABELS[v]}
+  }) => {
+    const platforms = usePlatformList().value;
+    // The saved row's platform: a missing one (a stale list) is kept.
+    const choices = platforms.some((p) => p.key === row.platform)
+      ? platforms
+      : [...platforms, platformOf(platforms, row.platform)];
+    return (
+      <>
+        <fieldset class="space-y-3">
+          <legend class={legend}>Visibility</legend>
+          <div class="grid gap-2 sm:grid-cols-3">
+            {VISIBILITIES.map((v) => (
+              <label
+                key={v}
+                // The level's icon and colour (visibility-style.tsx), tinted
+                // once checked.
+                class={[
+                  "flex cursor-pointer gap-2 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800",
+                  VISIBILITY_STYLE[v].card,
+                ]}
+              >
+                <input
+                  type="radio"
+                  name="visibility"
+                  value={v}
+                  checked={row.visibility === v}
+                  class="mt-0.5"
+                />
+                <span>
+                  <span
+                    class={[
+                      "flex items-center gap-1.5 font-medium",
+                      VISIBILITY_STYLE[v].accent,
+                    ]}
+                  >
+                    <VisibilityIcon visibility={v} />
+                    {VISIBILITY_LABELS[v]}
+                  </span>
+                  <span class={["block text-xs", muted]}>
+                    {VISIBILITY_HELP[v]}
+                  </span>
                 </span>
-                <span class={["block text-xs", muted]}>
-                  {VISIBILITY_HELP[v]}
-                </span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
-      {/* Levels whose control is not shown keep their value. */}
-      {row.trashed_at && <KeptLevel row={row} field="file_name" />}
-      {!row.digitized_at && <KeptLevel row={row} field="digitized_at" />}
+        {/* Levels whose control is not shown keep their value. */}
+        {row.trashed_at && <KeptLevel row={row} field="file_name" />}
+        {!row.digitized_at && <KeptLevel row={row} field="digitized_at" />}
 
-      <fieldset class="space-y-3" data-testid="photo-data">
-        <legend class={legend}>撮影データ</legend>
-        <PhotoDataFields row={row} defaults={defaults} onReset$={onReset$} />
-      </fieldset>
-
-      <fieldset class="space-y-3">
-        <legend class={legend}>Category</legend>
-        <div class="max-w-xs">
-          <label for="edit-platform" class={label}>
-            {PLATFORM_LABEL}
-          </label>
-          <select id="edit-platform" name="platform" class={field}>
-            <option value="Real" selected={row.platform === "Real"}>
-              Real
-            </option>
-            <option value="VRChat" selected={row.platform === "VRChat"}>
-              VRChat
-            </option>
-          </select>
-        </div>
-      </fieldset>
-
-      <fieldset class="space-y-3">
-        <legend class={legend}>Camera</legend>
-        <div>
-          {/* The fieldset legend already says "Camera". */}
-          <label for="edit-camera" class="sr-only">
-            Camera
-          </label>
-          {/* What it was loaded with: only a change is saved (digitizePatch). */}
-          <input
-            type="hidden"
-            name="camera_loaded"
-            value={row.camera_id === null ? "" : String(row.camera_id)}
+        <fieldset class="space-y-3" data-testid="photo-data">
+          <legend class={legend}>撮影データ</legend>
+          <PhotoDataFields
+            row={row}
+            kind={platformOf(platforms, row.platform).kind}
+            defaults={defaults}
+            onReset$={onReset$}
           />
-          <WithLevel
-            level={
-              <LevelSelect
-                field="camera"
-                value={row.metadata_visibility.camera ?? ""}
-                siteDefault={defaults.camera}
-                live={shows(row, row.camera_id !== null)}
-              />
-            }
-          >
-            <select
-              id="edit-camera"
-              name="camera_id"
-              aria-describedby="edit-camera-help"
-              class={field}
-            >
-              <option value="" selected={row.camera_id === null}>
-                (none)
-              </option>
-              {cameras.map((c) => (
+        </fieldset>
+
+        <fieldset class="space-y-3">
+          <legend class={legend}>Category</legend>
+          <div class="max-w-xs">
+            <label for="edit-platform" class={label}>
+              {PLATFORM_LABEL}
+            </label>
+            <select id="edit-platform" name="platform" class={field}>
+              {choices.map((p) => (
                 <option
-                  key={c.id}
-                  value={String(c.id)}
-                  selected={row.camera_id === c.id}
+                  key={p.key}
+                  value={p.key}
+                  selected={row.platform === p.key}
                 >
-                  {c.name}
+                  {p.name}
                 </option>
               ))}
             </select>
-          </WithLevel>
-          <p id="edit-camera-help" class={["mt-1 text-xs", muted]}>
-            Not listed?{" "}
-            <Link prefetch="js" href="/camera/new/" class={link}>
-              Add a camera
-            </Link>{" "}
-            first.
-          </p>
-        </div>
-        <DigitizerField row={row} cameras={cameras} defaults={defaults} />
-      </fieldset>
+          </div>
+        </fieldset>
 
-      <fieldset class="space-y-3">
-        <legend class={legend}>日時</legend>
-        <div>
-          <label for="edit-taken-at" class={label}>
-            撮影日時
-          </label>
-          <WithLevel
-            level={
-              <LevelSelect
-                field="taken_at"
-                value={row.metadata_visibility.taken_at ?? ""}
-                siteDefault={defaults.taken_at}
-                live={shows(row, row.timestamp !== null)}
-              />
-            }
-          >
+        <fieldset class="space-y-3">
+          <legend class={legend}>Camera</legend>
+          <div>
+            {/* The fieldset legend already says "Camera". */}
+            <label for="edit-camera" class="sr-only">
+              Camera
+            </label>
+            {/* What it was loaded with: only a change is saved (digitizePatch). */}
             <input
-              id="edit-taken-at"
-              type="datetime-local"
-              step="1"
-              name="taken_at"
-              value={takenAtInputValue(row.timestamp)}
-              class={field}
+              type="hidden"
+              name="camera_loaded"
+              value={row.camera_id === null ? "" : String(row.camera_id)}
             />
-          </WithLevel>
-          <input
-            type="hidden"
-            name="taken_at_loaded"
-            value={takenAtInputValue(row.timestamp)}
-          />
-          <input
-            type="hidden"
-            name="taken_at_offset"
-            value={takenAtOffset(row.timestamp)}
-          />
-        </div>
-        {row.digitized_at && (
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <p class="text-sm">
-              <span class={muted}>スキャン日時</span>{" "}
-              <span class="tabular-nums" data-testid="digitized-at">
-                {formatJst(row.digitized_at)}
-              </span>{" "}
-              <span class={["text-xs", muted]}>JST</span>
+            <WithLevel
+              level={
+                <LevelSelect
+                  field="camera"
+                  value={row.metadata_visibility.camera ?? ""}
+                  siteDefault={defaults.camera}
+                  live={shows(row, row.camera_id !== null)}
+                />
+              }
+            >
+              <select
+                id="edit-camera"
+                name="camera_id"
+                aria-describedby="edit-camera-help"
+                class={field}
+              >
+                <option value="" selected={row.camera_id === null}>
+                  (none)
+                </option>
+                {cameras.map((c) => (
+                  <option
+                    key={c.id}
+                    value={String(c.id)}
+                    selected={row.camera_id === c.id}
+                  >
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </WithLevel>
+            <p id="edit-camera-help" class={["mt-1 text-xs", muted]}>
+              Not listed?{" "}
+              <Link prefetch="js" href="/camera/new/" class={link}>
+                Add a camera
+              </Link>{" "}
+              first.
             </p>
-            <LevelSelect
-              field="digitized_at"
-              value={row.metadata_visibility.digitized_at ?? ""}
-              siteDefault={defaults.digitized_at}
-              live={shows(row, true)}
+          </div>
+          <DigitizerField row={row} cameras={cameras} defaults={defaults} />
+        </fieldset>
+
+        <fieldset class="space-y-3">
+          <legend class={legend}>日時</legend>
+          <div>
+            <label for="edit-taken-at" class={label}>
+              撮影日時
+            </label>
+            <WithLevel
+              level={
+                <LevelSelect
+                  field="taken_at"
+                  value={row.metadata_visibility.taken_at ?? ""}
+                  siteDefault={defaults.taken_at}
+                  live={shows(row, row.timestamp !== null)}
+                />
+              }
+            >
+              <input
+                id="edit-taken-at"
+                type="datetime-local"
+                step="1"
+                name="taken_at"
+                value={takenAtInputValue(row.timestamp)}
+                class={field}
+              />
+            </WithLevel>
+            <input
+              type="hidden"
+              name="taken_at_loaded"
+              value={takenAtInputValue(row.timestamp)}
+            />
+            <input
+              type="hidden"
+              name="taken_at_offset"
+              value={takenAtOffset(row.timestamp)}
             />
           </div>
-        )}
-        <div class="max-w-xs">
-          <label for="edit-embed-exif" class={label}>
-            {EMBED_LABEL}
-          </label>
-          <select id="edit-embed-exif" name="embed_exif" class={field}>
-            <option value="" selected={row.embed_exif === null}>
-              既定
-            </option>
-            <option value="on" selected={row.embed_exif === true}>
-              する
-            </option>
-            <option value="off" selected={row.embed_exif === false}>
-              しない
-            </option>
-          </select>
-        </div>
-        {row.file_exif && <FileExifDetails exif={row.file_exif} />}
-      </fieldset>
-
-      <fieldset class="space-y-3">
-        <legend class={legend}>Tags</legend>
-        <div>
-          <label for="edit-tags" class={label}>
-            Tags (comma-separated)
-          </label>
-          <WithLevel
-            level={
+          {row.digitized_at && (
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-sm">
+                <span class={muted}>スキャン日時</span>{" "}
+                <span class="tabular-nums" data-testid="digitized-at">
+                  {formatJst(row.digitized_at)}
+                </span>{" "}
+                <span class={["text-xs", muted]}>JST</span>
+              </p>
               <LevelSelect
-                field="tags"
-                value={row.metadata_visibility.tags ?? ""}
-                siteDefault={defaults.tags}
-                // Only public tags ever leave.
-                live={shows(
-                  row,
-                  row.tags.some((t) => publicTags.includes(t)),
-                )}
+                field="digitized_at"
+                value={row.metadata_visibility.digitized_at ?? ""}
+                siteDefault={defaults.digitized_at}
+                live={shows(row, true)}
               />
-            }
-          >
-            <input
-              id="edit-tags"
-              type="text"
-              name="tags"
-              value={row.tags.join(", ")}
-              maxLength={2000}
-              aria-describedby="edit-tags-help"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellcheck={false}
-              enterKeyHint="done"
-              class={field}
-            />
-          </WithLevel>
-          <p id="edit-tags-help" class={["mt-1 text-xs", muted]}>
-            e.g. <code>VRChat, night</code>. Saved to D1 immediately; the public
-            gallery shows it within about a minute.
-          </p>
-          {row.tags.length + inheritedTags.length > 0 && (
-            <ul class="mt-2 flex flex-wrap gap-1.5" aria-label="タグの公開">
-              {[
-                ...row.tags.map((t) => ({ t, inherited: false })),
-                ...inheritedTags.map((t) => ({ t, inherited: true })),
-              ].map(({ t, inherited }) => {
-                const isPublic = publicTags.includes(t);
-                const chip = [
-                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ring-1 ring-inset",
-                  isPublic
-                    ? "bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
-                    : "bg-zinc-100 text-zinc-600 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700",
-                ];
-                const body = (
-                  <>
-                    {inherited && <CameraGlyph />}
-                    {!isPublic && <span aria-hidden="true">🔒</span>}
-                    {t}
-                    <span class="sr-only">
-                      （{isPublic ? "公開" : "非公開"}
-                      {inherited && "・カメラから"}）
-                    </span>
-                  </>
-                );
-                return (
-                  <li
-                    key={`${inherited}:${t}`}
-                    data-testid="tag-chip"
-                    data-public={isPublic ? "true" : "false"}
-                    data-inherited={inherited ? "true" : undefined}
-                  >
-                    {inherited ? (
-                      // From the camera: changed there, not here.
-                      <Link
-                        prefetch="js"
-                        href={`/camera/${row.camera_id}/`}
-                        title="カメラのタグ"
-                        class={[chip, "hover:underline"]}
-                      >
-                        {body}
-                      </Link>
-                    ) : (
-                      <span class={chip}>{body}</span>
-                    )}
-                  </li>
-                );
-              })}
-              <li>
-                <Link prefetch="js" href="/tag/" class={[link, "text-xs"]}>
-                  タグ一覧
-                </Link>
-              </li>
-            </ul>
+            </div>
           )}
-        </div>
-      </fieldset>
+          <div class="max-w-xs">
+            <label for="edit-embed-exif" class={label}>
+              {EMBED_LABEL}
+            </label>
+            <select id="edit-embed-exif" name="embed_exif" class={field}>
+              <option value="" selected={row.embed_exif === null}>
+                既定
+              </option>
+              <option value="on" selected={row.embed_exif === true}>
+                する
+              </option>
+              <option value="off" selected={row.embed_exif === false}>
+                しない
+              </option>
+            </select>
+          </div>
+          {row.file_exif && <FileExifDetails exif={row.file_exif} />}
+        </fieldset>
 
-      <TagFieldInputs
-        row={row}
-        tags={[...row.tags, ...inheritedTags]}
-        fields={tagFields}
-        publicTags={publicTags}
-        defaults={defaults}
-      />
-    </>
-  ),
+        <fieldset class="space-y-3">
+          <legend class={legend}>Tags</legend>
+          <div>
+            <label for="edit-tags" class={label}>
+              Tags (comma-separated)
+            </label>
+            <WithLevel
+              level={
+                <LevelSelect
+                  field="tags"
+                  value={row.metadata_visibility.tags ?? ""}
+                  siteDefault={defaults.tags}
+                  // Only public tags ever leave.
+                  live={shows(
+                    row,
+                    row.tags.some((t) => publicTags.includes(t)),
+                  )}
+                />
+              }
+            >
+              <input
+                id="edit-tags"
+                type="text"
+                name="tags"
+                value={row.tags.join(", ")}
+                maxLength={2000}
+                aria-describedby="edit-tags-help"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellcheck={false}
+                enterKeyHint="done"
+                class={field}
+              />
+            </WithLevel>
+            <p id="edit-tags-help" class={["mt-1 text-xs", muted]}>
+              e.g. <code>VRChat, night</code>. Saved to D1 immediately; the
+              public gallery shows it within about a minute.
+            </p>
+            {row.tags.length + inheritedTags.length > 0 && (
+              <ul class="mt-2 flex flex-wrap gap-1.5" aria-label="タグの公開">
+                {[
+                  ...row.tags.map((t) => ({ t, inherited: false })),
+                  ...inheritedTags.map((t) => ({ t, inherited: true })),
+                ].map(({ t, inherited }) => {
+                  const isPublic = publicTags.includes(t);
+                  const chip = [
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ring-1 ring-inset",
+                    isPublic
+                      ? "bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
+                      : "bg-zinc-100 text-zinc-600 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700",
+                  ];
+                  const body = (
+                    <>
+                      {inherited && <CameraGlyph />}
+                      {!isPublic && <span aria-hidden="true">🔒</span>}
+                      {t}
+                      <span class="sr-only">
+                        （{isPublic ? "公開" : "非公開"}
+                        {inherited && "・カメラから"}）
+                      </span>
+                    </>
+                  );
+                  return (
+                    <li
+                      key={`${inherited}:${t}`}
+                      data-testid="tag-chip"
+                      data-public={isPublic ? "true" : "false"}
+                      data-inherited={inherited ? "true" : undefined}
+                    >
+                      {inherited ? (
+                        // From the camera: changed there, not here.
+                        <Link
+                          prefetch="js"
+                          href={`/camera/${row.camera_id}/`}
+                          title="カメラのタグ"
+                          class={[chip, "hover:underline"]}
+                        >
+                          {body}
+                        </Link>
+                      ) : (
+                        <span class={chip}>{body}</span>
+                      )}
+                    </li>
+                  );
+                })}
+                <li>
+                  <Link prefetch="js" href="/tag/" class={[link, "text-xs"]}>
+                    タグ一覧
+                  </Link>
+                </li>
+              </ul>
+            )}
+          </div>
+        </fieldset>
+
+        <TagFieldInputs
+          row={row}
+          tags={[...row.tags, ...inheritedTags]}
+          fields={tagFields}
+          publicTags={publicTags}
+          defaults={defaults}
+        />
+      </>
+    );
+  },
 );
 
 const UNSAVED_CONFIRM = "保存していない変更があります。破棄して移動しますか？";
@@ -1285,7 +1309,7 @@ export default component$(() => {
           <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">
             Edit #{row.id}
           </h1>
-          <span class={platformBadge(row.platform)}>{row.platform}</span>
+          <PlatformBadge platform={row.platform} />
           <VisibilityBadge visibility={row.visibility} />
         </div>
         <PhotoViews public_id={row.public_id} />

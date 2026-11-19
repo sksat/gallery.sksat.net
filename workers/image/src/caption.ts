@@ -21,7 +21,9 @@ export type Caption = {
 
 /** The photo fields the caption uses (a subset of the API's photo). */
 export type CaptionSource = {
+  /** The platform's key, and its name (shown when given). */
   platform?: string;
+  platform_name?: string;
   timestamp: string | null;
   /** How precisely the API gives the time (its metadata levels). */
   timestamp_precision?: string | null;
@@ -111,7 +113,7 @@ export const captionFor = (m: CaptionSource): Caption => {
   // The platform is a tag too (as in the gallery's tag filter), listed
   // first. Spaces inside a tag become "_" so "#night sky" doesn't read as
   // two.
-  const platform = m.platform ?? "";
+  const platform = m.platform_name ?? m.platform ?? "";
   const tags = [
     ...new Set([platform, ...m.tags].map((t) => clean(t).replace(/ /g, "_"))),
   ]

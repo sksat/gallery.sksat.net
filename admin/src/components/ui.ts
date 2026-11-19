@@ -1,3 +1,5 @@
+import type { PlatformKind } from "~/lib/platform";
+
 // Shared Tailwind class strings. Kept as plain constants (not components) so
 // they can be applied to native elements and Qwik City's <Link>/<Form>.
 
@@ -33,10 +35,11 @@ export const backLink = `${link} inline-flex min-h-11 items-center pr-3 sm:min-h
 /** Label of the platform field and filter. */
 export const PLATFORM_LABEL = "Platform";
 
-export const platformBadge = (platform: string): string =>
+/** A platform's badge, coloured by its kind (virtual violet, real green). */
+export const platformBadge = (kind: PlatformKind): string =>
   [
     "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
-    platform === "VRChat"
+    kind === "virtual"
       ? "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950 dark:text-violet-300 dark:ring-violet-800"
       : "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-800",
   ].join(" ");

@@ -10,8 +10,14 @@ import {
 
 import { takenAt } from "./taken";
 
-/** Where a photo was taken (the API's `platform`). */
-export type MediaPlatform = "VRChat" | "Real";
+/**
+ * Where a photo was taken (the API's `platform`): the key of one of the
+ * owner's platforms ("Real", "VRChat", …). Shown by its `platform_name`.
+ */
+export type MediaPlatform = string;
+
+/** "virtual" (VRChat, …): no real-world position. */
+export type PlatformKind = "real" | "virtual";
 
 /** `camera` on a photo: enough to label it and link to /camera/<slug>/. */
 export type MediaCamera = {
@@ -82,6 +88,9 @@ export type MediaInfoJSON = {
   /** The file name, without its folder. */
   name?: string | null;
   platform: MediaPlatform;
+  /** The platform's name (the key when the API gives none). */
+  platform_name?: string;
+  platform_kind?: PlatformKind;
   timestamp: null | string;
   timestamp_precision?: TimestampPrecision | null;
   /** The camera, with its page. */
@@ -260,7 +269,10 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
   ) {
     return null;
   }
-  if (platform !== "Real" && platform !== "VRChat") return null;
+  if (typeof platform !== "string" || platform === "") return null;
+  const kind = v.platform_kind;
+  const platformKind: PlatformKind | undefined =
+    kind === "real" || kind === "virtual" ? kind : undefined;
   const { camera: cam, maker } = parseCameraField(camera);
   const digitizer = parseCameraField(v.digitizer);
   const precision = v.timestamp_precision;
@@ -271,6 +283,11 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
     path: strOrNull(v.path),
     name: strOrNull(v.name),
     platform,
+    platform_name:
+      typeof v.platform_name === "string" && v.platform_name !== ""
+        ? v.platform_name
+        : platform,
+    platform_kind: platformKind,
     timestamp: typeof timestamp === "string" ? timestamp : null,
     timestamp_precision:
       typeof precision === "string" && PRECISIONS.includes(precision)
@@ -294,8 +311,9 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
         : null,
     world: parseWorld(v.world),
     exif: parseExif(v.exif),
-    // A VRChat photo has no real-world position: never keep one.
-    location: platform === "VRChat" ? null : parseLocation(v.location),
+    // A photo on a virtual platform has no real-world position: never
+    // keep one (the API gives none either).
+    location: platformKind === "virtual" ? null : parseLocation(v.location),
     tags: Array.isArray(tags)
       ? tags.filter((t): t is string => typeof t === "string")
       : [],

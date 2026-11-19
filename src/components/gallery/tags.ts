@@ -11,13 +11,13 @@ export type TagFilter = {
 export const DEFAULT_TAG_MODE: TagMatchMode = "and";
 
 /**
- * Tags of a photo, with `platform` treated as just another tag.
- * The data keeps `platform` as a separate field (and VRChat entries also
- * carry a "VRChat" tag), so merge and de-duplicate here instead of in the
- * data.
+ * Tags of a photo, with its platform (by name) treated as just another
+ * tag. The data keeps the platform as a separate field (and VRChat entries
+ * also carry a "VRChat" tag), so merge and de-duplicate here instead of in
+ * the data.
  */
 export const mediaTags = (m: MediaInfo): string[] => [
-  ...new Set([m.platform, ...m.tags]),
+  ...new Set([m.platform_name ?? m.platform, ...m.tags]),
 ];
 
 /**

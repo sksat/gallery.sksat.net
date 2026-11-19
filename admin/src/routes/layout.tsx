@@ -1,8 +1,29 @@
 import { component$, Slot } from "@builder.io/qwik";
-import { Link, useLocation } from "@builder.io/qwik-city";
+import { Link, routeLoader$, useLocation } from "@builder.io/qwik-city";
 import { MetadataReader } from "~/components/metadata-reader";
 import { TabBar } from "~/components/tab-bar";
 import { ThemeToggle } from "~/components/theme-toggle";
+import { listPlatforms } from "~/lib/db-platform";
+import { getDB } from "~/lib/env";
+import { BUILTIN_PLATFORMS, type Platform } from "~/lib/platform";
+
+/**
+ * Every platform, in order: the names, kinds and choices of every page
+ * (platformOf in src/lib/platform.ts). A component that uses it reads
+ * `.value` in every render, not only in a branch shown later, so that the
+ * list is sent to the browser. A few rows; without D1 (previews, vite dev)
+ * the two built-in ones, so the pages still render.
+ */
+export const usePlatformList = routeLoader$<Platform[]>(
+  async ({ platform }) => {
+    try {
+      return await listPlatforms(getDB(platform));
+    } catch (err) {
+      console.error("layout: reading the platforms failed:", err);
+      return [...BUILTIN_PLATFORMS];
+    }
+  },
+);
 
 const NAV = [
   { href: "/", label: "Dashboard", match: (p: string) => p === "/" },
@@ -27,6 +48,11 @@ const NAV = [
     match: (p: string) => p.startsWith("/map"),
   },
   { href: "/tag/", label: "Tags", match: (p: string) => p.startsWith("/tag") },
+  {
+    href: "/platform/",
+    label: "Platforms",
+    match: (p: string) => p.startsWith("/platform"),
+  },
   {
     href: "/setting/",
     label: "Settings",
@@ -65,7 +91,10 @@ export default component$(() => {
             >
               GA
             </span>
-            <span class={section ? "sr-only sm:not-sr-only" : undefined}>
+            {/* Between sm and lg the nav needs the room. */}
+            <span
+              class={section ? "sr-only lg:not-sr-only" : "sm:max-lg:sr-only"}
+            >
               Gallery Admin
             </span>
           </Link>
@@ -79,7 +108,7 @@ export default component$(() => {
           )}
           <nav
             aria-label="Main"
-            class="hidden items-center gap-1 text-sm sm:flex"
+            class="hidden min-w-0 items-center gap-1 overflow-x-auto text-sm sm:flex"
           >
             {items.map((item) => (
               <Link
@@ -88,7 +117,7 @@ export default component$(() => {
                 href={item.href}
                 aria-current={item.active ? "page" : undefined}
                 class={[
-                  "inline-flex items-center rounded-md px-3 py-1.5 font-medium transition-colors",
+                  "inline-flex shrink-0 items-center rounded-md px-3 py-1.5 font-medium transition-colors",
                   item.active
                     ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                     : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",

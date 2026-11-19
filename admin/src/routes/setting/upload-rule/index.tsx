@@ -37,7 +37,10 @@ import {
   setUploadRules,
   type ExistingBefore,
 } from "~/lib/db-upload-rules";
+import { listPlatforms } from "~/lib/db-platform";
 import { getDB } from "~/lib/env";
+import { PLATFORM_KEY_RE, platformOf } from "~/lib/platform";
+import { usePlatformList } from "~/routes/layout";
 import { inChunks } from "~/lib/selection";
 import {
   actionLabels,
@@ -88,6 +91,14 @@ export const useSaveRules = routeAction$(
     ) {
       return fail(400, { message: "そのカメラはありません" });
     }
+    const platforms = new Set((await listPlatforms(db)).map((p) => p.key));
+    if (
+      v.value.some(
+        (r) => r.actions.platform && !platforms.has(r.actions.platform),
+      )
+    ) {
+      return fail(400, { message: "そのプラットフォームはありません" });
+    }
     await setUploadRules(db, v.value);
     return { ok: true as const, rules: v.value };
   },
@@ -132,7 +143,7 @@ export const useRestoreExisting = routeAction$(
       .array(
         z.object({
           id: z.number().int().positive(),
-          platform: z.enum(["Real", "VRChat"]),
+          platform: z.string().regex(PLATFORM_KEY_RE),
           camera_id: z.number().int().positive().nullable(),
           camera_source: z.enum(["manual", "file"]).nullable(),
           tags: z.string().max(30000).nullable(),
@@ -156,6 +167,7 @@ const iconButton =
 
 export default component$(() => {
   const data = useRules();
+  const platforms = usePlatformList().value;
   const saveAction = useSaveRules();
   const previewAction = usePreviewExisting();
   const applyAction = useApplyExisting();
@@ -356,7 +368,11 @@ export default component$(() => {
                         →
                       </span>
                       <span class="sr-only">なら</span>
-                      {actionLabels(r.actions, names).map((a) => (
+                      {actionLabels(
+                        r.actions,
+                        names,
+                        (k) => platformOf(platforms, k).name,
+                      ).map((a) => (
                         <span key={a} class={actionChip}>
                           {a}
                         </span>

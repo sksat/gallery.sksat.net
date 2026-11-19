@@ -9,6 +9,8 @@ import {
 
 import { boundsOf, clusterByGrid, type Place } from "@shared/map/map";
 import { imageUrl } from "~/lib/images";
+import { platformOf, type Platform } from "~/lib/platform";
+import { usePlatformList } from "~/routes/layout";
 import {
   currentMapStyle,
   formatPosition,
@@ -56,7 +58,11 @@ const icon = (path: string): SVGSVGElement => {
 };
 
 /** A thumbnail, or the platform's colour without the image Worker. */
-const thumb = (photo: LocatedPhoto, imageBase: string | null) => {
+const thumb = (
+  photo: LocatedPhoto,
+  imageBase: string | null,
+  platforms: readonly Platform[],
+) => {
   if (imageBase) {
     const img = el("img", "h-full w-full object-cover");
     img.src = imageUrl(imageBase, photo.file, "h240");
@@ -68,7 +74,9 @@ const thumb = (photo: LocatedPhoto, imageBase: string | null) => {
     "span",
     [
       "block h-full w-full",
-      photo.platform === "VRChat" ? "bg-violet-300" : "bg-emerald-300",
+      platformOf(platforms, photo.platform).kind === "virtual"
+        ? "bg-violet-300"
+        : "bg-emerald-300",
     ].join(" "),
   );
 };
@@ -85,6 +93,7 @@ export const AdminMap = component$<{
   focus: Signal<{ key: string } | null>;
 }>(({ places, imageBase, focus }) => {
   const container = useSignal<HTMLElement>();
+  const platforms = usePlatformList().value;
   const show = useSignal<NoSerialize<(key: string) => void>>();
   const ready = useSignal(false);
 
@@ -149,7 +158,7 @@ export const AdminMap = component$<{
         a.href = `/media/${photo.id}/`;
         a.dataset.testid = "map-popup-photo";
         const t = el("span", "block size-10 shrink-0 overflow-hidden rounded");
-        put(t, thumb(photo, imageBase));
+        put(t, thumb(photo, imageBase, platforms));
         const name = el(
           "span",
           "min-w-0 flex-1 truncate",
@@ -205,7 +214,7 @@ export const AdminMap = component$<{
             "span",
             "block size-full overflow-hidden rounded-full",
           );
-          put(face, thumb(members[0].items[0], imageBase));
+          put(face, thumb(members[0].items[0], imageBase, platforms));
           put(b, face);
           if (n > 1) {
             put(

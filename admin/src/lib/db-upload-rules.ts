@@ -7,7 +7,7 @@ import type { NewRow } from "./db-upload";
 import { contentVersionStatement } from "./last-good";
 import { parseOverrides } from "./metadata";
 import { normalizeExif } from "./photo-meta";
-import { LIVE_PHOTO, isPlatform, type MediaPlatform } from "./types";
+import { LIVE_PHOTO, type MediaPlatform } from "./types";
 import type { UploadInit } from "./upload";
 import {
   FALLBACK_PLATFORM,
@@ -118,7 +118,7 @@ export const decideUpload = async (
 type Row = {
   id: number;
   path: string;
-  /** The column's CHECK keeps it to the platforms. */
+  /** A key of the `platform` table (its REFERENCES keeps it there). */
   platform: MediaPlatform;
   camera_id: number | null;
   tags: string | null;
@@ -156,7 +156,7 @@ const parseExif = (raw: string | null) => {
 const changeOf = (rules: readonly UploadRule[], r: Row) => {
   const photo: ExistingPhoto = {
     id: r.id,
-    platform: isPlatform(r.platform) ? r.platform : FALLBACK_PLATFORM,
+    platform: r.platform,
     camera_id: r.camera_id,
     cameraManual: r.camera_source === "manual",
     tags: parseTags(r.tags),

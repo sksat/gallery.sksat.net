@@ -62,7 +62,7 @@ export const placeLabel = (
 export const publicPlaces = (media: readonly MediaInfoJSON[]): MapPlace[] =>
   groupPlaces(
     media.flatMap((m) =>
-      m.location && m.platform !== "VRChat"
+      m.location && m.platform_kind !== "virtual"
         ? [
             {
               lat: m.location.latitude,

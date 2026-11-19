@@ -19,13 +19,8 @@ import {
   visibilityPending,
 } from "~/lib/selection";
 import { formatDecimalBytes } from "~/lib/storage";
-import {
-  isPlatform,
-  PLATFORMS,
-  VISIBILITIES,
-  type MediaPlatform,
-  type Visibility,
-} from "~/lib/types";
+import { VISIBILITIES, type MediaPlatform, type Visibility } from "~/lib/types";
+import { usePlatformList } from "~/routes/layout";
 import { BulkInfoDialog } from "./bulk-info-dialog";
 import { BulkMetadataDialog } from "./bulk-metadata-dialog";
 import { BulkTagFieldDialog } from "./bulk-tag-field-dialog";
@@ -172,6 +167,9 @@ export const SelectionBar = component$<Props>(
       above: number;
     } | null>(null);
     const picker = useSignal<"camera" | "platform" | null>(null);
+    // Read during every render (not only in the picker opened later), so
+    // the list always reaches the browser.
+    const platforms = usePlatformList().value;
     const dest = useSignal(dir);
     /** A level waiting for a look at what becomes visible. */
     const confirming = useSignal<Visibility | null>(null);
@@ -494,10 +492,11 @@ export const SelectionBar = component$<Props>(
           <ChoicePicker
             title="プラットフォーム"
             testId="platform-picker"
-            choices={PLATFORMS.map((p) => ({
-              key: p,
-              label: p,
+            choices={platforms.map((p) => ({
+              key: p.key,
+              label: p.name,
               image: "badge",
+              kind: p.kind,
             }))}
             shared={sharedPlatform(photos)}
             count={photos.length}
@@ -505,7 +504,7 @@ export const SelectionBar = component$<Props>(
             busy={busy}
             onClose$={() => (picker.value = null)}
             onPick$={async (key) => {
-              if (!isPlatform(key)) return;
+              if (!platforms.some((p) => p.key === key)) return;
               const ok = await onAction$({ kind: "platform", platform: key });
               if (ok) picker.value = null;
             }}
