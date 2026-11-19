@@ -1,7 +1,9 @@
 // Setting the camera or the platform of several photos at once (the Files
 // view's selection, the camera page), with what each had before for the
-// undo (db-photo-bulk.spec.ts, on the real schema).
+// undo (db-photo-bulk.spec.ts, on the real schema). Each write bumps the
+// API's content version (last-good.ts) in the same D1 batch.
 
+import { contentVersionStatement } from "./last-good";
 import { LIVE_PHOTO, type MediaPlatform } from "./types";
 
 /** A camera to pick: its name and its first picture, if any. */
@@ -36,10 +38,12 @@ const writeCameras = async (
   rows: readonly PreviousCamera[],
 ): Promise<void> => {
   if (rows.length === 0) return;
-  await db
-    .prepare(SET_CAMERAS_SQL)
-    .bind(JSON.stringify(rows.map((r) => [r.id, r.camera_id])))
-    .run();
+  await db.batch([
+    db
+      .prepare(SET_CAMERAS_SQL)
+      .bind(JSON.stringify(rows.map((r) => [r.id, r.camera_id]))),
+    contentVersionStatement(db),
+  ]);
 };
 
 export class UnknownCameraError extends Error {}
@@ -81,6 +85,7 @@ export const setCameras = async (
            AND camera_id IS NOT ?2`,
       )
       .bind(json, cameraId),
+    contentVersionStatement(db),
   ]);
   return before.results ?? [];
 };
@@ -124,6 +129,7 @@ export const setPlatforms = async (
          WHERE id IN (SELECT value FROM json_each(?1)) AND platform <> ?2`,
       )
       .bind(json, platform),
+    contentVersionStatement(db),
   ]);
   return before.results ?? [];
 };
@@ -134,16 +140,18 @@ export const restorePlatforms = async (
   previous: readonly PreviousPlatform[],
 ): Promise<void> => {
   if (previous.length === 0) return;
-  await db
-    .prepare(
-      `UPDATE media SET
-         platform = (SELECT json_extract(value, '$[1]') FROM json_each(?1)
-                     WHERE json_extract(value, '$[0]') = media.id),
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE id IN (SELECT json_extract(value, '$[0]') FROM json_each(?1))`,
-    )
-    .bind(JSON.stringify(previous.map((p) => [p.id, p.platform])))
-    .run();
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE media SET
+           platform = (SELECT json_extract(value, '$[1]') FROM json_each(?1)
+                       WHERE json_extract(value, '$[0]') = media.id),
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id IN (SELECT json_extract(value, '$[0]') FROM json_each(?1))`,
+      )
+      .bind(JSON.stringify(previous.map((p) => [p.id, p.platform]))),
+    contentVersionStatement(db),
+  ]);
 };
 
 /** A photo on the camera page. */
@@ -198,6 +206,7 @@ export const removeCameraFrom = async (
          WHERE id IN (SELECT value FROM json_each(?1)) AND camera_id = ?2`,
       )
       .bind(json, cameraId),
+    contentVersionStatement(db),
   ]);
   return before.results ?? [];
 };

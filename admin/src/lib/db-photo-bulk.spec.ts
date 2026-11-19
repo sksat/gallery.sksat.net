@@ -111,3 +111,40 @@ describe("setCameras / restoreCameras", () => {
     expect(cameras()).toEqual([1, null, 2]);
   });
 });
+
+describe("the API's content version", () => {
+  const version = (raw: ReturnType<typeof setup>["raw"]) =>
+    (
+      raw
+        .prepare("SELECT value FROM setting WHERE key = 'content_version'")
+        .get() as { value: string } | undefined
+    )?.value;
+
+  it("is bumped by every write here", async () => {
+    const { db, raw } = setup();
+    const writes: (() => Promise<unknown>)[] = [
+      () => setCameras(db, [1, 2], 2),
+      () => restoreCameras(db, [{ id: 2, camera_id: null }]),
+      () => setPlatforms(db, [1], "VRChat"),
+      () => restorePlatforms(db, [{ id: 1, platform: "Real" }]),
+      () => removeCameraFrom(db, 2, [3]),
+    ];
+    let last = version(raw);
+    for (const write of writes) {
+      await write();
+      const now = version(raw);
+      expect(now).toBeDefined();
+      expect(now).not.toBe(last);
+      last = now;
+    }
+  });
+
+  it("is bumped in the same batch: not when the change fails", async () => {
+    const { db, raw } = setup();
+    // A camera that does not exist fails the foreign key: nothing commits.
+    await expect(
+      restoreCameras(db, [{ id: 1, camera_id: 99 }]),
+    ).rejects.toThrow();
+    expect(version(raw)).toBeUndefined();
+  });
+});
