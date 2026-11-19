@@ -1,4 +1,4 @@
-import { $, component$, useSignal, useTask$ } from "@builder.io/qwik";
+import { $, component$, useSignal, useTask$, type QRL } from "@builder.io/qwik";
 import {
   Form,
   Link,
@@ -56,6 +56,7 @@ import {
   formGroups,
   type PhotoDataGroups,
 } from "~/lib/photo-data";
+import { markUnread } from "~/lib/read-state";
 import { PhotoDataFields } from "~/components/photo-data-fields";
 import { withoutViewer } from "~/lib/review-keys";
 import { pendingBatches, type Pending } from "~/lib/review-pending";
@@ -325,6 +326,25 @@ export const useApplyPending = routeAction$(
  * Undo of a 反映: each photo back to its previous visibility, if it still
  * has the one 反映 set (restoreVisibility), grouped and capped like it.
  */
+/**
+ * Set one shooting-data field back to what the file says: emptied, no
+ * longer 'manual', and read again by the metadata reader.
+ */
+export const useResetFromFile = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return fail(400, { message: "invalid id" });
+    }
+    const v = validatePatch({ reset_from_file: [data.field] });
+    if (!v.ok) return fail(400, { message: v.error });
+    const updated = await updateMedia(getDB(platform), id, v.patch);
+    if (!updated) return fail(404, { message: "not found" });
+    return { ok: true };
+  },
+  zod$({ field: z.enum(["exif", "world", "location"]) }),
+);
+
 export const useUndoPending = routeAction$(
   async (data, { platform, fail }) => {
     let db: D1Database;
@@ -460,7 +480,8 @@ const MediaFields = component$<{
   cameras: CameraOption[];
   defaults: MetadataLevels;
   publicTags: string[];
-}>(({ row, cameras, defaults, publicTags }) => (
+  onReset$: QRL<(field: "exif" | "world" | "location") => void>;
+}>(({ row, cameras, defaults, publicTags, onReset$ }) => (
   <>
     <fieldset class="space-y-3">
       <legend class={legend}>Visibility</legend>
@@ -527,7 +548,7 @@ const MediaFields = component$<{
 
     <fieldset class="space-y-3" data-testid="photo-data">
       <legend class={legend}>撮影データ</legend>
-      <PhotoDataFields row={row} defaults={defaults} />
+      <PhotoDataFields row={row} defaults={defaults} onReset$={onReset$} />
     </fieldset>
 
     <fieldset class="space-y-3">
@@ -654,6 +675,7 @@ export default component$(() => {
   const action = useUpdateMedia();
   const apply = useApplyPending();
   const undoApply = useUndoPending();
+  const reset = useResetFromFile();
   /** The viewer's 反映 of its pending choices. */
   const applyPending = $(
     async (
@@ -725,6 +747,17 @@ export default component$(() => {
     if (!moves || moves.length === 0) return;
     lastMove.value = null;
     await undoMove.submit({ moves });
+  });
+  /** ファイルの値に戻す: the value comes back once the reader has read it. */
+  const resetFromFile = $(async (field: "exif" | "world" | "location") => {
+    const { value } = await reset.submit({ field });
+    if (!value.failed) markUnread({ now: true });
+    toast.value = value.failed
+      ? { tone: "error", message: value.message ?? "戻せませんでした" }
+      : {
+          tone: "success",
+          message: "ファイルの値に戻します。読み込み後に反映されます。",
+        };
   });
   useTask$(({ track }) => {
     const v = track(() => action.value);
@@ -1038,6 +1071,7 @@ export default component$(() => {
           cameras={cameras}
           defaults={media.value.defaults}
           publicTags={media.value.publicTags}
+          onReset$={resetFromFile}
         />
 
         {/* Phones: fixed to the bottom of the screen, so Save and stepping

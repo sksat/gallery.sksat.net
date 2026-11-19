@@ -1,4 +1,5 @@
 import type { MetadataOverrides } from "./metadata";
+import type { MetadataSource } from "./metadata-source";
 import type { ExifEdit, LocationEdit, WorldEdit } from "./photo-data";
 import type { ExifJSON } from "./photo-meta";
 
@@ -93,6 +94,8 @@ export type MediaRow = {
   world_author_id: string | null;
   /** When it went to the trash; null when it is not there. */
   trashed_at: string | null;
+  /** Where the taken-at time, exif and world came from (0008). */
+  metadata_source: MetadataSource;
   updated_at: string;
 };
 
@@ -106,6 +109,11 @@ export type MediaPatch = {
   location?: LocationEdit;
   /** The world's id and/or name; a part left out is kept. */
   world?: WorldEdit;
+  /**
+   * Fields to set back to what the original says: emptied, no longer
+   * 'manual', and read again from the file.
+   */
+  reset_from_file?: ("exif" | "world" | "location")[];
   platform?: MediaPlatform;
   camera_id?: number | null;
   tags?: string[];

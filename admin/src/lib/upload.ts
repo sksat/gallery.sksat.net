@@ -7,6 +7,7 @@ import {
   normalizeDir,
   validateFolderPath,
 } from "./folders";
+import { isTakenAtSource, type TakenAtSource } from "./metadata-source";
 import { normalizeStoredMeta, type StoredMeta } from "./photo-meta";
 import type { MediaPlatform } from "./types";
 import { MAX_IMAGE_FILE_LEN, validateImageFile } from "./validate";
@@ -235,6 +236,10 @@ export type UploadInit = {
   contentType: string;
   sha256: string;
   timestamp: string | null;
+  /** Where the timestamp came from (taken-at.ts); never "manual" here. */
+  timestampSource?: Exclude<TakenAtSource, "manual">;
+  /** The browser parser's PHOTO_META_PARSER_DATE. */
+  parserDate?: string;
   /**
    * What the browser read from the file (photo-meta.ts): camera settings,
    * GPS position, VRChat world; each null when not found. Absent when the
@@ -307,6 +312,13 @@ export const validateUploadInit = (
     }
     timestamp = o.timestamp;
   }
+  // An automatic source only (lenient: anything else is left out).
+  const timestampSource =
+    timestamp !== null &&
+    isTakenAtSource(o.timestampSource) &&
+    o.timestampSource !== "manual"
+      ? o.timestampSource
+      : undefined;
   // Lenient: what is malformed is left out rather than refusing the file.
   const meta = normalizeStoredMeta(o.meta);
   return {
@@ -317,6 +329,10 @@ export const validateUploadInit = (
       contentType,
       sha256: o.sha256,
       timestamp,
+      ...(timestampSource ? { timestampSource } : {}),
+      ...(typeof o.parserDate === "string" && o.parserDate.length <= 40
+        ? { parserDate: o.parserDate }
+        : {}),
       // Present (even empty) when the browser read the file.
       ...(o.meta !== undefined ? { meta } : {}),
     },

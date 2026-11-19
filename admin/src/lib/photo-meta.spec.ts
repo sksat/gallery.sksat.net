@@ -2,10 +2,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   formatExposure,
+  isFilmScanner,
   readPhotoMeta,
   readPhotoMetaSync,
   worldFromXmp,
+  xmpDateToIso,
+  xmpTakenAt,
 } from "./photo-meta";
+import { pickTakenAt } from "./taken-at";
 
 // Tiny synthetic images written by Pillow (fixtures/make-fixtures.py), not
 // by this parser's own writer: an 8x8 JPEG with EXIF and GPS, and 8x8
@@ -85,6 +89,7 @@ describe("readPhotoMeta", () => {
     expect((await readPhotoMeta(jpeg.subarray(0, 30))).exif).toBeNull();
     expect(await readPhotoMeta(new TextEncoder().encode("hello"))).toEqual({
       takenAt: null,
+      dates: { exifOriginal: null, xmp: null, exifDateTime: null },
       exif: null,
       location: null,
       world: null,
@@ -216,6 +221,93 @@ describe("hostile and unusual EXIF", () => {
       name: `Bob's "Room"`,
       authorId: null,
     });
+  });
+});
+
+describe("dates", () => {
+  it("takes VRChat's XMP CreateDate, to the millisecond with its offset", async () => {
+    const meta = await readPhotoMeta(fixture("vrchat-2026.png"));
+    expect(meta.dates).toEqual({
+      exifOriginal: null,
+      xmp: "2026-11-02T11:31:36.959+09:00",
+      exifDateTime: null,
+    });
+    expect(meta.takenAt).toBe("2026-11-02T11:31:36.959+09:00");
+    expect(meta.world).toEqual({
+      id: "wrld_00000000-aaaa-bbbb-cccc-000000000001",
+      name: "桜の川 （Sakura）",
+      authorId: "usr_00000000-1111-2222-3333-555555555555",
+    });
+  });
+
+  it("never takes a film scanner's dates, but keeps its EXIF", async () => {
+    const meta = await readPhotoMeta(fixture("film-scan.jpg"));
+    expect(meta.exif).toMatchObject({
+      make: "FUJI PHOTO FILM CO., LTD.",
+      model: "SP-2000",
+      taken_at_original: "2023-12-12T10:00:00",
+    });
+    expect(meta.dates).toEqual({
+      exifOriginal: null,
+      xmp: null,
+      exifDateTime: null,
+    });
+    expect(meta.takenAt).toBeNull();
+  });
+
+  it("never takes a date from a GCMC Scanner's unset clock", async () => {
+    const meta = await readPhotoMeta(fixture("gcmc-scan.jpg"));
+    expect(meta.exif).toMatchObject({
+      make: "GCMC",
+      model: "Scanner",
+      taken_at_original: "2021-01-01T00:31:12",
+    });
+    expect(meta.dates).toEqual({
+      exifOriginal: null,
+      xmp: null,
+      exifDateTime: null,
+    });
+    expect(meta.takenAt).toBeNull();
+    // Nor from a name in the folder that is no VRChat file name.
+    expect(pickTakenAt(meta.dates, "IMG_0001.jpg")).toBeNull();
+  });
+
+  it("knows the common film scanners", () => {
+    for (const [make, model] of [
+      ["GCMC", "Scanner"],
+      ["Canon", "CanoScan 9000F Scanner"],
+      ["FUJI PHOTO FILM CO., LTD.", "SP-3000"],
+      ["FUJIFILM", "Frontier LP5000"],
+      ["NORITSU KOKI", "QSS-32"],
+      ["Eastman Kodak Company", "Pakon F-135"],
+      ["Nikon", "LS-5000"],
+      ["EPSON", "Perfection V600"],
+    ]) {
+      expect(isFilmScanner(make, model), `${make} ${model}`).toBe(true);
+    }
+    for (const [make, model] of [
+      ["FUJIFILM", "X-T5"],
+      ["NIKON CORPORATION", "NIKON Z 6"],
+      [undefined, undefined],
+    ]) {
+      expect(isFilmScanner(make, model), `${make} ${model}`).toBe(false);
+    }
+  });
+
+  it("reads XMP dates in their forms", () => {
+    expect(xmpDateToIso("2026-11-02T11:31:36.9591864+09:00")).toBe(
+      "2026-11-02T11:31:36.959+09:00",
+    );
+    expect(xmpDateToIso("2026-11-02T11:31:36Z")).toBe(
+      "2026-11-02T11:31:36+00:00",
+    );
+    expect(xmpDateToIso("2026-11-02T11:31")).toBe("2026-11-02T11:31:00+09:00");
+    expect(xmpDateToIso("2026-11-02")).toBeNull();
+    expect(xmpDateToIso("2026-02-30T00:00:00Z")).toBeNull();
+    // An attribute, and the EXIF date in XMP as a fallback.
+    expect(
+      xmpTakenAt(`<d exif:DateTimeOriginal="2020-01-02T03:04:05-05:00"/>`),
+    ).toBe("2020-01-02T03:04:05-05:00");
   });
 });
 

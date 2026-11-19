@@ -34,3 +34,7 @@ UPDATE media SET size = 6000000  WHERE id = 5;
 -- (private) in Osaka; the others have none.
 UPDATE media SET latitude = 35.681236, longitude = 139.767125, location_source = 'exif' WHERE id = 1;
 UPDATE media SET latitude = 34.702485, longitude = 135.495951, location_source = 'manual' WHERE id = 5;
+-- Every fixture photo has been read already (their files are not in the
+-- fake bucket): the admin's metadata reader stays idle unless a test
+-- uploads an unread one. Far in the future so parser updates keep it so.
+UPDATE media SET metadata_read_at = '2100-01-01T00:00:00.000Z';

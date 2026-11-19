@@ -21,7 +21,9 @@ test.describe("selection in the Files view", () => {
     await expect(summary(page)).toContainText("1 件選択");
     await tick(page, "c.png").click({ modifiers: ["Shift"] });
     await expect(summary(page)).toContainText("3 件選択");
-    await expect(page.locator("[role=option][aria-selected=true]")).toHaveCount(3);
+    await expect(page.locator("[role=option][aria-selected=true]")).toHaveCount(
+      3,
+    );
 
     await bar(page).getByRole("button", { name: "移動…" }).click();
     const dialog = page.getByRole("dialog", { name: "3 件を移動" });
@@ -126,7 +128,9 @@ test.describe("selection in the Files view", () => {
     await dialog.getByLabel("カメラ").selectOption("hidden");
     await dialog.getByLabel("ワールド").selectOption("name");
     await dialog.getByRole("button", { name: "適用" }).click();
-    await expect(page.getByText("2 枚の公開する情報を変えました。")).toBeVisible();
+    await expect(
+      page.getByText("2 枚の公開する情報を変えました。"),
+    ).toBeVisible();
     await expect(dialog).toHaveCount(0);
 
     dialog = await open();
@@ -141,13 +145,17 @@ test.describe("selection in the Files view", () => {
     await bar(page).getByRole("button", { name: "公開する情報…" }).click();
     await dialog.getByLabel("カメラ").selectOption("manufacturer");
     await dialog.getByRole("button", { name: "適用" }).click();
-    await expect(page.getByText("1 枚の公開する情報を変えました。")).toBeVisible();
+    await expect(
+      page.getByText("1 枚の公開する情報を変えました。"),
+    ).toBeVisible();
     dialog = await open();
     await expect(dialog.getByLabel("カメラ")).toHaveValue("keep");
     await expect(dialog.getByLabel("ワールド")).toHaveValue("name");
     await dialog.getByLabel("ワールド").selectOption("");
     await dialog.getByRole("button", { name: "適用" }).click();
-    await expect(page.getByText("2 枚の公開する情報を変えました。")).toBeVisible();
+    await expect(
+      page.getByText("2 枚の公開する情報を変えました。"),
+    ).toBeVisible();
     await page.getByRole("button", { name: "元に戻す" }).click();
     await expect(page.getByText("元に戻しました。")).toBeVisible();
 
@@ -188,7 +196,9 @@ test("more photos than one request takes go in chunks, and undo all", async ({
   const dialog = page.getByRole("dialog", { name: /公開する情報/ });
   await dialog.getByLabel("撮影設定").selectOption("hidden");
   await dialog.getByRole("button", { name: "適用" }).click();
-  await expect(page.getByText("105 枚の公開する情報を変えました。")).toBeVisible();
+  await expect(
+    page.getByText("105 枚の公開する情報を変えました。"),
+  ).toBeVisible();
 });
 
 test("the look before making many photos public keeps its button on screen", async ({
@@ -268,7 +278,9 @@ test.describe("keyboard, menu and drag in the Files view", () => {
     await expect(dialog.getByLabel("名前")).toHaveValue("d.png");
     await dialog.getByLabel("名前").fill("renamed.png");
     await dialog.getByRole("button", { name: "変更" }).click();
-    await expect(page.getByText("renamed.png に名前を変えました。")).toBeVisible();
+    await expect(
+      page.getByText("renamed.png に名前を変えました。"),
+    ).toBeVisible();
     await expect(tile(page, "renamed.png")).toHaveCount(1);
     await page.getByRole("button", { name: "元に戻す" }).click();
     await expect(tile(page, "d.png")).toHaveCount(1);
@@ -327,7 +339,9 @@ test.describe("keyboard, menu and drag in the Files view", () => {
     await tick(page, "a.png").click();
     await tick(page, "b.png").click();
     await tile(page, "a.png").dragTo(tile(page, "inner"));
-    await expect(page.getByText("2 件を /mock/drag/inner に移動しました。")).toBeVisible();
+    await expect(
+      page.getByText("2 件を /mock/drag/inner に移動しました。"),
+    ).toBeVisible();
     await expect(tiles(page)).toHaveCount(1);
     await page.getByRole("button", { name: "元に戻す" }).click();
     await expect(tiles(page)).toHaveCount(3);

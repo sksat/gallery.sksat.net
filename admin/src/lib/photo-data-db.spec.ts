@@ -55,11 +55,22 @@ describe("updateMedia: shooting data", () => {
       1,
       patch({ location: { latitude: "", longitude: "" } }),
     );
+    // Cleared by hand is manual too: reading the file never brings it back.
     expect(cleared).toMatchObject({
       latitude: null,
       longitude: null,
-      location_source: null,
+      location_source: "manual",
     });
+  });
+
+  it("marks the world manual only when it changes", async () => {
+    const { db } = setup();
+    const same = await updateMedia(
+      db,
+      1,
+      patch({ world_id: "wrld_a", world_name: "A" }),
+    );
+    expect(same?.metadata_source).toEqual({});
   });
 
   it("drops the file's author when the world changes", async () => {
@@ -91,6 +102,45 @@ describe("updateMedia: shooting data", () => {
       lens: "L",
       orientation: 6,
     });
+  });
+
+  it("marks hand edits manual, and sets them back to the file's value", async () => {
+    const { raw, db } = setup();
+    raw.exec(
+      `UPDATE media SET metadata_source = '{"taken_at":"exif","exif":"file","world":"file"}',
+         metadata_read_at = '2100-01-01T00:00:00.000Z' WHERE id = 1`,
+    );
+    const edited = await updateMedia(
+      db,
+      1,
+      patch({ exif: { make: "Sony" }, world_name: "B" }),
+    );
+    expect(edited?.metadata_source).toEqual({
+      taken_at: "exif",
+      exif: "manual",
+      world: "manual",
+    });
+    const reset = await updateMedia(
+      db,
+      1,
+      patch({ reset_from_file: ["exif", "world", "location"] }),
+    );
+    expect(reset).toMatchObject({
+      exif: {},
+      world_id: null,
+      world_name: null,
+      latitude: null,
+      location_source: null,
+      metadata_source: { taken_at: "exif" },
+    });
+    // Unread again: the reader fills them from the file.
+    expect(
+      raw.prepare("SELECT metadata_read_at FROM media WHERE id = 1").get(),
+    ).toEqual({ metadata_read_at: null });
+    expect(
+      validatePatch({ exif: { make: "x" }, reset_from_file: ["exif"] }).ok,
+    ).toBe(false);
+    expect(validatePatch({ reset_from_file: ["timestamp"] }).ok).toBe(false);
   });
 
   it("refuses bad values before writing", () => {

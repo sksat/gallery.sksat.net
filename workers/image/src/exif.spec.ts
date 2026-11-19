@@ -89,6 +89,26 @@ describe("publicExif → encodeTiff", () => {
     ).toBeNull();
   });
 
+  it("takes Make/Model from the registered camera only, never the file's EXIF", () => {
+    // A film scan: the file's EXIF names the lab's scanner, and the API
+    // returns it at the "all" exif level. It must not pass as the camera.
+    const scan = publicExif({
+      camera: null,
+      exif: {
+        make: "FUJI PHOTO FILM CO., LTD.",
+        model: "SP-2000",
+      } as PublicMeta["exif"],
+    });
+    expect(scan.ifd0.has(TAG.make)).toBe(false);
+    expect(scan.ifd0.has(TAG.model)).toBe(false);
+    const film = publicExif({
+      camera: { slug: "fm2", manufacturer: "Nikon", model: "FM2" },
+      exif: { make: "NORITSU KOKI", model: "QSS-32" } as PublicMeta["exif"],
+    });
+    expect(film.ifd0.get(TAG.make)).toEqual({ type: "ascii", value: "Nikon" });
+    expect(film.ifd0.get(TAG.model)).toEqual({ type: "ascii", value: "FM2" });
+  });
+
   it("follows each level of the projection", async () => {
     // Camera at "manufacturer": Make only, no lens even if exif has one.
     const maker = await readTiff(

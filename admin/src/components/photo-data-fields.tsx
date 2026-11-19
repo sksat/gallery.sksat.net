@@ -1,3 +1,4 @@
+import type { QRL } from "@builder.io/qwik";
 import {
   FIELD_LABELS,
   LEVEL_LABELS,
@@ -150,6 +151,8 @@ const Row = ({
   hasValue,
   children,
   edit,
+  manual,
+  onReset$,
 }: {
   f: Field;
   row: MediaRow;
@@ -157,6 +160,9 @@ const Row = ({
   hasValue: boolean;
   children: unknown;
   edit: unknown;
+  /** Entered by hand: a reading of the file never replaces it. */
+  manual: boolean;
+  onReset$?: QRL<(field: Field) => void>;
 }) => (
   <div class="py-3 first:pt-0 last:pb-0" data-testid={`photo-data-${f}`}>
     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -169,6 +175,23 @@ const Row = ({
       />
     </div>
     <div class="mt-1 text-sm">{children as never}</div>
+    {manual && (
+      <p
+        class={["mt-1 flex flex-wrap items-center gap-x-2 text-xs", muted]}
+        data-testid={`manual-${f}`}
+      >
+        手入力
+        {onReset$ && (
+          <button
+            type="button"
+            class={[link, "inline-flex min-h-11 items-center sm:min-h-0"]}
+            onClick$={() => onReset$(f)}
+          >
+            ファイルの値に戻す
+          </button>
+        )}
+      </p>
+    )}
     {edit as never}
   </div>
 );
@@ -178,9 +201,12 @@ const None = () => <span class={muted}>なし</span>;
 export const PhotoDataFields = ({
   row,
   defaults,
+  onReset$,
 }: {
   row: MediaRow;
   defaults: MetadataLevels;
+  /** Set a field back to what the file says (reset_from_file). */
+  onReset$?: QRL<(field: Field) => void>;
 }) => {
   const gear = formatGear(row.exif);
   const exposure = formatExposureLine(row.exif);
@@ -198,6 +224,8 @@ export const PhotoDataFields = ({
         f="exif"
         row={row}
         defaults={defaults}
+        manual={row.metadata_source.exif === "manual"}
+        onReset$={onReset$}
         hasValue={Object.keys(row.exif).length > 0}
         edit={
           <Edit testId="edit-exif">
@@ -238,6 +266,8 @@ export const PhotoDataFields = ({
         f="world"
         row={row}
         defaults={defaults}
+        manual={row.metadata_source.world === "manual"}
+        onReset$={onReset$}
         hasValue={row.world_id !== null || row.world_name !== null}
         edit={
           <Edit testId="edit-world">
@@ -272,6 +302,8 @@ export const PhotoDataFields = ({
         f="location"
         row={row}
         defaults={defaults}
+        manual={row.location_source === "manual"}
+        onReset$={onReset$}
         hasValue={hasLocation}
         edit={
           <Edit testId="edit-location">
@@ -303,9 +335,11 @@ export const PhotoDataFields = ({
             >
               {`${row.latitude}, ${row.longitude}`}
             </a>
-            <span class={["text-xs", muted]} data-testid="location-source">
-              {row.location_source === "manual" ? "手入力" : "EXIF"}
-            </span>
+            {row.location_source !== "manual" && (
+              <span class={["text-xs", muted]} data-testid="location-source">
+                EXIF
+              </span>
+            )}
           </span>
         ) : (
           <None />

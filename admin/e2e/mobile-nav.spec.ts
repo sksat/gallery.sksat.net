@@ -107,25 +107,34 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
   const caption = page.getByRole("textbox", { name: "Caption of image 2" });
   await caption.fill("Bee");
   await Promise.all([
-    page.waitForResponse((r) => r.request().method() === "POST"),
+    page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" && !r.url().includes("/api/metadata/"),
+    ),
     caption.blur(),
   ]);
   await expect(page.getByRole("status")).toHaveText("Caption saved.");
   // Enter saves too, once.
   let posts = 0;
   page.on("request", (r) => {
-    if (r.method() === "POST") posts++;
+    if (r.method() === "POST" && !r.url().includes("/api/metadata/")) posts++;
   });
   await caption.fill("Bee 2");
   await Promise.all([
-    page.waitForResponse((r) => r.request().method() === "POST"),
+    page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" && !r.url().includes("/api/metadata/"),
+    ),
     caption.press("Enter"),
   ]);
   await page.waitForTimeout(500);
   expect(posts).toBe(1);
   await caption.fill("Bee");
   await Promise.all([
-    page.waitForResponse((r) => r.request().method() === "POST"),
+    page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" && !r.url().includes("/api/metadata/"),
+    ),
     caption.blur(),
   ]);
 

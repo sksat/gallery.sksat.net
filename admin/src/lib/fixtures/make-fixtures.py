@@ -37,3 +37,47 @@ for name, z in (("vrchat-xmp.png", False), ("vrchat-xmp-z.png", True)):
     info = PngImagePlugin.PngInfo()
     info.add_itxt("XML:com.adobe.xmp", xmp, zip=z)
     Image.new("RGB", (8, 8), (10, 20, 30)).save(f"{out}/{name}", "PNG", pnginfo=info)
+
+# What VRChat (2025.3.1 and later) writes: the dates with the real offset
+# and 7 fractional digits, the photographer's display name and ids. The
+# values are made up.
+xmp2026 = (
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+    '<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"'
+    ' xmlns:tiff="http://ns.adobe.com/tiff/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/"'
+    ' xmlns:vrc="http://ns.vrchat.com/vrc/1.0/">'
+    "<xmp:CreatorTool>VRChat</xmp:CreatorTool>"
+    "<xmp:Author>Someone</xmp:Author>"
+    "<xmp:CreateDate>2026-11-02T11:31:36.9591864+09:00</xmp:CreateDate>"
+    "<xmp:ModifyDate>2026-11-02T11:31:36.9591864+09:00</xmp:ModifyDate>"
+    "<tiff:DateTime>2026-11-02T11:31:36.9591864+09:00</tiff:DateTime>"
+    "<vrc:WorldID>wrld_00000000-aaaa-bbbb-cccc-000000000001</vrc:WorldID>"
+    "<vrc:WorldDisplayName>桜の川 （Sakura）</vrc:WorldDisplayName>"
+    "<vrc:AuthorID>usr_00000000-1111-2222-3333-555555555555</vrc:AuthorID>"
+    "</rdf:Description></rdf:RDF></x:xmpmeta>"
+)
+info = PngImagePlugin.PngInfo()
+info.add_itxt("XML:com.adobe.xmp", xmp2026, zip=False)
+Image.new("RGB", (8, 8), (40, 20, 30)).save(f"{out}/vrchat-2026.png", "PNG", pnginfo=info)
+
+# A film scan from a lab's Fuji Frontier: its EXIF names the scanner, and
+# DateTimeOriginal is when the film was scanned.
+scan = Image.Exif()
+scan[0x010F] = "FUJI PHOTO FILM CO., LTD."
+scan[0x0110] = "SP-2000"
+scan[0x0132] = "2023:12:12 10:00:00"
+scan.get_ifd(0x8769)[0x9003] = "2023:12:12 10:00:00"
+Image.new("RGB", (8, 8), (90, 90, 60)).save(
+    f"{out}/film-scan.jpg", "JPEG", exif=scan, quality=50
+)
+
+# A scanner with a generic name and a clock that was never set (seen on
+# real files: make "GCMC", model "Scanner", every scan on 2021-01-01).
+gcmc = Image.Exif()
+gcmc[0x010F] = "GCMC"
+gcmc[0x0110] = "Scanner"
+gcmc[0x0132] = "2021:01:01 00:31:12"
+gcmc.get_ifd(0x8769)[0x9003] = "2021:01:01 00:31:12"
+Image.new("RGB", (8, 8), (60, 70, 90)).save(
+    f"{out}/gcmc-scan.jpg", "JPEG", exif=gcmc, quality=50
+)

@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { PUBLIC_ID_RE } from "./public-id";
 import { CAMERA_SLUG_RE } from "./validate";
+import { isFilmScanner } from "./photo-meta";
 
 const migration = (name: string) =>
   readFileSync(resolve(__dirname, "../../migrations", name), "utf8");
@@ -563,6 +564,142 @@ describe("0005_path_trash.sql", () => {
   it("drops legacy_index", () => {
     const db = migrate5([["/a.png", "Real", null, null]]);
     expect(() => db.prepare("SELECT legacy_index FROM media").all()).toThrow();
+  });
+
+  it("0008 marks what was filled in so far as the weakest automatic source", () => {
+    const db = migrate5([]);
+    db.exec(`INSERT INTO media (file, platform, timestamp, exif, world_name, latitude, longitude, location_source)
+      VALUES ('/a.png', 'VRChat', '2026-01-01T00:00:00+09:00', '{"make":"x"}', 'W', 1, 2, 'manual'),
+             ('/b.png', 'Real', NULL, NULL, NULL, NULL, NULL, NULL),
+             ('/c.png', 'Real', '2026-01-01T00:00:00+09:00', NULL, NULL, NULL, NULL, NULL),
+             ('/d.png', 'VRChat', NULL, '{"make":"y"}', 'V', NULL, NULL, NULL),
+             ('/e.png', 'Real', NULL, '{"lens":"hand"}', NULL, NULL, NULL, NULL)`);
+    db.exec(`UPDATE media SET metadata_read_at = '2026-11-01T00:00:00.000Z',
+               updated_at = '2026-01-01T00:00:00.000Z';
+             UPDATE media SET updated_at = '2026-11-02T00:00:00.000Z'
+               WHERE file = '/d.png';
+             UPDATE media SET metadata_read_at = NULL WHERE file = '/e.png'`);
+    db.exec(migration("0008_metadata_source.sql"));
+    const rows = db
+      .prepare(
+        "SELECT file, metadata_source, location_source FROM media ORDER BY file",
+      )
+      .all() as { file: string; metadata_source: string | null }[];
+    expect(
+      rows.map((r) => [
+        r.file,
+        r.metadata_source && JSON.parse(r.metadata_source),
+      ]),
+    ).toEqual([
+      ["/a.png", { taken_at: "filename", exif: "file", world: "file" }],
+      ["/b.png", null],
+      ["/c.png", { taken_at: "filename" }],
+      // Edited (visibility, tags, a move) after its file was read: still
+      // automatic, updated_at says nothing about these fields.
+      ["/d.png", { exif: "file", world: "file" }],
+      // Never read: automatic too (nothing was entered by hand so far).
+      ["/e.png", { exif: "file" }],
+    ]);
+    // Location keeps its own column.
+    expect(rows[0]).toMatchObject({ location_source: "manual" });
+    expect(() =>
+      db.exec("UPDATE media SET metadata_source = '[1]' WHERE file = '/b.png'"),
+    ).toThrow(/CHECK/);
+  });
+
+  it("0008 keeps the taken-at set by hand on a scanner's files", () => {
+    const db = migrate5([]);
+    const scan = JSON.stringify({
+      make: "GCMC",
+      model: "Scanner",
+      taken_at_original: "2021-01-01T00:31:12",
+    });
+    db.exec(`INSERT INTO media (file, platform, timestamp, exif, metadata_visibility) VALUES
+      ('/2024/a.jpg', 'Real', '2024-02-01T00:00:00+09:00', '${scan}', '{"taken_at":"month"}'),
+      ('/2024/b.jpg', 'Real', '2024-03-08T00:00:00+09:00', '${scan}', '{"taken_at":"date"}'),
+      -- Set from the folder, but no coarser level: the scanner tells.
+      ('/2024/c.jpg', 'Real', '2024-03-09T00:00:00+09:00', '${scan}', NULL),
+      -- Still the scan's own date: automatic (and never read again as one).
+      ('/2024/d.jpg', 'Real', '2021-01-01T00:31:12+09:00', '${scan}', NULL),
+      -- No DateTimeOriginal: the old parser took the scan's DateTime.
+      ('/2024/g.jpg', 'Real', '2021-01-01T00:31:12+09:00',
+        '{"make":"GCMC","model":"Scanner"}', NULL),
+      -- A camera's date: automatic.
+      ('/e.jpg', 'Real', '2023-12-11T01:21:32+09:00',
+        '{"make":"FUJIFILM","model":"X-T5","taken_at_original":"2023-12-11T01:21:32+09:00"}', NULL),
+      ('/f.jpg', 'Real', NULL, '${scan}', '{"taken_at":"month"}')`);
+    db.exec(migration("0008_metadata_source.sql"));
+    const src = (file: string) =>
+      JSON.parse(
+        (
+          db
+            .prepare("SELECT metadata_source FROM media WHERE file = ?")
+            .get(file) as { metadata_source: string }
+        ).metadata_source,
+      );
+    expect(src("/2024/a.jpg")).toEqual({ taken_at: "manual", exif: "file" });
+    expect(src("/2024/b.jpg")).toEqual({ taken_at: "manual", exif: "file" });
+    expect(src("/2024/c.jpg")).toEqual({ taken_at: "manual", exif: "file" });
+    expect(src("/2024/d.jpg")).toEqual({ taken_at: "filename", exif: "file" });
+    expect(src("/2024/g.jpg")).toEqual({ taken_at: "filename", exif: "file" });
+    expect(src("/e.jpg")).toEqual({ taken_at: "filename", exif: "file" });
+    expect(src("/f.jpg")).toEqual({ exif: "file" });
+  });
+
+  it("0008 knows the same scanners as isFilmScanner", () => {
+    const pairs: [string, string][] = [
+      ["GCMC", "Scanner"],
+      ["FUJI PHOTO FILM CO., LTD.", "SP-2000"],
+      ["FUJIFILM", "SP3000"],
+      ["FUJIFILM", "Frontier LP5000"],
+      ["NORITSU KOKI", "QSS-32"],
+      ["Eastman Kodak Company", "Pakon F-135"],
+      ["Hasselblad", "Flextight X5"],
+      ["Nikon", "LS-5000"],
+      ["Nikon", "Nikon SUPER COOLSCAN 5000 ED"],
+      ["EPSON", "Perfection V600"],
+      ["Plustek", "OpticFilm 8200i"],
+      ["Pacific Image", "PrimeFilm XAs"],
+      ["Konica", "HS-1800"],
+      ["NORITSU", "EZController"],
+      ["Canon", "CanoScan 9000F Scanner"],
+      ["Generic Scanner Co", "X"],
+      // Odd case: LIKE and GLOB must match as the /i regexes do.
+      ["fujifilm", "sp-3000"],
+      ["nikon", "ls-50"],
+      ["gcmc", "SCANNER"],
+      ["FUJIFILM", "X-T5"],
+      ["NIKON CORPORATION", "NIKON Z 6"],
+      ["SONY", "ILCE-7M4"],
+      ["Apple", "iPhone 15 Pro"],
+      ["Canon", "Canon EOS R5"],
+      ["Panasonic", "DC-S5M2"],
+      ["FUJIFILM", "GFX100S"],
+    ];
+    const db = migrate5([]);
+    pairs.forEach(([make, model], i) =>
+      db
+        .prepare(
+          "INSERT INTO media (file, platform, timestamp, exif) VALUES (?, 'Real', '2024-01-01T00:00:00+09:00', ?)",
+        )
+        .run(
+          `/${i}.jpg`,
+          JSON.stringify({
+            make,
+            model,
+            taken_at_original: "2021-01-01T00:00:00",
+          }),
+        ),
+    );
+    db.exec(migration("0008_metadata_source.sql"));
+    pairs.forEach(([make, model], i) => {
+      const { metadata_source } = db
+        .prepare("SELECT metadata_source FROM media WHERE file = ?")
+        .get(`/${i}.jpg`) as { metadata_source: string };
+      const manual = JSON.parse(metadata_source).taken_at === "manual";
+      expect(manual, `${make} ${model}`).toBe(isFilmScanner(make, model));
+    });
+    expect(pairs.filter(([a, b]) => isFilmScanner(a, b)).length).toBe(19);
   });
 
   it("rejects malformed paths", () => {

@@ -40,7 +40,10 @@ const PATCH_FIELDS = new Set([
   "location",
   "world_id",
   "world_name",
+  "reset_from_file",
 ]);
+
+const RESETTABLE = ["exif", "world", "location"] as const;
 
 export const validatePatch = (input: unknown): ValidatePatchResult => {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -134,6 +137,29 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     const v = validateWorldEdit({ id: obj.world_id, name: obj.world_name });
     if (!v.ok) return v;
     patch.world = v.value;
+  }
+
+  if ("reset_from_file" in obj) {
+    const v = obj.reset_from_file;
+    if (
+      !Array.isArray(v) ||
+      !v.every((f) => (RESETTABLE as readonly unknown[]).includes(f))
+    ) {
+      return {
+        ok: false,
+        error: `reset_from_file must list some of ${RESETTABLE.join(", ")}`,
+      };
+    }
+    const fields = [...new Set(v as (typeof RESETTABLE)[number][])];
+    // Editing a field and setting it back in one go says two things.
+    if (
+      (fields.includes("exif") && patch.exif) ||
+      (fields.includes("world") && patch.world) ||
+      (fields.includes("location") && patch.location !== undefined)
+    ) {
+      return { ok: false, error: "a field cannot be edited and reset at once" };
+    }
+    if (fields.length > 0) patch.reset_from_file = fields;
   }
 
   return { ok: true, patch };

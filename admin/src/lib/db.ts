@@ -1,5 +1,6 @@
 import { TAKEN_ON_SQL, takenOnArgs } from "./calendar";
 import { parseOverrides } from "./metadata";
+import { parseSources } from "./metadata-source";
 import { mergeExif, parseExifColumn } from "./photo-data";
 import {
   CAMERA_KINDS,
@@ -36,6 +37,7 @@ type RawRow = {
   world_name?: string | null;
   world_author_id?: string | null;
   trashed_at?: string | null;
+  metadata_source?: string | null;
   updated_at: string;
 };
 
@@ -99,6 +101,7 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     world_name: raw.world_name ?? null,
     world_author_id: raw.world_author_id ?? null,
     trashed_at: raw.trashed_at ?? null,
+    metadata_source: parseSources(raw.metadata_source),
     updated_at: raw.updated_at,
   };
 };
@@ -206,6 +209,8 @@ export const updateMedia = async (
   patch: MediaPatch,
 ): Promise<MediaRow | null> => {
   const sets: string[] = [];
+  /** Fields edited by hand here (metadata_source → 'manual'). */
+  const manual: ("exif" | "world")[] = [];
   const args: unknown[] = [];
   if (patch.platform !== undefined) {
     sets.push("platform = ?");
@@ -231,32 +236,42 @@ export const updateMedia = async (
         : null,
     );
   }
+  // The stored shooting data, when the patch edits it.
+  const current =
+    patch.exif !== undefined || patch.world !== undefined
+      ? await db
+          .prepare("SELECT exif, world_id, world_name FROM media WHERE id = ?")
+          .bind(id)
+          .first<{
+            exif: string | null;
+            world_id: string | null;
+            world_name: string | null;
+          }>()
+      : null;
   if (patch.exif !== undefined) {
     // The keys the page does not edit (orientation, the original's time)
     // stay as read from the file.
-    const current = await db
-      .prepare("SELECT exif FROM media WHERE id = ?")
-      .bind(id)
-      .first<{ exif: string | null }>();
     if (!current) return null;
     const merged = mergeExif(current.exif, patch.exif);
     if (merged !== current.exif) {
       sets.push("exif = ?");
       args.push(merged);
+      manual.push("exif");
     }
   }
   if (patch.location !== undefined) {
     const lat = patch.location?.latitude ?? null;
     const lon = patch.location?.longitude ?? null;
-    // Unchanged: as it was (from EXIF stays EXIF). Changed by hand: manual.
+    // Unchanged: as it was (from EXIF stays EXIF). Changed by hand, cleared
+    // included: manual, so reading the file again never brings it back.
     const same = "latitude IS ? AND longitude IS ?";
     sets.push(
       `location_source = CASE WHEN ${same} THEN location_source
-         WHEN ? IS NULL THEN NULL ELSE 'manual' END`,
+         ELSE 'manual' END`,
       `latitude = CASE WHEN ${same} THEN latitude ELSE ? END`,
       `longitude = CASE WHEN ${same} THEN longitude ELSE ? END`,
     );
-    args.push(lat, lon, lat, lat, lon, lat, lat, lon, lon);
+    args.push(lat, lon, lat, lon, lat, lat, lon, lon);
   }
   if (patch.world !== undefined) {
     if (patch.world.id !== undefined) {
@@ -271,6 +286,45 @@ export const updateMedia = async (
       sets.push("world_name = ?");
       args.push(patch.world.name);
     }
+    // Manual only when it really changes (a PATCH may echo the values).
+    if (
+      current &&
+      ((patch.world.id !== undefined && patch.world.id !== current.world_id) ||
+        (patch.world.name !== undefined &&
+          patch.world.name !== current.world_name))
+    ) {
+      manual.push("world");
+    }
+  }
+  // Back to what the file says: the field emptied and its source dropped,
+  // and the photo marked unread, so the reader fills it from the file.
+  const reset = new Set(patch.reset_from_file ?? []);
+  if (reset.has("exif")) sets.push("exif = NULL");
+  if (reset.has("world")) {
+    sets.push("world_id = NULL", "world_name = NULL", "world_author_id = NULL");
+  }
+  if (reset.has("location")) {
+    sets.push("latitude = NULL", "longitude = NULL", "location_source = NULL");
+  }
+  // A field entered by hand is never replaced by a reading of the file
+  // (metadata-source.ts); a reset one is open to it again.
+  const sourceKeys = [
+    ...manual.filter((f) => !reset.has(f)).map((f) => [f, "manual"] as const),
+  ];
+  const removed = [...reset].filter((f) => f !== "location");
+  if (sourceKeys.length > 0 || removed.length > 0) {
+    let expr = "COALESCE(metadata_source, '{}')";
+    for (const f of removed) expr = `json_remove(${expr}, '$.${f}')`;
+    for (const [f, v] of sourceKeys)
+      expr = `json_set(${expr}, '$.${f}', '${v}')`;
+    sets.push(`metadata_source = NULLIF(${expr}, '{}')`);
+  }
+  // Waiting to be read again: as never read when the location is reset
+  // (an empty one is filled only then), else as read long ago, so a
+  // location cleared by hand before 0008 stays cleared.
+  if (reset.has("location")) sets.push("metadata_read_at = NULL");
+  else if (reset.size > 0) {
+    sets.push("metadata_read_at = '2000-01-01T00:00:00.000Z'");
   }
   // No-op patch: skip the UPDATE entirely (don't bump updated_at) and just
   // return the current row. Costs a second round-trip but keeps the

@@ -450,11 +450,22 @@ test("the file's EXIF and VRChat world fill the shooting data, editable", async 
   await expect(page.getByText(/^Saved at /)).toBeVisible();
   await page.reload();
   await expect(data.getByTestId("location-link")).toHaveText("35.7, 139.7447");
-  await expect(data.getByTestId("location-source")).toHaveText("手入力");
+  await expect(data.getByTestId("manual-location")).toContainText("手入力");
   await expect(data.getByTestId("public-location")).toHaveAttribute(
     "data-public",
     "true",
   );
+  // Back to the file's position: the reader reads it again on its own.
+  await data.getByRole("button", { name: "ファイルの値に戻す" }).click();
+  await expect(page.getByText(/ファイルの値に戻します/)).toBeVisible();
+  await expect(async () => {
+    await page.reload();
+    await expect(data.getByTestId("location-link")).toHaveText(
+      "35.6587083, 139.7447",
+      { timeout: 1000 },
+    );
+  }).toPass({ timeout: 20_000 });
+  await expect(data.getByTestId("manual-location")).toHaveCount(0);
 
   await page.goto("/media/?view=files&dir=/mock/up-meta");
   await page
@@ -475,6 +486,58 @@ test("the file's EXIF and VRChat world fill the shooting data, editable", async 
   await expect(page.getByTestId("world-link")).toHaveText(
     "The Black Cat & Friends",
   );
+});
+
+test("photos uploaded unread are read in the background, quietly", async ({
+  page,
+}) => {
+  await newFolder(page, "/mock", "up-unread");
+  // An old tab: the upload carries no metadata, so the photos stay unread.
+  await page.route("**/api/upload", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    delete body.meta;
+    delete body.timestamp;
+    delete body.timestampSource;
+    await route.continue({ postData: JSON.stringify(body) });
+  });
+  const VR = "VRChat_2026-11-02_11-31-36.000_8x8.png";
+  await page
+    .getByTestId("upload-input")
+    .setInputFiles([
+      { ...fixture("vrchat-2026.png", "image/png"), name: VR },
+      fixture("film-scan.jpg", "image/jpeg"),
+    ]);
+  await expect(page.getByTestId("file-tile")).toHaveCount(2);
+  await page.unroute("**/api/upload");
+
+  // Any admin page reads them once the browser is idle.
+  await page.goto("/");
+  await expect(async () => {
+    await page.goto("/media/?view=files&dir=/mock/up-unread");
+    await page.getByTestId("file-tile").filter({ hasText: VR }).click();
+    await expect(page.getByTestId("world-link")).toHaveText(
+      "桜の川 （Sakura）",
+      { timeout: 1000 },
+    );
+  }).toPass({ timeout: 30_000 });
+  // The XMP CreateDate, to the millisecond, over the file name.
+  await expect(page.locator("main")).toContainText("2026/11/02 11:31");
+
+  // The film scan: its EXIF is kept, but the scan date is no taken-at.
+  await page.goto("/media/?view=files&dir=/mock/up-unread");
+  await page
+    .getByTestId("file-tile")
+    .filter({ hasText: "film-scan.jpg" })
+    .click();
+  await expect(page.getByTestId("exif-gear")).toHaveText(
+    "FUJI PHOTO FILM CO., LTD. SP-2000",
+  );
+  await expect(page.locator("main")).not.toContainText("2023/12/12");
+
+  // Nothing left to read: no indicator at all.
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("metadata-reader")).toBeEmpty();
 });
 
 test("upload a folder: its subfolders are created under the open one", async ({

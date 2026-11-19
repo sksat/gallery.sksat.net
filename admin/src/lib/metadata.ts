@@ -99,7 +99,7 @@ export const LEVEL_LABELS: {
 /** Every field, in the order the controls list them. */
 export const METADATA_FIELDS: readonly MetadataField[] = EDITABLE_FIELDS;
 
-export const isLevel =<F extends MetadataField>(
+export const isLevel = <F extends MetadataField>(
   field: F,
   v: unknown,
 ): v is MetadataLevels[F] =>

@@ -24,9 +24,11 @@ const names = (ps: { path: string }[]) => ps.map((p) => p.path.slice(3));
 
 describe("parsePrefs", () => {
   it("reads what was stored and defaults the rest", () => {
-    expect(parsePrefs('{"sort":"size","dir":"desc","layout":"list"}')).toEqual(
-      { sort: "size", dir: "desc", layout: "list" },
-    );
+    expect(parsePrefs('{"sort":"size","dir":"desc","layout":"list"}')).toEqual({
+      sort: "size",
+      dir: "desc",
+      layout: "list",
+    });
     expect(parsePrefs('{"sort":"colour"}')).toEqual(DEFAULT_PREFS);
     expect(parsePrefs("nope")).toEqual(DEFAULT_PREFS);
     expect(parsePrefs(null)).toEqual(DEFAULT_PREFS);

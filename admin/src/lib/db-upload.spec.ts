@@ -23,6 +23,7 @@ describe("sizeMismatch", () => {
   });
 });
 import { listMedia } from "./db";
+import { PHOTO_META_PARSER_DATE } from "./photo-meta";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 const SHA_A = "a".repeat(64);
@@ -96,6 +97,8 @@ describe("initUpload", () => {
           location: { latitude: 35.6587, longitude: 139.7447 },
           world: { id: "wrld_x", name: "W", authorId: "usr_y" },
         },
+        timestampSource: "exif",
+        parserDate: PHOTO_META_PARSER_DATE,
       }),
       row,
     );
@@ -105,6 +108,7 @@ describe("initUpload", () => {
         file: "/up/b.png",
         sha256: SHA_B,
         meta: { exif: null, location: null, world: null },
+        parserDate: PHOTO_META_PARSER_DATE,
       }),
       id(1),
     );
@@ -114,6 +118,25 @@ describe("initUpload", () => {
       init({ file: "/up/c.png", sha256: "c".repeat(64) }),
       id(2),
     );
+    // Read, but by an older parser: the reader reads it again.
+    await initUpload(
+      db,
+      init({
+        file: "/up/d.png",
+        sha256: "d".repeat(64),
+        meta: { exif: null, location: null, world: null },
+        parserDate: "2000-01-01T00:00:00.000Z",
+      }),
+      id(3),
+    );
+    expect(
+      raw.prepare("SELECT metadata_source FROM media WHERE id = 2").get(),
+    ).toEqual({
+      metadata_source: '{"taken_at":"exif","exif":"file","world":"file"}',
+    });
+    expect(
+      raw.prepare("SELECT metadata_read_at FROM media WHERE id = 5").get(),
+    ).toEqual({ metadata_read_at: null });
     const cols =
       "exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at IS NOT NULL AS read";
     expect(raw.prepare(`SELECT ${cols} FROM media WHERE id = 2`).get()).toEqual(
