@@ -126,22 +126,36 @@ export const setResizeMaker = async (
 };
 
 /**
+ * A video's newest ready poster made from `shown` (admin migration 0017),
+ * else NULL. Only looked up for a video, so a photo's lookup reads nothing
+ * more. Shared with the admin's thumbnails (src/lib/media-file.ts).
+ */
+export const POSTER_OF_SHOWN = `CASE WHEN m.kind = 'video' THEN
+    (SELECT pc.id FROM media_file pc
+     WHERE pc.source_file_id = shown.id AND pc.role = 'poster'
+       AND pc.status = 'ready' AND pc.media_id = m.id
+     ORDER BY pc.id DESC LIMIT 1) END`;
+
+/**
  * The file an image of the photo `m` is resized from: the file it shows
  * (active_file_id, NULL = the original), or that file's newest ready
  * display copy (admin src/lib/media-file.ts IMAGE_SOURCE_JOINS, the API
- * Worker's SOURCE_JOINS).
+ * Worker's SOURCE_JOINS). A video's is its poster: its own file is never
+ * resized, so one without a poster has no row.
  */
 const SOURCE_JOINS = `
   JOIN media_file shown ON shown.id = COALESCE(m.active_file_id,
     (SELECT o.id FROM media_file o
      WHERE o.media_id = m.id AND o.role = 'original'))
     AND shown.media_id = m.id
-  JOIN media_file src ON src.id = COALESCE(
-    (SELECT dc.id FROM media_file dc
-     WHERE dc.source_file_id = shown.id AND dc.role = 'display'
-       AND dc.status = 'ready' AND dc.media_id = m.id
-     ORDER BY dc.id DESC LIMIT 1),
-    shown.id)`;
+  JOIN media_file src ON src.id = CASE WHEN m.kind = 'video'
+    THEN ${POSTER_OF_SHOWN}
+    ELSE COALESCE(
+      (SELECT dc.id FROM media_file dc
+       WHERE dc.source_file_id = shown.id AND dc.role = 'display'
+         AND dc.status = 'ready' AND dc.media_id = m.id
+       ORDER BY dc.id DESC LIMIT 1),
+      shown.id) END`;
 
 /** The photos `?1` (JSON ids) with their file to resize and state. */
 export const PHOTO_SOURCE_SQL = `SELECT m.id, m.public_id, m.visibility,
@@ -235,10 +249,37 @@ export const claimCopies = async (
     ).map((r) => [r.id, r]),
   );
   const rows: SourceRow[] = [];
+  const missing = claimed.filter(({ id }) => !byId.has(id)).map((r) => r.id);
+  // A video without a poster has nothing to make (made, until a poster
+  // puts it back to waiting, migration 0017's triggers); anything else
+  // without a file is tried again later.
+  const posterless =
+    missing.length === 0
+      ? new Set<number>()
+      : new Set(
+          (
+            (
+              await db
+                .prepare(
+                  "SELECT id FROM media WHERE id IN (SELECT value FROM json_each(?1)) AND kind = 'video'",
+                )
+                .bind(JSON.stringify(missing))
+                .all<{ id: number }>()
+            ).results ?? []
+          ).map((r) => r.id),
+        );
   for (const { id } of claimed) {
     const r = byId.get(id);
     if (r) rows.push(r);
-    else await finishCopies(db, id, claim, "failed", nowMs);
+    else {
+      await finishCopies(
+        db,
+        id,
+        claim,
+        posterless.has(id) ? "made" : "failed",
+        nowMs,
+      );
+    }
   }
   return { claim, rows, more: claimed.length === limit };
 };

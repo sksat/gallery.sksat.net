@@ -259,6 +259,8 @@ export type TrashedPhoto = {
   platform: MediaPlatform;
   size: number | null;
   trashed_at: string;
+  kind: "image" | "video";
+  duration_ms: number | null;
 };
 
 /** The trash, most recently trashed first, and its total size. */
@@ -267,7 +269,7 @@ export const listTrash = async (
 ): Promise<{ rows: TrashedPhoto[]; bytes: number }> => {
   const res = await db
     .prepare(
-      `SELECT id, file, path, platform, size, trashed_at FROM media
+      `SELECT id, file, path, platform, size, trashed_at, kind, duration_ms FROM media
        WHERE trashed_at IS NOT NULL ORDER BY trashed_at DESC, id DESC`,
     )
     .all<TrashedPhoto>();

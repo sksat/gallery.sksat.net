@@ -14,7 +14,7 @@ import {
   type FileHints,
   type StoredMeta,
 } from "./photo-meta";
-import { MAX_IMAGE_FILE_LEN, validateImageFile } from "./validate";
+import { MAX_IMAGE_FILE_LEN, validateMediaFile } from "./validate";
 
 // What the image Worker can resize: Cloudflare Image Transformations
 // refuses larger sources
@@ -42,6 +42,15 @@ export const MAX_IMAGE_PIXELS = 100_000_000;
  * original goes up in a single presigned PUT).
  */
 export const MAX_ORIGINAL_BYTES = 5_000_000_000;
+
+/**
+ * Largest video, in bytes: the same 5 GB (a video's original goes up in
+ * parts, multipart.ts: at most 100 of up to 64 MiB). Videos are never
+ * resized, so Cloudflare's image limits do not apply to them.
+ */
+export const MAX_VIDEO_BYTES = MAX_ORIGINAL_BYTES;
+
+export type MediaKind = "image" | "video";
 
 /** 13000 → "13,000" (by hand: no dependence on the runtime's ICU). */
 export const groupDigits = (n: number): string =>
@@ -196,9 +205,27 @@ const TYPES: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
+  // Videos: kept as they are in B2, played from a copy (video-client.ts).
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
 };
 
-export const UPLOAD_ACCEPT = "image/png,image/jpeg";
+export const UPLOAD_ACCEPT =
+  "image/png,image/jpeg,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm";
+
+/** Why a file of another type is not uploaded. */
+export const NOT_ACCEPTED = "PNG / JPEG / MP4 / MOV / WebM ではありません";
+
+/** Whether a content type (from uploadContentType) is a video's. */
+export const isVideoType = (contentType: string): boolean =>
+  contentType.startsWith("video/");
+
+/** The kind of upload a file name is, or null when it is neither. */
+export const uploadKindOf = (name: string): MediaKind | null => {
+  const type = TYPES[extOf(name)];
+  return type ? (isVideoType(type) ? "video" : "image") : null;
+};
 
 /** Lowercase extension of `name` ("A.JPG" → "jpg"), or "". */
 const extOf = (name: string): string => {
@@ -280,7 +307,7 @@ export const uploadTarget = (
   const file = `${targetDir === "/" ? "" : targetDir}/${fileName}`;
   // The camera page's validator speaks English; say it for the panel.
   if (!TYPES[extOf(fileName)]) {
-    return { ok: false, error: "PNG / JPEG ではありません" };
+    return { ok: false, error: NOT_ACCEPTED };
   }
   if (file.length > MAX_IMAGE_FILE_LEN) {
     return {
@@ -288,7 +315,7 @@ export const uploadTarget = (
       error: `パスが長すぎます（${MAX_IMAGE_FILE_LEN} 文字まで）`,
     };
   }
-  if (!validateImageFile(file).ok) {
+  if (!validateMediaFile(file).ok) {
     return { ok: false, error: `使えないファイル名です: ${name}` };
   }
   return { ok: true, file, dir: targetDir };
@@ -325,6 +352,62 @@ export type UploadInit = {
    * beside the original.
    */
   display?: DisplayInit;
+  /** From contentType: a video's original is kept, a copy is played. */
+  kind?: MediaKind;
+  /** A video's own description (kind "video" only). */
+  video?: VideoInit;
+};
+
+/** What the browser read from a video (video-meta.ts, <video>). */
+export type VideoInit = {
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  codec: string | null;
+  /** Whether the browser made a poster (a JPEG frame). */
+  poster: boolean;
+  /** The poster's SHA-256 (hex), signed into its PUT; null without one. */
+  posterSha256: string | null;
+};
+
+const CODEC_RE = /^[A-Za-z0-9.]{1,64}$/;
+
+/** The `video` part of an init request (lenient for what is optional). */
+export const validateVideoInit = (
+  input: unknown,
+  width: number | null,
+  height: number | null,
+): { ok: true; video: VideoInit } | { ok: false; error: string } => {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, error: "動画の情報がありません" };
+  }
+  const o = input as Record<string, unknown>;
+  const duration =
+    typeof o.durationMs === "number" &&
+    Number.isFinite(o.durationMs) &&
+    o.durationMs >= 0
+      ? Math.round(o.durationMs)
+      : null;
+  // The poster's hash is signed into its PUT, like an original's.
+  let posterSha256: string | null = null;
+  if (o.posterSha256 != null) {
+    if (typeof o.posterSha256 !== "string" || !SHA256_RE.test(o.posterSha256)) {
+      return { ok: false, error: "ポスターのハッシュの形式が正しくありません" };
+    }
+    posterSha256 = o.posterSha256;
+  }
+  return {
+    ok: true,
+    video: {
+      width,
+      height,
+      durationMs: duration,
+      codec:
+        typeof o.codec === "string" && CODEC_RE.test(o.codec) ? o.codec : null,
+      poster: posterSha256 !== null,
+      posterSha256,
+    },
+  };
 };
 
 /** A display copy as the init announces it. */
@@ -352,7 +435,7 @@ export const validateUploadInit = (
     return { ok: false, error: "リクエストの形式が正しくありません" };
   }
   const o = input as Record<string, unknown>;
-  const file = validateImageFile(o.file);
+  const file = validateMediaFile(o.file);
   if (!file.ok || file.file !== o.file) {
     return { ok: false, error: "保存先のパスが正しくありません" };
   }
@@ -364,6 +447,12 @@ export const validateUploadInit = (
   if (typeof o.size !== "number" || !Number.isInteger(o.size) || o.size < 0) {
     return { ok: false, error: "ファイルの大きさが正しくありません" };
   }
+  const contentType =
+    typeof o.contentType === "string"
+      ? uploadContentType(file.file, o.contentType)
+      : null;
+  if (!contentType) return { ok: false, error: NOT_ACCEPTED };
+  const kind: MediaKind = isVideoType(contentType) ? "video" : "image";
   // Width and height: what the browser read from the header, if anything.
   const dims: (number | null)[] = [];
   for (const v of [o.width, o.height]) {
@@ -374,26 +463,30 @@ export const validateUploadInit = (
   }
   const refused = checkUploadLimits({ size: o.size });
   if (refused) return { ok: false, error: refused };
-  // Over the resize limits only with a display copy that is within them.
-  const original = { size: o.size, width: dims[0], height: dims[1] };
+  let video: VideoInit | undefined;
   let display: DisplayInit | undefined;
-  if (o.display != null) {
-    const d = validateDisplayInit(o.display);
-    if (!d.ok) return d;
-    if (!needsDisplayCopy(original)) {
-      return { ok: false, error: "この画像には縮小版は要りません" };
+  if (kind === "video") {
+    // Never resized: no display copy, only its own description.
+    if (o.display != null) {
+      return { ok: false, error: "動画には縮小版は要りません" };
     }
-    display = d.display;
+    const v = validateVideoInit(o.video, dims[0], dims[1]);
+    if (!v.ok) return v;
+    video = v.video;
   } else {
-    const tooLarge = resizeLimitsProblem(original);
-    if (tooLarge) return { ok: false, error: tooLarge };
-  }
-  const contentType =
-    typeof o.contentType === "string"
-      ? uploadContentType(file.file, o.contentType)
-      : null;
-  if (!contentType) {
-    return { ok: false, error: "PNG / JPEG ではありません" };
+    // Over the resize limits only with a display copy that is within them.
+    const original = { size: o.size, width: dims[0], height: dims[1] };
+    if (o.display != null) {
+      const d = validateDisplayInit(o.display);
+      if (!d.ok) return d;
+      if (!needsDisplayCopy(original)) {
+        return { ok: false, error: "この画像には縮小版は要りません" };
+      }
+      display = d.display;
+    } else {
+      const tooLarge = resizeLimitsProblem(original);
+      if (tooLarge) return { ok: false, error: tooLarge };
+    }
   }
   if (typeof o.sha256 !== "string" || !SHA256_RE.test(o.sha256)) {
     return { ok: false, error: "ハッシュ (SHA-256) の形式が正しくありません" };
@@ -420,6 +513,8 @@ export const validateUploadInit = (
       file: file.file,
       size: o.size,
       contentType,
+      // A photo's init stays as it was (kind left out means an image).
+      ...(video ? { kind: "video" as const, video } : {}),
       sha256: o.sha256,
       timestamp,
       ...(timestampSource ? { timestampSource } : {}),

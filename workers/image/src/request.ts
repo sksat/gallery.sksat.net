@@ -183,6 +183,21 @@ export type TransformOptions = {
 export const isCardPreset = (preset: PresetName): boolean =>
   preset === "og" || preset === "og-site";
 
+const VIDEO_EXTENSION = /\.(mp4|mov|webm)$/i;
+
+/**
+ * A bucket key AdminImage.stat may look at: an image's path, or a video
+ * original's (same segment rules, a video extension). Videos are never
+ * resized or served from B2; the admin only checks that an upload arrived.
+ */
+export const parseObjectPath = (file: unknown): string | null => {
+  if (typeof file !== "string") return null;
+  if (VIDEO_EXTENSION.test(file)) {
+    return parseFilePath(file.replace(VIDEO_EXTENSION, ".png")) ? file : null;
+  }
+  return parseFilePath(file);
+};
+
 /**
  * Arguments of the AdminImage entrypoint: a bucket path (any photo or
  * camera picture, private included) and a resize preset. Validated with the

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseAdminImage,
+  parseObjectPath,
   parseImageUrl,
   pickFormat,
   transformFailed,
@@ -14,6 +15,18 @@ describe("withoutAvif", () => {
     expect(pickFormat(withoutAvif("image/avif,image/webp,*/*"))).toBe("webp");
     expect(pickFormat(withoutAvif("image/avif;q=0.9, */*"))).toBe("jpeg");
     expect(withoutAvif(null)).toBeNull();
+  });
+});
+
+describe("parseObjectPath", () => {
+  it("lets stat look at a video's original as well as an image", () => {
+    expect(parseObjectPath("/clips/a.MOV")).toBe("/clips/a.MOV");
+    expect(parseObjectPath("/a.webm")).toBe("/a.webm");
+    expect(parseObjectPath("/.poster/abc.jpg")).toBe("/.poster/abc.jpg");
+    expect(parseObjectPath("/a/../b.mp4")).toBeNull();
+    expect(parseObjectPath("/a b.mp4")).toBeNull();
+    expect(parseObjectPath("/a.txt")).toBeNull();
+    expect(parseObjectPath(1)).toBeNull();
   });
 });
 

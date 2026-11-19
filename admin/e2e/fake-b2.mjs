@@ -56,10 +56,14 @@ const checkSignature = (req, url) => {
   if (!(Date.now() < t + Number(q.get("X-Amz-Expires")) * 1000)) {
     return "expired";
   }
-  const required =
-    req.method === "PUT"
-      ? ["host", "content-type", "x-amz-meta-sha256"]
-      : ["host"];
+  // A whole object's PUT and CreateMultipartUpload carry its type and
+  // hash; a part's PUT only the host.
+  const whole =
+    (req.method === "PUT" && !q.has("partNumber")) ||
+    (req.method === "POST" && q.has("uploads"));
+  const required = whole
+    ? ["host", "content-type", "x-amz-meta-sha256"]
+    : ["host"];
   for (const h of required) {
     if (!signed.includes(h)) return `unsigned ${h}`;
   }
@@ -99,9 +103,144 @@ const cors = (req, res) => {
   }
 };
 
-createServer((req, res) => {
+/** Multipart uploads in progress, by UploadId. */
+const multiparts = new Map();
+let multipartIds = 0;
+
+const readBody = (req) =>
+  new Promise((resolve) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+
+/** Store a finished object like a PUT does. */
+const store = (key, body, contentType) => {
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  uploads.push({
+    versionId: `v${++versions}`,
+    key,
+    size: body.length,
+    sha256,
+    contentType,
+  });
+  bodies.set(key, body);
+  return sha256;
+};
+
+/**
+ * S3 multipart (admin's b2-multipart.ts): CreateMultipartUpload (POST
+ * ?uploads), UploadPart (PUT ?partNumber&uploadId, from the browser),
+ * ListParts (GET ?uploadId), CompleteMultipartUpload (POST ?uploadId),
+ * AbortMultipartUpload (DELETE ?uploadId). Every request is presigned.
+ * Completing checks the parts' SHA-256 against the x-amz-meta-sha256
+ * given at creation, like a single PUT. Returns false when not multipart.
+ */
+const multipart = async (req, res, url) => {
+  const q = url.searchParams;
+  if (!url.pathname.startsWith(`/${bucket}/`)) return false;
+  if (!(q.has("uploads") || q.has("uploadId"))) return false;
+  const bad = checkSignature(req, url);
+  if (bad) {
+    res.writeHead(403, { "Content-Type": "text/plain" }).end(bad);
+    return true;
+  }
+  const key = url.pathname.slice(bucket.length + 1);
+  const xml = (body) => {
+    res.writeHead(200, { "Content-Type": "application/xml" });
+    res.end(`<?xml version="1.0" encoding="UTF-8"?>${body}`);
+  };
+  if (req.method === "POST" && q.has("uploads")) {
+    const uploadId = `mp${++multipartIds}`;
+    multiparts.set(uploadId, {
+      key,
+      contentType: req.headers["content-type"],
+      sha256: req.headers["x-amz-meta-sha256"],
+      parts: new Map(),
+    });
+    xml(
+      `<InitiateMultipartUploadResult><Key>${key.slice(1)}</Key><UploadId>${uploadId}</UploadId></InitiateMultipartUploadResult>`,
+    );
+    return true;
+  }
+  const upload = multiparts.get(q.get("uploadId"));
+  if (!upload || upload.key !== key) {
+    res.writeHead(404, { "Content-Type": "application/xml" });
+    res.end("<Error><Code>NoSuchUpload</Code></Error>");
+    return true;
+  }
+  if (req.method === "PUT" && q.has("partNumber")) {
+    const body = await readBody(req);
+    const etag = `"${createHash("md5").update(body).digest("hex")}"`;
+    upload.parts.set(Number(q.get("partNumber")), { body, etag });
+    res.writeHead(200, { ETag: etag }).end();
+    return true;
+  }
+  if (req.method === "GET") {
+    // Like the production key without listFiles: ListParts is refused.
+    if (key.includes("nolist")) {
+      res.writeHead(403, { "Content-Type": "application/xml" });
+      res.end("<Error><Code>AccessDenied</Code></Error>");
+      return true;
+    }
+    const parts = [...upload.parts]
+      .sort(([a], [b]) => a - b)
+      .map(
+        ([n, p]) =>
+          `<Part><PartNumber>${n}</PartNumber><ETag>${p.etag.replace(/"/g, "&quot;")}</ETag><Size>${p.body.length}</Size></Part>`,
+      )
+      .join("");
+    xml(
+      `<ListPartsResult><UploadId>${q.get("uploadId")}</UploadId><IsTruncated>false</IsTruncated>${parts}</ListPartsResult>`,
+    );
+    return true;
+  }
+  if (req.method === "POST") {
+    const body = (await readBody(req)).toString();
+    const numbers = [...body.matchAll(/<PartNumber>(\d+)<\/PartNumber>/g)].map(
+      (m) => Number(m[1]),
+    );
+    const etags = [...body.matchAll(/<ETag>([^<]*)<\/ETag>/g)].map((m) =>
+      m[1].replace(/&quot;/g, '"'),
+    );
+    if (
+      numbers.some(
+        (n, i) => !upload.parts.has(n) || upload.parts.get(n).etag !== etags[i],
+      )
+    ) {
+      res.writeHead(400).end("InvalidPart");
+      return true;
+    }
+    const whole = Buffer.concat(numbers.map((n) => upload.parts.get(n).body));
+    if (createHash("sha256").update(whole).digest("hex") !== upload.sha256) {
+      res.writeHead(400, { "Content-Type": "text/plain" }).end("BadDigest");
+      return true;
+    }
+    store(key, whole, upload.contentType);
+    multiparts.delete(q.get("uploadId"));
+    xml(
+      `<CompleteMultipartUploadResult><Key>${key.slice(1)}</Key></CompleteMultipartUploadResult>`,
+    );
+    return true;
+  }
+  if (req.method === "DELETE") {
+    multiparts.delete(q.get("uploadId"));
+    res.writeHead(204).end();
+    return true;
+  }
+  res.writeHead(400).end();
+  return true;
+};
+
+createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   cors(req, res);
+  if (req.method !== "OPTIONS" && (await multipart(req, res, url))) return;
+  if (req.method === "GET" && url.pathname === "/__multipart") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify([...multiparts.keys()]));
+    return;
+  }
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Allow-Methods", "PUT");
     res.setHeader(

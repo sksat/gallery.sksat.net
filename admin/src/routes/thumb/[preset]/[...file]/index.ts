@@ -9,6 +9,8 @@ import { getAdminImages, getDB, getMediaCache, getImageBase } from "~/lib/env";
 import { THUMB_EXACT } from "~/lib/images";
 import { imageSource, type ImageSource } from "~/lib/media-file";
 import { thumbHeaders } from "~/lib/thumb-response";
+import { mediaKindOfPath } from "~/lib/validate";
+import { POSTER_PREFIX } from "~/lib/video";
 
 // GET /thumb/<preset>/<file…>: a resized thumbnail of any photo or camera
 // picture, private ones included, for the admin's own pages.
@@ -35,6 +37,11 @@ export const onGet: RequestHandler = async ({
   }
   let upstream: Response;
   let stored: Response | null = null;
+  /**
+   * A video's poster, which the edit page can replace: the thumbnail URL
+   * (the video's own file) stays the same, so it is kept a minute only.
+   */
+  let poster = false;
   try {
     // A photo's image is resized from the file it shows (or that file's
     // display copy), whose key the pages do not link: one indexed lookup.
@@ -43,6 +50,12 @@ export const onGet: RequestHandler = async ({
     const source: ImageSource = url.searchParams.has(THUMB_EXACT)
       ? { storage: "b2", key: file, publicId: null }
       : await imageSource(getDB(platform), file);
+    // A video without a poster: its original is never resized.
+    if (mediaKindOfPath(source.key) === "video") {
+      send(new Response("Not Found", { status: 404 }));
+      return;
+    }
+    poster = source.key.startsWith(POSTER_PREFIX);
     stored =
       copies && source.publicId
         ? await storedThumb(copies, source.publicId, source.key, params.preset)
@@ -74,7 +87,7 @@ export const onGet: RequestHandler = async ({
   // A large preset whose resize failed may come back as the photo's file
   // itself (X-Image-Fallback), which is shown as it is. A stored copy
   // keeps its ETag.
-  const headers = thumbHeaders(upstream);
+  const headers = thumbHeaders(upstream, { poster });
   const etag = stored ? upstream.headers.get("etag") : null;
   if (upstream.ok && etag) headers.set("ETag", etag);
   send(

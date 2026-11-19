@@ -2,6 +2,8 @@
 // the photo is resized from, and removing their objects for good. Covered
 // by media-file.spec.ts on the real schema.
 
+import { POSTER_OF_SHOWN } from "@shared/resized/claim";
+
 /** media_file.storage. */
 export type FileStorage = "b2" | "r2";
 
@@ -11,7 +13,8 @@ export type FileObject = { storage: FileStorage; key: string };
 /**
  * Joins `src`, the file an image of the photo `m` is resized from: the
  * file the photo shows (media.active_file_id, NULL = the original), or
- * that file's newest ready display copy. The same rule as the API
+ * that file's newest ready display copy, or a video's poster (a video
+ * without one is its own file, which /thumb refuses). The same rule as the API
  * Worker's (workers/api/src/query.ts SOURCE_JOINS), in a few index steps:
  * the original by idx_media_file_media, the shown file by its id, the
  * copy by idx_media_file_source.
@@ -26,6 +29,7 @@ export const IMAGE_SOURCE_JOINS = `
      WHERE dc.source_file_id = shown.id AND dc.role = 'display'
        AND dc.status = 'ready' AND dc.media_id = m.id
      ORDER BY dc.id DESC LIMIT 1),
+    ${POSTER_OF_SHOWN},
     shown.id)`;
 
 /**

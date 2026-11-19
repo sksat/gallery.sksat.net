@@ -9,7 +9,11 @@
 // a folder into itself or below itself is refused too.
 
 import { dirOf, joinFolder, validateFolderPath } from "./folders";
-import { MAX_IMAGE_FILE_LEN, validateImageFile } from "./validate";
+import {
+  MAX_IMAGE_FILE_LEN,
+  mediaKindOfPath,
+  validateMediaFile,
+} from "./validate";
 
 /** Last segment of a path ("/a/b.png" → "b.png"). */
 export const baseName = (path: string): string =>
@@ -87,8 +91,13 @@ export const planMoves = (tree: Tree, moves: readonly Move[]): PlanResult => {
         return { ok: false, error: `写真 #${m.id} がありません` };
       }
       if (m.to === from) continue;
-      const v = validateImageFile(m.to);
+      const v = validateMediaFile(m.to);
       if (!v.ok) return { ok: false, error: v.error };
+      // A photo stays a photo and a video a video: the public site and the
+      // image Worker go by the extension.
+      if (mediaKindOfPath(m.to) !== mediaKindOfPath(from)) {
+        return { ok: false, error: `${m.to} は拡張子の種類が違います` };
+      }
       const dir = dirOf(m.to);
       if (dir !== "/") {
         const d = validateFolderPath(dir);

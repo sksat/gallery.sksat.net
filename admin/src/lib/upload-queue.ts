@@ -15,6 +15,7 @@ import type { FileHints, StoredMeta } from "./photo-meta";
 import { checkUploadLimits, uploadTarget, type TargetResult } from "./upload";
 import { batchBytes } from "./upload-progress";
 import type { AppliedChip } from "./upload-rules";
+import type { VideoInitResult } from "./video-client";
 
 export type UploadStatus =
   | "queued"
@@ -75,6 +76,14 @@ export type Prepared = {
    * (display-copy.ts); absent for every other file.
    */
   display?: DisplayCopy;
+  /** A video (video-client.ts); photos leave it out. */
+  kind?: "image" | "video";
+  /** A video's length, codec and poster hash (upload.ts VideoInit). */
+  video?: {
+    durationMs: number | null;
+    codec: string | null;
+    posterSha256: string | null;
+  };
 };
 
 /** A display copy: a JPEG within the resize limits, and its facts. */
@@ -98,11 +107,14 @@ export type InitResult =
       id: number;
       /** Where it goes (a numbered name if the path was taken). */
       file: string;
+      /** A video's uploads (video-client.ts VideoInitResult); no PUT. */
+      video?: VideoInitResult;
       /** What the upload rules set (new rows only). */
       applied?: AppliedChip[];
       /** The display copy's PUT, when the init announced one. */
       display?: PutTarget & { file: string };
-    } & PutTarget)
+      // A photo's presigned PUT; a video has none (its `video` instead).
+    } & Partial<PutTarget>)
   /** The same photo (by SHA-256) is already uploaded, at `file`. */
   | { status: "exists"; id: number; file: string };
 
@@ -127,6 +139,8 @@ export type QueueDeps<S extends UploadSource> = {
     init: Extract<InitResult, { status: "upload" }>,
     source: S,
     onProgress: (loaded: number) => void,
+    /** What prepare() returned (a video keeps its poster and copy there). */
+    prepared: Prepared,
   ): Promise<void>;
   /** PUT a display copy (after the original's PUT). */
   putDisplay(target: PutTarget, blob: Blob): Promise<void>;
@@ -281,8 +295,11 @@ export const createUploadQueue = <S extends UploadSource>(
         // A resumed row keeps what its first init reported.
         ...(init.applied ? { applied: init.applied } : {}),
       });
-      await deps.put(init, source, (loaded) =>
-        set(item, { loaded: Math.min(loaded, item.size) }),
+      await deps.put(
+        init,
+        source,
+        (loaded) => set(item, { loaded: Math.min(loaded, item.size) }),
+        prepared,
       );
       if (prepared.display) {
         // Without its display copy the photo could not be shown.

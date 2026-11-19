@@ -205,9 +205,12 @@ export const levelSql = (field: MetadataField): string =>
  * A photo whose upload has completed (admin migration 0004) and that is
  * not in the admin's trash (0005). Rows still `uploading` reserve a path
  * but may have no file yet; trashed ones are on their way out. Neither is
- * ever served.
+ * ever served. Nor, until this Worker and the image Worker can show them,
+ * are videos (admin migration 0017): a video made public before then
+ * stays off the site.
  */
-const READY = "m.status = 'ready' AND m.trashed_at IS NULL";
+const READY =
+  "m.status = 'ready' AND m.trashed_at IS NULL AND m.kind = 'image'";
 
 /** Photos that are listed. */
 const LISTED = `${READY} AND m.visibility = 'public'`;

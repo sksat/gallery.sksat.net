@@ -24,6 +24,9 @@ export type MediaFileRow = {
   camera_id: number | null;
   /** Its tags (JSON array): which tag fields the selection has. */
   tags: string;
+  /** 0017: a video's tile shows a play mark with its length. */
+  kind: "image" | "video";
+  duration_ms: number | null;
 };
 
 export type FilesParams = {
@@ -66,7 +69,7 @@ export const filesQuery = (
   }
   const whereSql = ` WHERE ${where.join(" AND ")}`;
   return {
-    sql: `SELECT id, file, path, platform, visibility, size, metadata_visibility, timestamp, camera_id, tags FROM media${whereSql} ORDER BY path LIMIT ?`,
+    sql: `SELECT id, file, path, platform, visibility, size, metadata_visibility, timestamp, camera_id, tags, kind, duration_ms FROM media${whereSql} ORDER BY path LIMIT ?`,
     args: [...args, params.limit + 1],
   };
 };

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { PUBLIC_ID_RE } from "./public-id";
 import { CAMERA_SLUG_RE } from "./validate";
 import { isScanner } from "./photo-meta";
+import { migratedSqlite } from "./sqlite-d1";
 
 const migration = (name: string) =>
   readFileSync(resolve(__dirname, "../../migrations", name), "utf8");
@@ -1715,5 +1716,47 @@ describe("0019_camera_image_media.sql", () => {
     expect(
       db.prepare("SELECT id FROM camera_image WHERE camera_id = 2").all(),
     ).toEqual([{ id: 5 }]);
+  });
+});
+
+describe("0017_video.sql", () => {
+  it("makes every row a photo, and checks a video's columns", () => {
+    const db = migratedSqlite();
+    db.exec(
+      "INSERT INTO media (file, platform, visibility) VALUES ('/a.png', 'Real', 'public')",
+    );
+    expect(
+      db.prepare("SELECT kind, width, duration_ms FROM media").get(),
+    ).toEqual({ kind: "image", width: null, duration_ms: null });
+    db.exec(`INSERT INTO media (file, platform, kind, width, height, duration_ms, video_codec)
+             VALUES ('/v.mp4', 'Real', 'video', 320, 180, 2000, 'vp09')`);
+    for (const bad of [
+      "UPDATE media SET kind = 'audio' WHERE file = '/v.mp4'",
+      "UPDATE media SET width = 0 WHERE file = '/v.mp4'",
+      "UPDATE media SET height = -1 WHERE file = '/v.mp4'",
+      "UPDATE media SET duration_ms = -1 WHERE file = '/v.mp4'",
+      `UPDATE media SET video_codec = '${"x".repeat(65)}' WHERE file = '/v.mp4'`,
+    ]) {
+      expect(() => db.exec(bad), bad).toThrow(/CHECK/);
+    }
+    // Its poster (B2) and playback copy (R2) are files made from the
+    // original (0013).
+    db.exec(`INSERT INTO media_file (media_id, role, storage, object_key, source_file_id, status)
+             SELECT media_id, 'poster', 'b2', '/.poster/p.jpg', id, 'ready'
+             FROM media_file WHERE object_key = '/v.mp4';
+             INSERT INTO media_file (media_id, role, storage, object_key, source_file_id, status)
+             SELECT media_id, 'play', 'r2', '/v/c.mp4', id, 'ready'
+             FROM media_file WHERE object_key = '/v.mp4'`);
+    expect(
+      db
+        .prepare(
+          "SELECT role, storage FROM media_file WHERE media_id = 2 ORDER BY id",
+        )
+        .all(),
+    ).toEqual([
+      { role: "original", storage: "b2" },
+      { role: "poster", storage: "b2" },
+      { role: "play", storage: "r2" },
+    ]);
   });
 });

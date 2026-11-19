@@ -53,6 +53,35 @@ describe("imageSource", () => {
     });
   });
 
+  it("is a video's newest ready poster (0017), or the video when it has none", async () => {
+    const { raw, db } = setup();
+    raw.exec(`
+      INSERT INTO media (id, file, platform, kind) VALUES (3, '/v.mp4', 'Real', 'video');
+      INSERT INTO media_file (media_id, role, object_key, source_file_id, status)
+        SELECT 3, 'poster', '/.poster/old.jpg', id, 'ready' FROM media_file WHERE object_key = '/v.mp4';
+      INSERT INTO media_file (media_id, role, object_key, source_file_id, status)
+        SELECT 3, 'poster', '/.poster/new.jpg', id, 'ready' FROM media_file WHERE object_key = '/v.mp4';
+      INSERT INTO media_file (media_id, role, object_key, source_file_id, status)
+        SELECT 3, 'poster', '/.poster/up.jpg', id, 'uploading' FROM media_file WHERE object_key = '/v.mp4';
+    `);
+    expect(await imageSource(db, "/v.mp4")).toMatchObject({
+      storage: "b2",
+      key: "/.poster/new.jpg",
+    });
+    raw.exec("DELETE FROM media_file WHERE role = 'poster'");
+    expect(await imageSource(db, "/v.mp4")).toMatchObject({
+      storage: "b2",
+      key: "/v.mp4",
+    });
+    // A photo never looks for a poster.
+    raw.exec(`INSERT INTO media_file (media_id, role, object_key, source_file_id, status)
+              VALUES (2, 'poster', '/.poster/b.jpg', 2, 'ready')`);
+    expect(await imageSource(db, "/b.png")).toMatchObject({
+      storage: "b2",
+      key: "/b.png",
+    });
+  });
+
   it("reads a few index entries", () => {
     const { raw } = setup();
     const plan = (

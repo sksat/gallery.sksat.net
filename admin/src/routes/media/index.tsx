@@ -96,7 +96,8 @@ import {
   type IncompleteUpload,
 } from "~/lib/db-upload";
 import { getUploadConfig } from "~/lib/b2";
-import { deleteAllVersions } from "~/lib/b2-delete";
+
+import { removeUploadLeftovers } from "~/lib/video-cleanup";
 import { getObjectStat } from "~/lib/object-stat";
 import {
   DropZone,
@@ -121,7 +122,7 @@ import {
   VisibilityIcon,
 } from "~/components/visibility-style";
 import { Toast, type ToastState } from "~/components/toast";
-import { getDB, getImageBase } from "~/lib/env";
+import { getDB, getImageBase, getMediaCache } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
 import {
   buildFolderTree,
@@ -148,7 +149,12 @@ import {
   splitPath,
   type MediaView,
 } from "~/lib/format";
-import { isVisibility, VISIBILITIES, type Visibility } from "~/lib/types";
+import {
+  isVisibility,
+  thumbVideo,
+  VISIBILITIES,
+  type Visibility,
+} from "~/lib/types";
 import {
   validateBulkVisibility,
   validateRestoreVisibility,
@@ -442,22 +448,36 @@ export const useDeleteIncomplete = routeAction$(
       console.error("/media delete-incomplete action: getDB failed:", err);
       return fail(500, { message: "データベースに接続できません" });
     }
-    // A display copy's object goes too (its name is never used again).
-    const config = getUploadConfig(platform);
-    let deleted: boolean;
-    try {
-      deleted = await deleteIncompleteUpload(db, data.id, async (key) => {
-        if (!config) throw new Error("B2 の設定がないので削除できません");
-        await deleteAllVersions(config, key);
-      });
-    } catch (err) {
-      console.error("/media delete-incomplete action:", err);
-      return fail(502, {
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
+    const deleted = await deleteIncompleteUpload(db, data.id);
     if (!deleted) {
       return fail(404, { message: "未完了のアップロードが見つかりません" });
+    }
+    // What it left in the buckets, after the row is gone (so a completion
+    // running meanwhile finds nothing): a display copy's object (its name
+    // is never used again), a video's parts, original, poster and copy. A
+    // failure is reported and leaves the objects over, unreferenced and
+    // never served (B2 and R2 lifecycle rules drop abandoned parts).
+    if (deleted.video || deleted.copies.length > 0 || deleted.upload_id) {
+      const config = getUploadConfig(platform);
+      try {
+        if (!config) throw new Error("B2 の設定がないので削除できません");
+        await removeUploadLeftovers(deleted, {
+          config,
+          bucket: getMediaCache(platform),
+          inUse: async (key) =>
+            (await db
+              .prepare(
+                "SELECT 1 FROM media_file WHERE storage = 'b2' AND object_key = ?",
+              )
+              .bind(key)
+              .first()) !== null,
+        });
+      } catch (err) {
+        console.error("/media delete-incomplete action:", err);
+        return fail(502, {
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
     // A camera picture with its file can be served by path again.
     await contentChanged(db);
@@ -1605,6 +1625,7 @@ export default component$(() => {
     <>
       <Thumb
         file={row.file}
+        video={thumbVideo(row)}
         platform={row.platform}
         imageBase={imageBase}
         variant="list"
@@ -2257,6 +2278,7 @@ export default component$(() => {
                     <td class="px-4 py-2">
                       <Thumb
                         file={row.file}
+                        video={thumbVideo(row)}
                         platform={row.platform}
                         imageBase={imageBase}
                         variant="list"

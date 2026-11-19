@@ -52,10 +52,13 @@
       "entrypoint": "AdminImage",
     },
   ],
-  // The photos' resized copies (src/lib/resized.ts), which the browser
-  // makes and this stores; the image Worker serves them (its MEDIA_CACHE). The
-  // bucket is created by Terraform outside this repo and must exist before
-  // this is deployed. Locally (pnpm serve, E2E) wrangler keeps it on disk.
+  // The bucket for what is made from the photos (created by Terraform
+  // outside this repo; it must exist before this is deployed): their
+  // resized copies under img/ (src/lib/resized.ts), which the browser
+  // makes and this stores, and videos' playback copies under v/
+  // (src/lib/video.ts), which the upload routes write, /play/<id> reads
+  // and 完全に削除 deletes. The image Worker serves both (its MEDIA_CACHE).
+  // Locally (pnpm serve, E2E) wrangler keeps it on disk.
   "r2_buckets": [
     { "binding": "MEDIA_CACHE", "bucket_name": "gallery-media-cache" },
   ],
@@ -89,6 +92,8 @@
       "services": [],
       "r2_buckets": [],
       "d1_databases": [],
+      // Nor the playback bucket (it holds private videos too).
+      "r2_buckets": [],
     },
   },
 }

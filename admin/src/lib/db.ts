@@ -21,6 +21,13 @@ import {
 } from "./types";
 
 type RawRow = {
+  /** 0013 (absent in hand-written test tables). */
+  kind?: string | null;
+  width?: number | null;
+  height?: number | null;
+  duration_ms?: number | null;
+  video_codec?: string | null;
+  has_poster?: number | null;
   id: number;
   public_id: string;
   file: string;
@@ -126,6 +133,11 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     tag_values: parseValueMap(raw.tag_values),
     tag_value_visibility: parseLevelMap(raw.tag_value_visibility),
     updated_at: raw.updated_at,
+    kind: raw.kind === "video" ? "video" : "image",
+    width: raw.width ?? null,
+    height: raw.height ?? null,
+    duration_ms: raw.duration_ms ?? null,
+    video_codec: raw.video_codec ?? null,
   };
 };
 
@@ -280,10 +292,16 @@ export const getMedia = async (
   id: number,
 ): Promise<MediaRow | null> => {
   const raw = await db
-    .prepare("SELECT * FROM media WHERE id = ?")
+    .prepare(
+      // A video's poster (a media_file row, 0017), for the edit page.
+      `SELECT *, CASE WHEN kind = 'video' THEN EXISTS (
+         SELECT 1 FROM media_file f WHERE f.media_id = media.id
+           AND f.role = 'poster' AND f.status = 'ready') END AS has_poster
+       FROM media WHERE id = ?`,
+    )
     .bind(id)
     .first<RawRow>();
-  return raw ? rowToMedia(raw) : null;
+  return raw ? { ...rowToMedia(raw), has_poster: raw.has_poster === 1 } : null;
 };
 
 export const updateMedia = async (
@@ -995,13 +1013,7 @@ export const restoreCameraImageStatements = (
        (SELECT position, id FROM camera_image WHERE camera_id = ?1 AND NOT (${self})
         ORDER BY position, id LIMIT 1 OFFSET ?3)
        AND EXISTS (SELECT 1 FROM camera_image WHERE camera_id = ?1 AND ${self})`,
-      args: [
-        cameraId,
-        image.file,
-        Math.max(0, index),
-        null,
-        image.media_id,
-      ],
+      args: [cameraId, image.file, Math.max(0, index), null, image.media_id],
     },
   ];
 };

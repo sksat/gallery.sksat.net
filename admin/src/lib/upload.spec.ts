@@ -10,8 +10,10 @@ import {
   MAX_UPLOAD_BYTES,
   needsDisplayCopy,
   resizeLimitsProblem,
+  MAX_VIDEO_BYTES,
   safeSegment,
   uploadContentType,
+  uploadKindOf,
   uploadTarget,
   validateUploadInit,
 } from "./upload";
@@ -75,11 +77,11 @@ describe("uploadTarget", () => {
   it("refuses non-images, unusable names and reserved or too deep folders", () => {
     expect(uploadTarget("/a", "notes.txt")).toEqual({
       ok: false,
-      error: "PNG / JPEG ではありません",
+      error: "PNG / JPEG / MP4 / MOV / WebM ではありません",
     });
     expect(uploadTarget("/a", ".DS_Store")).toEqual({
       ok: false,
-      error: "PNG / JPEG ではありません",
+      error: "PNG / JPEG / MP4 / MOV / WebM ではありません",
     });
     expect(uploadTarget("/a", "日本語/a.png").ok).toBe(false);
     expect(uploadTarget("/a", "").ok).toBe(false);
@@ -453,5 +455,77 @@ describe("formatMegapixelsUp / groupDigits", () => {
     expect(groupDigits(12000)).toBe("12,000");
     expect(groupDigits(999)).toBe("999");
     expect(groupDigits(1234567)).toBe("1,234,567");
+  });
+});
+
+describe("videos", () => {
+  const video = {
+    file: "/clips/a.mov",
+    size: 150_000_000,
+    contentType: "video/quicktime",
+    sha256: "0".repeat(64),
+    timestamp: null,
+    width: 3840,
+    height: 2160,
+    video: {
+      durationMs: 1234.4,
+      codec: "hvc1",
+      posterSha256: "b".repeat(64),
+    },
+  };
+
+  it("takes MP4, MOV and WebM, by extension and the browser's type", () => {
+    expect(uploadTarget("/a", "clip.MOV")).toMatchObject({
+      ok: true,
+      file: "/a/clip.MOV",
+    });
+    expect(uploadContentType("a.mp4", "video/mp4")).toBe("video/mp4");
+    expect(uploadContentType("a.webm", "")).toBe("video/webm");
+    expect(uploadContentType("a.mov", "video/mp4")).toBeNull();
+    expect(uploadKindOf("a.mov")).toBe("video");
+    expect(uploadKindOf("a.png")).toBe("image");
+    expect(uploadKindOf("a.avi")).toBeNull();
+  });
+
+  it("limits a video by its size only", () => {
+    expect(checkUploadLimits({ size: MAX_UPLOAD_BYTES + 1 })).toBeNull();
+    expect(checkUploadLimits({ size: MAX_VIDEO_BYTES + 1 })).toMatch(
+      /大きすぎます/,
+    );
+  });
+
+  it("validates a video's init: its description and its poster's hash", () => {
+    expect(validateUploadInit(video)).toEqual({
+      ok: true,
+      init: {
+        file: "/clips/a.mov",
+        size: 150_000_000,
+        contentType: "video/quicktime",
+        dimensions: { width: 3840, height: 2160 },
+        kind: "video",
+        video: {
+          width: 3840,
+          height: 2160,
+          durationMs: 1234,
+          codec: "hvc1",
+          poster: true,
+          posterSha256: "b".repeat(64),
+        },
+        sha256: "0".repeat(64),
+        timestamp: null,
+      },
+    });
+    expect(
+      validateUploadInit({ ...video, video: { codec: "<x>" } }),
+    ).toMatchObject({
+      init: { video: { codec: null, poster: false, durationMs: null } },
+    });
+    expect(validateUploadInit({ ...video, video: undefined })).toEqual({
+      ok: false,
+      error: "動画の情報がありません",
+    });
+    expect(
+      validateUploadInit({ ...video, video: { posterSha256: "x" } }),
+    ).toMatchObject({ ok: false });
   });
 });

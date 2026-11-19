@@ -139,7 +139,35 @@ export type MediaRow = {
   /** Its own public levels for them: field id → level. */
   tag_value_visibility: Record<string, TagFieldLevel>;
   updated_at: string;
+} & VideoColumns;
+
+/**
+ * 0017: what a video adds (null for photos). `kind` 'image' for every
+ * photo. Its poster and playback copy are media_file rows (video.ts).
+ */
+export type VideoColumns = {
+  kind: "image" | "video";
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  video_codec: string | null;
+  /** A video has a ready poster (getMedia only). */
+  has_poster?: boolean;
 };
+
+/**
+ * A video's mark on a thumbnail (Thumb). The thumbnail itself comes from
+ * its poster: /thumb resolves a video's media.file to it, like a photo's
+ * to the file it shows.
+ */
+export type ThumbVideo = { durationMs: number | null };
+
+/** A row's video mark for Thumb, or null for a photo. */
+export const thumbVideo = (row: {
+  kind?: string | null;
+  duration_ms?: number | null;
+}): ThumbVideo | null =>
+  row.kind === "video" ? { durationMs: row.duration_ms ?? null } : null;
 
 export type MediaPatch = {
   /**

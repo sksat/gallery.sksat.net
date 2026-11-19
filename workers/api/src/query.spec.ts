@@ -119,6 +119,18 @@ describe("pixel size", () => {
   });
 });
 
+describe("videos (admin 0017), not shown yet", () => {
+  it("are in no list and open by no id, even when public", async () => {
+    const { raw, db } = setup();
+    raw.exec(`INSERT INTO media (public_id, file, platform, visibility, kind)
+              VALUES ('vvvvvvvvv2', '/v/clip.mp4', 'Real', 'public', 'video')`);
+    expect(
+      (await listPublicMedia(db)).some((m) => m.id === "vvvvvvvvv2"),
+    ).toBe(false);
+    expect(await getMedia(db, "vvvvvvvvv2")).toBeNull();
+  });
+});
+
 describe("embed_exif", () => {
   it("follows the photo, else the site, else on", async () => {
     const { raw, db } = setup();

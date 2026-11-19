@@ -66,6 +66,7 @@ import {
   parseFilePath,
   parseImageUrl,
   PUBLIC_ID_RE,
+  parseObjectPath,
   transformFailed,
   transformOptions,
   variesByAccept,
@@ -522,8 +523,8 @@ export class AdminImage extends WorkerEntrypoint<Env> {
       console.error(`AdminImage.stat: ${auth.status} ${auth.reason}`);
       return { ok: false, status: auth.status };
     }
-    // Any resize preset: only the path rules matter here.
-    if (!parseAdminImage("h240", file)) return { ok: false, status: 404 };
+    // Only the path rules matter here (a video's original included).
+    if (!parseObjectPath(file)) return { ok: false, status: 404 };
     try {
       const stat = await statObject(this.env, file);
       console.log(`AdminImage.stat ${file}: ${stat ? stat.size : "none"}`);
