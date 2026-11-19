@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   collectDropped,
+  INTERNAL_DRAG_TYPE,
+  isUploadDrag,
+  uploadDropEffect,
   type DirectoryEntryLike,
   type EntryLike,
   type FileEntryLike,
@@ -87,5 +90,40 @@ describe("collectDropped", () => {
     ]);
     expect(got.files.map((d) => d.relativePath)).toEqual(["A/ok.png"]);
     expect(got.failed).toEqual(["A/broken", "A/gone.png"]);
+  });
+});
+
+describe("isUploadDrag", () => {
+  it("takes a drag from outside whatever the browser lists", () => {
+    // Chromium; Firefox with and without "Files" before the drop.
+    expect(isUploadDrag(["Files"])).toBe(true);
+    expect(isUploadDrag(["application/x-moz-file", "Files"])).toBe(true);
+    expect(isUploadDrag(["application/x-moz-file"])).toBe(true);
+    expect(isUploadDrag(["text/uri-list", "text/x-moz-url"])).toBe(true);
+    expect(isUploadDrag(["text/plain"])).toBe(true);
+    expect(isUploadDrag([])).toBe(true);
+  });
+
+  it("leaves the page's own drags to the move", () => {
+    expect(isUploadDrag([INTERNAL_DRAG_TYPE, "Files"])).toBe(false);
+    expect(
+      isUploadDrag(["application/x-gallery-items", INTERNAL_DRAG_TYPE]),
+    ).toBe(false);
+  });
+});
+
+describe("uploadDropEffect", () => {
+  it("copies when the drag allows it", () => {
+    for (const a of [undefined, "", "all", "uninitialized", "copy"]) {
+      expect(uploadDropEffect(a)).toBe("copy");
+    }
+    expect(uploadDropEffect("copyMove")).toBe("copy");
+    expect(uploadDropEffect("copyLink")).toBe("copy");
+  });
+
+  it("takes what the source allows otherwise", () => {
+    expect(uploadDropEffect("move")).toBe("move");
+    expect(uploadDropEffect("linkMove")).toBe("move");
+    expect(uploadDropEffect("link")).toBe("link");
   });
 });

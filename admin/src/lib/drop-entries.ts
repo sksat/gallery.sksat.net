@@ -92,3 +92,40 @@ export const collectDropped = async (
   for (const e of entries) await walk(e, "");
   return { files, failed, truncated };
 };
+
+/**
+ * Put on every drag that starts in the page (at dragstart), so a drag
+ * over the Files view can tell a move from files coming from outside. It
+ * rides on the drag itself, so unlike a flag waiting for a dragend that
+ * may never reach the document, it cannot outlive the drag.
+ */
+export const INTERNAL_DRAG_TYPE = "application/x-gallery-internal";
+
+/**
+ * Whether a drag over the Files view is taken as an upload, from its
+ * `dataTransfer.types` (all that dragenter / dragover can read): any drag
+ * that did not start in the page. The types are not trusted to say
+ * "Files": Firefox, depending on the platform and the app the files come
+ * from, may list only "application/x-moz-file", a URI list or text until
+ * the drop. The drop then reads what files there are, and says so when
+ * there are none.
+ */
+export const isUploadDrag = (types: readonly string[]): boolean =>
+  !types.includes(INTERNAL_DRAG_TYPE);
+
+/**
+ * The dropEffect to accept an upload drag with: a copy, unless the drag
+ * allows only something else. Firefox turns a dropEffect the source does
+ * not allow into "none": the not-allowed cursor, and no drop event.
+ */
+export const uploadDropEffect = (
+  effectAllowed: string | undefined,
+): "copy" | "move" | "link" => {
+  const a = (effectAllowed ?? "").toLowerCase();
+  if (a === "" || a === "all" || a === "uninitialized" || a.includes("copy")) {
+    return "copy";
+  }
+  if (a.includes("move")) return "move";
+  if (a.includes("link")) return "link";
+  return "copy";
+};

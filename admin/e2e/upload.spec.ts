@@ -677,25 +677,29 @@ test("upload a folder: its subfolders are created under the open one", async ({
   );
 });
 
+// The drop tests also run in Firefox (the `firefox` project, after the
+// rest): their folders and file contents differ per browser, so the
+// second run neither finds the folders taken nor its files already
+// uploaded.
+const browserSuffix = () => {
+  const name = test.info().project.name;
+  return name === "e2e" ? "" : `-${name}`;
+};
+const seedOf = (n: number) =>
+  test.info().project.name === "e2e" ? n : n + 100;
+
 test("drop files on the Files view to upload them", async ({ page }) => {
-  await newFolder(page, "/mock", "up-drop");
+  const dir = `/mock/up-drop${browserSuffix()}`;
+  await newFolder(page, "/mock", `up-drop${browserSuffix()}`);
   const zone = page.getByTestId("drop-zone");
-  const dt = await page.evaluateHandle(() => {
-    const d = new DataTransfer();
-    const bytes = new Uint8Array(2048).fill(7);
-    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    d.items.add(new File([bytes], "dropped.png", { type: "image/png" }));
-    return d;
-  });
+  const dt = await pngTransfer(page, "dropped.png", seedOf(7));
   await zone.dispatchEvent("dragenter", { dataTransfer: dt });
-  await expect(zone).toContainText(
-    "ここにドロップして /mock/up-drop にアップロード",
-  );
+  await expect(zone).toContainText(`ここにドロップして ${dir} にアップロード`);
   await zone.dispatchEvent("dragover", { dataTransfer: dt });
   await zone.dispatchEvent("drop", { dataTransfer: dt });
   await expect(rows(page)).toHaveAttribute("data-status", "done");
   await expect(zone).not.toContainText("ここにドロップして");
-  expect(await uploadedKeys(page)).toContain("/mock/up-drop/dropped.png");
+  expect(await uploadedKeys(page)).toContain(`${dir}/dropped.png`);
   await expect(page.getByTestId("file-tile")).toHaveCount(1);
 });
 
@@ -712,12 +716,63 @@ const pngTransfer = (page: Page, name: string, seed: number) =>
     [name, seed] as const,
   );
 
+test("drop files whose drag does not list Files until the drop", async ({
+  page,
+}) => {
+  // Firefox, depending on the platform and the file manager, may list only
+  // a URI list (or nothing) while dragging, and hand over the files at the
+  // drop. The drag over an empty folder must still be accepted.
+  const dir = `/mock/up-late${browserSuffix()}`;
+  await newFolder(page, "/mock", `up-late${browserSuffix()}`);
+  await expect(page.getByText("This folder is empty")).toBeVisible();
+  const zone = page.getByTestId("drop-zone");
+  const dragging = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.setData("text/uri-list", "file:///home/me/late.png");
+    return d;
+  });
+  const empty = page.getByText("This folder is empty");
+  await empty.dispatchEvent("dragenter", { dataTransfer: dragging });
+  await expect(zone).toContainText(`ここにドロップして ${dir} にアップロード`);
+  const accepted = await empty.evaluate((el, d) => {
+    const e = new DragEvent("dragover", {
+      dataTransfer: d,
+      bubbles: true,
+      cancelable: true,
+    });
+    el.dispatchEvent(e);
+    return e.defaultPrevented;
+  }, dragging);
+  expect(accepted).toBe(true);
+  const dropped = await pngTransfer(page, "late.png", seedOf(21));
+  await empty.dispatchEvent("drop", { dataTransfer: dropped });
+  await expect(rows(page)).toHaveAttribute("data-status", "done");
+  expect(await uploadedKeys(page)).toContain(`${dir}/late.png`);
+  await page.getByRole("button", { name: "閉じる" }).click();
+
+  // Text alone: nothing to upload, and the toast says so.
+  const text = await page.evaluateHandle(() => {
+    const d = new DataTransfer();
+    d.setData("text/plain", "hello");
+    return d;
+  });
+  await zone.dispatchEvent("dragenter", { dataTransfer: text });
+  await zone.dispatchEvent("dragover", { dataTransfer: text });
+  await zone.dispatchEvent("drop", { dataTransfer: text });
+  await expect(
+    page.getByText("ドロップされたものにファイルがありませんでした"),
+  ).toBeVisible();
+  await expect(zone).not.toContainText("ここにドロップして");
+  await expect(rows(page)).toHaveCount(0);
+});
+
 test("drop files on a folder to upload them into it", async ({ page }) => {
-  await newFolder(page, "/mock", "up-target");
+  const parent = `/mock/up-target${browserSuffix()}`;
+  await newFolder(page, "/mock", `up-target${browserSuffix()}`);
   await page.getByRole("button", { name: "New folder" }).click();
   await page.getByLabel("Folder name").fill("sub");
   await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(/dir=\/mock\/up-target\/sub$/);
+  await expect(page).toHaveURL(new RegExp(`dir=${parent}/sub$`));
   await page.goBack();
   const zone = page.getByTestId("drop-zone");
   const sub = page.getByTestId("folder-tile").filter({ hasText: "sub" });
@@ -725,7 +780,7 @@ test("drop files on a folder to upload them into it", async ({ page }) => {
 
   // On a folder tile: marked like a move's target, no overlay, and the
   // file goes into that folder.
-  const dt1 = await pngTransfer(page, "on-tile.png", 11);
+  const dt1 = await pngTransfer(page, "on-tile.png", seedOf(11));
   await zone.dispatchEvent("dragenter", { dataTransfer: dt1 });
   await expect(zone).toContainText("ここにドロップして");
   await sub.dispatchEvent("dragenter", { dataTransfer: dt1 });
@@ -735,55 +790,76 @@ test("drop files on a folder to upload them into it", async ({ page }) => {
   await sub.dispatchEvent("drop", { dataTransfer: dt1 });
   await expect(sub).not.toHaveAttribute("data-drop-over");
   await expect(rows(page)).toHaveAttribute("data-status", "done");
-  await expect(page.getByTestId("upload-dest")).toHaveText(
-    "/mock/up-target/sub へ",
-  );
-  expect(await uploadedKeys(page)).toContain("/mock/up-target/sub/on-tile.png");
+  await expect(page.getByTestId("upload-dest")).toHaveText(`${parent}/sub へ`);
+  expect(await uploadedKeys(page)).toContain(`${parent}/sub/on-tile.png`);
   await expect(page.getByTestId("file-tile")).toHaveCount(0);
   await page.getByRole("button", { name: "閉じる" }).click();
 
   // On a folder in the tree.
   const tree = page.getByRole("navigation", { name: "Folders" });
-  const treeSub = tree.locator('[data-drop="/mock/up-target/sub"]');
-  const dt2 = await pngTransfer(page, "on-tree.png", 12);
+  const treeSub = tree.locator(`[data-drop="${parent}/sub"]`);
+  const dt2 = await pngTransfer(page, "on-tree.png", seedOf(12));
   await treeSub.dispatchEvent("dragenter", { dataTransfer: dt2 });
   await treeSub.dispatchEvent("dragover", { dataTransfer: dt2 });
   await expect(treeSub).toHaveAttribute("data-drop-over", "");
   await treeSub.dispatchEvent("drop", { dataTransfer: dt2 });
   await expect(treeSub).not.toHaveAttribute("data-drop-over");
   await expect(rows(page)).toHaveAttribute("data-status", "done");
-  expect(await uploadedKeys(page)).toContain("/mock/up-target/sub/on-tree.png");
+  expect(await uploadedKeys(page)).toContain(`${parent}/sub/on-tree.png`);
   await page.getByRole("button", { name: "閉じる" }).click();
 
   // Anywhere else: the open folder.
-  const dt3 = await pngTransfer(page, "on-space.png", 13);
+  const dt3 = await pngTransfer(page, "on-space.png", seedOf(13));
   await zone.dispatchEvent("dragenter", { dataTransfer: dt3 });
   await expect(zone).toContainText(
-    "ここにドロップして /mock/up-target にアップロード",
+    `ここにドロップして ${parent} にアップロード`,
   );
   await zone.dispatchEvent("dragover", { dataTransfer: dt3 });
   await zone.dispatchEvent("drop", { dataTransfer: dt3 });
   await expect(rows(page)).toHaveAttribute("data-status", "done");
-  await expect(page.getByTestId("upload-dest")).toHaveText(
-    "/mock/up-target へ",
-  );
-  expect(await uploadedKeys(page)).toContain("/mock/up-target/on-space.png");
+  await expect(page.getByTestId("upload-dest")).toHaveText(`${parent} へ`);
+  expect(await uploadedKeys(page)).toContain(`${parent}/on-space.png`);
   await expect(page.getByTestId("file-tile")).toHaveCount(1);
   await page.getByRole("button", { name: "閉じる" }).click();
   await expect(rows(page)).toHaveCount(0);
 
-  // A drag within the page still moves, and uploads nothing.
+  // A drag within the page still moves, and uploads nothing. (Playwright's
+  // drags in Firefox are dispatched from script, so Qwik's sync$ handlers,
+  // which qwikloader runs after a microtask, accept them too late: the
+  // move itself is checked in Chromium only.)
   const before = (await uploadedKeys(page)).length;
   await page
     .getByTestId("file-tile")
     .filter({ hasText: "on-space.png" })
     .dragTo(sub);
-  await expect(
-    page.getByText("1 件を /mock/up-target/sub に移動しました。"),
-  ).toBeVisible();
-  await expect(page.getByTestId("file-tile")).toHaveCount(0);
+  if (test.info().project.name !== "firefox") {
+    await expect(
+      page.getByText(`1 件を ${parent}/sub に移動しました。`),
+    ).toBeVisible();
+    await expect(page.getByTestId("file-tile")).toHaveCount(0);
+  }
   await expect(page.getByTestId("upload-panel")).toHaveCount(0);
   expect(await uploadedKeys(page)).toHaveLength(before);
+
+  // After that move, a drop from outside is still an upload: on a
+  // breadcrumb, from inside the subfolder.
+  await page.goto(`/media/?view=files&dir=${parent}/sub`);
+  const crumb = page
+    .getByRole("navigation", { name: "Folder path" })
+    .locator(`[data-drop="${parent}"]`);
+  const dt4 = await pngTransfer(page, "on-crumb.png", seedOf(14));
+  // The zone listens once it is visible, a moment after the load.
+  await expect(async () => {
+    await crumb.dispatchEvent("dragenter", { dataTransfer: dt4 });
+    await crumb.dispatchEvent("dragover", { dataTransfer: dt4 });
+    await expect(crumb).toHaveAttribute("data-drop-over", "", {
+      timeout: 500,
+    });
+  }).toPass();
+  await crumb.dispatchEvent("drop", { dataTransfer: dt4 });
+  await expect(rows(page)).toHaveAttribute("data-status", "done");
+  await expect(page.getByTestId("upload-dest")).toHaveText(`${parent} へ`);
+  expect(await uploadedKeys(page)).toContain(`${parent}/on-crumb.png`);
 });
 
 test.describe("on an iPhone", () => {
