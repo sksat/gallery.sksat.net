@@ -57,6 +57,7 @@ import {
   type PhotoDataGroups,
 } from "~/lib/photo-data";
 import { PhotoDataFields } from "~/components/photo-data-fields";
+import { withoutViewer } from "~/lib/review-keys";
 import { pendingBatches, type Pending } from "~/lib/review-pending";
 import { VisibilityBadge } from "~/components/visibility-badge";
 import {
@@ -677,6 +678,7 @@ export default component$(() => {
   });
   /** Pending choices in the viewer (they too ask before leaving). */
   const pendingCount = useSignal(0);
+  const viewerOpen = useSignal(false);
   const move = useMovePhoto();
   const undoMove = useUndoMove();
   const trash = useTrashPhoto();
@@ -763,9 +765,21 @@ export default component$(() => {
     if (!dirty.value && !pendingLeft) return false;
     // A link inside the app can ask; a browser navigation (reload, close)
     // only gets the browser's own dialog.
-    return url
-      ? !confirm(dirty.value ? UNSAVED_CONFIRM : PENDING_CONFIRM)
-      : true;
+    if (!url) return true;
+    if (confirm(dirty.value ? UNSAVED_CONFIRM : PENDING_CONFIRM)) return false;
+    // Staying after a browser Back: Qwik City puts its last address back,
+    // which still says fs=1 if that was a step in the viewer, closed since
+    // (closing only drops it from the address bar). A reload would then
+    // reopen the viewer, so drop it again once that address is back.
+    setTimeout(() => {
+      if (viewerOpen.value) return;
+      const here = location.pathname + location.search;
+      const clean = withoutViewer(here);
+      if (clean !== here) {
+        history.replaceState(history.state, "", clean + location.hash);
+      }
+    }, 0);
+    return true;
   });
   // Phones: File / Last updated are folded away.
   const showMeta = useSignal(false);
@@ -890,6 +904,7 @@ export default component$(() => {
         dirty={dirty.value}
         saving={action.isRunning || move.isRunning || trash.isRunning}
         pendingCount={pendingCount}
+        viewerOpen={viewerOpen}
         onApply$={applyPending}
         onUndo$={undoPending}
       />

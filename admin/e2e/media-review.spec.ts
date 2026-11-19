@@ -251,6 +251,36 @@ test("pending choices ask before leaving; 破棄 drops them", async ({
   await expect(page).toHaveURL(/\/media\/\?/);
 });
 
+test("staying after a browser Back keeps the viewer closed on reload", async ({
+  page,
+}) => {
+  await openFromFolder(page);
+  // A step in the viewer (marking one), then close it.
+  await page.keyboard.press("2");
+  await expect(position(page)).toHaveText("2 / 5");
+  await page.keyboard.press("Escape");
+  await expect(viewer(page)).toBeHidden();
+  await expect(page).not.toHaveURL(/fs=1/);
+
+  // Browser Back with a pending choice asks; stay.
+  let asked = "";
+  page.once("dialog", (d) => {
+    asked = d.message();
+    void d.dismiss();
+  });
+  await page.evaluate(() => history.back());
+  await expect.poll(() => asked).toContain("反映していない");
+  await expect(page).toHaveURL(/\/media\/3\//);
+  await expect(page).not.toHaveURL(/fs=1/);
+
+  // A reload stays on the page, viewer closed.
+  page.on("dialog", (d) => void d.accept());
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Edit #3" })).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(viewer(page)).toBeHidden();
+});
+
 test("held keys, typing and IME do not trigger shortcuts", async ({ page }) => {
   await openFromFolder(page);
   let posts = 0;
