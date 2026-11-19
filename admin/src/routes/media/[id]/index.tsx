@@ -10,6 +10,7 @@ import {
   z,
   type DocumentHead,
 } from "@builder.io/qwik-city";
+import { CameraGlyph } from "~/components/camera-label";
 import { FileMetadata } from "~/components/file-metadata";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { PhotoViews } from "~/components/photo-views";
@@ -591,22 +592,6 @@ const VISIBILITY_HELP: Record<Visibility, string> = {
 };
 
 const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
-
-/** A small camera: a tag that comes from the photo's camera. */
-const CameraGlyph = () => (
-  <svg
-    viewBox="0 0 20 20"
-    fill="currentColor"
-    aria-hidden="true"
-    class="size-3.5 shrink-0"
-  >
-    <path
-      fill-rule="evenodd"
-      d="M1 8a2 2 0 0 1 2-2h.93a2 2 0 0 0 1.66-.89l.82-1.22A2 2 0 0 1 8.07 3h3.86a2 2 0 0 1 1.66.89l.82 1.22a2 2 0 0 0 1.66.89H17a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8Zm13.5 3.5a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM10 14a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
-      clip-rule="evenodd"
-    />
-  </svg>
-);
 
 /** Whether the public site shows a field that has (or lacks) a value. */
 const shows = (row: MediaRow, hasValue: boolean) =>
