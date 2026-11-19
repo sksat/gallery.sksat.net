@@ -666,6 +666,93 @@ test("drop files on the Files view to upload them", async ({ page }) => {
   await expect(page.getByTestId("file-tile")).toHaveCount(1);
 });
 
+/** A DataTransfer holding one small PNG, as the OS hands it over. */
+const pngTransfer = (page: Page, name: string, seed: number) =>
+  page.evaluateHandle(
+    ([name, seed]) => {
+      const d = new DataTransfer();
+      const bytes = new Uint8Array(2048).fill(seed);
+      bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      d.items.add(new File([bytes], name, { type: "image/png" }));
+      return d;
+    },
+    [name, seed] as const,
+  );
+
+test("drop files on a folder to upload them into it", async ({ page }) => {
+  await newFolder(page, "/mock", "up-target");
+  await page.getByRole("button", { name: "New folder" }).click();
+  await page.getByLabel("Folder name").fill("sub");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page).toHaveURL(/dir=\/mock\/up-target\/sub$/);
+  await page.goBack();
+  const zone = page.getByTestId("drop-zone");
+  const sub = page.getByTestId("folder-tile").filter({ hasText: "sub" });
+  await expect(sub).toHaveCount(1);
+
+  // On a folder tile: marked like a move's target, no overlay, and the
+  // file goes into that folder.
+  const dt1 = await pngTransfer(page, "on-tile.png", 11);
+  await zone.dispatchEvent("dragenter", { dataTransfer: dt1 });
+  await expect(zone).toContainText("ここにドロップして");
+  await sub.dispatchEvent("dragenter", { dataTransfer: dt1 });
+  await sub.dispatchEvent("dragover", { dataTransfer: dt1 });
+  await expect(sub).toHaveAttribute("data-drop-over", "");
+  await expect(zone).not.toContainText("ここにドロップして");
+  await sub.dispatchEvent("drop", { dataTransfer: dt1 });
+  await expect(sub).not.toHaveAttribute("data-drop-over");
+  await expect(rows(page)).toHaveAttribute("data-status", "done");
+  await expect(page.getByTestId("upload-dest")).toHaveText(
+    "/mock/up-target/sub へ",
+  );
+  expect(await uploadedKeys(page)).toContain("/mock/up-target/sub/on-tile.png");
+  await expect(page.getByTestId("file-tile")).toHaveCount(0);
+  await page.getByRole("button", { name: "閉じる" }).click();
+
+  // On a folder in the tree.
+  const tree = page.getByRole("navigation", { name: "Folders" });
+  const treeSub = tree.locator('[data-drop="/mock/up-target/sub"]');
+  const dt2 = await pngTransfer(page, "on-tree.png", 12);
+  await treeSub.dispatchEvent("dragenter", { dataTransfer: dt2 });
+  await treeSub.dispatchEvent("dragover", { dataTransfer: dt2 });
+  await expect(treeSub).toHaveAttribute("data-drop-over", "");
+  await treeSub.dispatchEvent("drop", { dataTransfer: dt2 });
+  await expect(treeSub).not.toHaveAttribute("data-drop-over");
+  await expect(rows(page)).toHaveAttribute("data-status", "done");
+  expect(await uploadedKeys(page)).toContain("/mock/up-target/sub/on-tree.png");
+  await page.getByRole("button", { name: "閉じる" }).click();
+
+  // Anywhere else: the open folder.
+  const dt3 = await pngTransfer(page, "on-space.png", 13);
+  await zone.dispatchEvent("dragenter", { dataTransfer: dt3 });
+  await expect(zone).toContainText(
+    "ここにドロップして /mock/up-target にアップロード",
+  );
+  await zone.dispatchEvent("dragover", { dataTransfer: dt3 });
+  await zone.dispatchEvent("drop", { dataTransfer: dt3 });
+  await expect(rows(page)).toHaveAttribute("data-status", "done");
+  await expect(page.getByTestId("upload-dest")).toHaveText(
+    "/mock/up-target へ",
+  );
+  expect(await uploadedKeys(page)).toContain("/mock/up-target/on-space.png");
+  await expect(page.getByTestId("file-tile")).toHaveCount(1);
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(rows(page)).toHaveCount(0);
+
+  // A drag within the page still moves, and uploads nothing.
+  const before = (await uploadedKeys(page)).length;
+  await page
+    .getByTestId("file-tile")
+    .filter({ hasText: "on-space.png" })
+    .dragTo(sub);
+  await expect(
+    page.getByText("1 件を /mock/up-target/sub に移動しました。"),
+  ).toBeVisible();
+  await expect(page.getByTestId("file-tile")).toHaveCount(0);
+  await expect(page.getByTestId("upload-panel")).toHaveCount(0);
+  expect(await uploadedKeys(page)).toHaveLength(before);
+});
+
 test.describe("on an iPhone", () => {
   test.use({
     viewport: { width: 390, height: 844 },
