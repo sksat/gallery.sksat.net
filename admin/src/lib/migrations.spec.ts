@@ -621,6 +621,9 @@ describe("0005_path_trash.sql", () => {
       ('/2024/c.jpg', 'Real', '2024-03-09T00:00:00+09:00', '${scan}', NULL),
       -- Still the scan's own date: automatic (and never read again as one).
       ('/2024/d.jpg', 'Real', '2021-01-01T00:31:12+09:00', '${scan}', NULL),
+      -- No DateTimeOriginal: the old parser took the scan's DateTime.
+      ('/2024/g.jpg', 'Real', '2021-01-01T00:31:12+09:00',
+        '{"make":"GCMC","model":"Scanner"}', NULL),
       -- A camera's date: automatic.
       ('/e.jpg', 'Real', '2023-12-11T01:21:32+09:00',
         '{"make":"FUJIFILM","model":"X-T5","taken_at_original":"2023-12-11T01:21:32+09:00"}', NULL),
@@ -638,6 +641,7 @@ describe("0005_path_trash.sql", () => {
     expect(src("/2024/b.jpg")).toEqual({ taken_at: "manual", exif: "file" });
     expect(src("/2024/c.jpg")).toEqual({ taken_at: "manual", exif: "file" });
     expect(src("/2024/d.jpg")).toEqual({ taken_at: "filename", exif: "file" });
+    expect(src("/2024/g.jpg")).toEqual({ taken_at: "filename", exif: "file" });
     expect(src("/e.jpg")).toEqual({ taken_at: "filename", exif: "file" });
     expect(src("/f.jpg")).toEqual({ exif: "file" });
   });

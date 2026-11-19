@@ -75,8 +75,12 @@ WHERE timestamp IS NOT NULL
         OR COALESCE(json_extract(exif, '$.model'), '') LIKE 'EZcontroller%'
         OR COALESCE(json_extract(exif, '$.model'), '') LIKE '%scanner%'
       )
+      -- Only against a date the file has: without DateTimeOriginal the old
+      -- parser took the file's DateTime, the scan's as well, which is no
+      -- hand edit.
+      AND json_extract(exif, '$.taken_at_original') IS NOT NULL
       AND substr(timestamp, 1, 10)
-          IS NOT substr(json_extract(exif, '$.taken_at_original'), 1, 10)
+          <> substr(json_extract(exif, '$.taken_at_original'), 1, 10)
     )
   );
 
