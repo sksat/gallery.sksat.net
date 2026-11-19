@@ -101,9 +101,9 @@ export const getWebAnalyticsConfig = (
   return { kind: "ok", cfg: { token, accountId, siteTag, host } };
 };
 
-/** How many pages are read per range (photos are mapped from these). */
+/** How many pages are read per range (the ranking adds up their forms). */
 export const PAGE_LIMIT = 1000;
-const TOP_LIMIT = 10;
+export const TOP_LIMIT = 10;
 // Referrers are read with room for the site's own hosts, which are dropped.
 const REFERRER_LIMIT = 20;
 
@@ -315,7 +315,7 @@ export const fetchAccess = async (
 /**
  * The public id of a photo page, /photo/<public_id> with or without the
  * trailing slash; null for any other path (including old /photo/<N>
- * URLs, which only show up in the top pages).
+ * URLs).
  */
 export const parsePhotoPath = (path: string): string | null => {
   const m = /^\/photo\/([^/?#]+)\/?$/.exec(path);
@@ -333,71 +333,6 @@ export const photoCounts = (
       out.pageViews += p.pageViews;
       out.visits += p.visits;
     }
-  }
-  return out;
-};
-
-export type PhotoMediaRow = {
-  id: number;
-  public_id: string;
-  file: string;
-  platform: "Real" | "VRChat";
-};
-
-/** The public ids of the photo pages, to look the rows up. */
-export const photoIdsOf = (pages: AccessStats["pages"]): string[] => {
-  const ids = new Set<string>();
-  for (const p of pages) {
-    const id = parsePhotoPath(p.path);
-    if (id) ids.add(id);
-  }
-  return [...ids];
-};
-
-/**
- * Most viewed photos: page views per media row (both forms of its path
- * added up), most first, then by id; paths that match no row are dropped.
- */
-export const topPhotos = (
-  pages: AccessStats["pages"],
-  rows: PhotoMediaRow[],
-  limit = TOP_LIMIT,
-): ({ row: PhotoMediaRow } & Counts)[] => {
-  const byPublic = new Map(rows.map((r) => [r.public_id, r]));
-  const acc = new Map<number, { row: PhotoMediaRow } & Counts>();
-  for (const p of pages) {
-    const id = parsePhotoPath(p.path);
-    const row = id ? byPublic.get(id) : undefined;
-    if (!row) continue;
-    const a = acc.get(row.id) ?? { row, pageViews: 0, visits: 0 };
-    a.pageViews += p.pageViews;
-    a.visits += p.visits;
-    acc.set(row.id, a);
-  }
-  return [...acc.values()]
-    .sort((a, b) => b.pageViews - a.pageViews || a.row.id - b.row.id)
-    .slice(0, limit);
-};
-
-// D1 caps bound parameters per query at 100; the pages are at most
-// PAGE_LIMIT, so ids are looked up in chunks.
-const CHUNK = 90;
-
-/** The media rows behind photo pages (ready rows only). */
-export const photoRowsFor = async (
-  db: D1Database,
-  publicIds: string[],
-): Promise<PhotoMediaRow[]> => {
-  const out: PhotoMediaRow[] = [];
-  for (let i = 0; i < publicIds.length; i += CHUNK) {
-    const part = publicIds.slice(i, i + CHUNK);
-    const r = await db
-      .prepare(
-        `SELECT id, public_id, file, platform FROM media WHERE status = 'ready' AND public_id IN (${part.map(() => "?").join(", ")})`,
-      )
-      .bind(...part)
-      .all<PhotoMediaRow>();
-    out.push(...r.results);
   }
   return out;
 };

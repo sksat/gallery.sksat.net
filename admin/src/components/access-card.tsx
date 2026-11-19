@@ -10,16 +10,10 @@ import {
   type AccessRange,
   type AccessResult,
   type AccessStats,
-  type PhotoMediaRow,
 } from "~/lib/web-analytics";
-import { Thumb } from "./thumb";
+import type { RankedPage } from "~/lib/page-ranking";
+import { PageRanking } from "./page-ranking";
 import { card, muted } from "./ui";
-
-export type TopPhoto = {
-  row: PhotoMediaRow;
-  pageViews: number;
-  visits: number;
-};
 
 const bucketLabel = (key: string): string =>
   key.length > 10
@@ -159,9 +153,9 @@ const RangeTabs = component$<{ range: AccessRange }>(({ range }) => (
 export const AccessCard = component$<{
   range: AccessRange;
   access: AccessResult;
-  photos: TopPhoto[];
+  pages: RankedPage[];
   imageBase: string | null;
-}>(({ range, access, photos, imageBase }) => (
+}>(({ range, access, pages, imageBase }) => (
   <section aria-labelledby="access-heading" class={[card, "p-5"]}>
     <div class="flex flex-wrap items-center justify-between gap-2">
       <h2 id="access-heading" class="text-base font-semibold">
@@ -207,46 +201,10 @@ export const AccessCard = component$<{
         <Chart stats={access.stats} />
 
         <div class="mt-6">
-          <h3 class="text-sm font-semibold">よく見られた写真</h3>
-          {photos.length === 0 ? (
-            <p class={["mt-2 text-sm", muted]}>なし</p>
-          ) : (
-            <ol class="mt-2 divide-y divide-zinc-100 dark:divide-zinc-800">
-              {photos.map((p) => (
-                <li key={p.row.id}>
-                  <Link
-                    prefetch="js"
-                    href={`/media/${p.row.id}/`}
-                    class="flex min-h-11 items-center gap-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-                  >
-                    <Thumb
-                      file={p.row.file}
-                      platform={p.row.platform}
-                      imageBase={imageBase}
-                      variant="list"
-                      class="w-20 rounded-md"
-                    />
-                    <span class="min-w-0 flex-1 truncate text-sm">
-                      {p.row.file}
-                    </span>
-                    <span class={["shrink-0 text-sm tabular-nums", muted]}>
-                      {formatCount(p.pageViews)} PV
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ol>
-          )}
+          <PageRanking pages={pages} imageBase={imageBase} />
         </div>
 
-        <div class="mt-6 grid gap-6 sm:grid-cols-3">
-          <TopList
-            title="ページ"
-            rows={access.stats.pages
-              .slice(0, 10)
-              .map((p) => ({ label: p.path, value: p.pageViews }))}
-            max={access.stats.pages[0]?.pageViews ?? 0}
-          />
+        <div class="mt-6 grid gap-6 sm:grid-cols-2">
           <TopList
             title="国"
             rows={access.stats.countries.map((c) => ({

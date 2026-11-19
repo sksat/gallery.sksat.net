@@ -52,9 +52,19 @@ const access = (query, vars) => {
       g(10, 8, { requestPath: "/photo/aaaaaaaaa3" }),
       g(25, 20, { requestPath: "/photo/aaaaaaaaa5/" }),
       g(15, 10, { requestPath: "/camera/" }),
-      // No such photo, and an old numeric URL: pages, not photos.
+      // Fixture camera 1, both forms.
+      g(12, 9, { requestPath: "/camera/virtuallens2/" }),
+      g(2, 2, { requestPath: "/camera/virtuallens2" }),
+      g(8, 6, { requestPath: "/calendar/2023/12/" }),
+      g(6, 5, { requestPath: "/map/" }),
+      // No such photo.
       g(5, 5, { requestPath: "/photo/zzzzzzzzzz/" }),
+      // Fixture photo 5 (private now).
+      g(4, 4, { requestPath: "/photo/aaaaaaaaa6/" }),
+      // Old numeric URLs: one row together, 6.
       g(3, 3, { requestPath: "/photo/1" }),
+      g(2, 2, { requestPath: "/photo/0" }),
+      g(1, 1, { requestPath: "/photo/30/" }),
     ],
     countries: [
       g(150, null, { countryName: "JP" }),
