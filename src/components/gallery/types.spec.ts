@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatTaken,
+  parseLocation,
   parseMediaItem,
   parseMediaList,
   parseMediaTimestamp,
@@ -207,5 +208,59 @@ describe("parseMediaList", () => {
   it("keeps the valid photos of an array", () => {
     expect(parseMediaList([item, { id: 1 }])).toEqual([item]);
     expect(parseMediaList({ media: [] })).toEqual([]);
+  });
+});
+
+describe("parseLocation", () => {
+  it("keeps a valid position, rounded to its precision", () => {
+    expect(
+      parseLocation({ latitude: 35.6812, longitude: 139.7671, precision: "city" }),
+    ).toEqual({ latitude: 35.68, longitude: 139.77, precision: "city" });
+    // Rounding at the boundaries: -0 becomes 0, and a half rounds up.
+    expect(
+      parseLocation({ latitude: -0.004, longitude: 0.05, precision: "prefecture" }),
+    ).toEqual({ latitude: 0, longitude: 0.1, precision: "prefecture" });
+    expect(
+      parseLocation({ latitude: 89.6, longitude: -179.6, precision: "country" }),
+    ).toEqual({ latitude: 90, longitude: -180, precision: "country" });
+  });
+
+  it("drops anything else", () => {
+    for (const v of [
+      null,
+      "35,139",
+      { latitude: 35, longitude: 139 },
+      { latitude: 35, longitude: 139, precision: "street" },
+      { latitude: 91, longitude: 139, precision: "exact" },
+      { latitude: "35", longitude: 139, precision: "exact" },
+    ]) {
+      expect(parseLocation(v)).toBeNull();
+    }
+  });
+
+  it("is on a parsed photo only when public", () => {
+    const base = {
+      id: "abcdefghjk",
+      file: null,
+      platform: "Real",
+      timestamp: null,
+      camera: null,
+      tags: [],
+    };
+    expect(parseMediaItem(base)?.location).toBeNull();
+    // Never for a VRChat photo, whatever the API says.
+    expect(
+      parseMediaItem({
+        ...base,
+        platform: "VRChat",
+        location: { latitude: 35, longitude: 139, precision: "exact" },
+      })?.location,
+    ).toBeNull();
+    expect(
+      parseMediaItem({
+        ...base,
+        location: { latitude: 35, longitude: 139, precision: "exact" },
+      })?.location,
+    ).toEqual({ latitude: 35, longitude: 139, precision: "exact" });
   });
 });

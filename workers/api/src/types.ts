@@ -60,7 +60,7 @@ export type MediaItemJSON = {
    * "exact" to 5 decimals (about 1 m); "city", "prefecture" and "country"
    * only as a coarse position (2, 1 and 0 decimals) with no place name
    * yet (reverse geocoding comes later). Null when hidden (the default)
-   * or unknown.
+   * or unknown, and always for VRChat photos.
    */
   location: MediaLocationJSON | null;
   /**

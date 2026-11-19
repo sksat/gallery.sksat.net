@@ -197,6 +197,14 @@ export const calendarOgp = (
   url: SITE_URL + path,
 });
 
+/** Card for the map (/map/): the site card, like the top. */
+export const mapOgp = (bases: ImageBases, media: MediaInfoJSON[]): Ogp => ({
+  ...topOgp(bases, media),
+  title: `地図 | ${SITE_NAME}`,
+  description: `${SITE_NAME} の写真を撮った場所の地図です。`,
+  url: `${SITE_URL}/map/`,
+});
+
 /**
  * Keeps a calendar page with no photos (any year or month can be opened by
  * URL) out of search results.

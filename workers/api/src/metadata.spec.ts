@@ -6,9 +6,49 @@ import {
   exifAt,
   parseExif,
   effectiveLevels,
+  locationAt,
   METADATA_LEVELS,
   truncateTimestamp,
 } from "./metadata";
+import { LOCATION_DECIMALS } from "../../../shared/map/map";
+
+describe("locationAt", () => {
+  it("rounds to each level's decimals, at the boundaries too", () => {
+    const at = (lat: number, lng: number, level: "exact" | "city" | "prefecture" | "country") =>
+      locationAt(lat, lng, level);
+    expect(at(35.681236, 139.767125, "exact")).toEqual({
+      latitude: 35.68124,
+      longitude: 139.76713,
+      precision: "exact",
+    });
+    expect(at(35.685, 139.765, "city")?.latitude).toBe(35.69);
+    expect(at(-0.04, -0.04, "prefecture")).toEqual({
+      latitude: 0,
+      longitude: 0,
+      precision: "prefecture",
+    });
+    expect(Object.is(at(-0.04, -0.04, "prefecture")?.latitude, -0)).toBe(false);
+    expect(at(-35.5, 179.5, "country")).toEqual({
+      latitude: -35,
+      longitude: 180,
+      precision: "country",
+    });
+  });
+
+  it("is null when hidden or not known", () => {
+    expect(locationAt(35, 139, "hidden")).toBeNull();
+    expect(locationAt(null, 139, "exact")).toBeNull();
+    expect(locationAt(35, null, "exact")).toBeNull();
+  });
+
+  it("uses the decimals the map draws areas for", () => {
+    // shared/map/map.ts sizes the approximate areas by these.
+    for (const [level, d] of Object.entries(LOCATION_DECIMALS)) {
+      const r = locationAt(1 / 3, 1 / 3, level as "exact");
+      expect(r?.latitude).toBe(Math.round((1 / 3) * 10 ** d) / 10 ** d);
+    }
+  });
+});
 
 describe("effectiveLevels", () => {
   it("takes the photo's level, else the site's, else the built-in one", () => {

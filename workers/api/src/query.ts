@@ -200,7 +200,12 @@ export const projectPhoto = (
         ? null
         : levels.taken_at,
     camera: cameraAt(row, levels.camera),
-    location: locationAt(row.latitude, row.longitude, levels.location),
+    // A VRChat photo was taken in a world, not at a real-world place: a
+    // position on one (a mistake, or the player's own GPS) is never public.
+    location:
+      row.platform === "VRChat"
+        ? null
+        : locationAt(row.latitude, row.longitude, levels.location),
     world: worldAt(row.world_id, row.world_name, levels.world),
     exif: exifAt(row.exif, levels.exif, levels),
     tags:
