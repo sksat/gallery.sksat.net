@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  dateParam,
   galleryUrl,
   navigateImage,
   photoIdFromPath,
@@ -142,6 +143,53 @@ describe("visibleMedia", () => {
         (m) => m.index,
       ),
     ).toEqual([1]);
+  });
+
+  it("keeps a calendar date's photos (a month-only photo is on no day)", () => {
+    const dated = [
+      { ...media[0], takenDate: "2023-12-04" },
+      { ...media[1], takenDate: "2023-12" },
+      { ...media[2], takenDate: "2023" },
+    ];
+    const at = (date: string) =>
+      visibleMedia(dated, none, null, date).map((m) => m.index);
+    expect(at("2023-12-04")).toEqual([0]);
+    expect(at("2023-12")).toEqual([0, 1]);
+    expect(at("2023")).toEqual([0, 1, 2]);
+    expect(at("2024")).toEqual([]);
+    expect(
+      visibleMedia(dated, none, "virtuallens2", "2023-12").map((m) => m.index),
+    ).toEqual([1]);
+  });
+});
+
+describe("galleryUrl with a date", () => {
+  const none = { tags: [], mode: "and" as const };
+  it("keeps ?date= on the gallery and on a photo", () => {
+    expect(galleryUrl(null, none, undefined, null, "2023-12-04")).toBe(
+      "/?date=2023-12-04",
+    );
+    expect(
+      galleryUrl(
+        "abcdefghjk",
+        { tags: ["night"], mode: "and" },
+        undefined,
+        null,
+        "2023-12",
+      ),
+    ).toBe("/photo/abcdefghjk?date=2023-12&tag=night");
+  });
+});
+
+describe("dateParam", () => {
+  it("reads a real year, month or day", () => {
+    const p = (q: string) => dateParam(new URLSearchParams(q));
+    expect(p("date=2023-12-04")).toBe("2023-12-04");
+    expect(p("date=2023")).toBe("2023");
+    expect(p("date=2023-13")).toBeNull();
+    expect(p("date=2023-02-30")).toBeNull();
+    expect(p("date=")).toBeNull();
+    expect(p("")).toBeNull();
   });
 });
 
