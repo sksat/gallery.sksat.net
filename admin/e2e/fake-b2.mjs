@@ -7,13 +7,16 @@
 // the signed x-amz-meta-sha256. GET /__uploads lists what was stored;
 // GET /__stat?key=<file> is what the admin's upload check sees
 // (E2E_FAKE_B2_STAT_URL, in place of the image Worker's stat); GET
-// /__bytes reads a stored or seeded (PUT /__seed) object's bytes.
+// /__bytes reads a stored or seeded (PUT /__seed) object's bytes. A PUT
+// whose key contains "slow" is read at 1 MiB/s.
 //
 // Usage: node e2e/fake-b2.mjs <port> <bucket> <keyId> <secret> <region>
 import { createHash, createHmac } from "node:crypto";
 import { createServer } from "node:http";
 
 const [port, bucket, keyId, secret, region] = process.argv.slice(2);
+/** How fast a PUT whose key contains "slow" is read. */
+const SLOW_BYTES_PER_SEC = 1024 * 1024;
 const uploads = [];
 let versions = 0;
 /** What was PUT, by key (GET /__bytes reads it). */
@@ -216,10 +219,20 @@ createServer((req, res) => {
   const hash = createHash("sha256");
   let size = 0;
   const chunks = [];
+  // A key containing "slow" is read at SLOW_BYTES_PER_SEC, like a slow
+  // line, so the browser sees its upload progress over several seconds.
+  const slow = url.pathname.includes("slow");
   req.on("data", (chunk) => {
     size += chunk.length;
     hash.update(chunk);
     chunks.push(chunk);
+    if (slow) {
+      req.pause();
+      setTimeout(
+        () => req.resume(),
+        (chunk.length / SLOW_BYTES_PER_SEC) * 1000,
+      );
+    }
   });
   req.on("end", () => {
     const sha256 = hash.digest("hex");

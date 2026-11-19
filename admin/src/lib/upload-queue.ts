@@ -13,6 +13,7 @@
 import type { TakenAtSource } from "./metadata-source";
 import type { FileHints, StoredMeta } from "./photo-meta";
 import { checkUploadLimits, uploadTarget } from "./upload";
+import { batchBytes } from "./upload-progress";
 import type { AppliedChip } from "./upload-rules";
 
 export type UploadStatus =
@@ -349,8 +350,6 @@ export const createUploadQueue = <S extends UploadSource>(
 
 /** Totals for the panel's header and overall bar. */
 export const summarize = (items: readonly UploadItem[]) => {
-  let bytes = 0;
-  let sent = 0;
   const count = {
     queued: 0,
     preparing: 0,
@@ -360,19 +359,15 @@ export const summarize = (items: readonly UploadItem[]) => {
     skipped: 0,
     failed: 0,
   } satisfies Record<UploadStatus, number>;
-  for (const it of items) {
-    count[it.status]++;
-    if (it.status === "skipped") continue;
-    bytes += it.size;
-    sent += it.status === "done" ? it.size : it.loaded;
-  }
+  for (const it of items) count[it.status]++;
   const active =
     count.queued + count.preparing + count.uploading + count.completing;
+  const { sent, total } = batchBytes(items);
   return {
     count,
     /** Files still in flight or waiting. */
     active,
-    /** 0..1 over the files that are not skipped. */
-    progress: bytes === 0 ? 0 : sent / bytes,
+    /** 0..1 over the files that are sent or will be (batchBytes). */
+    progress: total === 0 ? 0 : sent / total,
   };
 };
