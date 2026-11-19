@@ -17,6 +17,7 @@ import {
   type TagFieldValue,
 } from "@shared/tag-field/tag-field";
 import { contentChanged, contentVersionStatement } from "./last-good";
+import { passedOnTags, photoTags } from "./db-camera-tag";
 import { LIVE_PHOTO } from "./types";
 
 type RawField = {
@@ -459,16 +460,25 @@ export const listTagValueInfo = async (
   ids: readonly number[],
 ): Promise<TagValueInfo[]> => {
   if (ids.length === 0) return [];
-  const res = await db
-    .prepare(
-      `SELECT id, tags, tag_values FROM media
-       WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id`,
-    )
-    .bind(JSON.stringify(ids))
-    .all<{ id: number; tags: string; tag_values: string | null }>();
+  const [res, passed] = await Promise.all([
+    db
+      .prepare(
+        `SELECT id, tags, camera_id, tag_values FROM media
+         WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id`,
+      )
+      .bind(JSON.stringify(ids))
+      .all<{
+        id: number;
+        tags: string;
+        camera_id: number | null;
+        tag_values: string | null;
+      }>(),
+    passedOnTags(db),
+  ]);
+  // Tags from the camera count too (0011): their fields apply.
   return (res.results ?? []).map((r) => ({
     id: r.id,
-    tags: parseTagList(r.tags),
+    tags: photoTags(parseTagList(r.tags), r.camera_id, passed),
     values: parseValueMap(r.tag_values),
   }));
 };

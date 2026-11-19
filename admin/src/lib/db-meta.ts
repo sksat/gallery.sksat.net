@@ -72,13 +72,21 @@ export type TagRow = {
 export const listTags = async (db: D1Database): Promise<TagRow[]> => {
   const res = await db
     .prepare(
-      `WITH used AS (
-         SELECT j.value AS name, COUNT(DISTINCT media.id) AS n
+      `WITH has AS (
+         -- A photo's own tags and those its camera passes on (0011).
+         SELECT media.id, j.value AS name
          FROM media, json_each(media.tags) j
          WHERE ${LIVE_PHOTO} AND json_valid(media.tags) AND j.type = 'text'
-         GROUP BY j.value
+         UNION
+         -- From the few camera tags to their cameras' photos (the
+         -- camera_id index), not a second pass over every photo.
+         SELECT media.id, ct.tag FROM camera_tag ct
+         CROSS JOIN media ON media.camera_id = ct.camera_id
+         WHERE ct.propagate = 1 AND ${LIVE_PHOTO}
        ),
-       names AS (SELECT name FROM tag UNION SELECT name FROM used)
+       used AS (SELECT name, COUNT(*) AS n FROM has GROUP BY name),
+       names AS (SELECT name FROM tag UNION SELECT name FROM used
+                 UNION SELECT tag FROM camera_tag)
        SELECT names.name, COALESCE(tag.public, 0) AS public,
               COALESCE(used.n, 0) AS count
        FROM names
