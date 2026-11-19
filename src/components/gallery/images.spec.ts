@@ -4,9 +4,29 @@ import {
   GRID_CANDIDATES,
   HIDDEN_ORIGINAL,
   imageUrl,
+  videoUrl,
   originalUrl,
   srcSet,
 } from "./images";
+
+describe("videos", () => {
+  const video = { id: "vdxxxxxxxa", file: "/m/clip.mp4", kind: "video" as const };
+  it("show their poster through the Worker, and nothing without it", () => {
+    expect(imageUrl("https://s3/", video, "https://g/img", "h240")).toBe(
+      "https://g/img/vdxxxxxxxa?size=h240",
+    );
+    // The original is no image: never used as one.
+    expect(imageUrl("https://s3/", video, undefined, "h240")).toBe(
+      HIDDEN_ORIGINAL,
+    );
+  });
+  it("play from /video/<id> on the same host", () => {
+    expect(videoUrl("vdxxxxxxxa", undefined)).toBe("/video/vdxxxxxxxa");
+    expect(videoUrl("vdxxxxxxxa", "https://x/v/")).toBe(
+      "https://x/v/vdxxxxxxxa",
+    );
+  });
+});
 
 describe("dimensionsFromFile", () => {
   it("reads the size from a VRChat screenshot name", () => {

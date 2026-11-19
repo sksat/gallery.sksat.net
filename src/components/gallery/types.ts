@@ -126,6 +126,12 @@ export type MediaInfoJSON = {
   tags: string[];
   /** Public values of its tags' fields (the API's `tag_fields`), as text. */
   tag_fields?: MediaTagField[];
+  /**
+   * A video (left out for a photo): it plays from /video/<id>, and its
+   * images are its poster. Its length when known.
+   */
+  kind?: "video";
+  duration_ms?: number | null;
 };
 
 /** One field of a tag on a photo: 「フィルム」 → 銘柄: Portra 400. */
@@ -344,8 +350,17 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
       ? tags.filter((t): t is string => typeof t === "string")
       : [],
     tag_fields: parseTagFields(v.tag_fields),
+    ...(v.kind === "video"
+      ? {
+          kind: "video" as const,
+          duration_ms: positiveOrNull(v.duration_ms),
+        }
+      : {}),
   };
 };
+
+const positiveOrNull = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 
 /**
  * `tag_fields` from the API: each a tag, a label and a value (text, or a

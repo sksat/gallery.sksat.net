@@ -46,6 +46,12 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
           </dd>
         </div>
       )}
+      {i.duration && (
+        <div data-testid="info-duration">
+          <dt>長さ</dt>
+          <dd class="tabular-nums">{i.duration}</dd>
+        </div>
+      )}
       {(i.camera || i.body || i.lens) && (
         <div data-testid="info-camera">
           <dt>カメラ</dt>

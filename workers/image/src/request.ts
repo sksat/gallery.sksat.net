@@ -185,6 +185,9 @@ export const isCardPreset = (preset: PresetName): boolean =>
 
 const VIDEO_EXTENSION = /\.(mp4|mov|webm)$/i;
 
+/** Whether a bucket key is a video's (its original is never resized). */
+export const isVideoKey = (key: string): boolean => VIDEO_EXTENSION.test(key);
+
 /**
  * A bucket key AdminImage.stat may look at: an image's path, or a video
  * original's (same segment rules, a video extension). Videos are never

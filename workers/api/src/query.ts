@@ -77,6 +77,9 @@ export type MediaJoinRow = {
   digitizer_name?: string | null;
   digitizer_manufacturer?: string | null;
   digitizer_model?: string | null;
+  /** 0017: a video and its length (absent in old test tables). */
+  kind?: string | null;
+  duration_ms?: number | null;
 };
 
 export type CameraRow = {
@@ -131,20 +134,38 @@ const MEDIA_SELECT = `
          c.manufacturer AS camera_manufacturer, c.model AS camera_model,
          m.digitized_at,
          d.slug AS digitizer_slug, d.name AS digitizer_name,
-         d.manufacturer AS digitizer_manufacturer, d.model AS digitizer_model
+         d.manufacturer AS digitizer_manufacturer, d.model AS digitizer_model,
+         m.kind, m.duration_ms
   FROM media m LEFT JOIN camera c ON c.id = m.camera_id
   LEFT JOIN camera d ON d.id = m.digitized_with`;
 
 /**
+ * A video's newest ready copy of `role` made from the shown file (admin
+ * 0017: its poster, B2, or its playback copy, R2), else NULL; a photo
+ * never looks (one index step on idx_media_file_source for a video).
+ * The admin's media-file.ts has the same poster rule.
+ */
+const COPY_OF_SHOWN = (role: "poster" | "play", alias: string, column = "id") =>
+  `CASE WHEN m.kind = 'video' THEN
+    (SELECT ${alias}.${column} FROM media_file ${alias}
+     WHERE ${alias}.source_file_id = shown.id AND ${alias}.role = '${role}'
+       AND ${alias}.status = 'ready' AND ${alias}.media_id = m.id
+     ORDER BY ${alias}.id DESC LIMIT 1) END`;
+
+/** A video's playback copy's key in R2 (`play`). */
+const PLAY_OF_SHOWN = COPY_OF_SHOWN("play", "pl", "object_key");
+
+/**
  * The file the image Worker resizes for the photo `m` (admin 0013): the
  * file the photo shows (`active_file_id`, NULL = its original), or that
- * file's newest ready display copy when it has one. A few index steps for
+ * file's newest ready display copy when it has one, or a video's poster. A few index steps for
  * one photo (the original by idx_media_file_original, the shown file by
  * its id, the copy by idx_media_file_source): only the single-photo RPC
  * lookups add it. The public list never reads media_file.
  */
 const SOURCE_COLUMNS = `,
-  src.storage AS source_storage, src.object_key AS source_key`;
+  src.storage AS source_storage, src.object_key AS source_key,
+  ${PLAY_OF_SHOWN} AS play_key`;
 const SOURCE_JOINS = `
   LEFT JOIN media_file shown ON shown.id = COALESCE(m.active_file_id,
     (SELECT o.id FROM media_file o
@@ -155,6 +176,7 @@ const SOURCE_JOINS = `
      WHERE dc.source_file_id = shown.id AND dc.role = 'display'
        AND dc.status = 'ready' AND dc.media_id = m.id
      ORDER BY dc.id DESC LIMIT 1),
+    ${COPY_OF_SHOWN("poster", "pc")},
     shown.id)`;
 
 /** MEDIA_SELECT with the file to resize (sourceOf). */
@@ -172,6 +194,7 @@ export type FileSource = { storage: FileStorage; key: string };
 type SourceRow = {
   source_storage?: string | null;
   source_key?: string | null;
+  play_key?: string | null;
 };
 
 /**
@@ -205,12 +228,9 @@ export const levelSql = (field: MetadataField): string =>
  * A photo whose upload has completed (admin migration 0004) and that is
  * not in the admin's trash (0005). Rows still `uploading` reserve a path
  * but may have no file yet; trashed ones are on their way out. Neither is
- * ever served. Nor, until this Worker and the image Worker can show them,
- * are videos (admin migration 0017): a video made public before then
- * stays off the site.
+ * ever served.
  */
-const READY =
-  "m.status = 'ready' AND m.trashed_at IS NULL AND m.kind = 'image'";
+const READY = "m.status = 'ready' AND m.trashed_at IS NULL";
 
 /** Photos that are listed. */
 const LISTED = `${READY} AND m.visibility = 'public'`;
@@ -473,6 +493,10 @@ export const projectPhoto = (
       row.tag_values,
       row.tag_value_visibility,
     ),
+    // What a video is, at no level: its length is what the player shows
+    // anyway. (Its codec and device stay admin only.)
+    kind: row.kind === "video" ? "video" : "image",
+    duration_ms: row.kind === "video" ? (row.duration_ms ?? null) : null,
   };
 };
 
@@ -539,9 +563,15 @@ export const getMedia = async (
 /**
  * A photo as the image Worker gets it (RPC): projected, but with its
  * bucket key in `file` whatever its file name level, and `source`, the
- * file to resize (sourceOf). Never shown.
+ * file to resize (sourceOf), and a video's playback copy in R2 (`play`,
+ * the key /video/<id> streams; null for a photo or a video without one).
+ * Never shown.
  */
-export type ImagePhoto = MediaItemJSON & { file: string; source: FileSource };
+export type ImagePhoto = MediaItemJSON & {
+  file: string;
+  source: FileSource;
+  play: FileSource | null;
+};
 
 const imagePhoto = (
   row: MediaJoinRow & SourceRow,
@@ -550,6 +580,7 @@ const imagePhoto = (
   ...projectPhoto(row, ctx, true),
   file: row.file,
   source: sourceOf(row),
+  play: row.play_key ? { storage: "r2", key: row.play_key } : null,
 });
 
 /** A public or unlisted photo by its public id, for the image Worker. */

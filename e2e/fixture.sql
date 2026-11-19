@@ -120,3 +120,19 @@ UPDATE media SET tag_values = '{"4":"draft memo"}' WHERE id IN (5, 7);
 --   16:9; reaxxxxxxb's grey 1 × 1 stand-in square).
 UPDATE media SET width = 60, height = 80 WHERE id = 1;
 UPDATE media SET width = 64, height = 36 WHERE id IN (2, 4);
+-- A public video (admin migration 0017): undated, so it is the last tile
+-- and in no calendar; VRChat, so the VRChat count is 4. Its poster and
+-- playback copy are media_file rows made from its original (0013). None
+-- of them is ever fetched in tests (no image Worker: the tile is a grey
+-- stand-in; e2e/video.spec.ts answers /video/<id> itself).
+INSERT INTO media (id, public_id, file, platform, timestamp, tags, visibility,
+                   kind, width, height, duration_ms, video_codec,
+                   metadata_visibility) VALUES
+  (8, 'vdxxxxxxxa', '/mock/clip.webm', 'VRChat', NULL, '[]', 'public',
+   'video', 320, 180, 2000, 'vp9', '{"file_name":"path"}');
+INSERT INTO media_file (media_id, role, storage, object_key, source_file_id, status, mime_type)
+  SELECT 8, 'poster', 'b2', '/.poster/vdxxxxxxxxvdxxxxxxxx.jpg', id, 'ready', 'image/jpeg'
+  FROM media_file WHERE media_id = 8 AND role = 'original';
+INSERT INTO media_file (media_id, role, storage, object_key, source_file_id, status, mime_type)
+  SELECT 8, 'play', 'r2', '/v/vdxxxxxxxxvdxxxxxxxx.webm', id, 'ready', 'video/webm'
+  FROM media_file WHERE media_id = 8 AND role = 'original';

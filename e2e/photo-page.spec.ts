@@ -27,7 +27,7 @@ test.describe("desktop", () => {
 
   test("list → overlay → detail page, keeping the list", async ({ page }) => {
     await page.goto("/?tag=VRChat");
-    await expect(page.getByTestId("gallery-image")).toHaveCount(3, {
+    await expect(page.getByTestId("gallery-image")).toHaveCount(4, {
       timeout: 10000,
     });
     await page.getByTestId("gallery-image").nth(1).dispatchEvent("click");
@@ -58,14 +58,18 @@ test.describe("desktop", () => {
     await resumed(page);
     await page.keyboard.press("ArrowRight");
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/detail\/\?tag=VRChat$/);
-    await expect(page.getByTestId("next-link")).toHaveCount(0);
+    // The undated video is the last VRChat item.
+    await expect(page.getByTestId("next-link")).toHaveAttribute(
+      "href",
+      "/photo/vdxxxxxxxa/detail/?tag=VRChat",
+    );
     await resumed(page);
     await page.keyboard.press("ArrowLeft");
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/detail\/\?tag=VRChat$/);
 
     await page.getByTestId("back-link").click();
     await expect(page).toHaveURL(/\/\?tag=VRChat$/);
-    await expect(page.getByTestId("gallery-image")).toHaveCount(3);
+    await expect(page.getByTestId("gallery-image")).toHaveCount(4);
   });
 
   test("Enter in the overlay opens the detail page", async ({ page }) => {
@@ -175,7 +179,7 @@ test.describe("desktop", () => {
     );
     await d.getByTestId("info-tag").click();
     await expect(page).toHaveURL(/\/\?tag=VRChat$/);
-    await expect(page.getByTestId("gallery-image")).toHaveCount(3);
+    await expect(page.getByTestId("gallery-image")).toHaveCount(4);
   });
 
   test("hidden fields are absent", async ({ page }) => {

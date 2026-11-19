@@ -43,6 +43,7 @@ import {
   tileStyle,
 } from "./tile";
 import { PhotoOverlay } from "./photo-overlay";
+import { VideoBadge } from "./video-badge";
 import { SORT_LABELS, sortMedia, type SortKind, type SortOrder } from "./sort";
 import {
   DEFAULT_TAG_MODE,
@@ -114,7 +115,12 @@ const isOverlayEntry = () =>
 /** Keys that act on the focused control rather than on the photo. */
 const isControl = (t: EventTarget | null) =>
   t instanceof HTMLElement &&
-  t.closest("a, button, input, select, textarea, [contenteditable]") !== null;
+  t.closest("a, button, input, select, textarea, video, [contenteditable]") !==
+    null;
+
+/** A focused video player seeks with the arrows itself. */
+const inVideo = (t: EventTarget | null) =>
+  t instanceof Element && t.closest("video") !== null;
 
 export default component$<GalleryProps>((props) => {
   const location = useLocation();
@@ -299,6 +305,7 @@ export default component$<GalleryProps>((props) => {
       event.target.type === "text"
     )
       return;
+    if (inVideo(event.target)) return;
 
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       step(event.key === "ArrowRight" ? "next" : "prev");
@@ -512,7 +519,11 @@ export default component$<GalleryProps>((props) => {
                     // from its thumbnail with a fresh progress bar.
                     <PhotoOverlay
                       key={selected.id}
-                      src={{ id: selected.id, file: selected.file }}
+                      src={{
+                        id: selected.id,
+                        file: selected.file,
+                        kind: selected.kind,
+                      }}
                       onClose$={closeImage}
                       info={selected}
                       detailHref={photoDetailUrl(
@@ -574,6 +585,11 @@ export default component$<GalleryProps>((props) => {
                           loading="lazy"
                           decoding="async"
                         />
+                        {m.value.kind === "video" && (
+                          <VideoBadge
+                            durationMs={m.value.duration_ms ?? null}
+                          />
+                        )}
                         <div class="pointer-events-none absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100">
                           <div>{m.value.takenText}</div>
                           {!m.value.camera && m.value.maker && (

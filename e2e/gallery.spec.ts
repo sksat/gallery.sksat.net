@@ -9,6 +9,7 @@ import { openInOverlay } from "./open-photo";
 //   reaxxxxxxb Real   [night]         2023-12-03
 //   vrcxxxxxxb VRChat [VRChat, night] 2023-12-04
 //   vrcxxxxxxc Neos VR [VRChat]       2023-12-05
+//   vdxxxxxxxa VRChat [VRChat]        undated (a video)
 // plus unxxxxxxxx (unlisted) and pvxxxxxxxx (private), which must never
 // show up in the grid, the tag counts or the arrow-key order.
 
@@ -37,8 +38,8 @@ test("gallery: filter by tags with AND / OR", async ({ page }) => {
   await expect(images.first()).toBeVisible({ timeout: 10000 });
 
   // No tag selected → every photo
-  await expect(images).toHaveCount(5);
-  await expect(count).toHaveText("5 枚");
+  await expect(images).toHaveCount(6);
+  await expect(count).toHaveText("6 枚");
 
   // "Real" is just a tag (from the platform field)
   await chip(page, "Real").click();
@@ -58,7 +59,7 @@ test("gallery: filter by tags with AND / OR", async ({ page }) => {
 
   // Clear → back to everything with a bare URL
   await page.getByRole("button", { name: "クリア" }).click();
-  await expect(images).toHaveCount(5);
+  await expect(images).toHaveCount(6);
   await expect(page).toHaveURL(/\/$/);
 });
 
@@ -110,9 +111,9 @@ test("gallery: browser Back closes the photo without reloading", async ({
   await page.goto("/");
 
   const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(5, { timeout: 10000 });
+  await expect(images).toHaveCount(6, { timeout: 10000 });
   await chip(page, "VRChat").click();
-  await expect(images).toHaveCount(3);
+  await expect(images).toHaveCount(4);
 
   // A full reload would drop this marker.
   await page.evaluate(() => {
@@ -131,7 +132,7 @@ test("gallery: browser Back closes the photo without reloading", async ({
   await page.goBack();
   await expect(overlay).not.toBeVisible();
   await expect(page).toHaveURL(/\/\?tag=VRChat$/);
-  await expect(images).toHaveCount(3);
+  await expect(images).toHaveCount(4);
   expect(
     await page.evaluate(
       () => (window as unknown as { __noReload?: boolean }).__noReload,
@@ -144,7 +145,7 @@ test("gallery: the overlay is on the photo's URL, over the list", async ({
 }) => {
   await page.goto("/?tag=VRChat");
   const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(3, { timeout: 10000 });
+  await expect(images).toHaveCount(4, { timeout: 10000 });
   const length = () => page.evaluate(() => history.length);
   const before = await length();
   await page.evaluate(() => {
@@ -172,13 +173,13 @@ test("gallery: the overlay is on the photo's URL, over the list", async ({
   await page.goForward();
   await expect(overlay).toBeVisible();
   await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\/\?tag=VRChat$/);
-  await expect(images).toHaveCount(3);
+  await expect(images).toHaveCount(4);
   expect(await noReload()).toBe(true);
 
   // A reload of that URL shows the same: the photo over the same list.
   await page.reload();
   await expect(overlay).toBeVisible({ timeout: 10000 });
-  await expect(images).toHaveCount(3);
+  await expect(images).toHaveCount(4);
   await expect(page.getByTestId("photo-detail")).toHaveCount(0);
 
   // The reloaded page took over the entries the gallery pushed: Back from
@@ -186,7 +187,7 @@ test("gallery: the overlay is on the photo's URL, over the list", async ({
   await page.goBack();
   await expect(page).toHaveURL(/\/\?tag=VRChat$/);
   await expect(overlay).toHaveCount(0);
-  await expect(images).toHaveCount(3, { timeout: 10000 });
+  await expect(images).toHaveCount(4, { timeout: 10000 });
 });
 
 test("gallery: the photo URL loaded as it is opens the photo over the list", async ({
@@ -197,8 +198,8 @@ test("gallery: the photo URL loaded as it is opens the photo over the list", asy
   const images = page.getByTestId("gallery-image");
   // The whole gallery behind the photo, as after a click on its tile.
   await expect(overlay).toBeVisible({ timeout: 10000 });
-  await expect(images).toHaveCount(5);
-  await expect(page.getByTestId("result-count")).toHaveText("5 枚");
+  await expect(images).toHaveCount(6);
+  await expect(page.getByTestId("result-count")).toHaveText("6 枚");
   await expect(page.getByTestId("photo-detail")).toHaveCount(0);
   await expect(page.locator('head meta[name="robots"]')).toHaveCount(0);
   await expect(page.locator('head link[rel="canonical"]')).toHaveAttribute(
@@ -218,12 +219,12 @@ test("gallery: the photo URL loaded as it is opens the photo over the list", asy
   await expect(overlay).toHaveCount(0);
   await expect(page).toHaveURL(/\/$/);
   expect(await page.evaluate(() => history.length)).toBe(length);
-  await expect(images).toHaveCount(5);
+  await expect(images).toHaveCount(6);
 
   // With a list in its query, that list.
   await page.goto("/photo/vrcxxxxxxb/?tag=VRChat&sort=old");
   await expect(overlay).toBeVisible({ timeout: 10000 });
-  await expect(images).toHaveCount(3);
+  await expect(images).toHaveCount(4);
   await expect(page.getByTestId("sort-select")).toHaveValue("old");
   await overlay.click({ position: { x: 5, y: 5 } });
   await expect(page).toHaveURL(/\/\?tag=VRChat&sort=old$/);
@@ -252,12 +253,12 @@ test("gallery: the overlay's page button and Enter open the detail page", async 
     await page.goBack();
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/$/);
     await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+    await expect(page.getByTestId("gallery-image")).toHaveCount(6);
     await expect(page.getByTestId("photo-detail")).toHaveCount(0);
     await page.goBack();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByTestId("overlay")).toHaveCount(0);
-    await expect(page.getByTestId("gallery-image")).toHaveCount(5, {
+    await expect(page.getByTestId("gallery-image")).toHaveCount(6, {
       timeout: 10000,
     });
   }
@@ -276,7 +277,7 @@ test("gallery: header link always clears the filter", async ({ page }) => {
     await expect(chip(page, tag)).toHaveAttribute("aria-pressed", "true");
     await home.click();
     await expect(page).toHaveURL(/\/$/);
-    await expect(images).toHaveCount(5);
+    await expect(images).toHaveCount(6);
     await expect(chip(page, tag)).toHaveAttribute("aria-pressed", "false");
   }
 });
@@ -320,7 +321,7 @@ test("gallery: sort order is selectable and kept in the URL", async ({
 }) => {
   await page.goto("/");
   const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(5, { timeout: 10000 });
+  await expect(images).toHaveCount(6, { timeout: 10000 });
   const order = () =>
     images.evaluateAll((els) => els.map((el) => el.getAttribute("src")));
   const select = page.getByTestId("sort-select");
@@ -332,7 +333,11 @@ test("gallery: sort order is selectable and kept in the URL", async ({
 
   await select.selectOption("old");
   await expect(page).toHaveURL(/\/\?sort=old$/);
-  await expect.poll(order).toEqual([...newest].reverse());
+  // The undated video stays last either way.
+  const undated = newest[newest.length - 1];
+  await expect
+    .poll(order)
+    .toEqual([...newest.slice(0, -1).reverse(), undated]);
 
   // Random: a seed goes into the URL, and reloading keeps the same order.
   await select.selectOption("random");
@@ -410,8 +415,8 @@ test("visibility: an unlisted photo opens by URL but is in no list", async ({
     "src",
     /\/mock\/unlisted\.png$/,
   );
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
-  await expect(page.getByTestId("result-count")).toHaveText("5 枚");
+  await expect(page.getByTestId("gallery-image")).toHaveCount(6);
+  await expect(page.getByTestId("result-count")).toHaveText("6 枚");
   // Kept out of search; listed photos are not.
   await expect(page.locator('head meta[name="robots"]')).toHaveAttribute(
     "content",
@@ -434,7 +439,7 @@ test("visibility: an unlisted photo opens by URL but is in no list", async ({
   await overlay.click({ position: { x: 5, y: 5 } });
   await expect(overlay).toHaveCount(0);
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(6);
 
   // Its detail page, likewise kept out of search.
   await page.goto("/photo/unxxxxxxxx/detail/");
@@ -461,10 +466,10 @@ test("visibility: an unlisted photo opens by URL but is in no list", async ({
   // and the old ?photo= does not open it (or anything) over the list.
   await page.goto("/?photo=unxxxxxxxx");
   const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(5, { timeout: 10000 });
+  await expect(images).toHaveCount(6, { timeout: 10000 });
   await expect(page.getByTestId("overlay")).toHaveCount(0);
-  await expect(page.getByTestId("result-count")).toHaveText("5 枚");
-  await expect(chip(page, "VRChat")).toHaveText(/^VRChat3$/);
+  await expect(page.getByTestId("result-count")).toHaveText("6 枚");
+  await expect(chip(page, "VRChat")).toHaveText(/^VRChat4$/);
   await expect(chip(page, "night")).toHaveText(/^night2$/);
   for (const src of await images.evaluateAll((els) =>
     els.map((el) => el.getAttribute("src")),
@@ -482,7 +487,7 @@ test("visibility: a private photo is a 404 and in no list", async ({
   expect(detail?.status()).toBe(404);
 
   await page.goto("/");
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5, {
+  await expect(page.getByTestId("gallery-image")).toHaveCount(6, {
     timeout: 10000,
   });
   await expect(chip(page, "secret")).toHaveCount(0);
@@ -511,7 +516,7 @@ test("gallery: private tags and hidden metadata never show", async ({
   });
 
   await page.goto("/");
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5, {
+  await expect(page.getByTestId("gallery-image")).toHaveCount(6, {
     timeout: 10000,
   });
   expect(await page.content()).not.toContain("draft");
@@ -537,7 +542,7 @@ test("gallery: a photo whose file name is not public never shows it", async ({
 
   // The page itself (grid and the photo's own page) has no trace of it.
   await page.goto("/");
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(6);
   expect(await page.content()).not.toContain("real2");
   await page.goto("/photo/reaxxxxxxb/detail/");
   await expect(page.getByTestId("photo-detail")).toBeVisible({

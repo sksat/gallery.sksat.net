@@ -90,6 +90,8 @@ describe("listPublicMedia", () => {
       // "secret" is not a public tag.
       tags: ["VRChat"],
       tag_fields: [],
+      kind: "image",
+      duration_ms: null,
     });
   });
 });
@@ -119,15 +121,60 @@ describe("pixel size", () => {
   });
 });
 
-describe("videos (admin 0017), not shown yet", () => {
-  it("are in no list and open by no id, even when public", async () => {
+describe("videos (0017)", () => {
+  const video = () => {
     const { raw, db } = setup();
-    raw.exec(`INSERT INTO media (public_id, file, platform, visibility, kind)
-              VALUES ('vvvvvvvvv2', '/v/clip.mp4', 'Real', 'public', 'video')`);
-    expect(
-      (await listPublicMedia(db)).some((m) => m.id === "vvvvvvvvv2"),
-    ).toBe(false);
-    expect(await getMedia(db, "vvvvvvvvv2")).toBeNull();
+    raw.exec(`INSERT INTO media (public_id, file, platform, timestamp, visibility,
+                kind, width, height, duration_ms, video_codec)
+              VALUES ('vvvvvvvvv2', '/v/clip.mp4', 'Real', '2023-12-09T00:00:00Z', 'public',
+                'video', 1920, 1080, 12345, 'hvc1');
+              INSERT INTO media_file (media_id, role, storage, object_key, source_file_id, status)
+                SELECT media_id, 'poster', 'b2', '/.poster/pp.jpg', id, 'ready'
+                FROM media_file WHERE object_key = '/v/clip.mp4';
+              INSERT INTO media_file (media_id, role, storage, object_key, source_file_id, status)
+                SELECT media_id, 'play', 'r2', '/v/cc.mp4', id, 'ready'
+                FROM media_file WHERE object_key = '/v/clip.mp4';`);
+    return { raw, db };
+  };
+
+  it("says what a video is, never where its files are", async () => {
+    const { db } = video();
+    const listed = (await listPublicMedia(db)).find(
+      (m) => m.id === "vvvvvvvvv2",
+    );
+    expect(listed).toMatchObject({
+      kind: "video",
+      width: 1920,
+      height: 1080,
+      duration_ms: 12345,
+    });
+    expect(JSON.stringify(listed)).not.toMatch(/hvc1|pp\.jpg|cc\.mp4/);
+    expect(JSON.stringify(await getMedia(db, "vvvvvvvvv2"))).not.toMatch(
+      /pp\.jpg|cc\.mp4/,
+    );
+  });
+
+  it("gives the image Worker its poster to resize and its copy to play", async () => {
+    const { db, raw } = video();
+    expect(await getPhotoForImage(db, "vvvvvvvvv2")).toMatchObject({
+      file: "/v/clip.mp4",
+      source: { storage: "b2", key: "/.poster/pp.jpg" },
+      play: { storage: "r2", key: "/v/cc.mp4" },
+    });
+    // Without a ready poster or copy: the original (no image to make), no
+    // playback.
+    raw.exec("UPDATE media_file SET status = 'uploading' WHERE role IN ('poster', 'play')");
+    expect(await getPhotoForImage(db, "vvvvvvvvv2")).toMatchObject({
+      source: { storage: "b2", key: "/v/clip.mp4" },
+      play: null,
+    });
+    // A photo has no playback copy.
+    expect((await getPhotoForImage(db, "aaaaaaaaa1"))?.play ?? null).toBeNull();
+    // Private: nothing, as for a photo.
+    raw.exec(
+      "UPDATE media SET visibility = 'private' WHERE public_id = 'vvvvvvvvv2'",
+    );
+    expect(await getPhotoForImage(db, "vvvvvvvvv2")).toBeNull();
   });
 });
 

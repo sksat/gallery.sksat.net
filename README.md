@@ -21,7 +21,7 @@ Arrows point the way the data moves: grey for HTTP with people, blue for calls b
 
 - **gallery** (`src/`): the public site, a Qwik City app on Cloudflare Pages. It reads the photo list from the API Worker.
 - **API Worker** (`workers/api/`): a read-only JSON API over Cloudflare D1. It decides which photos and which of their metadata are public.
-- **image Worker** (`workers/image/`): serves resized photos. Resized copies are made once with Cloudflare Image Transformations and kept in Cloudflare R2.
+- **image Worker** (`workers/image/`): serves resized photos. Resized copies are made once with Cloudflare Image Transformations and kept in Cloudflare R2. It also serves videos: the playback copy in R2 that the admin made from the original with its metadata removed, never the original.
 - **admin** (`admin/`): the admin app, behind Cloudflare Access. It owns the D1 schema (`admin/migrations/`), and the owner's browser uploads originals straight to Backblaze B2.
 - **shared** (`shared/`): code used by both the gallery and the admin.
 

@@ -56,6 +56,7 @@ cf: Cloudflare {
   image <-> r2.resized: "store / serve" {class: data}
   admin -> r2.resized: "store\n(browser fallback)" {class: data}
   admin -> r2.videos: "store\n(metadata removed)" {class: data}
+  image <- r2.videos: "serve\n(range requests)" {class: data}
 }
 
 # Backblaze's red.
@@ -68,7 +69,7 @@ b2: Backblaze B2 {
 }
 
 visitor <- cf.gallery: pages {class: request}
-visitor <- cf.image: images {class: request}
+visitor <- cf.image: "images,\nvideos" {class: request}
 owner <-> cf.access: admin {class: request}
 owner -> b2.originals: upload {class: data}
 cf.transform <- b2.originals: read {class: data}

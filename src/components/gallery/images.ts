@@ -23,11 +23,24 @@ export type ImageSource =
       /** The pixel size as displayed, when known (photoSize). */
       width?: number | null;
       height?: number | null;
+      /** A video: its image is its poster, never its file. */
+      kind?: "video";
     }
   | string;
 
+/**
+ * The original to show without the image Worker. A video's file is not an
+ * image (its poster is only reachable through the Worker): none.
+ */
 const fileOf = (src: ImageSource): string | null =>
-  typeof src === "string" ? src : src.file;
+  typeof src === "string" ? src : src.kind === "video" ? null : src.file;
+
+/**
+ * Where a video plays: the image Worker's /video/<public_id> on the same
+ * host (VITE_VIDEO_BASE_URL overrides it; tests route it themselves).
+ */
+export const videoUrl = (id: string, base: string | undefined): string =>
+  `${(base || "/video").replace(/\/$/, "")}/${id}`;
 
 export const originalUrl = (s3Base: string, file: string): string =>
   s3Base + file;

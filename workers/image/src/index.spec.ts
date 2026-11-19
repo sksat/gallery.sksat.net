@@ -1096,3 +1096,139 @@ describe("AdminImage.object", () => {
     expect(await res.text()).not.toMatch(/Error/);
   });
 });
+
+describe("videos", () => {
+  const VID = "vvvvvvvvv2";
+  const PLAY = "v/22222222222222222222.mp4";
+  const POSTER = "/.poster/33333333333333333333.jpg";
+  const BYTES = new TextEncoder().encode("0123456789");
+  const video = {
+    ...photo,
+    id: VID,
+    file: "/clips/a.mp4",
+    kind: "video" as const,
+  };
+  /** What the RPC answers: the HTTP API never has the objects. */
+  let rpc: Record<string, unknown> | null;
+  let r2Reads: unknown[];
+  const videoEnv = () => ({
+    ...env,
+    API: {
+      ...env.API,
+      fetch: async (req: Request) =>
+        new URL(req.url).pathname === `/api/media/${VID}` && rpc
+          ? Response.json(video)
+          : new Response("Not Found", { status: 404 }),
+      photo: async (id: string) => (id === VID ? rpc : null),
+    },
+    MEDIA_CACHE: {
+      head: async (key: string) =>
+        key === PLAY
+          ? { size: 10, httpEtag: '"e1"', httpMetadata: { contentType: "video/mp4" } }
+          : null,
+      get: async (
+        key: string,
+        o?: { range?: { offset: number; length: number } },
+      ) => {
+        r2Reads.push(o?.range ?? null);
+        const r = o?.range ?? { offset: 0, length: 10 };
+        return key === PLAY
+          ? {
+              size: 10,
+              httpEtag: '"e1"',
+              body: new Response(BYTES.slice(r.offset, r.offset + r.length))
+                .body,
+            }
+          : null;
+      },
+    },
+  });
+  const fetchVideo = (path: string, headers: Record<string, string> = {}) =>
+    worker.fetch(
+      new Request(`https://gallery.sksat.net${path}`, { headers }),
+      videoEnv() as never,
+      ctx,
+    );
+
+  beforeEach(() => {
+    r2Reads = [];
+    rpc = {
+      ...video,
+      source: { storage: "b2", key: POSTER },
+      play: { storage: "r2", key: `/${PLAY}` },
+    };
+  });
+
+  it("streams the copy from R2 with ranges", async () => {
+    const all = await fetchVideo(`/video/${VID}`);
+    expect(all.status).toBe(200);
+    expect(await all.text()).toBe("0123456789");
+    expect(all.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    const part = await fetchVideo(`/video/${VID}`, { Range: "bytes=4-" });
+    expect(part.status).toBe(206);
+    expect(part.headers.get("Content-Range")).toBe("bytes 4-9/10");
+    expect(await part.text()).toBe("456789");
+    expect(r2Reads).toEqual([
+      { offset: 0, length: 10 },
+      { offset: 4, length: 6 },
+    ]);
+    // Never the B2 original.
+    expect(transforms).toEqual([]);
+  });
+
+  it("is 404 for a private video, a photo, or a malformed URL", async () => {
+    rpc = null;
+    expect((await fetchVideo(`/video/${VID}`)).status).toBe(404);
+    rpc = { ...photo, id: VID, kind: "image" };
+    expect((await fetchVideo(`/video/${VID}`)).status).toBe(404);
+    rpc = { ...video, play: { storage: "r2", key: "/../secret" } };
+    expect((await fetchVideo(`/video/${VID}`)).status).toBe(404);
+    expect((await fetchVideo(`/video/${VID}/`)).status).toBe(404);
+    expect((await fetchVideo(`/video/${VID}?x=1`)).status).toBe(400);
+    expect(r2Reads).toEqual([]);
+  });
+
+  it("makes its images from the poster, and has none without one", async () => {
+    const res = await worker.fetch(
+      new Request(`https://gallery.sksat.net/img/${VID}?size=h240`, {
+        headers: { Accept: AVIF },
+      }),
+      videoEnv() as never,
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    expect(transforms[0]).toContain(`/bucket${POSTER}?`);
+    rpc = { ...video, source: { storage: "b2", key: video.file }, play: null };
+    const none = await worker.fetch(
+      new Request(`https://gallery.sksat.net/img/${VID}?size=h240`),
+      videoEnv() as never,
+      ctx,
+    );
+    expect(none.status).toBe(404);
+    expect(transforms).toHaveLength(1);
+  });
+
+  it("has no camera-picture image while it has no poster (404, not 503)", async () => {
+    const PIC = "/camera/cam/7.photo.jpg";
+    const res = await worker.fetch(
+      new Request(`https://gallery.sksat.net/img${PIC}?size=w1200`),
+      {
+        ...videoEnv(),
+        API: {
+          ...videoEnv().API,
+          pathAccess: async (path: string) =>
+            path === PIC
+              ? {
+                  kind: "camera-image" as const,
+                  file: video.file,
+                  source: { storage: "b2", key: video.file },
+                }
+              : null,
+        },
+      } as never,
+      ctx,
+    );
+    expect(res.status).toBe(404);
+    expect(transforms).toEqual([]);
+  });
+});

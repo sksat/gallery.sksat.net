@@ -111,6 +111,37 @@ describe("transformMediaInfo", () => {
   });
 });
 
+describe("parseMediaItem of a video", () => {
+  const video = {
+    id: "vdxxxxxxxa",
+    file: null,
+    platform: "Real",
+    timestamp: null,
+    camera: null,
+    tags: [],
+    kind: "video",
+    width: 320,
+    height: 180,
+    duration_ms: 2000,
+  };
+  it("keeps what a video is, and its size", () => {
+    expect(parseMediaItem(video)).toMatchObject({
+      kind: "video",
+      duration_ms: 2000,
+      width: 320,
+      height: 180,
+    });
+  });
+  it("leaves a photo as it was, and drops bad values", () => {
+    const photo = parseMediaItem({ ...video, kind: "image" });
+    expect(photo).not.toHaveProperty("kind");
+    expect(photo).toMatchObject({ width: 320, height: 180 });
+    const bad = parseMediaItem({ ...video, width: 0, duration_ms: "2" });
+    expect(bad?.width ?? null).toBeNull();
+    expect(bad?.duration_ms).toBeNull();
+  });
+});
+
 describe("parseMediaItem", () => {
   it("accepts a photo from the API", () => {
     const camera = {

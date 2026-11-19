@@ -33,7 +33,7 @@ for (const [name, viewport] of [
 
     test("lays every photo out at its own aspect ratio", async ({ page }) => {
       await page.goto("/");
-      await expect(page.getByTestId("gallery-tile")).toHaveCount(5, {
+      await expect(page.getByTestId("gallery-tile")).toHaveCount(6, {
         timeout: 10000,
       });
       // Sizes from the API, before or after the images load.
@@ -43,6 +43,8 @@ for (const [name, viewport] of [
       // Unknown sizes: the image's own once it has loaded.
       await expectAspect(page, "vrcxxxxxxc", 64 / 36);
       await expectAspect(page, "reaxxxxxxb", 1);
+      // The video (320 × 180), whose image here is a 1 × 1 stand-in.
+      await expectAspect(page, "vdxxxxxxxa", 320 / 180);
     });
 
     test("never crops an image: it fills its tile at its own shape", async ({
@@ -50,7 +52,7 @@ for (const [name, viewport] of [
     }) => {
       await page.goto("/");
       const images = page.getByTestId("gallery-image");
-      await expect(images).toHaveCount(5, { timeout: 10000 });
+      await expect(images).toHaveCount(6, { timeout: 10000 });
       await expect
         .poll(() =>
           images.evaluateAll((imgs) =>
@@ -66,7 +68,10 @@ for (const [name, viewport] of [
         .poll(() =>
           images.evaluateAll((imgs) =>
             Math.max(
-              ...(imgs as HTMLImageElement[]).map((i) => {
+              // Not the video's: its poster is a 1 × 1 stand-in in tests.
+              ...(imgs as HTMLImageElement[])
+                .filter((i) => !i.closest("[data-photo-id=vdxxxxxxxa]"))
+                .map((i) => {
                 const r = i.getBoundingClientRect();
                 return Math.abs(
                   r.width / r.height / (i.naturalWidth / i.naturalHeight) - 1,
@@ -81,7 +86,7 @@ for (const [name, viewport] of [
     test("keeps the tiles of a row at one height", async ({ page }) => {
       await page.goto("/");
       const tiles = page.getByTestId("gallery-tile");
-      await expect(tiles).toHaveCount(5, { timeout: 10000 });
+      await expect(tiles).toHaveCount(6, { timeout: 10000 });
       await expectAspect(page, "vrcxxxxxxc", 64 / 36);
       const rects = await tiles.evaluateAll((els) =>
         els.map((e) => {

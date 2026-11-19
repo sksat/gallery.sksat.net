@@ -7,6 +7,8 @@ export const GALLERY_ORDER = [
   "reaxxxxxxb",
   "vrcxxxxxxa",
   "reaxxxxxxa",
+  // Undated: last.
+  "vdxxxxxxxa",
 ];
 
 /**

@@ -159,8 +159,15 @@ describe("photoInfo", () => {
       tags: ["VRChat", "night"],
       tagFields: [],
       file: "/2023/a.png",
+      duration: null,
     });
     expect(infoSummary(i)).toBe("2023/12/16 23:12 · VirtualLens2 · Home");
+  });
+
+  it("gives a video's length", () => {
+    expect(info({ kind: "video", duration_ms: 65_000 }).duration).toBe("1:05");
+    expect(hasDetails(info({ kind: "video", duration_ms: 1000 }))).toBe(true);
+    expect(info({ kind: "video", duration_ms: null }).duration).toBeNull();
   });
 
   it("shows the スキャン機材 and スキャン日時 when the API gives them", () => {
