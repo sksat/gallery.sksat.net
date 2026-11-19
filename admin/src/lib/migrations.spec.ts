@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { PUBLIC_ID_RE } from "./public-id";
 import { CAMERA_SLUG_RE } from "./validate";
+import { isFilmScanner } from "./photo-meta";
 
 const migration = (name: string) =>
   readFileSync(resolve(__dirname, "../../migrations", name), "utf8");
@@ -604,6 +605,97 @@ describe("0005_path_trash.sql", () => {
     expect(() =>
       db.exec("UPDATE media SET metadata_source = '[1]' WHERE file = '/b.png'"),
     ).toThrow(/CHECK/);
+  });
+
+  it("0008 keeps the taken-at set by hand on a scanner's files", () => {
+    const db = migrate5([]);
+    const scan = JSON.stringify({
+      make: "GCMC",
+      model: "Scanner",
+      taken_at_original: "2021-01-01T00:31:12",
+    });
+    db.exec(`INSERT INTO media (file, platform, timestamp, exif, metadata_visibility) VALUES
+      ('/2024/a.jpg', 'Real', '2024-02-01T00:00:00+09:00', '${scan}', '{"taken_at":"month"}'),
+      ('/2024/b.jpg', 'Real', '2024-03-08T00:00:00+09:00', '${scan}', '{"taken_at":"date"}'),
+      -- Set from the folder, but no coarser level: the scanner tells.
+      ('/2024/c.jpg', 'Real', '2024-03-09T00:00:00+09:00', '${scan}', NULL),
+      -- Still the scan's own date: automatic (and never read again as one).
+      ('/2024/d.jpg', 'Real', '2021-01-01T00:31:12+09:00', '${scan}', NULL),
+      -- A camera's date: automatic.
+      ('/e.jpg', 'Real', '2023-12-11T01:21:32+09:00',
+        '{"make":"FUJIFILM","model":"X-T5","taken_at_original":"2023-12-11T01:21:32+09:00"}', NULL),
+      ('/f.jpg', 'Real', NULL, '${scan}', '{"taken_at":"month"}')`);
+    db.exec(migration("0008_metadata_source.sql"));
+    const src = (file: string) =>
+      JSON.parse(
+        (
+          db
+            .prepare("SELECT metadata_source FROM media WHERE file = ?")
+            .get(file) as { metadata_source: string }
+        ).metadata_source,
+      );
+    expect(src("/2024/a.jpg")).toEqual({ taken_at: "manual", exif: "file" });
+    expect(src("/2024/b.jpg")).toEqual({ taken_at: "manual", exif: "file" });
+    expect(src("/2024/c.jpg")).toEqual({ taken_at: "manual", exif: "file" });
+    expect(src("/2024/d.jpg")).toEqual({ taken_at: "filename", exif: "file" });
+    expect(src("/e.jpg")).toEqual({ taken_at: "filename", exif: "file" });
+    expect(src("/f.jpg")).toEqual({ exif: "file" });
+  });
+
+  it("0008 knows the same scanners as isFilmScanner", () => {
+    const pairs: [string, string][] = [
+      ["GCMC", "Scanner"],
+      ["FUJI PHOTO FILM CO., LTD.", "SP-2000"],
+      ["FUJIFILM", "SP3000"],
+      ["FUJIFILM", "Frontier LP5000"],
+      ["NORITSU KOKI", "QSS-32"],
+      ["Eastman Kodak Company", "Pakon F-135"],
+      ["Hasselblad", "Flextight X5"],
+      ["Nikon", "LS-5000"],
+      ["Nikon", "Nikon SUPER COOLSCAN 5000 ED"],
+      ["EPSON", "Perfection V600"],
+      ["Plustek", "OpticFilm 8200i"],
+      ["Pacific Image", "PrimeFilm XAs"],
+      ["Konica", "HS-1800"],
+      ["NORITSU", "EZController"],
+      ["Canon", "CanoScan 9000F Scanner"],
+      ["Generic Scanner Co", "X"],
+      // Odd case: LIKE and GLOB must match as the /i regexes do.
+      ["fujifilm", "sp-3000"],
+      ["nikon", "ls-50"],
+      ["gcmc", "SCANNER"],
+      ["FUJIFILM", "X-T5"],
+      ["NIKON CORPORATION", "NIKON Z 6"],
+      ["SONY", "ILCE-7M4"],
+      ["Apple", "iPhone 15 Pro"],
+      ["Canon", "Canon EOS R5"],
+      ["Panasonic", "DC-S5M2"],
+      ["FUJIFILM", "GFX100S"],
+    ];
+    const db = migrate5([]);
+    pairs.forEach(([make, model], i) =>
+      db
+        .prepare(
+          "INSERT INTO media (file, platform, timestamp, exif) VALUES (?, 'Real', '2024-01-01T00:00:00+09:00', ?)",
+        )
+        .run(
+          `/${i}.jpg`,
+          JSON.stringify({
+            make,
+            model,
+            taken_at_original: "2021-01-01T00:00:00",
+          }),
+        ),
+    );
+    db.exec(migration("0008_metadata_source.sql"));
+    pairs.forEach(([make, model], i) => {
+      const { metadata_source } = db
+        .prepare("SELECT metadata_source FROM media WHERE file = ?")
+        .get(`/${i}.jpg`) as { metadata_source: string };
+      const manual = JSON.parse(metadata_source).taken_at === "manual";
+      expect(manual, `${make} ${model}`).toBe(isFilmScanner(make, model));
+    });
+    expect(pairs.filter(([a, b]) => isFilmScanner(a, b)).length).toBe(19);
   });
 
   it("rejects malformed paths", () => {

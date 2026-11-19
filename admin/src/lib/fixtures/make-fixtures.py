@@ -70,3 +70,14 @@ scan.get_ifd(0x8769)[0x9003] = "2023:12:12 10:00:00"
 Image.new("RGB", (8, 8), (90, 90, 60)).save(
     f"{out}/film-scan.jpg", "JPEG", exif=scan, quality=50
 )
+
+# A scanner with a generic name and a clock that was never set (seen on
+# real files: make "GCMC", model "Scanner", every scan on 2021-01-01).
+gcmc = Image.Exif()
+gcmc[0x010F] = "GCMC"
+gcmc[0x0110] = "Scanner"
+gcmc[0x0132] = "2021:01:01 00:31:12"
+gcmc.get_ifd(0x8769)[0x9003] = "2021:01:01 00:31:12"
+Image.new("RGB", (8, 8), (60, 70, 90)).save(
+    f"{out}/gcmc-scan.jpg", "JPEG", exif=gcmc, quality=50
+)

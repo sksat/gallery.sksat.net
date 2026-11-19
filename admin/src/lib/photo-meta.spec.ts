@@ -9,6 +9,7 @@ import {
   xmpDateToIso,
   xmpTakenAt,
 } from "./photo-meta";
+import { pickTakenAt } from "./taken-at";
 
 // Tiny synthetic images written by Pillow (fixtures/make-fixtures.py), not
 // by this parser's own writer: an 8x8 JPEG with EXIF and GPS, and 8x8
@@ -254,8 +255,27 @@ describe("dates", () => {
     expect(meta.takenAt).toBeNull();
   });
 
+  it("never takes a date from a GCMC Scanner's unset clock", async () => {
+    const meta = await readPhotoMeta(fixture("gcmc-scan.jpg"));
+    expect(meta.exif).toMatchObject({
+      make: "GCMC",
+      model: "Scanner",
+      taken_at_original: "2021-01-01T00:31:12",
+    });
+    expect(meta.dates).toEqual({
+      exifOriginal: null,
+      xmp: null,
+      exifDateTime: null,
+    });
+    expect(meta.takenAt).toBeNull();
+    // Nor from a name in the folder that is no VRChat file name.
+    expect(pickTakenAt(meta.dates, "IMG_0001.jpg")).toBeNull();
+  });
+
   it("knows the common film scanners", () => {
     for (const [make, model] of [
+      ["GCMC", "Scanner"],
+      ["Canon", "CanoScan 9000F Scanner"],
       ["FUJI PHOTO FILM CO., LTD.", "SP-3000"],
       ["FUJIFILM", "Frontier LP5000"],
       ["NORITSU KOKI", "QSS-32"],

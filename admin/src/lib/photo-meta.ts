@@ -321,7 +321,9 @@ const NO_TIFF: TiffMeta = {
 /**
  * Whether EXIF Make/Model name a film scanner rather than a camera: its
  * dates are when the film was scanned, not when the photo was taken. A
- * short list of the common lab and desktop scanners.
+ * short list of the common lab and desktop scanners, and any make or model
+ * with "scanner" in it (migrations/0008_metadata_source.sql has the same
+ * list in SQL; migrations.spec.ts checks they agree).
  */
 export const isFilmScanner = (
   make: string | undefined,
@@ -335,7 +337,11 @@ export const isFilmScanner = (
     (/fuji/i.test(mk) && /^(SP|LP)-?\d|frontier/i.test(md)) ||
     /frontier|pakon|flextight|coolscan|^LS-\d|perfection|opticfilm|^QSS-|^HS-1800|^EZ ?controller/i.test(
       md,
-    )
+    ) ||
+    // Generic ones: e.g. make "GCMC", model "Scanner" (a film scanner
+    // whose clock was never set, dating every scan 2021-01-01).
+    /scanner/i.test(md) ||
+    /scanner/i.test(mk)
   );
 };
 

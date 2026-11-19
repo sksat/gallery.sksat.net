@@ -14,9 +14,9 @@
 --   high as the stored one; 'manual' is never replaced.
 --
 -- Safe to apply before the code that uses it (a column and an index are
--- added; the old code ignores them). Deploy the code soon after: an
--- exif/world edit made with the old code in between gets no 'manual'
--- mark, and the new code reads every photo again once.
+-- added; the old code ignores them). Deploy the code soon after: a
+-- taken-at/exif/world edit made with the old code in between gets no
+-- 'manual' mark, and the new code reads every photo again once.
 ALTER TABLE media ADD COLUMN metadata_source TEXT
   CHECK (metadata_source IS NULL
          OR (json_valid(metadata_source)
@@ -41,6 +41,44 @@ UPDATE media SET metadata_source = (
 )
 WHERE timestamp IS NOT NULL OR exif IS NOT NULL
    OR world_id IS NOT NULL OR world_name IS NOT NULL;
+
+-- Except the taken-at times entered by hand for files a scanner wrote:
+-- their EXIF dates are the scan's (some scanners' unset clock: 2021-01-01),
+-- so a taken-at that is not that date was set by hand (from the folder,
+-- with the taken-at shown only to the date or month). Mark those, and any
+-- taken-at whose photo shows it only to the date, month or year, as
+-- 'manual', so that no reading ever replaces them. The scanner list is
+-- photo-meta.ts isFilmScanner's (migrations.spec.ts checks they agree).
+UPDATE media SET metadata_source = json_set(metadata_source, '$.taken_at', 'manual')
+WHERE timestamp IS NOT NULL
+  AND (
+    json_extract(metadata_visibility, '$.taken_at') IN ('date', 'month', 'year')
+    OR (
+      (
+        COALESCE(json_extract(exif, '$.make'), '') LIKE '%noritsu%'
+        OR COALESCE(json_extract(exif, '$.make'), '') LIKE '%plustek%'
+        OR COALESCE(json_extract(exif, '$.make'), '') LIKE '%pacific image%'
+        OR COALESCE(json_extract(exif, '$.make'), '') LIKE '%scanner%'
+        OR (COALESCE(json_extract(exif, '$.make'), '') LIKE '%fuji%'
+            AND (COALESCE(json_extract(exif, '$.model'), '') GLOB '[SsLl][Pp][0-9]*'
+                 OR COALESCE(json_extract(exif, '$.model'), '') GLOB '[SsLl][Pp]-[0-9]*'))
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE '%frontier%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE '%pakon%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE '%flextight%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE '%coolscan%'
+        OR COALESCE(json_extract(exif, '$.model'), '') GLOB '[Ll][Ss]-[0-9]*'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE '%perfection%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE '%opticfilm%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE 'QSS-%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE 'HS-1800%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE 'EZ controller%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE 'EZcontroller%'
+        OR COALESCE(json_extract(exif, '$.model'), '') LIKE '%scanner%'
+      )
+      AND substr(timestamp, 1, 10)
+          IS NOT substr(json_extract(exif, '$.taken_at_original'), 1, 10)
+    )
+  );
 
 -- The admin's metadata reader looks for photos to read by
 -- metadata_read_at (NULL, before the parser date, or a stale claim /
