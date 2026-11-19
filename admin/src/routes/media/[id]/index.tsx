@@ -212,13 +212,16 @@ const digitizePatch = (data: {
   const out: Record<string, unknown> = {};
   // The camera and スキャン機材 only when changed on the page: the reader
   // may have set them since it loaded (device.ts), and a stale "(none)"
-  // must not clear that and mark it chosen by hand.
-  if (data.camera_id !== data.camera_loaded) {
+  // must not clear that and mark it chosen by hand. A form from before the
+  // loaded values (an older page) sends a chosen device, never a "(none)".
+  const changed = (value: string, loaded: string | undefined) =>
+    loaded === undefined ? value !== "" : value !== loaded;
+  if (changed(data.camera_id, data.camera_loaded)) {
     out.camera_id = parseCameraIdInput(data.camera_id);
   }
   if (
     data.digitized_with !== undefined &&
-    data.digitized_with !== data.digitized_with_loaded
+    changed(data.digitized_with, data.digitized_with_loaded)
   ) {
     out.digitized_with = parseCameraIdInput(data.digitized_with);
   }
