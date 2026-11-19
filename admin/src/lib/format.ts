@@ -1,6 +1,8 @@
 // Presentation helpers shared by the admin routes. Pure functions only so
 // they stay covered by Vitest (see format.spec.ts).
 
+import { formatDateKey } from "@shared/calendar/calendar";
+
 /** Split a media path into its folder (with trailing slash) and basename. */
 export const splitPath = (file: string): { dir: string; base: string } => {
   const i = file.lastIndexOf("/");
@@ -59,6 +61,8 @@ export const mediaListHref = (opts: {
   platform?: string | null;
   visibility?: string | null;
   q?: string | null;
+  /** Taken in this year, month or day (YYYY[-MM[-DD]]). */
+  date?: string | null;
   page?: number;
 }): string => {
   const params = new URLSearchParams();
@@ -68,6 +72,7 @@ export const mediaListHref = (opts: {
   if (opts.platform) params.set("platform", opts.platform);
   if (opts.visibility) params.set("visibility", opts.visibility);
   if (opts.q) params.set("q", opts.q);
+  if (opts.date) params.set("date", opts.date);
   if (!files && opts.page && opts.page > 1) {
     params.set("page", String(opts.page));
   }
@@ -105,6 +110,7 @@ export const filterChips = (opts: {
   platform: string | null;
   visibility: string | null;
   q: string;
+  date?: string | null;
   /** Display name of a visibility value. */
   visibilityLabel: (v: string) => string;
 }): FilterChip[] => {
@@ -114,6 +120,7 @@ export const filterChips = (opts: {
     platform: opts.platform,
     visibility: opts.visibility,
     q: opts.q,
+    date: opts.date,
   };
   const chips: FilterChip[] = [];
   if (opts.platform) {
@@ -135,6 +142,13 @@ export const filterChips = (opts: {
       key: "q",
       label: `“${opts.q}”`,
       href: mediaListHref({ ...base, q: null }),
+    });
+  }
+  if (opts.date) {
+    chips.push({
+      key: "date",
+      label: formatDateKey(opts.date),
+      href: mediaListHref({ ...base, date: null }),
     });
   }
   return chips;

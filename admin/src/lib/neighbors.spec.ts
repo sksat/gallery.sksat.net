@@ -18,6 +18,7 @@ const list = (over: Partial<ListQuery> = {}): ListQuery => ({
   platform: null,
   visibility: null,
   q: "",
+  date: null,
   page: 1,
   ...over,
 });
@@ -298,6 +299,9 @@ describe("neighborsStatements plans", () => {
     list(),
     list({ visibility: "private", platform: "Real" }),
     list({ view: "files", dir: "/a" }),
+    // The calendar's date filter is a range on the same index.
+    list({ date: "2023-12" }),
+    list({ view: "files", dir: "/a", date: "2023-12-04" }),
   ];
   for (const q of lists) {
     for (const a of anchors) {

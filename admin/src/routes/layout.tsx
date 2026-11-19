@@ -15,6 +15,11 @@ const NAV = [
     label: "Cameras",
     match: (p: string) => p === "/camera" || p.startsWith("/camera/"),
   },
+  {
+    href: "/calendar/",
+    label: "Calendar",
+    match: (p: string) => p.startsWith("/calendar"),
+  },
   { href: "/tag/", label: "Tags", match: (p: string) => p.startsWith("/tag") },
   {
     href: "/setting/",

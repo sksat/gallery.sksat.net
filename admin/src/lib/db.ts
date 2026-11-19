@@ -1,3 +1,4 @@
+import { TAKEN_ON_SQL, takenOnArgs } from "./calendar";
 import { parseOverrides } from "./metadata";
 import { mergeExif, parseExifColumn } from "./photo-data";
 import {
@@ -124,6 +125,8 @@ export type ListParams = {
   platform?: MediaPlatform;
   visibility?: Visibility;
   q?: string;
+  /** Taken in this year, month or day (YYYY[-MM[-DD]], the calendar). */
+  date?: string;
   limit: number;
   offset: number;
 };
@@ -155,11 +158,20 @@ export const listMedia = async (
     where.push("path LIKE ? ESCAPE '\\'");
     args.push(`%${escaped}%`);
   }
+  if (params.date) {
+    where.push(TAKEN_ON_SQL);
+    args.push(...takenOnArgs(params.date));
+  }
   const whereSql = `WHERE ${where.join(" AND ")}`;
+  // With a date there are no undated rows: the plain index order lets the
+  // range stop at LIMIT + OFFSET instead of sorting the whole range.
+  const order = params.date
+    ? "timestamp DESC, id DESC"
+    : "timestamp IS NULL, timestamp DESC, id DESC";
 
   const rowsStmt = db
     .prepare(
-      `SELECT * FROM media ${whereSql} ORDER BY timestamp IS NULL, timestamp DESC, id DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM media ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`,
     )
     .bind(...args, params.limit, params.offset);
   const countStmt = db
