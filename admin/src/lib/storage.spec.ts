@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 import {
-  B2_FREE_STORAGE_BYTES,
   fetchStorageRows,
   formatDecimalBytes,
   formatPercent,
@@ -37,14 +36,15 @@ describe("formatDecimalBytes (base 1000)", () => {
 });
 
 describe("monthlyCostUsd", () => {
-  it("is free up to 10 GB", () => {
+  it("charges every byte, with no free tier", () => {
     expect(monthlyCostUsd(0)).toBe(0);
-    expect(monthlyCostUsd(B2_FREE_STORAGE_BYTES)).toBe(0);
+    expect(monthlyCostUsd(30e6)).toBeCloseTo(0.0002085, 9);
+    expect(monthlyCostUsd(10e9)).toBeCloseTo(0.0695);
   });
 
-  it("charges $0.006 per GB above it ($6 per TB)", () => {
-    expect(monthlyCostUsd(B2_FREE_STORAGE_BYTES + 1e9)).toBeCloseTo(0.006);
-    expect(monthlyCostUsd(B2_FREE_STORAGE_BYTES + 1e12)).toBeCloseTo(6);
+  it("charges $0.00695 per GB ($6.95 per TB)", () => {
+    expect(monthlyCostUsd(1e9)).toBeCloseTo(0.00695);
+    expect(monthlyCostUsd(1e12)).toBeCloseTo(6.95);
   });
 });
 
