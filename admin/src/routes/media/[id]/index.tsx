@@ -240,6 +240,8 @@ export const useRegisterScanner = routeAction$(
     if (!scanner)
       return fail(400, { message: "スキャナーのファイルではありません" });
     const { camera, created, linked } = await registerScanner(db, scanner, id);
+    // The linked photos' スキャン機材, and the camera pages that list them.
+    await contentChanged(db);
     return {
       ok: true,
       name: camera.name,
@@ -422,8 +424,10 @@ export const useResetFromFile = routeAction$(
     }
     const v = validatePatch({ reset_from_file: [data.field] });
     if (!v.ok) return fail(400, { message: v.error });
-    const updated = await updateMedia(getDB(platform), id, v.patch);
+    const db = getDB(platform);
+    const updated = await updateMedia(db, id, v.patch);
     if (!updated) return fail(404, { message: "not found" });
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({ field: z.enum(["exif", "world", "location"]) }),
