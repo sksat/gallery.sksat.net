@@ -2,6 +2,7 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { completeUpload } from "~/lib/db-upload";
 import { getDB } from "~/lib/env";
+import { contentChanged, uploadsOverCameraPicture } from "~/lib/last-good";
 import { getObjectStat } from "~/lib/object-stat";
 
 class StatError extends Error {
@@ -62,6 +63,9 @@ export const onPost: RequestHandler = withErrorHandler(
     }
     switch (outcome.kind) {
       case "ready":
+        if (await uploadsOverCameraPicture(db, [id])) {
+          await contentChanged(db);
+        }
         json(200, { id, status: "ready" });
         return;
       case "not-found":

@@ -2,6 +2,7 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { getCamera, getMedia, updateMedia } from "~/lib/db";
 import { getDB } from "~/lib/env";
+import { contentChanged } from "~/lib/last-good";
 import { validatePatch } from "~/lib/validate";
 
 const parseId = (raw: string): number | null => {
@@ -67,6 +68,7 @@ export const onPatch: RequestHandler = withErrorHandler(
       json(404, { error: "not found" });
       return;
     }
+    await contentChanged(db);
     json(200, updated);
   },
 );

@@ -39,6 +39,7 @@ import {
   updateCameraImageCaption,
 } from "~/lib/db";
 import { getDB, getImageBase } from "~/lib/env";
+import { contentChanged } from "~/lib/last-good";
 import { formatJst } from "~/lib/format";
 import type { CameraImageRow, CameraRow } from "~/lib/types";
 import {
@@ -125,6 +126,7 @@ export const useAddCameraImage = routeAction$(
       }
       throw err;
     }
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({
@@ -159,6 +161,7 @@ export const useCameraImageOp = routeAction$(
     } else if (data.op === "remove") {
       const removed = await removeCameraImage(db, id, imageId);
       if (!removed) return fail(404, { message: "image not found" });
+      await contentChanged(db);
       // What 「元に戻す」 puts back.
       return { ok: true, op: data.op, removed };
     } else {
@@ -166,6 +169,7 @@ export const useCameraImageOp = routeAction$(
       done = await moveCameraImage(db, id, imageId, data.op);
     }
     if (!done) return fail(404, { message: "image not found" });
+    await contentChanged(db);
     return { ok: true, op: data.op };
   },
   zod$({
@@ -204,6 +208,7 @@ export const useRestoreCameraImage = routeAction$(
       }
       throw err;
     }
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({
@@ -300,6 +305,7 @@ export const useUpdateCamera = routeAction$(
     if (!updated) {
       return fail(404, { message: "not found" });
     }
+    await contentChanged(db);
     return { ok: true, updated_at: updated.updated_at };
   },
   zod$(cameraFormSchema),

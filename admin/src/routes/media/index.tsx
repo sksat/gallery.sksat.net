@@ -88,6 +88,7 @@ import {
 } from "~/components/visibility-style";
 import { Toast, type ToastState } from "~/components/toast";
 import { getDB, getImageBase } from "~/lib/env";
+import { contentChanged } from "~/lib/last-good";
 import {
   buildFolderTree,
   dirOf,
@@ -303,6 +304,7 @@ export const useBulkVisibility = routeAction$(
       return fail(500, { message: "D1 binding unavailable" });
     }
     const { changed, previous } = await setVisibility(db, v.ids, v.visibility);
+    await contentChanged(db);
     return {
       ok: true,
       selected: v.ids.length,
@@ -329,11 +331,13 @@ export const useBulkVisibility = routeAction$(
  */
 export const useSelectionVisibility = routeAction$(
   async (data, { platform }) => {
+    const db = getDB(platform);
     const { changed, previous } = await setVisibility(
-      getDB(platform),
+      db,
       data.ids,
       data.visibility,
     );
+    await contentChanged(db);
     return { ok: true as const, changed, previous };
   },
   zod$({
@@ -358,10 +362,9 @@ export const useRestoreVisibility = routeAction$(
       console.error("/media restore action: getDB failed:", err);
       return fail(500, { message: "D1 binding unavailable" });
     }
-    return {
-      ok: true,
-      changed: await restoreVisibility(db, data.from, v.groups),
-    };
+    const changed = await restoreVisibility(db, data.from, v.groups);
+    await contentChanged(db);
+    return { ok: true, changed };
   },
   zod$({
     from: z.string().max(20),
@@ -390,6 +393,8 @@ export const useDeleteIncomplete = routeAction$(
     if (!(await deleteIncompleteUpload(db, data.id))) {
       return fail(404, { message: "未完了のアップロードが見つかりません" });
     }
+    // A camera picture with its file can be served by path again.
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({ id: z.number().int().positive() }),
@@ -438,6 +443,7 @@ export const useFolderOp = routeAction$(
         { kind: "folder", from: dir, to: v.path },
       ]);
       if (!r.ok) return fail(409, { message: r.error });
+      await contentChanged(db);
       return {
         ok: true as const,
         op: "rename" as const,
@@ -448,6 +454,7 @@ export const useFolderOp = routeAction$(
       };
     }
     const t = await trashItems(db, { photos: [], folders: [dir] });
+    await contentChanged(db);
     return {
       ok: true as const,
       op: "trash" as const,
@@ -498,6 +505,7 @@ export const useMoveSelection = routeAction$(
     const items = { photos: data.photos, folders: data.folders };
     const r = await moveItems(db, intoFolder(await loadTree(db), dest, items));
     if (!r.ok) return fail(409, { message: r.error });
+    await contentChanged(db);
     if (data.name?.trim()) await createFolder(db, dest);
     const undo = undoMoves(r.plan);
     // What moved: each moved folder, and each photo not inside one.
@@ -539,6 +547,7 @@ export const useRenameItem = routeAction$(
     }
     const r = await moveItems(db, moves);
     if (!r.ok) return fail(409, { message: r.error });
+    await contentChanged(db);
     return { ok: true as const, name, undo: undoMoves(r.plan) };
   },
   zod$({
@@ -550,10 +559,12 @@ export const useRenameItem = routeAction$(
 
 /** Files view selection → ゴミ箱へ (folders with everything in them). */
 export const useTrashSelection = routeAction$(async (data, { platform }) => {
-  const t = await trashItems(getDB(platform), {
+  const db = getDB(platform);
+  const t = await trashItems(db, {
     photos: data.photos,
     folders: data.folders,
   });
+  await contentChanged(db);
   return { ok: true as const, trashed: t };
 }, zod$(selectionItems));
 
@@ -566,11 +577,9 @@ export const useBulkMetadata = routeAction$(
   async (data, { platform, fail }) => {
     const v = validateLevelChange(data.levels);
     if (!v.ok) return fail(400, { message: v.error });
-    const previous = await setMetadataLevels(
-      getDB(platform),
-      data.ids,
-      v.value,
-    );
+    const db = getDB(platform);
+    const previous = await setMetadataLevels(db, data.ids, v.value);
+    await contentChanged(db);
     return { ok: true as const, selected: data.ids.length, previous };
   },
   zod$({
@@ -583,13 +592,15 @@ export const useBulkMetadata = routeAction$(
 export const useRestoreMetadata = routeAction$(
   async (data, { platform }) => {
     // Written back as read: only valid overrides reach the column.
+    const db = getDB(platform);
     await restoreMetadataLevels(
-      getDB(platform),
+      db,
       data.previous.map((r) => ({
         id: r.id,
         levels: storedOverrides(parseOverrides(r.levels)),
       })),
     );
+    await contentChanged(db);
     return { ok: true as const };
   },
   zod$({
@@ -611,6 +622,7 @@ export const useUndoFolderOp = routeAction$(
     if (data.moves) {
       const r = await moveItems(db, data.moves);
       if (!r.ok) return fail(409, { message: r.error });
+      await contentChanged(db);
     }
     if (data.restore) {
       for (const f of data.restore.folders) {
@@ -618,7 +630,12 @@ export const useUndoFolderOp = routeAction$(
         if (!v.ok) return fail(400, { message: `${f}: ${v.error}` });
       }
       try {
-        await restoreItems(db, data.restore.ids, data.restore.folders);
+        const r = await restoreItems(
+          db,
+          data.restore.ids,
+          data.restore.folders,
+        );
+        await contentChanged(db);
       } catch (err) {
         if (err instanceof RestoreError) {
           return fail(409, { message: err.message });

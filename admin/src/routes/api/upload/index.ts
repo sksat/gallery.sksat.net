@@ -3,6 +3,7 @@ import { withErrorHandler } from "~/lib/api";
 import { getUploadConfig, presignPut, putHeaders } from "~/lib/b2";
 import { initUpload } from "~/lib/db-upload";
 import { getDB } from "~/lib/env";
+import { contentChanged, uploadsOverCameraPicture } from "~/lib/last-good";
 import { generatePublicId } from "~/lib/public-id";
 import { guessPlatform, validateUploadInit } from "~/lib/upload";
 
@@ -40,10 +41,19 @@ export const onPost: RequestHandler = withErrorHandler(
       return;
     }
     const { init } = v;
-    const outcome = await initUpload(getDB(platform), init, {
+    const db = getDB(platform);
+    const outcome = await initUpload(db, init, {
       publicId: generatePublicId(),
       platform: guessPlatform(init.file),
     });
+    // A new row is private, so the public API is unchanged, unless it has
+    // a camera picture's file: it hides that picture from /img already.
+    if (
+      outcome.kind === "upload" &&
+      (await uploadsOverCameraPicture(db, [outcome.id]))
+    ) {
+      await contentChanged(db);
+    }
     if (outcome.kind === "conflict") {
       // A lost race is worth retrying (503); the rest is not (409).
       json(outcome.retry ? 503 : 409, { error: outcome.message });

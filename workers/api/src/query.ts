@@ -223,6 +223,22 @@ const digitizedAt = (
 };
 
 /**
+ * effectiveLevels, remembered: most photos share the same overrides, so
+ * the list does not parse the same two JSON strings for every photo.
+ */
+const levelsMemo = new Map<string, ReturnType<typeof effectiveLevels>>();
+const levelsOf = (site: string | null, photo: string | null) => {
+  const key = `${site ?? ""}\u0000${photo ?? ""}`;
+  let levels = levelsMemo.get(key);
+  if (!levels) {
+    if (levelsMemo.size >= 1000) levelsMemo.clear();
+    levels = Object.freeze(effectiveLevels(site, photo));
+    levelsMemo.set(key, levels);
+  }
+  return levels;
+};
+
+/**
  * A photo as the public API shows it: each piece of metadata at the level
  * its visibility allows. `withKey` is for the image Worker's own lookups
  * (RPC): `file` is then the bucket key whatever the level, to fetch the
@@ -233,7 +249,7 @@ export const projectPhoto = (
   ctx: Context,
   withKey = false,
 ): MediaItemJSON => {
-  const levels = effectiveLevels(ctx.site, row.metadata_visibility);
+  const levels = levelsOf(ctx.site, row.metadata_visibility);
   const path = row.path ?? row.file;
   const name = path.slice(path.lastIndexOf("/") + 1);
   const timestamp = truncateTimestamp(row.timestamp, levels.taken_at);
@@ -454,3 +470,19 @@ export const getCamera = async (
     ? rowToCamera(row, (images.results ?? []) as CameraImageRow[])
     : null;
 };
+
+/**
+ * The `setting` row the admin rewrites (to a new random value) after
+ * every change to what this API answers (admin/src/lib/last-good.ts).
+ * Missing until the admin's first change: "".
+ */
+export const CONTENT_VERSION_KEY = "content_version";
+
+/** The current content version: one single-row read. */
+export const readContentVersion = async (db: D1Database): Promise<string> =>
+  (
+    await db
+      .prepare("SELECT value FROM setting WHERE key = ?")
+      .bind(CONTENT_VERSION_KEY)
+      .first<{ value: string }>()
+  )?.value ?? "";

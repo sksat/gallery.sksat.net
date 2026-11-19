@@ -76,6 +76,7 @@ import {
   VisibilityIcon,
 } from "~/components/visibility-style";
 import { getDB, getImageBase } from "~/lib/env";
+import { contentChanged } from "~/lib/last-good";
 import {
   formatJst,
   publicPhotoUrl,
@@ -239,6 +240,8 @@ export const useRegisterScanner = routeAction$(
     if (!scanner)
       return fail(400, { message: "スキャナーのファイルではありません" });
     const { camera, created, linked } = await registerScanner(db, scanner, id);
+    // The linked photos' スキャン機材, and the camera pages that list them.
+    await contentChanged(db);
     return {
       ok: true,
       name: camera.name,
@@ -303,6 +306,7 @@ export const useUpdateMedia = routeAction$(
     if (!updated) {
       return fail(404, { message: "not found" });
     }
+    await contentChanged(db);
     // Tags seen for the first time get a row, private: say so.
     const newTags = await ensureTags(db, v.patch.tags ?? []);
     return { ok: true, updated_at: updated.updated_at, newTags };
@@ -395,8 +399,10 @@ export const useApplyPending = routeAction$(
       // Each chunk commits on its own: the ones before stay applied, and
       // their undo goes back with the error.
       console.error("/media/[id] apply failed:", err);
+      await contentChanged(db);
       return fail(500, { message: "update failed", undo });
     }
+    await contentChanged(db);
     return { ok: true, changed: undo.length, undo };
   },
   zod$({ changes: changeSchema }),
@@ -418,8 +424,10 @@ export const useResetFromFile = routeAction$(
     }
     const v = validatePatch({ reset_from_file: [data.field] });
     if (!v.ok) return fail(400, { message: v.error });
-    const updated = await updateMedia(getDB(platform), id, v.patch);
+    const db = getDB(platform);
+    const updated = await updateMedia(db, id, v.patch);
     if (!updated) return fail(404, { message: "not found" });
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({ field: z.enum(["exif", "world", "location"]) }),
@@ -450,8 +458,10 @@ export const useUndoPending = routeAction$(
       }
     } catch (err) {
       console.error("/media/[id] undo failed:", err);
+      await contentChanged(db);
       return fail(500, { message: "undo failed" });
     }
+    await contentChanged(db);
     return { ok: true, changed };
   },
   zod$({
@@ -481,10 +491,12 @@ export const useMovePhoto = routeAction$(
   async (data, { platform, params, fail }) => {
     const id = actionId(params.id);
     if (id === null) return fail(400, { message: "invalid id" });
-    const r = await moveItems(getDB(platform), [
+    const db = getDB(platform);
+    const r = await moveItems(db, [
       { kind: "photo", id, to: data.path.trim() },
     ]);
     if (!r.ok) return fail(409, { message: r.error });
+    await contentChanged(db);
     return { ok: true, undo: undoMoves(r.plan) };
   },
   zod$({ path: z.string().max(600) }),
@@ -493,8 +505,10 @@ export const useMovePhoto = routeAction$(
 /** Undo of a move: the moves the move action returned. */
 export const useUndoMove = routeAction$(
   async (data, { platform, fail }) => {
-    const r = await moveItems(getDB(platform), data.moves);
+    const db = getDB(platform);
+    const r = await moveItems(db, data.moves);
     if (!r.ok) return fail(409, { message: r.error });
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({
@@ -526,6 +540,7 @@ export const useTrashPhoto = routeAction$(
     if (data.restore === "true") {
       try {
         const r = await restoreItems(db, [id]);
+        await contentChanged(db);
         return { ok: true, restored: r.restored[0]?.path ?? null };
       } catch (err) {
         if (err instanceof RestoreError) {
@@ -535,6 +550,7 @@ export const useTrashPhoto = routeAction$(
       }
     }
     await trashItems(db, { photos: [id], folders: [] });
+    await contentChanged(db);
     return { ok: true, restored: null };
   },
   zod$({ restore: z.string().max(5).optional() }),

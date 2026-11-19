@@ -19,6 +19,7 @@ import {
   setSiteDefaults,
 } from "~/lib/db-meta";
 import { getDB } from "~/lib/env";
+import { contentChanged } from "~/lib/last-good";
 import {
   EDITABLE_FIELDS,
   EMBED_LABEL,
@@ -64,6 +65,7 @@ export const useSaveDefaults = routeAction$(
       setSiteDefaults(db, next),
       setEmbedDefault(db, data.embed_exif === "on"),
     ]);
+    await contentChanged(db);
     return { ok: true };
   },
   zod$({
