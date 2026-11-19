@@ -1,5 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
+/**
+ * The bar's 情報… menu → `item`, until the picker `testId` shows; then
+ * nothing that varies between runs (hover, focus ring, the text
+ * selection Ctrl+A leaves).
+ */
+const openPicker = async (page: Page, item: string, testId: string) => {
+  await page
+    .getByTestId("selection-bar")
+    .getByRole("button", { name: "情報…" })
+    .click();
+  await page.getByRole("menuitem", { name: item }).click();
+  await expect(page.getByTestId(testId)).toBeVisible();
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+};
+
 /** Every tile selected, and 公開 picked: the bar with its look first. */
 const selectForPublic = async (page: Page, phone: boolean) => {
   if (phone) {
@@ -48,6 +64,14 @@ test.describe("desktop", () => {
     await expect(page).toHaveScreenshot("admin-media-files-selection.png");
   });
 
+  test("admin: media files camera picker", async ({ page }) => {
+    await page.goto("/media/?view=files&dir=/mock");
+    await expect(page.getByTestId("upload-folder")).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+a");
+    await openPicker(page, "カメラ…", "camera-picker");
+    await expect(page).toHaveScreenshot("admin-media-files-camera.png");
+  });
+
   test("admin: media files list and context menu", async ({ page }) => {
     await page.goto("/media/?view=files&dir=/mock");
     await expect(page.getByTestId("upload-folder")).toBeVisible();
@@ -79,5 +103,16 @@ test.describe("phone", () => {
     await expect(page).toHaveScreenshot(
       "admin-media-files-selection-phone.png",
     );
+  });
+
+  test("admin: media files camera picker (phone)", async ({ page }) => {
+    await page.goto("/media/?view=files&dir=/mock");
+    await expect(page.getByTestId("upload-folder")).toBeVisible();
+    await page
+      .getByRole("option", { name: "real2.png" })
+      .getByTestId("tile-check")
+      .click();
+    await openPicker(page, "カメラ…", "camera-picker");
+    await expect(page).toHaveScreenshot("admin-media-files-camera-phone.png");
   });
 });

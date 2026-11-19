@@ -7,6 +7,11 @@ import { folderWith, tick, tile, tiles } from "./files-helpers";
 
 const summary = (page: Page) => page.getByTestId("selection-summary");
 const bar = (page: Page) => page.getByTestId("selection-bar");
+/** The bar's 情報… menu, then one of its items. */
+const info = async (page: Page, item: string) => {
+  await bar(page).getByRole("button", { name: "情報…" }).click();
+  await page.getByRole("menu", { name: "情報" }).getByRole("menuitem", { name: item }).click();
+};
 const levelButton = (page: Page, name: "公開" | "限定公開" | "非公開") =>
   bar(page)
     .getByRole("group", { name: "公開範囲" })
@@ -118,7 +123,7 @@ test.describe("selection in the Files view", () => {
     await folderWith(page, "sel-meta", ["a.png", "b.png"]);
     const open = async () => {
       await page.keyboard.press("ControlOrMeta+a");
-      await bar(page).getByRole("button", { name: "公開する情報…" }).click();
+      await info(page, "公開する情報…");
       return page.getByRole("dialog", { name: /公開する情報/ });
     };
 
@@ -142,7 +147,7 @@ test.describe("selection in the Files view", () => {
 
     // One photo differs: its field says so and is left alone.
     await tick(page, "a.png").click();
-    await bar(page).getByRole("button", { name: "公開する情報…" }).click();
+    await info(page, "公開する情報…");
     await dialog.getByLabel("カメラ").selectOption("manufacturer");
     await dialog.getByRole("button", { name: "適用" }).click();
     await expect(
@@ -192,7 +197,7 @@ test("more photos than one request takes go in chunks, and undo all", async ({
   ).toHaveCount(105);
 
   await page.keyboard.press("ControlOrMeta+a");
-  await bar(page).getByRole("button", { name: "公開する情報…" }).click();
+  await info(page, "公開する情報…");
   const dialog = page.getByRole("dialog", { name: /公開する情報/ });
   await dialog.getByLabel("撮影設定").selectOption("hidden");
   await dialog.getByRole("button", { name: "適用" }).click();
@@ -236,6 +241,79 @@ test("the look before making many photos public keeps its button on screen", asy
     await page.getByRole("button", { name: "元に戻す" }).click();
     await expect(page.getByText("元に戻しました。").last()).toBeVisible();
   }
+});
+
+test("a camera for the selection, and undo", async ({ page }) => {
+  await folderWith(page, "sel-camera", ["a.png", "b.png"]);
+  const picker = page.getByRole("dialog", { name: /カメラ/ });
+  const choice = (name: string) =>
+    picker.getByRole("button", { name, exact: true });
+  const open = async () => {
+    await info(page, "カメラ…");
+    await expect(picker).toBeVisible();
+  };
+
+  await page.keyboard.press("ControlOrMeta+a");
+  await open();
+  // Uploads have no camera: なし is the shared one.
+  await expect(choice("なし")).toHaveAttribute("aria-pressed", "true");
+  await choice("VirtualLens2").click();
+  await expect(
+    page.getByText("2 枚のカメラを「VirtualLens2」にしました。"),
+  ).toBeVisible();
+  await expect(picker).toHaveCount(0);
+
+  await page.keyboard.press("ControlOrMeta+a");
+  await open();
+  await expect(choice("VirtualLens2")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+
+  // One photo gets another camera (from the context menu): mixed.
+  await tile(page, "a.png").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "カメラ…" }).click();
+  await choice("PENTAX SP").click();
+  await expect(page.getByText(/1 枚のカメラを「PENTAX SP」に/)).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+a");
+  await open();
+  // Mixed: そのまま is offered, and no camera is pressed.
+  await expect(choice("そのまま（写真ごと）")).toBeVisible();
+  await expect(picker.locator("[aria-pressed=true]")).toHaveCount(0);
+  await choice("なし").click();
+  await expect(page.getByText("1 枚のカメラを外しました。")).toBeVisible();
+});
+
+test("a platform for the selection, and undo", async ({ page }) => {
+  await folderWith(page, "sel-platform", ["a.png", "b.png"]);
+  const picker = page.getByRole("dialog", { name: /プラットフォーム/ });
+  const choice = (name: string) =>
+    picker.getByRole("button", { name, exact: true });
+
+  await page.keyboard.press("ControlOrMeta+a");
+  await info(page, "プラットフォーム…");
+  await expect(choice("Real")).toHaveAttribute("aria-pressed", "true");
+  await choice("VRChat").click();
+  await expect(page.getByText("2 枚を VRChat にしました。")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+a");
+  await info(page, "プラットフォーム…");
+  await expect(choice("VRChat")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+
+  // One of them from the context menu: then they differ.
+  await tile(page, "b.png").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "プラットフォーム…" }).click();
+  await choice("VRChat").click();
+  await expect(page.getByText("1 枚を VRChat にしました。")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+a");
+  await info(page, "プラットフォーム…");
+  await expect(choice("そのまま（写真ごと）")).toBeVisible();
+  await expect(picker.locator("[aria-pressed=true]")).toHaveCount(0);
 });
 
 test.describe("keyboard, menu and drag in the Files view", () => {
@@ -425,6 +503,26 @@ test.describe("selection on a phone", () => {
     await tick(page, "a.png").tap();
     await bar(page).getByRole("button", { name: "選択解除" }).tap();
     await expect(bar(page)).toHaveCount(0);
+  });
+
+  test("a camera from the bar on a phone", async ({ page }) => {
+    await folderWith(page, "sel-camera-phone", ["a.png", "b.png"]);
+    await tick(page, "a.png").tap();
+    await tick(page, "b.png").tap();
+    const button = bar(page).getByRole("button", { name: "情報…" });
+    expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await button.tap();
+    const item = page.getByRole("menuitem", { name: "カメラ…" });
+    expect((await item.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await item.tap();
+    const picker = page.getByRole("dialog", { name: /カメラ/ });
+    const pentax = picker.getByRole("button", { name: "PENTAX SP" });
+    expect((await pentax.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await pentax.tap();
+    await expect(page.getByText(/2 枚のカメラを「PENTAX SP」に/)).toBeVisible();
+    // Undone, so the fixture camera keeps no photos for other specs.
+    await page.getByRole("button", { name: "元に戻す" }).tap();
+    await expect(page.getByText("元に戻しました。")).toBeVisible();
   });
 
   test("a long press starts selecting; one item can be renamed", async ({

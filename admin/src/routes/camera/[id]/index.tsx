@@ -31,6 +31,7 @@ import {
   DuplicateImageError,
   getCamera,
   listCameraImages,
+  MAX_BULK_IDS,
   moveCameraImage,
   removeCameraImage,
   restoreCameraImage,
@@ -38,8 +39,17 @@ import {
   updateCamera,
   updateCameraImageCaption,
 } from "~/lib/db";
+import {
+  listCameraPhotos,
+  removeCameraFrom,
+  restoreCameras,
+  type CameraPhoto,
+  type PreviousCamera,
+} from "~/lib/db-photo-bulk";
 import { getDB, getImageBase } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
+import { inChunks } from "~/lib/selection";
+import { CameraPhotos } from "~/components/camera-photos";
 import { formatJst } from "~/lib/format";
 import type { CameraImageRow, CameraRow } from "~/lib/types";
 import {
@@ -57,6 +67,8 @@ type CameraLoaderResult =
       kind: "ok";
       camera: CameraRow;
       images: CameraImageRow[];
+      /** The photos taken with it, newest first. */
+      photos: CameraPhoto[];
       /** Image Worker base URL, or null for placeholder tiles. */
       imageBase: string | null;
     }
@@ -84,16 +96,61 @@ export const useCamera = routeLoader$<CameraLoaderResult>(
       status(500);
       return { kind: "missing-binding" };
     }
-    const [camera, images] = await Promise.all([
+    const [camera, images, photos] = await Promise.all([
       getCamera(db, id),
       listCameraImages(db, id),
+      listCameraPhotos(db, id),
     ]);
     if (!camera) {
       status(404);
       return { kind: "not-found" };
     }
-    return { kind: "ok", camera, images, imageBase: getImageBase(platform) };
+    return {
+      kind: "ok",
+      camera,
+      images,
+      photos,
+      imageBase: getImageBase(platform),
+    };
   },
+);
+
+/**
+ * 写真 → カメラを外す: this camera off the picked photos (one chunk of at
+ * most MAX_BULK_IDS; only photos that have it). Returns what changed, for
+ * 元に戻す.
+ */
+export const useRemoveCameraPhotos = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = parseId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    return {
+      ok: true as const,
+      previous: await removeCameraFrom(getDB(platform), id, data.ids),
+    };
+  },
+  zod$({
+    ids: z.array(z.number().int().positive()).min(1).max(MAX_BULK_IDS),
+  }),
+);
+
+/** Undo of useRemoveCameraPhotos. */
+export const useRestoreCameraPhotos = routeAction$(
+  async (data, { platform }) => {
+    await restoreCameras(getDB(platform), data.previous);
+    return { ok: true as const };
+  },
+  zod$({
+    previous: z
+      .array(
+        z.object({
+          id: z.number().int().positive(),
+          camera_id: z.number().int().positive().nullable(),
+          camera_source: z.enum(["manual", "file"]).nullable(),
+        }),
+      )
+      .max(MAX_BULK_IDS),
+  }),
 );
 
 export const useAddCameraImage = routeAction$(
@@ -351,6 +408,8 @@ export default component$(() => {
         }
       : { tone: "success", message: "Image added." };
   });
+  /** What 元に戻す puts back after カメラを外す (photos). */
+  const photoUndo = useSignal<PreviousCamera[] | null>(null);
   /** The last removed picture, for 「元に戻す」. */
   const removed = useSignal<{
     file: string;
@@ -369,6 +428,7 @@ export default component$(() => {
     }
     if (v.op === "remove") {
       removed.value = v.removed ?? null;
+      photoUndo.value = null;
     } else if (toast.value?.actionLabel) {
       // E.g. a caption saved on blur by the tap on Remove, landing after
       // it: keep the undo in view.
@@ -391,7 +451,58 @@ export default component$(() => {
         }
       : { tone: "success", message: "元に戻しました。" };
   });
+  const removePhotos = useRemoveCameraPhotos();
+  const restorePhotos = useRestoreCameraPhotos();
+  /** カメラを外す on photos `ids`: in chunks; true when all went through. */
+  const removeCamera = $(async (ids: number[]): Promise<boolean> => {
+    const previous: PreviousCamera[] = [];
+    let error: string | null = null;
+    for (const chunk of inChunks(ids, MAX_BULK_IDS)) {
+      const r = await removePhotos.submit({ ids: chunk }).catch(() => null);
+      if (!r || r.value.failed) {
+        error =
+          (r && "message" in r.value ? String(r.value.message) : "") ||
+          "失敗しました";
+        break;
+      }
+      previous.push(...r.value.previous);
+    }
+    removed.value = null;
+    photoUndo.value = previous.length > 0 ? previous : null;
+    const what = `${previous.length} 枚からカメラを外しました。`;
+    toast.value = error
+      ? {
+          tone: "error",
+          message: `${what} 残りは失敗: ${error}`,
+          actionLabel: photoUndo.value ? "元に戻す" : undefined,
+        }
+      : {
+          tone: "success",
+          message: what,
+          actionLabel: photoUndo.value ? "元に戻す" : undefined,
+        };
+    return error === null;
+  });
   const undoRemove = $(async () => {
+    const photos = photoUndo.value;
+    if (photos) {
+      photoUndo.value = null;
+      const chunks = inChunks(photos, MAX_BULK_IDS);
+      for (const [i, previous] of chunks.entries()) {
+        const r = await restorePhotos.submit({ previous }).catch(() => null);
+        if (!r || r.value.failed) {
+          photoUndo.value = chunks.slice(i).flat();
+          toast.value = {
+            tone: "error",
+            message: "元に戻せませんでした",
+            actionLabel: "元に戻す",
+          };
+          return;
+        }
+      }
+      toast.value = { tone: "success", message: "元に戻しました。" };
+      return;
+    }
     const r = removed.value;
     if (!r) return;
     removed.value = null;
@@ -429,7 +540,7 @@ export default component$(() => {
     );
   }
 
-  const { camera, images, imageBase } = data.value;
+  const { camera, images, photos, imageBase } = data.value;
   const opRunning = (key: string) => imageOp.isRunning && busyKey.value === key;
 
   return (
@@ -633,6 +744,12 @@ export default component$(() => {
           </SubmitButton>
         </Form>
       </section>
+      <CameraPhotos
+        photos={photos}
+        imageBase={imageBase}
+        busy={removePhotos.isRunning}
+        onRemove$={removeCamera}
+      />
       <Toast toast={toast} onAction$={undoRemove} />
     </div>
   );

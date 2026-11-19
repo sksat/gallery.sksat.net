@@ -30,6 +30,8 @@ export type MenuItem =
 type Props = {
   x: number;
   y: number;
+  /** Opened from a button: its top edge (to open above it if needed). */
+  above?: number;
   items: MenuItem[];
   label: string;
   onPick$: QRL<(id: string) => void>;
@@ -37,7 +39,7 @@ type Props = {
 };
 
 export const ContextMenu = component$<Props>(
-  ({ x, y, items, label, onPick$, onClose$ }) => {
+  ({ x, y, above, items, label, onPick$, onClose$ }) => {
     const ref = useSignal<HTMLDivElement>();
     const pos = useSignal({ left: x, top: y });
 
@@ -47,10 +49,19 @@ export const ContextMenu = component$<Props>(
       const el = ref.value;
       if (!el) return;
       const back = document.activeElement as HTMLElement | null;
+      // In the top layer: placed against the viewport even inside a bar
+      // whose backdrop-filter would otherwise contain `fixed`.
+      el.showPopover?.();
       const r = el.getBoundingClientRect();
+      // Below (x, y); opened from a button (`above`: its top edge), above
+      // the button when there is no room below.
+      const top =
+        above !== undefined && y + r.height > innerHeight - 8
+          ? above - r.height - 4
+          : y;
       pos.value = {
         left: Math.max(8, Math.min(x, innerWidth - r.width - 8)),
-        top: Math.max(8, Math.min(y, innerHeight - r.height - 8)),
+        top: Math.max(8, Math.min(top, innerHeight - r.height - 8)),
       };
       el.querySelector<HTMLElement>("[role=menuitem]:not([disabled])")?.focus();
       const outside = (e: Event) => {
@@ -102,8 +113,9 @@ export const ContextMenu = component$<Props>(
           keydown,
         ]}
         preventdefault:contextmenu
+        popover="manual"
         style={{ left: `${pos.value.left}px`, top: `${pos.value.top}px` }}
-        class="fixed z-50 min-w-52 rounded-xl border border-zinc-200 bg-white p-1 text-sm text-zinc-800 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        class="fixed inset-auto z-50 m-0 min-w-52 overflow-visible rounded-xl border border-zinc-200 bg-white p-1 text-sm text-zinc-800 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
       >
         {items.map((item) =>
           item.kind === "separator" ? (

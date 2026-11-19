@@ -80,6 +80,29 @@ test("cameras: the fixture camera lists its images in order", async ({
   await expect(images.getByTestId("thumb-placeholder")).toHaveCount(2);
 });
 
+test("cameras: the camera's photos, and taking it off some (undo)", async ({
+  page,
+}) => {
+  await page.goto("/camera/1/");
+  const section = page.getByTestId("camera-photos");
+  await expect(section.getByRole("heading")).toHaveText("写真 (1)");
+  const photo = section.getByTestId("camera-photo");
+  await expect(photo).toContainText("vrchat1.png");
+  await expect(photo.getByRole("link")).toHaveAttribute("href", "/media/2/");
+
+  await photo.getByRole("checkbox", { name: "vrchat1.png を選ぶ" }).check();
+  const bar = page.getByTestId("camera-photos-bar");
+  await expect(bar).toContainText("1 件選択");
+  await bar.getByRole("button", { name: "カメラを外す" }).click();
+  await expect(page.getByText("1 枚からカメラを外しました。")).toBeVisible();
+  await expect(section.getByRole("heading")).toHaveText("写真 (0)");
+  await expect(bar).toHaveCount(0);
+
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+  await expect(section.getByRole("heading")).toHaveText("写真 (1)");
+});
+
 test("cameras: add, reorder, caption and remove images", async ({ page }) => {
   const slug = `e2e-img-${Date.now().toString(36)}`;
   await page.goto("/camera/new/");

@@ -48,6 +48,17 @@ import {
 } from "~/lib/db-meta";
 import { storedOverrides, validateLevelChange } from "~/lib/bulk-metadata";
 import { inChunks } from "~/lib/selection";
+import {
+  listCameraChoices,
+  restoreCameras,
+  restorePlatforms,
+  setCameras,
+  setPlatforms,
+  UnknownCameraError,
+  type CameraChoice,
+  type PreviousCamera,
+  type PreviousPlatform,
+} from "~/lib/db-photo-bulk";
 import { parseOverrides, type MetadataLevels } from "~/lib/metadata";
 import {
   loadTree,
@@ -116,6 +127,7 @@ import {
 } from "~/lib/format";
 import {
   isVisibility,
+  PLATFORMS,
   VISIBILITIES,
   type MediaRow,
   type MediaPlatform,
@@ -148,6 +160,8 @@ type FilesData = {
   incomplete: IncompleteUpload[];
   /** The site's metadata levels (what 既定 means in a bulk change). */
   siteDefaults: MetadataLevels;
+  /** Cameras to pick in a bulk change. */
+  cameras: CameraChoice[];
 };
 
 type MediaListResult =
@@ -242,6 +256,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
             (u) => dirOf(u.path) === dir,
           ),
           siteDefaults: await getSiteDefaults(db),
+          cameras: await listCameraChoices(db),
         },
       };
     }
@@ -588,6 +603,85 @@ export const useBulkMetadata = routeAction$(
   }),
 );
 
+/**
+ * Files view selection → カメラ: one camera (or none) on the selected
+ * photos, one chunk; returns what changed photos had, for 元に戻す.
+ */
+export const useBulkCamera = routeAction$(
+  async (data, { platform, fail }) => {
+    try {
+      const previous = await setCameras(
+        getDB(platform),
+        data.ids,
+        data.camera_id,
+      );
+      return { ok: true as const, previous };
+    } catch (err) {
+      if (err instanceof UnknownCameraError) {
+        return fail(404, { message: "そのカメラはありません" });
+      }
+      throw err;
+    }
+  },
+  zod$({
+    ids: z.array(z.number().int().positive()).min(1).max(MAX_BULK_IDS),
+    camera_id: z.number().int().positive().nullable(),
+  }),
+);
+
+/** Files view selection → プラットフォーム, one chunk; with the undo. */
+export const useBulkPlatform = routeAction$(
+  async (data, { platform }) => {
+    const previous = await setPlatforms(
+      getDB(platform),
+      data.ids,
+      data.platform,
+    );
+    return { ok: true as const, previous };
+  },
+  zod$({
+    ids: z.array(z.number().int().positive()).min(1).max(MAX_BULK_IDS),
+    platform: z.enum(PLATFORMS as [MediaPlatform, ...MediaPlatform[]]),
+  }),
+);
+
+/** Undo of useBulkPlatform: each photo back to its platform. */
+export const useRestorePlatform = routeAction$(
+  async (data, { platform }) => {
+    await restorePlatforms(getDB(platform), data.previous);
+    return { ok: true as const };
+  },
+  zod$({
+    previous: z
+      .array(
+        z.object({
+          id: z.number().int().positive(),
+          platform: z.enum(PLATFORMS as [MediaPlatform, ...MediaPlatform[]]),
+        }),
+      )
+      .max(MAX_BULK_IDS),
+  }),
+);
+
+/** Undo of useBulkCamera: each photo back to its camera. */
+export const useRestoreCamera = routeAction$(
+  async (data, { platform }) => {
+    await restoreCameras(getDB(platform), data.previous);
+    return { ok: true as const };
+  },
+  zod$({
+    previous: z
+      .array(
+        z.object({
+          id: z.number().int().positive(),
+          camera_id: z.number().int().positive().nullable(),
+          camera_source: z.enum(["manual", "file"]).nullable(),
+        }),
+      )
+      .max(MAX_BULK_IDS),
+  }),
+);
+
 /** Undo of useBulkMetadata. */
 export const useRestoreMetadata = routeAction$(
   async (data, { platform }) => {
@@ -764,6 +858,14 @@ export default component$(() => {
   const bulkMetadata = useBulkMetadata();
   const restoreMetadata = useRestoreMetadata();
   const selectionVisibility = useSelectionVisibility();
+  const bulkCamera = useBulkCamera();
+  const restoreCamera = useRestoreCamera();
+  const bulkPlatform = useBulkPlatform();
+  const restorePlatform = useRestorePlatform();
+  /** The last bulk platform change (what the photos had), for undo. */
+  const lastPlatform = useSignal<PreviousPlatform[] | null>(null);
+  /** The last bulk camera change (what the photos had), for undo. */
+  const lastCamera = useSignal<PreviousCamera[] | null>(null);
   /** A selection action going through in chunks: photos done of total. */
   const progress = useSignal<{ done: number; total: number } | null>(null);
   /** The Files view's selection actions; true when it went through. */
@@ -773,7 +875,12 @@ export default component$(() => {
         data.value.kind === "ok" && data.value.files
           ? data.value.files.dir
           : "/";
-      if (a.kind === "metadata" || a.kind === "visibility") {
+      if (
+        a.kind === "metadata" ||
+        a.kind === "visibility" ||
+        a.kind === "camera" ||
+        a.kind === "platform"
+      ) {
         // Any number of photos, MAX_BULK_IDS per request, one after
         // another; the bar shows how far it got. A failure stops there
         // and keeps the undo of what went through.
@@ -781,6 +888,8 @@ export default component$(() => {
         progress.value = { done: 0, total };
         const previous: StoredLevels[] = [];
         const changes: VisibilityChange[] = [];
+        const cameras: PreviousCamera[] = [];
+        const platforms: PreviousPlatform[] = [];
         let changed = 0;
         let error: string | null = null;
         let done = 0;
@@ -789,19 +898,27 @@ export default component$(() => {
             const r =
               a.kind === "metadata"
                 ? await bulkMetadata.submit({ ids, levels: a.levels })
-                : await selectionVisibility.submit({
-                    ids,
-                    visibility: a.visibility,
-                  });
+                : a.kind === "camera"
+                  ? await bulkCamera.submit({ ids, camera_id: a.cameraId })
+                  : a.kind === "platform"
+                    ? await bulkPlatform.submit({ ids, platform: a.platform })
+                    : await selectionVisibility.submit({
+                        ids,
+                        visibility: a.visibility,
+                      });
             if (r.value.failed) {
               error =
                 ("message" in r.value ? String(r.value.message) : "") ||
                 "失敗しました";
               break;
             }
-            if ("changed" in r.value) {
-              changed += r.value.changed;
+            if (a.kind === "visibility" && "changed" in r.value) {
+              changed += r.value.changed as number;
               changes.push(...(r.value.previous as VisibilityChange[]));
+            } else if (a.kind === "camera") {
+              cameras.push(...(r.value.previous as PreviousCamera[]));
+            } else if (a.kind === "platform") {
+              platforms.push(...(r.value.previous as PreviousPlatform[]));
             } else {
               previous.push(...(r.value.previous as StoredLevels[]));
             }
@@ -822,12 +939,25 @@ export default component$(() => {
           a.kind === "visibility" && changes.length > 0
             ? { from: a.visibility, changes }
             : null;
+        lastCamera.value =
+          a.kind === "camera" && cameras.length > 0 ? cameras : null;
+        lastPlatform.value =
+          a.kind === "platform" && platforms.length > 0 ? platforms : null;
         const canUndo =
-          lastMetadata.value !== null || lastChange.value !== null;
+          lastMetadata.value !== null ||
+          lastChange.value !== null ||
+          lastCamera.value !== null ||
+          lastPlatform.value !== null;
         const what =
           a.kind === "metadata"
             ? `${previous.length} 枚の公開する情報を変えました。`
-            : `${total} selected, ${changed} changed to ${VISIBILITY_LABELS[a.visibility]}.`;
+            : a.kind === "platform"
+              ? `${platforms.length} 枚を ${a.platform} にしました。`
+              : a.kind === "camera"
+                ? a.cameraName
+                  ? `${cameras.length} 枚のカメラを「${a.cameraName}」にしました。`
+                  : `${cameras.length} 枚のカメラを外しました。`
+                : `${total} selected, ${changed} changed to ${VISIBILITY_LABELS[a.visibility]}.`;
         toast.value = error
           ? {
               tone: "error",
@@ -842,6 +972,8 @@ export default component$(() => {
         return error === null;
       }
       lastMetadata.value = null;
+      lastCamera.value = null;
+      lastPlatform.value = null;
       if (a.kind === "rename") {
         const r = await renameItem.submit({
           photo: items.photos[0],
@@ -1013,6 +1145,8 @@ export default component$(() => {
     lastChange.value = { from: v.visibility, changes: v.previous };
     lastFolderUndo.value = null;
     lastMetadata.value = null;
+    lastCamera.value = null;
+    lastPlatform.value = null;
     toast.value = {
       tone: "success",
       message: `${v.selected} selected, ${v.changed} changed to ${VISIBILITY_LABELS[v.visibility]}.`,
@@ -1050,6 +1184,8 @@ export default component$(() => {
     }
     lastChange.value = null;
     lastMetadata.value = null;
+    lastCamera.value = null;
+    lastPlatform.value = null;
     lastFolderUndo.value = v.undo
       ? { back: v.from, moves: v.undo }
       : v.trashed
@@ -1097,6 +1233,44 @@ export default component$(() => {
           toast.value = {
             tone: "error",
             message: `元に戻せませんでした (${i * MAX_BULK_IDS} / ${metadata.length} 枚は戻しました)`,
+            actionLabel: "元に戻す",
+          };
+          return;
+        }
+      }
+      toast.value = { tone: "success", message: "元に戻しました。" };
+      return;
+    }
+    const camera = lastCamera.value;
+    if (camera) {
+      lastCamera.value = null;
+      const chunks = inChunks(camera, MAX_BULK_IDS);
+      for (const [i, previous] of chunks.entries()) {
+        const r = await restoreCamera.submit({ previous }).catch(() => null);
+        if (!r || r.value.failed) {
+          lastCamera.value = chunks.slice(i).flat();
+          toast.value = {
+            tone: "error",
+            message: `元に戻せませんでした (${i * MAX_BULK_IDS} / ${camera.length} 枚は戻しました)`,
+            actionLabel: "元に戻す",
+          };
+          return;
+        }
+      }
+      toast.value = { tone: "success", message: "元に戻しました。" };
+      return;
+    }
+    const platformUndo = lastPlatform.value;
+    if (platformUndo) {
+      lastPlatform.value = null;
+      const chunks = inChunks(platformUndo, MAX_BULK_IDS);
+      for (const [i, previous] of chunks.entries()) {
+        const r = await restorePlatform.submit({ previous }).catch(() => null);
+        if (!r || r.value.failed) {
+          lastPlatform.value = chunks.slice(i).flat();
+          toast.value = {
+            tone: "error",
+            message: `元に戻せませんでした (${i * MAX_BULK_IDS} / ${platformUndo.length} 枚は戻しました)`,
             actionLabel: "元に戻す",
           };
           return;
@@ -1556,6 +1730,7 @@ export default component$(() => {
               q={q}
               date={date}
               siteDefaults={files.siteDefaults}
+              cameras={files.cameras}
               progress={progress.value}
               onSelection$={onSelection}
             >
