@@ -8,6 +8,7 @@ import {
   deviceOf,
   ensureDeviceStatement,
 } from "./device";
+import { contentVersionStatement } from "./last-good";
 import type { MetadataOverrides } from "./metadata";
 import { serializeSources } from "./metadata-source";
 import {
@@ -309,13 +310,16 @@ export const completeUpload = async (
   stat: (file: string) => Promise<ObjectStat | null>,
 ): Promise<CompleteOutcome> => {
   const row = await db
-    .prepare("SELECT file, status, size, sha256 FROM media WHERE id = ?")
+    .prepare(
+      "SELECT file, status, size, sha256, visibility FROM media WHERE id = ?",
+    )
     .bind(id)
     .first<{
       file: string;
       status: string;
       size: number | null;
       sha256: string | null;
+      visibility: string;
     }>();
   if (!row) return { kind: "not-found" };
   if (row.status === "ready") return { kind: "ready" };
@@ -343,6 +347,10 @@ export const completeUpload = async (
       )
       .bind(id),
     db.prepare("SELECT status FROM media WHERE id = ?").bind(id),
+    // Made public or unlisted by an upload rule: the API shows it once it
+    // is ready (with its tags and camera), so the content version moves in
+    // the same batch. A private one changes nothing the API answers.
+    ...(row.visibility !== "private" ? [contentVersionStatement(db)] : []),
   ]);
   const now = (after.results ?? [])[0] as { status: string } | undefined;
   // Deleted meanwhile (incomplete uploads can be deleted).

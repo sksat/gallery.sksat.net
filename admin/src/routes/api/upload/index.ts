@@ -58,8 +58,10 @@ export const onPost: RequestHandler = withErrorHandler(
       publicId: generatePublicId(),
       ...decided.row,
     });
-    // A new row is private, so the public API is unchanged, unless it has
-    // a camera picture's file: it hides that picture from /img already.
+    // A new row is still uploading (also one a rule makes public: the API
+    // shows ready rows only, and completeUpload bumps for it), so the
+    // public API is unchanged, unless it has a camera picture's file: it
+    // hides that picture from /img already.
     if (
       outcome.kind === "upload" &&
       (await uploadsOverCameraPicture(db, [outcome.id]))

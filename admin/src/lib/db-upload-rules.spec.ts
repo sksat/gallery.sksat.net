@@ -176,4 +176,23 @@ describe("applying to existing photos", () => {
     await restoreExisting(db, previous);
     expect(read()).toEqual(before);
   });
+
+  it("bumps the API's content version when it applies or undoes", async () => {
+    const { raw, db } = setup();
+    const version = () =>
+      (
+        raw
+          .prepare("SELECT value FROM setting WHERE key = 'content_version'")
+          .get() as { value: string } | undefined
+      )?.value;
+    const previous = await applyExisting(db, rules, [1, 2, 3, 4]);
+    const applied = version();
+    expect(applied).toBeDefined();
+    await restoreExisting(db, previous);
+    expect(version()).not.toBe(applied);
+    // Nothing to change: nothing written, no bump.
+    const now = version();
+    await applyExisting(db, rules, [4]);
+    expect(version()).toBe(now);
+  });
 });

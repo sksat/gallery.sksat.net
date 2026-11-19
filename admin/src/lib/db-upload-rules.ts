@@ -4,6 +4,7 @@
 
 import { storedOverrides } from "./bulk-metadata";
 import type { NewRow } from "./db-upload";
+import { contentVersionStatement } from "./last-good";
 import { parseOverrides } from "./metadata";
 import { normalizeExif } from "./photo-meta";
 import { LIVE_PHOTO, isPlatform, type MediaPlatform } from "./types";
@@ -286,8 +287,10 @@ export const applyExisting = async (
   }
   if (updates.length === 0) return before;
   // In the same batch (one transaction): new tags get their private row
-  // together with the photos that use them.
+  // together with the photos that use them, and the API's content version
+  // moves with them (a listed photo's platform, camera, tags or levels).
   await db.batch([
+    contentVersionStatement(db),
     ...(newTags.size > 0
       ? [
           db
@@ -313,8 +316,9 @@ export const restoreExisting = async (
   before: readonly ExistingBefore[],
 ): Promise<void> => {
   if (before.length === 0) return;
-  await db.batch(
-    before.map((b) =>
+  await db.batch([
+    contentVersionStatement(db),
+    ...before.map((b) =>
       db
         .prepare(
           `UPDATE media SET platform = ?2, camera_id = ?3,
@@ -330,5 +334,5 @@ export const restoreExisting = async (
           storedOverrides(parseOverrides(b.metadata_visibility)),
         ),
     ),
-  );
+  ]);
 };
