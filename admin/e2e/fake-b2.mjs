@@ -6,7 +6,8 @@
 // signature with the test key, its expiry, and that the body's SHA-256 is
 // the signed x-amz-meta-sha256. GET /__uploads lists what was stored;
 // GET /__stat?key=<file> is what the admin's upload check sees
-// (E2E_FAKE_B2_STAT_URL, in place of the image Worker's stat).
+// (E2E_FAKE_B2_STAT_URL, in place of the image Worker's stat); GET
+// /__bytes reads a stored or seeded (PUT /__seed) object's bytes.
 //
 // Usage: node e2e/fake-b2.mjs <port> <bucket> <keyId> <secret> <region>
 import { createHash, createHmac } from "node:crypto";
@@ -185,6 +186,22 @@ createServer((req, res) => {
           );
     res.writeHead(200, { "x-object-size": String(body.length) });
     res.end(part);
+    return;
+  }
+  // PUT /__seed?key=<file>: puts a fixture photo's original in place, for
+  // /__bytes (no upload row, so nothing lists it); DELETE takes it away.
+  if (req.method === "DELETE" && url.pathname === "/__seed") {
+    bodies.delete(url.searchParams.get("key"));
+    res.writeHead(204).end();
+    return;
+  }
+  if (req.method === "PUT" && url.pathname === "/__seed") {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      bodies.set(url.searchParams.get("key"), Buffer.concat(chunks));
+      res.writeHead(204).end();
+    });
     return;
   }
   if (req.method !== "PUT" || !url.pathname.startsWith(`/${bucket}/`)) {
