@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  truncateSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
@@ -131,6 +137,99 @@ test("the same photo is not uploaded twice", async ({ page }) => {
     "data-status",
     "skipped",
   );
+});
+
+/** Every upload request the page makes (init or PUT), as "METHOD url". */
+const uploadRequests = (page: Page) => {
+  const seen: string[] = [];
+  page.on("request", (req) => {
+    const url = req.url();
+    if (url.includes("/sksat-gallery/") || /\/api\/upload(\/|$)/.test(url)) {
+      seen.push(`${req.method()} ${url}`);
+    }
+  });
+  return seen;
+};
+
+/** A PNG that is only its signature and IHDR chunk, claiming w × h. */
+const pngHeaderOnly = (name: string, width: number, height: number) => {
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write("IHDR", 4, "latin1");
+  ihdr.writeUInt32BE(width, 8);
+  ihdr.writeUInt32BE(height, 12);
+  ihdr[16] = 8; // bit depth
+  ihdr[17] = 2; // RGB
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ihdr,
+    ]),
+  };
+};
+
+test("files the image Worker could not resize are refused before uploading", async ({
+  page,
+}) => {
+  await newFolder(page, "/mock", "up-limits");
+  const sent = uploadRequests(page);
+  // Just over 100 MB, sparse on disk (setInputFiles buffers stop at 50 MB).
+  const dir = mkdtempSync(join(tmpdir(), "admin-upload-"));
+  const big = join(dir, "big.png");
+  writeFileSync(big, Buffer.alloc(0));
+  truncateSync(big, 123_400_000);
+  const input = page.getByTestId("upload-input");
+  await input.setInputFiles(big);
+  const bigRow = rows(page).filter({ hasText: "big.png" });
+  await expect(bigRow).toHaveAttribute("data-status", "skipped");
+  await expect(bigRow).toContainText(
+    "ファイルが大きすぎます：123.4 MB（117.7 MiB）。上限は 100 MB（95.4 MiB）です。",
+  );
+
+  await input.setInputFiles([
+    pngHeaderOnly("wide.png", 13_000, 9_000),
+    pngHeaderOnly("dense.png", 12_000, 10_000),
+  ]);
+  const wide = rows(page).filter({ hasText: "wide.png" });
+  await expect(wide).toHaveAttribute("data-status", "skipped");
+  await expect(wide).toContainText(
+    "画像が大きすぎます：13,000 × 9,000 px。1 辺 12,000 px までです。",
+  );
+  const dense = rows(page).filter({ hasText: "dense.png" });
+  await expect(dense).toHaveAttribute("data-status", "skipped");
+  await expect(dense).toContainText(
+    "画素数が多すぎます：120 MP。上限は 100 MP です。",
+  );
+
+  // Nothing was asked for or sent, and nothing was added.
+  expect(sent).toEqual([]);
+  await page.reload();
+  await expect(page.getByTestId("file-tile")).toHaveCount(0);
+  await expect(page.getByTestId("incomplete-uploads")).toHaveCount(0);
+});
+
+test("the server refuses an over-limit init with the same words", async ({
+  page,
+}) => {
+  await page.goto("/media/?view=files&dir=/mock");
+  const res = await page.request.post("/api/upload", {
+    headers: { Origin: new URL(page.url()).origin },
+    data: {
+      file: "/mock/up-limits-api.png",
+      size: 1234,
+      contentType: "image/png",
+      sha256: "1".repeat(64),
+      timestamp: null,
+      width: 13_000,
+      height: 9_000,
+    },
+  });
+  expect(res.status()).toBe(400);
+  expect(await res.json()).toEqual({
+    error: "画像が大きすぎます：13,000 × 9,000 px。1 辺 12,000 px までです。",
+  });
 });
 
 test("a different photo with a taken name gets a numbered one", async ({

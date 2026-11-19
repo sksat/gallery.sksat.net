@@ -29,7 +29,7 @@ export const onPost: RequestHandler = withErrorHandler(
   async ({ platform, params, request, url, json }) => {
     const id = parseId(params.id);
     if (id === null) {
-      json(400, { error: "invalid id" });
+      json(400, { error: "アップロードの番号が正しくありません" });
       return;
     }
     const stat = getObjectStat(
@@ -38,7 +38,7 @@ export const onPost: RequestHandler = withErrorHandler(
       request.headers.get("cf-access-jwt-assertion"),
     );
     if (!stat) {
-      json(503, { error: "upload check is not configured" });
+      json(503, { error: "アップロードの確認が設定されていません" });
       return;
     }
     const db = getDB(platform);

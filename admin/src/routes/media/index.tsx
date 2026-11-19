@@ -385,7 +385,7 @@ export const useDeleteIncomplete = routeAction$(
       db = getDB(platform);
     } catch (err) {
       console.error("/media delete-incomplete action: getDB failed:", err);
-      return fail(500, { message: "D1 binding unavailable" });
+      return fail(500, { message: "データベースに接続できません" });
     }
     if (!(await deleteIncompleteUpload(db, data.id))) {
       return fail(404, { message: "未完了のアップロードが見つかりません" });

@@ -109,8 +109,8 @@ const UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
 /**
  * Bytes as "999 B", "1.23 KB", "12.3 MB", "123 GB": base 1000 (decimal
  * units, as B2 and D1 count them), three significant digits from KB up.
- * (The uploader's formatBytes in upload.ts is base 1024, like file
- * managers.) Done by hand rather than via Intl so the output does not
+ * (The uploader's formatUploadSize in upload.ts shows decimal and binary
+ * units side by side.) Done by hand rather than via Intl so the output does not
  * depend on the runtime's ICU data.
  */
 export const formatDecimalBytes = (bytes: number): string => {

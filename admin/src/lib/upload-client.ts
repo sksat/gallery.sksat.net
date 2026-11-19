@@ -2,9 +2,10 @@
 // the admin API, and the PUT to the bucket with XMLHttpRequest (fetch has
 // no upload progress). Thin wrappers; the logic is in upload-queue.ts.
 
+import { imageSize } from "./image-size";
 import { readPhotoMeta } from "./photo-meta";
 import { vrchatTakenAt } from "./taken-at";
-import { uploadContentType } from "./upload";
+import { checkUploadLimits, uploadContentType } from "./upload";
 import {
   UploadError,
   type InitResult,
@@ -34,6 +35,10 @@ export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
   const contentType = uploadContentType(f.name, f.type);
   if (!contentType) throw new UploadError("PNG / JPEG ではありません", false);
   const bytes = await f.blob.arrayBuffer();
+  // Larger than the image Worker can resize: refused before hashing.
+  const size = imageSize(new Uint8Array(bytes));
+  const refused = checkUploadLimits({ size: f.size, ...size });
+  if (refused) throw new UploadError(refused, false);
   const [digest, meta] = await Promise.all([
     crypto.subtle.digest("SHA-256", bytes),
     readPhotoMeta(new Uint8Array(bytes)),
@@ -42,6 +47,8 @@ export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
   return {
     sha256: hex(digest),
     contentType,
+    width: size?.width ?? null,
+    height: size?.height ?? null,
     // The VRChat name is exact to the millisecond; then EXIF.
     timestamp: vrchatTakenAt(f.name) ?? takenAt,
     // Always sent, even empty: the server then knows the file was read.
@@ -56,6 +63,19 @@ const retryableStatus = (status: number) =>
   status === 408 ||
   status === 429 ||
   status >= 500;
+
+/**
+ * What a failed admin API call means, for the panel: the route's own
+ * (Japanese) message, or words for the generic answers (withErrorHandler's
+ * 500, the Origin check, an Access page that is not JSON).
+ */
+export const apiProblem = (status: number, error?: string): string => {
+  if (status === 403) return "権限がありません（ログインし直してください）";
+  if (error && error !== "internal server error") return error;
+  return status >= 500
+    ? `サーバーでエラーが起きました（HTTP ${status}）`
+    : `リクエストが受け付けられませんでした（HTTP ${status}）`;
+};
 
 const api = async (
   method: string,
@@ -77,7 +97,7 @@ const api = async (
   } | null;
   if (!res.ok) {
     throw new UploadError(
-      data?.error ?? `HTTP ${res.status}`,
+      apiProblem(res.status, data?.error),
       // 403 here is Access or the Origin check, not an expired URL.
       res.status !== 403 && retryableStatus(res.status),
     );

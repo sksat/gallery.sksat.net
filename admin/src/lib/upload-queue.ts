@@ -11,7 +11,7 @@
 // a new URL (so an expired URL is not a dead end).
 
 import type { StoredMeta } from "./photo-meta";
-import { uploadTarget } from "./upload";
+import { checkUploadLimits, uploadTarget } from "./upload";
 
 export type UploadStatus =
   | "queued"
@@ -56,6 +56,9 @@ export type Prepared = {
   timestamp: string | null;
   /** Metadata read from the file (photo-meta.ts), when there is any. */
   meta?: StoredMeta;
+  /** From the header (image-size.ts); null when it could not be read. */
+  width?: number | null;
+  height?: number | null;
 };
 
 export type InitResult =
@@ -266,14 +269,18 @@ export const createUploadQueue = <S extends UploadSource>(
     add(dir, sources) {
       for (const source of sources) {
         const target = uploadTarget(dir, source.relativePath || source.name);
+        // Too large to upload: refused before anything is read or sent.
+        const refused = target.ok
+          ? checkUploadLimits({ size: source.size })
+          : target.error;
         const item: UploadItem = {
           key: nextKey++,
           name: source.relativePath || source.name,
           file: target.ok ? target.file : "",
           size: source.size,
-          status: target.ok ? "queued" : "skipped",
+          status: refused === null ? "queued" : "skipped",
           loaded: 0,
-          message: target.ok ? null : target.error,
+          message: refused,
           mediaId: null,
           attempts: 0,
         };
