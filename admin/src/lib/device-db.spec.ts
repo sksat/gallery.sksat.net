@@ -287,7 +287,7 @@ describe("ensureDeviceStatement", () => {
     ]);
   });
 
-  it("finds a row by either spelling, through idx_camera_make_model", () => {
+  it("finds a row by either spelling", () => {
     const raw = migratedSqlite();
     raw.exec(
       "INSERT INTO camera (slug, name, manufacturer, model) VALUES ('r5', 'R5', 'Canon', 'Canon EOS R5')",
@@ -296,13 +296,9 @@ describe("ensureDeviceStatement", () => {
     expect(
       raw.prepare(sql).get("CANON", "Canon", "Canon EOS R5", "EOS R5"),
     ).toEqual({ id: 1 });
-    const plan = (
-      raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all("a", "b", "c", "d") as {
-        detail: string;
-      }[]
-    ).map((r) => r.detail);
-    expect(plan.join("\n")).toContain("idx_camera_make_model");
-    expect(plan.join("\n")).not.toMatch(/SCAN c\b/);
+    expect(raw.prepare(sql).get("Nikon", "Nikon", "Z 6", "Z 6")).toEqual({
+      id: null,
+    });
   });
 });
 

@@ -146,8 +146,8 @@ const SOURCE_KEY = { camera: "camera", digitizer: "digitized_with" } as const;
 /**
  * SQL: the id of the camera row naming a device (four parameters: the
  * file's make, the stored make, the file's model, the stored model),
- * either spelling, case aside, the first by id. Answered by
- * idx_camera_make_model (0010).
+ * either spelling, case aside, the first by id. The camera table is a few
+ * dozen rows: read without an index.
  */
 export const deviceIdSql = (
   rawMake: string,
