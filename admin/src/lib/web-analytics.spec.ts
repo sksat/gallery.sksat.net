@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { GRAPHQL_ENDPOINT, type SimpleCache } from "./cf-graphql";
-import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 import {
   bucketKeys,
   countryLabel,
@@ -10,12 +9,8 @@ import {
   parseAccessRange,
   parsePhotoPath,
   photoCounts,
-  photoIdsOf,
-  photoRowsFor,
   rangeWindow,
   referrerLabel,
-  topPhotos,
-  type PhotoMediaRow,
 } from "./web-analytics";
 
 const now = new Date("2026-11-18T03:04:05.678Z");
@@ -265,25 +260,7 @@ describe("photo paths", () => {
     ["/camera/x/", null],
   ])("%s", (path, id) => expect(parsePhotoPath(path)).toBe(id));
 
-  const rows: PhotoMediaRow[] = [
-    {
-      id: 1,
-      public_id: "aaaaaaaaa2",
-      file: "/mock/real1.png",
-      platform: "Real",
-    },
-    {
-      id: 2,
-      public_id: "aaaaaaaaa3",
-      file: "/mock/vrchat1.png",
-      platform: "VRChat",
-    },
-  ];
   const pages = parseAccess(sample, "7d", now, HOST)!.pages;
-
-  it("collects the public ids to look up", () => {
-    expect(photoIdsOf(pages)).toEqual(["aaaaaaaaa3", "aaaaaaaaa2"]);
-  });
 
   it("adds a photo's paths with and without the slash together", () => {
     expect(photoCounts(pages, "aaaaaaaaa3")).toEqual({
@@ -298,39 +275,6 @@ describe("photo paths", () => {
       pageViews: 0,
       visits: 0,
     });
-  });
-
-  it("ranks photos by page views", () => {
-    expect(
-      topPhotos(pages, rows).map((p) => [p.row.id, p.pageViews, p.visits]),
-    ).toEqual([
-      [2, 8, 4],
-      [1, 1, 1],
-    ]);
-    expect(topPhotos(pages, rows, 1)).toHaveLength(1);
-  });
-
-  it("finds the rows on the real schema, ready ones only", async () => {
-    const db = migratedSqlite();
-    db.exec(`INSERT INTO media (file, platform, public_id) VALUES
-        ('/a.png', 'Real', 'aaaaaaaaa2'),
-        ('/b.png', 'Real', 'aaaaaaaaa3');
-      INSERT INTO media (file, platform, public_id, status) VALUES
-        ('/c.png', 'Real', 'aaaaaaaaa4', 'uploading');`);
-    const found = await photoRowsFor(sqliteD1(db), [
-      "aaaaaaaaa3",
-      "aaaaaaaaa4",
-    ]);
-    expect(found.map((r) => r.file)).toEqual(["/b.png"]);
-  });
-
-  it("looks up more ids than D1 binds in one query", async () => {
-    const db = migratedSqlite();
-    db.exec(`INSERT INTO media (file, platform, public_id) VALUES
-        ('/a.png', 'Real', 'aaaaaaaaa2');`);
-    const ids = Array.from({ length: 200 }, (_, i) => `none-${i}`);
-    const found = await photoRowsFor(sqliteD1(db), [...ids, "aaaaaaaaa2"]);
-    expect(found.map((r) => r.file)).toEqual(["/a.png"]);
   });
 
   it("labels a direct visit", () => {

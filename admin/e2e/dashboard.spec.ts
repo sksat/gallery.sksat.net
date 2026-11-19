@@ -44,18 +44,54 @@ test("dashboard: access card", async ({ page }) => {
     card.getByRole("link", { name: "7 日", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 
-  // Photo 2 adds up /photo/aaaaaaaaa3/ and /photo/aaaaaaaaa3; links to its
-  // edit page. An unknown public id and the old /photo/1 are left out
-  // (the latter is only a page).
-  const photos = card.getByRole("listitem").filter({ hasText: "PV" });
-  await expect(photos).toHaveCount(2);
-  await expect(photos.nth(0)).toContainText("/mock/vrchat1.png");
-  await expect(photos.nth(0)).toContainText("50 PV");
-  await expect(photos.nth(1)).toContainText("/mock/vrchat2.png");
-  await expect(photos.nth(0).getByRole("link")).toHaveAttribute(
+  // One ranking of pages, each form of a page added up; the old numeric
+  // URLs are one row at the end.
+  const rows = card.getByTestId("page-ranking").getByRole("listitem");
+  await expect(rows).toHaveText([
+    // Pages say (to screen readers) that they open in a new tab; the
+    // placeholder thumbnails say PNG.
+    "トップ（新しいタブ）120",
+    "PNG/mock/vrchat1.pngPublic50",
+    "PNG/mock/vrchat2.pngUnlisted25",
+    "カメラ（新しいタブ）15",
+    "VirtualLens2（新しいタブ）14",
+    "2023年12月（新しいタブ）8",
+    "地図（新しいタブ）6",
+    "/photo/zzzzzzzzzz/5",
+    "PNG/mock/vrchat3.pngPrivate4",
+    "旧 URL6",
+  ]);
+
+  // A photo opens its edit page, with its public page beside it.
+  const photo = rows.nth(1);
+  const edit = photo.getByRole("link", { name: /\/mock\/vrchat1\.png/ });
+  await expect(edit).toHaveAttribute("href", "/media/2/");
+  const external = photo.getByRole("link", {
+    name: "公開サイトで開く（新しいタブ）",
+  });
+  await expect(external).toHaveAttribute(
     "href",
-    "/media/2/",
+    "https://gallery.sksat.net/photo/aaaaaaaaa3/",
   );
+  await expect(external).toHaveAttribute("target", "_blank");
+  // A private photo has no public page to open.
+  await expect(rows.nth(8).getByRole("link")).toHaveCount(1);
+
+  // Other pages open on the public site in a new tab.
+  const camera = rows.nth(4).getByRole("link");
+  await expect(camera).toHaveAttribute(
+    "href",
+    "https://gallery.sksat.net/camera/virtuallens2/",
+  );
+  await expect(camera).toHaveAttribute("target", "_blank");
+  await expect(camera).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(rows.nth(5).getByRole("link")).toHaveAttribute(
+    "href",
+    "https://gallery.sksat.net/calendar/2023/12/",
+  );
+  // An unknown photo and the old URLs lead nowhere.
+  await expect(rows.nth(7).getByRole("link")).toHaveCount(0);
+  await expect(rows.nth(9).getByRole("link")).toHaveCount(0);
 
   await expect(card).toContainText("日本");
   await expect(card).toContainText("t.co");

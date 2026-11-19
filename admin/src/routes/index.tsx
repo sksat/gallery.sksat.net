@@ -1,6 +1,6 @@
 import { component$ } from "@builder.io/qwik";
 import { Link, routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
-import { AccessCard, type TopPhoto } from "~/components/access-card";
+import { AccessCard } from "~/components/access-card";
 import { D1Card } from "~/components/d1-card";
 import { StorageCard } from "~/components/storage-card";
 import { buttonSecondary, card, muted } from "~/components/ui";
@@ -12,6 +12,14 @@ import {
 } from "~/lib/d1-usage";
 import { getDB, getImageBase } from "~/lib/env";
 import {
+  lookupsOf,
+  rankPaths,
+  rankingCameras,
+  rankingPhotos,
+  resolveRanking,
+  type RankedPage,
+} from "~/lib/page-ranking";
+import {
   fetchStorageRows,
   summarizeStorage,
   type StorageSummary,
@@ -20,9 +28,7 @@ import {
   fetchAccess,
   getWebAnalyticsConfig,
   parseAccessRange,
-  photoIdsOf,
-  photoRowsFor,
-  topPhotos,
+  TOP_LIMIT,
   type AccessRange,
   type AccessResult,
 } from "~/lib/web-analytics";
@@ -34,23 +40,33 @@ type DashboardData = {
   usage: D1UsageResult;
   range: AccessRange;
   access: AccessResult;
-  photos: TopPhoto[];
+  pages: RankedPage[];
   imageBase: string | null;
 };
 
-// Most viewed photos: the photo pages of the access stats mapped to rows.
-const topPhotosOf = async (
+// Most viewed pages, named from D1: one IN lookup for the photos and one
+// for the cameras among the shown rows. Without D1 (or if a lookup fails)
+// the rows still show, photos and cameras by their path.
+const rankingOf = async (
   db: D1Database | null,
   access: AccessResult,
-): Promise<TopPhoto[]> => {
-  if (!db || access.kind !== "ok") return [];
-  try {
-    const rows = await photoRowsFor(db, photoIdsOf(access.stats.pages));
-    return topPhotos(access.stats.pages, rows);
-  } catch (err) {
-    console.error("/ loader: photo lookup failed:", err);
-    return [];
-  }
+): Promise<RankedPage[]> => {
+  if (access.kind !== "ok") return [];
+  const ranked = rankPaths(access.stats.pages, TOP_LIMIT);
+  const { publicIds, slugs } = lookupsOf(ranked);
+  const [photos, cameras] = db
+    ? await Promise.all([
+        rankingPhotos(db, publicIds).catch((err) => {
+          console.error("/ loader: photo lookup failed:", err);
+          return null;
+        }),
+        rankingCameras(db, slugs).catch((err) => {
+          console.error("/ loader: camera lookup failed:", err);
+          return [];
+        }),
+      ])
+    : [null, []];
+  return resolveRanking(ranked, photos, cameras);
 };
 
 // The dashboard renders without D1 or the analytics token (the cards then
@@ -87,17 +103,14 @@ export const useDashboard = routeLoader$<DashboardData>(
       usagePromise,
       accessPromise,
     ]);
-    const photos = await topPhotosOf(db, access);
-    // The card lists only the top pages; the rest (up to PAGE_LIMIT) were
-    // for the photo ranking and stay out of the page's serialized data.
+    const pages = await rankingOf(db, access);
+    // The card shows the ranking; the raw pages (up to PAGE_LIMIT) stay
+    // out of the page's serialized data.
     const shown: AccessResult =
       access.kind === "ok"
-        ? {
-            kind: "ok",
-            stats: { ...access.stats, pages: access.stats.pages.slice(0, 10) },
-          }
+        ? { kind: "ok", stats: { ...access.stats, pages: [] } }
         : access;
-    const common = { usage, range, access: shown, photos, imageBase };
+    const common = { usage, range, access: shown, pages, imageBase };
     if (storage === null || storage === "error") {
       return { ...common, storage, dbBytes: null };
     }
@@ -133,7 +146,7 @@ export default component$(() => {
       <AccessCard
         range={data.value.range}
         access={data.value.access}
-        photos={data.value.photos}
+        pages={data.value.pages}
         imageBase={data.value.imageBase}
       />
 
