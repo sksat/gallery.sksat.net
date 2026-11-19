@@ -39,6 +39,50 @@ type Existing = {
   trashed_at: string | null;
 };
 
+const EXISTING_COLUMNS = "id, file, path, status, sha256, trashed_at";
+
+/**
+ * The bounds [lo, hi) of the numbered names of `file` (numberedPaths
+ * after the first): every path that starts with "<stem>-" and a digit,
+ * "/a/IMG-1.jpg" … "/a/IMG-50.jpg". Other paths in it ("IMG-2x.png", a
+ * folder "IMG-2026/") never match a candidate.
+ */
+export const numberedRange = (file: string): [string, string] => {
+  const { stem } = numberedStem(file);
+  return [`${stem}-0`, `${stem}-:`];
+};
+
+/**
+ * What initUpload reads (SQL + bind args, run as one D1 batch): the row
+ * with this SHA-256 (idx_media_sha256), then the rows whose file (the
+ * UNIQUE index on file) and the photos not in the trash whose path
+ * (idx_media_path_live) may be one of `file`'s numberedPaths: the name
+ * itself or one in numberedRange. Not `IN (SELECT value FROM
+ * json_each(…))` of the 51 names: D1 counts each element of the list and
+ * each index probe, about 200 rows per call however empty the folder is,
+ * while a range reads only the rows in it.
+ */
+export const initLookups = (
+  sha256: string,
+  file: string,
+): { sql: string; args: string[] }[] => {
+  const [lo, hi] = numberedRange(file);
+  const select = `SELECT ${EXISTING_COLUMNS} FROM media WHERE`;
+  return [
+    { sql: `${select} sha256 = ?`, args: [sha256] },
+    {
+      sql: `${select} file = ?1 OR (file >= ?2 AND file < ?3)`,
+      args: [file, lo, hi],
+    },
+    // Two statements: SQLite does not split an OR over a partial index.
+    { sql: `${select} trashed_at IS NULL AND path = ?`, args: [file] },
+    {
+      sql: `${select} trashed_at IS NULL AND path >= ?1 AND path < ?2`,
+      args: [lo, hi],
+    },
+  ];
+};
+
 const isUniqueError = (err: unknown) =>
   err instanceof Error && /UNIQUE constraint failed: media\./.test(err.message);
 
@@ -55,20 +99,12 @@ export const initUpload = async (
   row: { publicId: string; platform: MediaPlatform },
 ): Promise<InitOutcome> => {
   const candidates = numberedPaths(init.file);
-  // A name is taken by another file in the bucket (any row: keys never
-  // change) or by a photo shown there (path, not trashed: moved photos).
-  const found =
-    (
-      await db
-        .prepare(
-          `SELECT id, file, path, status, sha256, trashed_at FROM media
-           WHERE sha256 = ?1 OR file IN (SELECT value FROM json_each(?2))
-              OR (trashed_at IS NULL AND path IN (SELECT value FROM json_each(?2)))`,
-        )
-        .bind(init.sha256, JSON.stringify(candidates))
-        .all<Existing>()
-    ).results ?? [];
-  const same = found.find((r) => r.sha256 === init.sha256);
+  const [bySha, ...byName] = await db.batch<Existing>(
+    initLookups(init.sha256, init.file).map((q) =>
+      db.prepare(q.sql).bind(...q.args),
+    ),
+  );
+  const same = (bySha.results ?? [])[0];
   if (same) {
     if (same.trashed_at !== null) {
       return {
@@ -82,8 +118,13 @@ export const initUpload = async (
     }
     return { kind: "upload", id: same.id, file: same.file, resumed: true };
   }
+  // A name is taken by another file in the bucket (any row: keys never
+  // change) or by a photo shown there (path, not trashed: moved photos).
+  // The lookups may return other names too; only the candidates count.
   const taken = new Set(
-    found.flatMap((r) => (r.trashed_at === null ? [r.file, r.path] : [r.file])),
+    byName
+      .flatMap((r) => r.results ?? [])
+      .flatMap((r) => (r.trashed_at === null ? [r.file, r.path] : [r.file])),
   );
   const file = candidates.find((c) => !taken.has(c));
   if (!file) {
@@ -137,6 +178,15 @@ export const initUpload = async (
   }
 };
 
+/** "/a/IMG.jpg" → stem "/a/IMG", ext ".jpg" (ext "" without a dot). */
+const numberedStem = (file: string): { stem: string; ext: string } => {
+  const slash = file.lastIndexOf("/");
+  const dot = file.lastIndexOf(".");
+  return dot > slash
+    ? { stem: file.slice(0, dot), ext: file.slice(dot) }
+    : { stem: file, ext: "" };
+};
+
 /** How many numbered names are tried after the requested one. */
 export const MAX_NAME_NUMBER = 50;
 
@@ -145,10 +195,7 @@ export const MAX_NAME_NUMBER = 50;
  * "/a/IMG.jpg", "/a/IMG-1.jpg", ..., "/a/IMG-50.jpg".
  */
 export const numberedPaths = (file: string): string[] => {
-  const slash = file.lastIndexOf("/");
-  const dot = file.lastIndexOf(".");
-  const stem = dot > slash ? file.slice(0, dot) : file;
-  const ext = dot > slash ? file.slice(dot) : "";
+  const { stem, ext } = numberedStem(file);
   return [
     file,
     ...Array.from(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CREATE_FOLDER_SQL,
   createFolder,
   filesQuery,
   listFolders,
@@ -99,5 +100,32 @@ describe("folders (on the real schema)", () => {
     // The folder of the moved photo exists; its old one does not.
     expect(await createFolder(db, "/moved")).toBe(false);
     expect(await createFolder(db, "/x")).toBe(true);
+  });
+
+  it("counts only what is below the folder, not names that start alike", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`INSERT INTO media (file, platform) VALUES ('/a-b/x.png', 'Real');
+      INSERT INTO media (file, platform) VALUES ('/a.b/x.png', 'Real');
+      INSERT INTO media (file, platform) VALUES ('/a0/x.png', 'Real');
+      INSERT INTO folder (path) VALUES ('/c-d'), ('/c0');`);
+    const db = sqliteD1(raw);
+    expect(await createFolder(db, "/a")).toBe(true);
+    expect(await createFolder(db, "/c")).toBe(true);
+    raw.exec("INSERT INTO folder (path) VALUES ('/e/f')");
+    expect(await createFolder(db, "/e")).toBe(false);
+  });
+
+  it("reads ranges of the path indexes, not every path", () => {
+    const raw = migratedSqlite();
+    const plan = (
+      raw.prepare(`EXPLAIN QUERY PLAN ${CREATE_FOLDER_SQL}`).all("/a") as {
+        detail: string;
+      }[]
+    )
+      .map((r) => r.detail)
+      .join("\n");
+    expect(plan).not.toMatch(/SCAN (media|folder)\b/);
+    expect(plan).toMatch(/SEARCH media USING INDEX idx_media_path_live/);
+    expect(plan).toMatch(/SEARCH folder USING COVERING INDEX/);
   });
 });
