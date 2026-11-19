@@ -2,7 +2,12 @@
 // mark it ready after, and list / drop the ones that never completed.
 // Covered by db-upload.spec.ts on the real schema.
 
-import { digitizerIdSql, scannerOf } from "./digitizer";
+import {
+  deviceIdArgs,
+  deviceIdSql,
+  deviceOf,
+  ensureDeviceStatement,
+} from "./device";
 import { serializeSources } from "./metadata-source";
 import {
   EMPTY_STORED,
@@ -152,17 +157,22 @@ export const initUpload = async (
     ...(meta.exif ? { exif: "file" as const } : {}),
     ...(meta.world_id || meta.world_name ? { world: "file" as const } : {}),
   });
+  // The camera (or scanner) the file names: its row, created first when
+  // there is none (device.ts), in the same batch.
+  const device = deviceOf(init.meta ?? {}, row.platform);
+  const deviceId = deviceIdSql("?20", "?21", "?22", "?23");
   try {
-    const inserted = await db
+    const insert = db
       .prepare(
         `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256,
            exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at,
-           metadata_source, file_exif, digitized_at, digitized_with)
+           metadata_source, file_exif, digitized_at, camera_id, digitized_with)
          VALUES (?1, ?2, ?2, ?3, ?4, '[]', 'private', 'uploading', ?5, ?6,
            ?7, ?8, ?9, ?10, ?11, ?12, ?13,
            CASE WHEN ?14 THEN MAX(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?16) END, ?15,
            ?17, ?18,
-           ${digitizerIdSql("?19", "?20")}) RETURNING id`,
+           CASE WHEN ?19 = 'camera' THEN ${deviceId} END,
+           CASE WHEN ?19 = 'digitizer' THEN ${deviceId} END) RETURNING id`,
       )
       .bind(
         row.publicId,
@@ -187,10 +197,13 @@ export const initUpload = async (
         PHOTO_META_PARSER_DATE,
         meta.file_exif,
         meta.digitized_at,
-        scannerOf(init.meta?.fileExif)?.make ?? null,
-        scannerOf(init.meta?.fileExif)?.model ?? null,
-      )
-      .first<{ id: number }>();
+        device?.role ?? null,
+        ...deviceIdArgs(device),
+      );
+    const out = await db.batch<{ id: number }>(
+      device?.create ? [ensureDeviceStatement(db, device), insert] : [insert],
+    );
+    const inserted = out[out.length - 1].results?.[0];
     if (!inserted) throw new Error("INSERT INTO media returned no row");
     return { kind: "upload", id: inserted.id, file, resumed: false };
   } catch (err) {

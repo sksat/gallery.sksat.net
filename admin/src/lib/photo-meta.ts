@@ -21,9 +21,10 @@
  * it are read again (backfill.ts). Bump it with every such change; a date
  * slightly ahead of the deploy is fine. (2026-11-19: the XMP CreateDate,
  * scanners' dates; 2026-11-20: the file's own EXIF and the scan time
- * apart from the shooting information.)
+ * apart from the shooting information; 2026-11-21: a reading links the
+ * camera or scanner the file names, creating its camera row, device.ts.)
  */
-export const PHOTO_META_PARSER_DATE = "2026-11-20T00:00:00.000Z";
+export const PHOTO_META_PARSER_DATE = "2026-11-21T00:00:00.000Z";
 
 /** Offset assumed when a date in the file has none (cameras on JST). */
 export const DEFAULT_OFFSET = "+09:00";

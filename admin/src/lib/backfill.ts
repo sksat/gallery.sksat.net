@@ -20,16 +20,23 @@
 // firstRead). Each request stays well under the Pages Functions
 // subrequest limit (50; each photo takes one or two AdminImage calls).
 
-import { linkDigitizerSql, scannerOf } from "./digitizer";
+import {
+  deviceIdArgs,
+  deviceOf,
+  ensureDeviceStatement,
+  linkDeviceSql,
+} from "./device";
 import { applyReading, type Reading, type SourcedRow } from "./metadata-source";
 import {
   EMPTY_STORED,
   hasMeta,
   needsTail,
+  normalizeExif,
   PHOTO_META_PARSER_DATE,
   readPhotoMeta,
   type FileDates,
 } from "./photo-meta";
+import { contentChanged } from "./last-good";
 import { pickTakenAt } from "./taken-at";
 /**
  * types.ts LIVE_PHOTO with its columns kept off their indexes (unary +):
@@ -87,6 +94,16 @@ export type BackfillResult = {
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
+/** A stored JSON column, or null when it is empty or unreadable. */
+const parseJson = (s: string | null): unknown => {
+  if (!s) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+};
+
 /**
  * metadata_read_at for a photo read now: never earlier than the parser
  * date, so a parser date set slightly ahead (before the code is deployed)
@@ -136,6 +153,7 @@ export const countUnread = async (
 type ClaimedRow = SourcedRow & {
   id: number;
   file: string;
+  platform: string;
   /** The claim as written (the guard of every later write). */
   metadata_read_at: string;
   updated_at: string;
@@ -166,7 +184,7 @@ export const backfillBatch = async (
            WHERE id IN (SELECT id FROM media
                         WHERE ${WAITING_SQL} LIMIT ?5)
              AND ${UNREAD}
-           RETURNING id, file, timestamp, exif, latitude, longitude,
+           RETURNING id, file, platform, timestamp, exif, latitude, longitude,
                      location_source, world_id, world_name, world_author_id,
                      metadata_source, file_exif, digitized_at,
                      metadata_read_at, updated_at`,
@@ -213,15 +231,23 @@ export const backfillBatch = async (
   // Only while the claim is ours and the row was not edited meanwhile
   // (every edit bumps updated_at; the claim does not).
   const GUARD = "id = ?1 AND metadata_read_at = ?2 AND updated_at IS ?3";
+  // The photo's write, after the statement creating the camera row its
+  // file names when there is none yet (device.ts): the write links it.
   const write = ({ row, reading }: (typeof readOk)[number]) => {
     const next = applyReading(row, reading, row.metadata_read_at.endsWith(NEW));
-    return db
+    // The camera from the shooting EXIF as it will be stored: one
+    // corrected by hand names the camera, not the file's.
+    const device = deviceOf(
+      { exif: normalizeExif(parseJson(next.exif)), fileExif: reading.fileExif },
+      row.platform,
+    );
+    const update = db
       .prepare(
         `UPDATE media SET timestamp = ?4, exif = ?5, latitude = ?6,
            longitude = ?7, location_source = ?8, world_id = ?9,
            world_name = ?10, world_author_id = ?11, metadata_source = ?12,
            metadata_read_at = ?13, file_exif = ?14, digitized_at = ?15,
-           ${linkDigitizerSql("?16", "?17")}
+           ${linkDeviceSql("?16", "?17", "?18", "?19", "?20")}
          WHERE ${GUARD}`,
       )
       .bind(
@@ -240,16 +266,23 @@ export const backfillBatch = async (
         readStamp(nowMs),
         next.file_exif,
         next.digitized_at,
-        scannerOf(reading.fileExif)?.make ?? null,
-        scannerOf(reading.fileExif)?.model ?? null,
+        device?.role ?? null,
+        ...deviceIdArgs(device),
       );
+    return device?.create
+      ? [ensureDeviceStatement(db, device, row.id), update]
+      : [update];
   };
   const written = new Set<number>();
   if (readOk.length > 0) {
     try {
-      const out = (await db.batch(readOk.map(write))) as D1Result[];
-      out.forEach((r, i) => {
-        if ((r.meta?.changes ?? 0) > 0) written.add(readOk[i].row.id);
+      const groups = readOk.map(write);
+      const out = (await db.batch(groups.flat())) as D1Result[];
+      // Each photo's write is the last statement of its group.
+      let at = -1;
+      groups.forEach((g, i) => {
+        at += g.length;
+        if ((out[at].meta?.changes ?? 0) > 0) written.add(readOk[i].row.id);
       });
     } catch (err) {
       // One row the schema refuses would roll back the whole batch, every
@@ -257,7 +290,8 @@ export const backfillBatch = async (
       console.error("backfill batch failed, retrying one by one:", err);
       for (const r of readOk) {
         try {
-          const res = await write(r).run();
+          const out = (await db.batch(write(r))) as D1Result[];
+          const res = out[out.length - 1];
           if ((res.meta?.changes ?? 0) > 0) written.add(r.row.id);
         } catch (e) {
           console.error(`backfill row ${r.row.id} refused:`, e);
@@ -304,4 +338,20 @@ export const backfillBatch = async (
     failed: failed.length,
     more: claimed.length === limit,
   };
+};
+
+/**
+ * A batch, then a new content version (last-good.ts) when it wrote any
+ * photo: its timestamp, metadata, camera or スキャン機材 may now read
+ * differently in the public API. What POST /api/metadata/backfill runs.
+ */
+export const backfillAndPublish = async (
+  db: D1Database,
+  read: ReadBytes,
+  limit: number = BACKFILL_BATCH,
+  nowMs: number = Date.now(),
+): Promise<BackfillResult> => {
+  const result = await backfillBatch(db, read, limit, nowMs);
+  if (result.read > result.failed) await contentChanged(db);
+  return result;
 };

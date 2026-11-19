@@ -23,6 +23,8 @@ export type MetadataSource = {
   world?: FileSource;
   /** 0009: the スキャン機材 chosen (or cleared) by hand; never linked again. */
   digitized_with?: FileSource;
+  /** The camera chosen (or cleared) by hand; never linked again. */
+  camera?: FileSource;
 };
 
 /** Higher wins. A field with no recorded source ranks lowest (0). */
@@ -53,7 +55,7 @@ export const parseSources = (
   const o = v as Record<string, unknown>;
   const out: MetadataSource = {};
   if (isTakenAtSource(o.taken_at)) out.taken_at = o.taken_at;
-  for (const f of ["exif", "world", "digitized_with"] as const) {
+  for (const f of ["exif", "world", "digitized_with", "camera"] as const) {
     if (o[f] === "manual" || o[f] === "file") out[f] = o[f];
   }
   return out;
