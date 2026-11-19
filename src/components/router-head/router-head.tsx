@@ -17,8 +17,8 @@ export const RouterHead = component$(() => {
     <>
       <title>{head.title}</title>
 
-      {/* Without the query: a filter, sort order, open photo (`?photo=`)
-          or the list a photo page was opened from are views of the same
+      {/* Without the query: a filter, sort order or the list a photo page
+          (or the gallery's overlay on its URL) was opened from are views of the same
           page, not pages of their own. */}
       <link rel="canonical" href={loc.url.origin + loc.url.pathname} />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />

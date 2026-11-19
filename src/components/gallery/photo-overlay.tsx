@@ -1,5 +1,7 @@
 import {
+  $,
   component$,
+  sync$,
   useComputed$,
   useSignal,
   type QRL,
@@ -25,6 +27,8 @@ interface PhotoOverlayProps {
   info?: MediaInfo;
   /** The photo's own page (/photo/<id>/ with the list it is in). */
   detailHref?: string;
+  /** Open that page (a plain click on its button); none: follow the link. */
+  onDetail$?: QRL<() => void>;
   /** The info panel's tags with their gallery URLs. */
   tagLinks?: TagLink[];
   /** Filter the gallery by a tag from the info panel. */
@@ -81,6 +85,22 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
           aria-label="写真のページを開く"
           title="写真のページ (Enter)"
           stoppropagation:click
+          // A plain click goes through `onDetail$`; one that opens a new
+          // tab or window keeps the browser's own behaviour.
+          onClick$={
+            props.onDetail$ && [
+              sync$((e: MouseEvent) => {
+                if (
+                  e.button === 0 &&
+                  !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)
+                )
+                  e.preventDefault();
+              }),
+              $((e: MouseEvent) => {
+                if (e.defaultPrevented) props.onDetail$?.();
+              }),
+            ]
+          }
           // `!`: the site's unlayered `a { color }` would win otherwise;
           // this is a button like its neighbours, not a text link. Above
           // the open info sheet, like the ⓘ and share buttons.

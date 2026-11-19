@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { openInOverlay, VIRTUALLENS2_ORDER } from "./open-photo";
+
 // A photo's own page, /photo/<id>/. Test data: e2e/fixture.sql (see the
 // table in gallery.spec.ts and info-panel.spec.ts). Newest first, the
 // VRChat photos are vrcxxxxxxc, vrcxxxxxxb, vrcxxxxxxa.
@@ -29,11 +31,14 @@ test.describe("desktop", () => {
       timeout: 10000,
     });
     await page.getByTestId("gallery-image").nth(1).dispatchEvent("click");
-    await expect(page).toHaveURL(/\/\?photo=vrcxxxxxxb&tag=VRChat$/);
-
-    await page.getByTestId("detail-link").click();
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/\?tag=VRChat$/);
+    await expect(page.getByTestId("overlay")).toBeVisible();
+
+    // The page button loads the page at the same URL.
+    await page.getByTestId("detail-link").click();
     await expect(detail(page)).toBeVisible();
+    await expect(page.getByTestId("overlay")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/\?tag=VRChat$/);
 
     // Previous / next within the VRChat photos, and back to that list.
     await expect(page.getByTestId("prev-link")).toHaveAttribute(
@@ -64,8 +69,12 @@ test.describe("desktop", () => {
   });
 
   test("Enter in the overlay opens the photo page", async ({ page }) => {
-    await page.goto("/camera/virtuallens2/?photo=vrcxxxxxxc");
-    await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
+    await openInOverlay(
+      page,
+      "vrcxxxxxxc",
+      "/camera/virtuallens2/",
+      VIRTUALLENS2_ORDER,
+    );
     // Resumed: the info panel answers its key.
     await page.keyboard.press("i");
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
@@ -81,16 +90,22 @@ test.describe("desktop", () => {
       "href",
       "/camera/virtuallens2/",
     );
-    // Browser Back returns to the overlay.
+    await expect(detail(page)).toBeVisible();
+    // The page took the overlay's entry (same URL): Back returns to the
+    // list it was opened over.
     await page.goBack();
-    await expect(page).toHaveURL(/\/camera\/virtuallens2\/\?photo=vrcxxxxxxc$/);
-    await expect(page.getByTestId("overlay")).toBeVisible();
+    await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
+    await expect(page.getByTestId("gallery-image")).toHaveCount(2, {
+      timeout: 10000,
+    });
   });
 
   test("the page button on a camera page keeps the camera", async ({
     page,
   }) => {
-    await page.goto("/camera/virtuallens2/?photo=vrcxxxxxxa&sort=old");
+    await openInOverlay(page, "vrcxxxxxxa", "/camera/virtuallens2/?sort=old", [
+      ...VIRTUALLENS2_ORDER,
+    ].reverse());
     await page.getByTestId("detail-link").click();
     await expect(page).toHaveURL(
       /\/photo\/vrcxxxxxxa\/\?camera=virtuallens2&sort=old$/,
@@ -106,7 +121,7 @@ test.describe("desktop", () => {
   test("Enter on a focused link follows it, not the page", async ({
     page,
   }) => {
-    await page.goto("/?photo=vrcxxxxxxa");
+    await openInOverlay(page, "vrcxxxxxxa");
     const tag = page.getByTestId("info-tag");
     await page.getByTestId("info-toggle").click();
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(

@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { openInOverlay } from "./open-photo";
+
 // Swiping between photos in the overlay on a phone. Test data:
 // e2e/fixture.sql; newest first the photos are vrcxxxxxxc, vrcxxxxxxb,
 // reaxxxxxxb, vrcxxxxxxa, reaxxxxxxa.
@@ -54,7 +56,7 @@ const shown = (page: Page, summary: string) =>
   expect(page.getByTestId("info-summary")).toHaveText(summary);
 
 const open = async (page: Page, id: string) => {
-  await page.goto(`/?photo=${id}`);
+  await openInOverlay(page, id);
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
   // Resumed: the info panel's visible task has run.
   await expect(page.getByTestId("info-toggle")).toHaveAttribute(
@@ -78,14 +80,14 @@ const open = async (page: Page, id: string) => {
 test("swipe left is the next photo, right the previous", async ({ page }) => {
   await open(page, "reaxxxxxxb");
   await drag(page, { x: 300, y: 400, dx: -200, dy: 10 });
-  await expect(page).toHaveURL(/\?photo=vrcxxxxxxa$/);
+  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/$/);
   await shown(page, "2023/12/02 00:00 · VirtualLens2 · Fixture World");
 
   await drag(page, { x: 100, y: 400, dx: 200, dy: -10 });
-  await expect(page).toHaveURL(/\?photo=reaxxxxxxb$/);
+  await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\/$/);
   await shown(page, "2023/12/03 00:00");
   await drag(page, { x: 100, y: 400, dx: 200, dy: 0 });
-  await expect(page).toHaveURL(/\?photo=vrcxxxxxxb$/);
+  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/$/);
   // Still open: a swipe is not a tap outside.
   await expect(page.getByTestId("overlay")).toBeVisible();
 });
@@ -93,7 +95,7 @@ test("swipe left is the next photo, right the previous", async ({ page }) => {
 test("a quick short flick also steps", async ({ page }) => {
   await open(page, "reaxxxxxxb");
   await drag(page, { x: 250, y: 400, dx: -40, dy: 0, steps: 2, stepMs: 10 });
-  await expect(page).toHaveURL(/\?photo=vrcxxxxxxa$/);
+  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/$/);
 });
 
 test("vertical moves and short drags do not step", async ({ page }) => {
@@ -103,7 +105,7 @@ test("vertical moves and short drags do not step", async ({ page }) => {
   // Slow and short: snaps back.
   await drag(page, { x: 200, y: 400, dx: -35, dy: 0, steps: 10, stepMs: 40 });
   await page.waitForTimeout(400);
-  await expect(page).toHaveURL(/\?photo=reaxxxxxxb$/);
+  await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\/$/);
   await expect(page.getByTestId("overlay")).toBeVisible();
   // The photo is back in place.
   await expect(page.getByTestId("overlay-box")).not.toHaveAttribute(
@@ -127,7 +129,7 @@ test("no step past the last photo, and the photo springs back", async ({
   await open(page, "reaxxxxxxa");
   await drag(page, { x: 300, y: 400, dx: -200, dy: 0 });
   await page.waitForTimeout(400);
-  await expect(page).toHaveURL(/\?photo=reaxxxxxxa$/);
+  await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\/$/);
   await expect(page.getByTestId("overlay")).toBeVisible();
   await expect(page.getByTestId("overlay-box")).not.toHaveAttribute(
     "style",
@@ -143,5 +145,5 @@ test("swipes in the open info sheet do not step", async ({ page }) => {
   if (!box) throw new Error("no info panel");
   await drag(page, { x: 300, y: box.y + 120, dx: -200, dy: 0 });
   await page.waitForTimeout(400);
-  await expect(page).toHaveURL(/\?photo=vrcxxxxxxa$/);
+  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/$/);
 });
