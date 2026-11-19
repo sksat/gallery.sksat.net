@@ -92,6 +92,30 @@ test("media files: the filter applies and keeps the view and folder", async ({
   await expect(page.locator("table tbody tr")).toHaveCount(3);
 });
 
+test("media files: a photo's camera on its tile and in the list's column", async ({
+  page,
+}) => {
+  await page.goto("/media/?view=files&dir=/mock");
+  // Fixture photo 2 (vrchat1.png) was taken with VirtualLens2; photo 1
+  // (real1.png) has no camera.
+  const tile = (name: string) => page.getByRole("option", { name });
+  await expect(tile("vrchat1.png").getByTestId("camera-label")).toHaveText(
+    "カメラ: VirtualLens2",
+  );
+  await expect(tile("real1.png").getByTestId("camera-label")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "リスト" }).click();
+  await expect(page.locator("[data-file-browser]")).toHaveAttribute(
+    "data-layout",
+    "list",
+  );
+  await expect(page.getByText("カメラ", { exact: true })).toBeVisible();
+  await expect(tile("vrchat1.png").getByTestId("camera-cell")).toHaveText(
+    "VirtualLens2",
+  );
+  await expect(tile("real1.png").getByTestId("camera-cell")).toHaveText("—");
+});
+
 test("media files: an unknown folder says so", async ({ page }) => {
   await page.goto("/media/?view=files&dir=/nope");
   await expect(

@@ -52,8 +52,31 @@ test("media list: the whole row opens the edit page", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
 });
 
+test("media list: a photo's camera by its name, none without one", async ({
+  page,
+}) => {
+  await page.goto("/media/");
+  // Fixture photo 2 was taken with VirtualLens2; photo 1 has no camera.
+  const row = (id: number) =>
+    page.locator(`table tbody tr[data-media-id="${id}"]`);
+  await expect(row(2).getByTestId("camera-label")).toHaveText(
+    "カメラ: VirtualLens2",
+  );
+  await expect(row(1).getByTestId("camera-label")).toHaveCount(0);
+});
+
 test.describe("media list on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
+
+  test("cards name a photo's camera", async ({ page }) => {
+    await page.goto("/media/");
+    const card = (id: number) =>
+      page.locator(`[data-testid="media-card"][data-media-id="${id}"]`);
+    await expect(card(2).getByTestId("camera-label")).toHaveText(
+      "カメラ: VirtualLens2",
+    );
+    await expect(card(1).getByTestId("camera-label")).toHaveCount(0);
+  });
 
   test("renders cards without horizontal overflow", async ({ page }) => {
     await page.goto("/media/");

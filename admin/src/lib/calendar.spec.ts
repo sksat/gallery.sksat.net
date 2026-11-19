@@ -207,7 +207,9 @@ describe("the calendar on SQLite", () => {
         expect(p).toMatch(
           /SEARCH media USING .*INDEX idx_media_live_timestamp/,
         );
-        expect(p).not.toMatch(/TEMP B-TREE/);
+        // The page itself is not sorted; only it is, again, once its
+        // cameras are joined (after `SCAN m`).
+        expect(p.split(/\nSCAN m\b/)[0]).not.toMatch(/TEMP B-TREE/);
       }
     });
   });

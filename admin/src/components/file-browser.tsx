@@ -48,6 +48,7 @@ import {
 import { formatDecimalBytes } from "~/lib/storage";
 import { VISIBILITIES, type MediaPlatform, type Visibility } from "~/lib/types";
 import { ContextMenu, type MenuItem } from "./context-menu";
+import { CameraGlyph, CameraOverlay } from "./camera-label";
 import { PlatformBadge } from "./platform-badge";
 import {
   SelectionBar,
@@ -91,6 +92,8 @@ export type FileTile = {
   metadata: MetadataOverrides;
   /** Its camera, if any. */
   camera_id: number | null;
+  /** That camera's name (shown on the tile). */
+  camera_name: string | null;
   /** Its tags (which tag fields a bulk change offers). */
   tags: string[];
 };
@@ -988,7 +991,7 @@ export const FileBrowser = component$<Props>(
       </button>
     );
     const listCols =
-      "grid grid-cols-[auto_2.5rem_minmax(0,1fr)_auto] items-center gap-x-3 sm:grid-cols-[auto_2.5rem_minmax(0,1fr)_9.5rem_5rem_6.5rem_4.5rem]";
+      "grid grid-cols-[auto_2.5rem_minmax(0,1fr)_auto] items-center gap-x-3 sm:grid-cols-[auto_2.5rem_minmax(0,1fr)_9.5rem_5rem_6.5rem_4.5rem] lg:grid-cols-[auto_2.5rem_minmax(0,1fr)_minmax(0,8rem)_9.5rem_5rem_6.5rem_4.5rem]";
 
     return (
       <div
@@ -1145,6 +1148,7 @@ export const FileBrowser = component$<Props>(
                   <span class="w-11 sm:w-8" />
                   <span />
                   {header("name", "名前")}
+                  <span class="max-lg:hidden">カメラ</span>
                   <span class="flex gap-3 sm:contents">
                     {header("taken", "撮影日", "max-sm:hidden")}
                     {header("size", "サイズ", "justify-self-end")}
@@ -1228,6 +1232,8 @@ export const FileBrowser = component$<Props>(
                       </span>
                       {listLayout && (
                         <>
+                          {/* カメラ: none for a folder. */}
+                          <span class="max-lg:hidden" />
                           <span class={["max-sm:hidden", muted]}>—</span>
                           <span
                             class={["text-right text-xs tabular-nums", muted]}
@@ -1282,18 +1288,39 @@ export const FileBrowser = component$<Props>(
                             </span>
                             <span
                               class={[
-                                "flex items-center gap-2 text-xs sm:hidden",
+                                // Below lg the camera has no column: it
+                                // stays here (alone from sm up).
+                                "flex items-center gap-2 text-xs lg:hidden",
                                 muted,
                               ]}
                             >
                               <VisibilityBadge
                                 visibility={f.visibility}
                                 compact
+                                class="sm:hidden"
                               />
-                              <span class="tabular-nums">
+                              <span class="shrink-0 tabular-nums sm:hidden">
                                 {formatJst(f.timestamp) ?? "—"}
                               </span>
+                              {f.camera_name && (
+                                <span
+                                  data-testid="camera-label"
+                                  title={f.camera_name}
+                                  class="flex min-w-0 items-center gap-1"
+                                >
+                                  <CameraGlyph class="size-3" />
+                                  <span class="sr-only">カメラ: </span>
+                                  <span class="truncate">{f.camera_name}</span>
+                                </span>
+                              )}
                             </span>
+                          </span>
+                          <span
+                            data-testid="camera-cell"
+                            title={f.camera_name ?? undefined}
+                            class={["truncate text-xs max-lg:hidden", muted]}
+                          >
+                            {f.camera_name ?? "—"}
                           </span>
                           <span
                             class={[
@@ -1329,6 +1356,7 @@ export const FileBrowser = component$<Props>(
                               visibility={f.visibility}
                               class="absolute top-1.5 left-1.5 shadow-sm"
                             />
+                            <CameraOverlay name={f.camera_name} />
                           </span>
                           {/* Two lines, broken anywhere: VRChat names only
                               differ near the end. */}

@@ -3,11 +3,13 @@ import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
+  listMedia,
   reorderedIds,
   restoreCameraImageStatements,
   rowToCamera,
   rowToMedia,
 } from "./db";
+import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 import type { CameraRow } from "./types";
 
 const UPDATED = "2025-05-03T10:00:00.000Z";
@@ -244,5 +246,39 @@ describe("reorderedIds", () => {
     expect(reorderedIds([1, 2, 3], 1, "up")).toBeNull();
     expect(reorderedIds([1, 2, 3], 3, "down")).toBeNull();
     expect(reorderedIds([1, 2, 3], 9, "up")).toBeNull();
+  });
+});
+
+describe("listMedia", () => {
+  const setup = () => {
+    const raw = migratedSqlite();
+    raw.exec(`
+      INSERT INTO camera (id, slug, name) VALUES (1, 'eos-r5', 'EOS R5');
+      INSERT INTO media (id, file, platform, timestamp, camera_id) VALUES
+        (1, '/a.png', 'Real', '2026-01-01T00:00:00Z', 1),
+        (2, '/b.png', 'Real', '2026-01-02T00:00:00Z', NULL),
+        (3, '/c.png', 'Real', NULL, 1),
+        (4, '/d.png', 'Real', '2026-01-03T00:00:00Z', 1);
+    `);
+    return sqliteD1(raw);
+  };
+
+  it("gives each row its camera's name, in the list's order", async () => {
+    const { rows, total } = await listMedia(setup(), { limit: 10, offset: 0 });
+    expect(total).toBe(4);
+    expect(rows.map((r) => [r.id, r.camera_name])).toEqual([
+      [4, "EOS R5"],
+      [2, null],
+      [1, "EOS R5"],
+      [3, "EOS R5"],
+    ]);
+  });
+
+  it("pages before joining, and keeps the page's order", async () => {
+    const { rows } = await listMedia(setup(), { limit: 2, offset: 1 });
+    expect(rows.map((r) => [r.id, r.camera_name])).toEqual([
+      [2, null],
+      [1, "EOS R5"],
+    ]);
   });
 });

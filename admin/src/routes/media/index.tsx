@@ -32,11 +32,13 @@ import {
   PLATFORM_LABEL,
 } from "~/components/ui";
 import { PlatformBadge } from "~/components/platform-badge";
+import { CameraBadge } from "~/components/camera-label";
 import { platformExists } from "~/lib/db-platform";
 import { PLATFORM_KEY_RE, platformOf } from "~/lib/platform";
 import { usePlatformList } from "~/routes/layout";
 import {
   listMedia,
+  type MediaListRow,
   MAX_BULK_IDS,
   restoreVisibility,
   setVisibility,
@@ -145,12 +147,7 @@ import {
   splitPath,
   type MediaView,
 } from "~/lib/format";
-import {
-  isVisibility,
-  VISIBILITIES,
-  type MediaRow,
-  type Visibility,
-} from "~/lib/types";
+import { isVisibility, VISIBILITIES, type Visibility } from "~/lib/types";
 import {
   validateBulkVisibility,
   validateRestoreVisibility,
@@ -188,7 +185,7 @@ type MediaListResult =
   | {
       kind: "ok";
       view: MediaView;
-      rows: MediaRow[];
+      rows: MediaListRow[];
       total: number;
       page: number;
       /** A platform key (?platform=). */
@@ -249,6 +246,10 @@ export const useMediaList = routeLoader$<MediaListResult>(
         : buildFolderTree(rows, folders);
       // Tags cameras pass on count as the photos' own (0011).
       const passed = await passedOnTags(db);
+      // Every camera, for the bulk change; also names each tile's camera,
+      // so the rows need no join (one lookup per listed photo).
+      const cameras = await listCameraChoices(db);
+      const cameraName = new Map(cameras.map((c) => [c.id, c.name]));
       return {
         kind: "ok",
         view: "files",
@@ -269,6 +270,10 @@ export const useMediaList = routeLoader$<MediaListResult>(
               ...r,
               metadata: parseOverrides(metadata_visibility),
               tags: photoTags(parseTagList(tags), r.camera_id, passed),
+              camera_name:
+                r.camera_id === null
+                  ? null
+                  : (cameraName.get(r.camera_id) ?? null),
             }),
           ),
           truncated,
@@ -280,7 +285,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
             (u) => dirOf(u.path) === dir,
           ),
           siteDefaults: await getSiteDefaults(db),
-          cameras: await listCameraChoices(db),
+          cameras,
           tagFields: await listTagFields(db),
         },
       };
@@ -1581,7 +1586,7 @@ export default component$(() => {
   const back = pageUrl(page);
   // Phones: once something is ticked, a tap on a card ticks it too.
   const selectionMode = selecting.value || selectedCount.value > 0;
-  const cardBody = (row: MediaRow) => (
+  const cardBody = (row: MediaListRow) => (
     <>
       <Thumb
         file={row.file}
@@ -1600,6 +1605,7 @@ export default component$(() => {
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <PlatformBadge platform={row.platform} />
           <VisibilityBadge visibility={row.visibility} />
+          <CameraBadge name={row.camera_name} />
           <span class="tabular-nums">{formatJst(row.timestamp) ?? "—"}</span>
           {row.tags.length > 0 && <Tags tags={row.tags} />}
         </div>
@@ -2252,6 +2258,11 @@ export default component$(() => {
                       >
                         <FileName file={row.path} />
                       </Link>
+                      {row.camera_name && (
+                        <span class="mt-1 flex">
+                          <CameraBadge name={row.camera_name} />
+                        </span>
+                      )}
                     </td>
                     <td class="px-4 py-3">
                       <span class="flex flex-col items-start gap-1">

@@ -155,8 +155,14 @@ export type ListParams = {
   offset: number;
 };
 
+/** A row of the list view: the photo and its camera's name. */
+export type MediaListRow = MediaRow & {
+  /** `camera.name` of its camera (`camera_id`), or null without one. */
+  camera_name: string | null;
+};
+
 export type ListResult = {
-  rows: MediaRow[];
+  rows: MediaListRow[];
   total: number;
 };
 
@@ -193,9 +199,16 @@ export const listMedia = async (
     ? "timestamp DESC, id DESC"
     : "timestamp IS NULL, timestamp DESC, id DESC";
 
+  // The camera's name is joined to the page only: a join on media itself
+  // would look up the camera of every matching row before the sort (D1
+  // counts each lookup), this one at most a page's. The outer sort is of
+  // that page alone.
   const rowsStmt = db
     .prepare(
-      `SELECT * FROM media ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`,
+      `SELECT m.*, c.name AS camera_name
+       FROM (SELECT * FROM media ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?) AS m
+       LEFT JOIN camera AS c ON c.id = m.camera_id
+       ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
     )
     .bind(...args, params.limit, params.offset);
   const countStmt = db
@@ -203,12 +216,15 @@ export const listMedia = async (
     .bind(...args);
 
   const [rowsRes, countRes] = await Promise.all([
-    rowsStmt.all<RawRow>(),
+    rowsStmt.all<RawRow & { camera_name: string | null }>(),
     countStmt.first<{ c: number }>(),
   ]);
 
   return {
-    rows: (rowsRes.results ?? []).map(rowToMedia),
+    rows: (rowsRes.results ?? []).map((r) => ({
+      ...rowToMedia(r),
+      camera_name: r.camera_name ?? null,
+    })),
     total: countRes?.c ?? 0,
   };
 };
