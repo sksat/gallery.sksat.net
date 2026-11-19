@@ -43,7 +43,7 @@ Worker の作成とルート (`gallery.sksat.net/api/*`、`/img/*`) は、この
   - D1 は Free プランで 1 日 500 万行までしか読めません。そこで API Worker は答えを Cache API でエッジにキャッシュします。D1 が失敗したとき (上限に達したときなど) は、最後に読めた答えを最大 2 日分残してあるので、それを返します。
   - Workers は 1 リクエストあたり CPU 10 ms までなので、8K の PNG などのリサイズは Worker の中で行わず、Image Transformations に任せます。
   - Image Transformations の無料枠は、月 5,000 件のユニークな変換 (画像とサイズの組) です。そのため、サイズの preset は `workers/image/src/request.ts` にあるものだけを使い、画面や部品ごとに増やしません。
-- **プライバシー**: 非公開の写真は、API にも画像 Worker の `/img/*` にも出てきません (どちらも 404)。限定公開の写真はその写真のページ (`/photo/<公開 ID>/`) でだけ開け、一覧には出ません。メタデータの公開範囲は API Worker の `projectPhoto` (`workers/api/src/query.ts`) の一か所で決めていて、画像に埋め込む EXIF もその結果から作ります。非公開の写真も出す admin のサムネイルは、`/img/*` とは別の入口 (`AdminImage`) から出します。この入口は admin の service binding からしか呼べず、さらに画像 Worker 自身が Cloudflare Access の JWT を検証します。
+- **プライバシー**: 非公開の写真には外から届きません。元画像は非公開の B2 バケットにあり、画像 Worker だけが署名付き URL で読みます。非公開の写真は API にも画像 Worker の `/img/*` にも出てきません (どちらも 404)。限定公開の写真はその写真のページ (`/photo/<公開 ID>/`) でだけ開け、一覧には出ません。メタデータの公開範囲は API Worker の `projectPhoto` (`workers/api/src/query.ts`) の一か所で決めていて、画像に埋め込む EXIF もその結果から作ります。非公開の写真も出す admin のサムネイルは、`/img/*` とは別の入口 (`AdminImage`) から出します。この入口は admin の service binding からしか呼べず、さらに画像 Worker 自身が Cloudflare Access の JWT を検証します。
 
 細かい仕様は [CLAUDE.md](CLAUDE.md) と [admin/CLAUDE.md](admin/CLAUDE.md) にまとめています。
 
