@@ -146,6 +146,7 @@ export const useRestoreCameraPhotos = routeAction$(
         z.object({
           id: z.number().int().positive(),
           camera_id: z.number().int().positive().nullable(),
+          camera_source: z.enum(["manual", "file"]).nullable(),
         }),
       )
       .max(MAX_BULK_IDS),

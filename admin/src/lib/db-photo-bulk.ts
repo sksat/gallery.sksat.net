@@ -23,13 +23,35 @@ export const listCameraChoices = async (
   return res.results ?? [];
 };
 
-/** A photo's camera before a bulk change. */
-export type PreviousCamera = { id: number; camera_id: number | null };
+/**
+ * A photo's camera before a bulk change, and where it came from
+ * (metadata_source.camera: 'manual', 'file' or none).
+ */
+export type PreviousCamera = {
+  id: number;
+  camera_id: number | null;
+  camera_source: "manual" | "file" | null;
+};
 
-// One JSON array of [id, camera_id] pairs (D1 caps bound parameters at 100).
+/** What the reads return: the camera and its source key. */
+const PREVIOUS_CAMERA = `id, camera_id,
+  json_extract(metadata_source, '$.camera') AS camera_source`;
+
+/**
+ * A camera set or taken off here is chosen by hand: the metadata reader
+ * never links one again (metadata_source.camera, as on the edit page).
+ */
+const CAMERA_MANUAL = `metadata_source = json_set(COALESCE(metadata_source, '{}'), '$.camera', 'manual')`;
+
+// One JSON array of [id, camera_id, camera_source] (D1 caps bound
+// parameters at 100). The source key goes back as it was (json_patch: a
+// null removes it), every other key of metadata_source kept.
 const SET_CAMERAS_SQL = `UPDATE media SET
    camera_id = (SELECT json_extract(value, '$[1]') FROM json_each(?1)
                 WHERE json_extract(value, '$[0]') = media.id),
+   metadata_source = NULLIF(json_patch(COALESCE(metadata_source, '{}'),
+     json_object('camera', (SELECT json_extract(value, '$[2]') FROM json_each(?1)
+                            WHERE json_extract(value, '$[0]') = media.id))), '{}'),
    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
  WHERE id IN (SELECT json_extract(value, '$[0]') FROM json_each(?1))`;
 
@@ -41,7 +63,9 @@ const writeCameras = async (
   await db.batch([
     db
       .prepare(SET_CAMERAS_SQL)
-      .bind(JSON.stringify(rows.map((r) => [r.id, r.camera_id]))),
+      .bind(
+        JSON.stringify(rows.map((r) => [r.id, r.camera_id, r.camera_source])),
+      ),
     contentVersionStatement(db),
   ]);
 };
@@ -71,7 +95,7 @@ export const setCameras = async (
   const [before] = await db.batch<PreviousCamera>([
     db
       .prepare(
-        `SELECT id, camera_id FROM media
+        `SELECT ${PREVIOUS_CAMERA} FROM media
          WHERE id IN (SELECT value FROM json_each(?1))
            AND camera_id IS NOT ?2
          ORDER BY id`,
@@ -79,7 +103,7 @@ export const setCameras = async (
       .bind(json, cameraId),
     db
       .prepare(
-        `UPDATE media SET camera_id = ?2,
+        `UPDATE media SET camera_id = ?2, ${CAMERA_MANUAL},
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE id IN (SELECT value FROM json_each(?1))
            AND camera_id IS NOT ?2`,
@@ -194,14 +218,14 @@ export const removeCameraFrom = async (
   const [before] = await db.batch<PreviousCamera>([
     db
       .prepare(
-        `SELECT id, camera_id FROM media
+        `SELECT ${PREVIOUS_CAMERA} FROM media
          WHERE id IN (SELECT value FROM json_each(?1)) AND camera_id = ?2
          ORDER BY id`,
       )
       .bind(json, cameraId),
     db
       .prepare(
-        `UPDATE media SET camera_id = NULL,
+        `UPDATE media SET camera_id = NULL, ${CAMERA_MANUAL},
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE id IN (SELECT value FROM json_each(?1)) AND camera_id = ?2`,
       )

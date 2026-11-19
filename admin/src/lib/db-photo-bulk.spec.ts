@@ -64,7 +64,7 @@ describe("the camera page", () => {
   it("takes the camera off only the photos that have it", async () => {
     const { db, cameras } = setup();
     const previous = await removeCameraFrom(db, 1, [1, 3]);
-    expect(previous).toEqual([{ id: 1, camera_id: 1 }]);
+    expect(previous).toEqual([{ id: 1, camera_id: 1, camera_source: null }]);
     expect(cameras()).toEqual([null, null, 2]);
     await restoreCameras(db, previous);
     expect(cameras()).toEqual([1, null, 2]);
@@ -88,8 +88,8 @@ describe("setCameras / restoreCameras", () => {
     expect(cameras()).toEqual([2, 2, 2]);
     // Photo 3 already had it: nothing to undo there.
     expect(previous).toEqual([
-      { id: 1, camera_id: 1 },
-      { id: 2, camera_id: null },
+      { id: 1, camera_id: 1, camera_source: null },
+      { id: 2, camera_id: null, camera_source: null },
     ]);
     await restoreCameras(db, previous);
     expect(cameras()).toEqual([1, null, 2]);
@@ -98,9 +98,46 @@ describe("setCameras / restoreCameras", () => {
   it("clears the camera with null", async () => {
     const { db, cameras } = setup();
     expect(await setCameras(db, [1, 2], null)).toEqual([
-      { id: 1, camera_id: 1 },
+      { id: 1, camera_id: 1, camera_source: null },
     ]);
     expect(cameras()).toEqual([null, null, 2]);
+  });
+
+  it("marks the camera chosen by hand, and the undo puts the source back", async () => {
+    const { db, raw } = setup();
+    raw.exec(`UPDATE media SET metadata_source = CASE id
+      WHEN 1 THEN '{"taken_at":"exif","camera":"file"}'
+      WHEN 3 THEN '{"camera":"file"}' END`);
+    const sources = () =>
+      raw
+        .prepare("SELECT metadata_source AS s FROM media ORDER BY id")
+        .all()
+        .map((r) => r.s);
+    const before = sources();
+    const previous = await setCameras(db, [1, 2], 2);
+    expect(previous).toEqual([
+      { id: 1, camera_id: 1, camera_source: "file" },
+      { id: 2, camera_id: null, camera_source: null },
+    ]);
+    expect(sources()).toEqual([
+      '{"taken_at":"exif","camera":"manual"}',
+      '{"camera":"manual"}',
+      '{"camera":"file"}',
+    ]);
+    // Another edit marks photo 1's スキャン機材 meanwhile: that stays.
+    raw.exec(
+      `UPDATE media SET metadata_source = json_set(metadata_source, '$.digitized_with', 'manual') WHERE id = 1`,
+    );
+    await restoreCameras(db, previous);
+    expect(sources()).toEqual([
+      '{"taken_at":"exif","camera":"file","digitized_with":"manual"}',
+      before[1],
+      before[2],
+    ]);
+    // Taken off on the camera page: manual too, so it is not linked again.
+    const off = await removeCameraFrom(db, 2, [3]);
+    expect(off).toEqual([{ id: 3, camera_id: 2, camera_source: "file" }]);
+    expect(sources()[2]).toBe('{"camera":"manual"}');
   });
 
   it("refuses a camera that does not exist", async () => {
@@ -124,7 +161,8 @@ describe("the API's content version", () => {
     const { db, raw } = setup();
     const writes: (() => Promise<unknown>)[] = [
       () => setCameras(db, [1, 2], 2),
-      () => restoreCameras(db, [{ id: 2, camera_id: null }]),
+      () =>
+        restoreCameras(db, [{ id: 2, camera_id: null, camera_source: null }]),
       () => setPlatforms(db, [1], "VRChat"),
       () => restorePlatforms(db, [{ id: 1, platform: "Real" }]),
       () => removeCameraFrom(db, 2, [3]),
@@ -143,7 +181,7 @@ describe("the API's content version", () => {
     const { db, raw } = setup();
     // A camera that does not exist fails the foreign key: nothing commits.
     await expect(
-      restoreCameras(db, [{ id: 1, camera_id: 99 }]),
+      restoreCameras(db, [{ id: 1, camera_id: 99, camera_source: null }]),
     ).rejects.toThrow();
     expect(version(raw)).toBeUndefined();
   });
