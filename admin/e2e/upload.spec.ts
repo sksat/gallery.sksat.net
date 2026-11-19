@@ -432,6 +432,8 @@ test("the file's EXIF and VRChat world fill the shooting data, editable", async 
   await expect(data.getByTestId("location-source")).toHaveText("EXIF");
   // The taken-at time came from DateTimeOriginal.
   await expect(page.locator("main")).toContainText("2023/12/11 01:21");
+  // The camera its EXIF names got a row of its own and is set.
+  await expect(page.locator("#edit-camera option:checked")).toHaveText("X-T5");
   // Public at a glance: location is hidden by default, exif shown.
   await expect(data.getByTestId("public-location")).toHaveAttribute(
     "data-public",
@@ -488,15 +490,25 @@ test("the file's EXIF and VRChat world fill the shooting data, editable", async 
   );
 });
 
-test("a scanner's file: スキャン日時, 機材を登録, the taken-at by hand, no EXIF", async ({
+test("a scanner's file: スキャン日時, its device, the taken-at by hand, no EXIF", async ({
   page,
 }) => {
   await newFolder(page, "/mock", "up-scan");
+  const scan = fixture("gcmc-scan.jpg", "image/jpeg");
+  await page.getByTestId("upload-input").setInputFiles([
+    scan,
+    // Another scan from the same scanner (other bytes after the image).
+    {
+      ...scan,
+      name: "gcmc-scan-2.jpg",
+      buffer: Buffer.concat([scan.buffer, Buffer.from([0])]),
+    },
+  ]);
+  await expect(page.getByTestId("file-tile")).toHaveCount(2);
   await page
-    .getByTestId("upload-input")
-    .setInputFiles([fixture("gcmc-scan.jpg", "image/jpeg")]);
-  await expect(page.getByTestId("file-tile")).toHaveCount(1);
-  await page.getByTestId("file-tile").click();
+    .getByTestId("file-tile")
+    .filter({ hasText: "gcmc-scan.jpg" })
+    .click();
 
   // A GCMC Scanner with an unset clock: 2021-01-01 is when it was scanned,
   // not a taken-at, and its EXIF is not the shooting data.
@@ -506,14 +518,13 @@ test("a scanner's file: スキャン日時, 機材を登録, the taken-at by han
   await page.getByTestId("file-exif").locator("summary").click();
   await expect(page.getByTestId("file-exif")).toContainText("GCMC");
 
-  // No camera row names it yet: one tap registers it and links the photo.
-  await expect(page.getByTestId("file-scanner")).toHaveText("GCMC Scanner");
-  await page.getByRole("button", { name: "機材を登録" }).click();
-  await expect(page.getByText(/Scanner を登録しました（1 枚）/)).toBeVisible();
-  await page.reload();
+  // No camera row named it: the upload created one (a scanner) and set it,
+  // and no shooting camera.
   const device = page.locator("#edit-digitizer");
   await expect(device.locator("option:checked")).toHaveText("Scanner");
-  await expect(page.getByTestId("file-scanner")).toHaveCount(0);
+  await expect(page.locator("#edit-camera option:checked")).toHaveText(
+    "(none)",
+  );
 
   // The taken-at from the folder, and no EXIF in its served images.
   await page.locator("#edit-taken-at").fill("2024-02-01T00:00");
@@ -530,14 +541,13 @@ test("a scanner's file: スキャン日時, 機材を登録, the taken-at by han
   await expect(page.getByTestId("metadata-digitized_at")).toHaveValue("month");
   await expect(page.getByTestId("metadata-digitizer")).toHaveValue("model");
 
-  // The device is a camera row of its own, counted apart.
+  // The device is one camera row, shared by both scans, counted apart.
   await page.goto("/camera/");
-  await expect(
-    page
-      .locator("li")
-      .filter({ hasText: "Scanner" })
-      .getByTestId("camera-digitized-count"),
-  ).toHaveText("スキャン 1");
+  const scanner = page.locator("li").filter({ hasText: "Scanner" });
+  await expect(scanner).toHaveCount(1);
+  await expect(scanner.getByTestId("camera-digitized-count")).toHaveText(
+    "スキャン 2",
+  );
 });
 
 test("photos uploaded unread are read in the background, quietly", async ({
@@ -582,8 +592,9 @@ test("photos uploaded unread are read in the background, quietly", async ({
     .getByTestId("file-tile")
     .filter({ hasText: "lab-scan.jpg" })
     .click();
-  await expect(page.getByTestId("file-scanner")).toHaveText(
-    "FUJI PHOTO FILM CO., LTD. SP-2000",
+  // Its scanner got a camera row of its own, set as the スキャン機材.
+  await expect(page.locator("#edit-digitizer option:checked")).toHaveText(
+    "SP-2000",
   );
   await expect(page.getByTestId("exif-gear")).toHaveCount(0);
   await expect(page.getByTestId("digitized-at")).toContainText("2023/12/12");

@@ -229,7 +229,9 @@ export const updateMedia = async (
 ): Promise<MediaRow | null> => {
   const sets: string[] = [];
   /** Fields edited by hand here (metadata_source → 'manual'). */
-  const manual: ("exif" | "world" | "taken_at" | "digitized_with")[] = [];
+  const manual: (
+    "exif" | "world" | "taken_at" | "digitized_with" | "camera"
+  )[] = [];
   const args: unknown[] = [];
   if (patch.platform !== undefined) {
     sets.push("platform = ?");
@@ -252,11 +254,21 @@ export const updateMedia = async (
     sets.push("digitized_with = ?");
     args.push(patch.digitized_with);
   }
-  if (patch.timestamp !== undefined || patch.digitized_with !== undefined) {
+  if (
+    patch.timestamp !== undefined ||
+    patch.digitized_with !== undefined ||
+    patch.camera_id !== undefined
+  ) {
     const was = await db
-      .prepare("SELECT timestamp, digitized_with FROM media WHERE id = ?")
+      .prepare(
+        "SELECT timestamp, digitized_with, camera_id FROM media WHERE id = ?",
+      )
       .bind(id)
-      .first<{ timestamp: string | null; digitized_with: number | null }>();
+      .first<{
+        timestamp: string | null;
+        digitized_with: number | null;
+        camera_id: number | null;
+      }>();
     if (!was) return null;
     if (patch.timestamp !== undefined && patch.timestamp !== was.timestamp) {
       manual.push("taken_at");
@@ -266,6 +278,10 @@ export const updateMedia = async (
       patch.digitized_with !== was.digitized_with
     ) {
       manual.push("digitized_with");
+    }
+    // A camera chosen or cleared by hand: the reader never links one.
+    if (patch.camera_id !== undefined && patch.camera_id !== was.camera_id) {
+      manual.push("camera");
     }
   }
   if (patch.tags !== undefined) {
@@ -512,80 +528,6 @@ export const digitizerOptions = (cameras: CameraOption[]): CameraOption[] => [
   ...cameras.filter((c) => c.kind === "scanner"),
   ...cameras.filter((c) => c.kind !== "scanner"),
 ];
-
-/** A slug for a new camera from its model ("QSS-32" → "qss-32"). */
-export const slugFromModel = (model: string): string => {
-  const s = model
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return s === "" ? "camera" : s.slice(0, 60).replace(/-+$/, "");
-};
-
-/**
- * 機材を登録: a camera row of kind 'scanner' for the scanner a file names,
- * then every photo whose file names it and that has no スキャン機材 yet
- * (and none chosen by hand) is linked to it. Returns the new camera and
- * how many photos were linked; an existing row with the same manufacturer
- * and model (case aside) is linked instead of a new one.
- */
-export const registerScanner = async (
-  db: D1Database,
-  scanner: { make: string; model: string },
-  /** The photo it was asked from: linked even if cleared by hand before. */
-  forMedia?: number,
-): Promise<{ camera: CameraOption; created: boolean; linked: number }> => {
-  const existing = await db
-    .prepare(
-      `SELECT id, name, slug, kind FROM camera
-       WHERE lower(manufacturer) = lower(?1) AND lower(model) = lower(?2)
-       ORDER BY id LIMIT 1`,
-    )
-    .bind(scanner.make, scanner.model)
-    .first<CameraOption>();
-  let camera = existing;
-  if (!camera) {
-    const base = slugFromModel(scanner.model);
-    const taken = new Set(
-      (
-        (
-          await db
-            .prepare("SELECT slug FROM camera WHERE slug = ?1 OR slug LIKE ?2")
-            .bind(base, `${base}-%`)
-            .all<{ slug: string }>()
-        ).results ?? []
-      ).map((r) => r.slug),
-    );
-    let slug = base;
-    for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
-    camera = await db
-      .prepare(
-        `INSERT INTO camera (slug, name, manufacturer, model, kind)
-         VALUES (?1, ?2, ?3, ?2, 'scanner')
-         RETURNING id, name, slug, kind`,
-      )
-      .bind(slug, scanner.model, scanner.make)
-      .first<CameraOption>();
-    if (!camera) throw new Error("INSERT INTO camera returned no row");
-  }
-  const res = await db
-    .prepare(
-      `UPDATE media SET digitized_with = ?1,
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE digitized_with IS NULL AND file_exif IS NOT NULL
-         AND lower(json_extract(file_exif, '$.make')) = lower(?2)
-         AND lower(json_extract(file_exif, '$.model')) = lower(?3)
-         AND (id = ?4 OR COALESCE(json_extract(metadata_source,
-               '$.digitized_with'), '') <> 'manual')`,
-    )
-    .bind(camera.id, scanner.make, scanner.model, forMedia ?? null)
-    .run();
-  return {
-    camera,
-    created: !existing,
-    linked: res.meta.changes ?? 0,
-  };
-};
 
 export const getCamera = async (
   db: D1Database,

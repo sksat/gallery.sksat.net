@@ -35,12 +35,10 @@ import {
   listCameraOptions,
   type CameraOption,
   MAX_BULK_IDS,
-  registerScanner,
   restoreVisibility,
   setVisibility,
   updateMedia,
 } from "~/lib/db";
-import { scannerOf } from "~/lib/digitizer";
 import {
   takenAtFromInput,
   takenAtInputValue,
@@ -202,14 +200,26 @@ const photoDataPatch = (data: Record<string, string | undefined>) => {
  * reject).
  */
 const digitizePatch = (data: {
+  camera_id: string;
+  camera_loaded?: string;
   digitized_with?: string;
+  digitized_with_loaded?: string;
   embed_exif?: "" | "on" | "off";
   taken_at?: string;
   taken_at_loaded?: string;
   taken_at_offset?: string;
 }) => {
   const out: Record<string, unknown> = {};
-  if (data.digitized_with !== undefined) {
+  // The camera and スキャン機材 only when changed on the page: the reader
+  // may have set them since it loaded (device.ts), and a stale "(none)"
+  // must not clear that and mark it chosen by hand.
+  if (data.camera_id !== data.camera_loaded) {
+    out.camera_id = parseCameraIdInput(data.camera_id);
+  }
+  if (
+    data.digitized_with !== undefined &&
+    data.digitized_with !== data.digitized_with_loaded
+  ) {
     out.digitized_with = parseCameraIdInput(data.digitized_with);
   }
   if (data.embed_exif !== undefined) {
@@ -222,36 +232,6 @@ const digitizePatch = (data: {
   return out;
 };
 
-/**
- * 機材を登録: a camera row (kind scanner) for the scanner the photo's file
- * names, linked to this photo and every other photo whose file names it
- * (registerScanner).
- */
-export const useRegisterScanner = routeAction$(
-  async (_data, { platform, params, fail }) => {
-    const id = Number(params.id);
-    if (!Number.isInteger(id) || id <= 0) {
-      return fail(400, { message: "invalid id" });
-    }
-    const db = getDB(platform);
-    const row = await getMedia(db, id);
-    if (!row) return fail(404, { message: "not found" });
-    const scanner = scannerOf(row.file_exif);
-    if (!scanner)
-      return fail(400, { message: "スキャナーのファイルではありません" });
-    const { camera, created, linked } = await registerScanner(db, scanner, id);
-    // The linked photos' スキャン機材, and the camera pages that list them.
-    await contentChanged(db);
-    return {
-      ok: true,
-      name: camera.name,
-      cameraId: camera.id,
-      created,
-      linked,
-    };
-  },
-);
-
 export const useUpdateMedia = routeAction$(
   async (data, { platform, params, fail }) => {
     const id = Number(params.id);
@@ -263,7 +243,6 @@ export const useUpdateMedia = routeAction$(
     // (undefined here) is passed through as-is for validatePatch to reject.
     const v = validatePatch({
       platform: data.platform,
-      camera_id: parseCameraIdInput(data.camera_id),
       tags: parseTagsInput(data.tags ?? ""),
       visibility: data.visibility,
       // "" = the site's default for that field.
@@ -316,6 +295,8 @@ export const useUpdateMedia = routeAction$(
     // Required (no default): a submission without the field must not
     // silently clear the photo's camera. "" = none.
     camera_id: z.string().max(20),
+    camera_loaded: z.string().max(20).optional(),
+    digitized_with_loaded: z.string().max(20).optional(),
     tags: z.string().max(2000).default(""),
     // Required: a submission without it must not change who can see the
     // photo.
@@ -573,22 +554,25 @@ const shows = (row: MediaRow, hasValue: boolean) =>
 const MEDIA_FORM = "media-form";
 
 /**
- * スキャン機材: the camera row it was digitised with (scanners first). A
- * scanner's file with no row for it yet shows its make and model with
- * 機材を登録, which creates the row and links the photos that name it.
+ * スキャン機材: the camera row it was digitised with (scanners first).
+ * Uploads and the metadata reader fill it from a scanner's file
+ * (device.ts), creating the row when needed.
  */
 const DigitizerField = component$<{
   row: MediaRow;
   cameras: CameraOption[];
   defaults: MetadataLevels;
-  onRegisterScanner$: QRL<() => void>;
-}>(({ row, cameras, defaults, onRegisterScanner$ }) => {
-  const scanner = scannerOf(row.file_exif);
+}>(({ row, cameras, defaults }) => {
   return (
     <div>
       <label for="edit-digitizer" class={label}>
         スキャン機材
       </label>
+      <input
+        type="hidden"
+        name="digitized_with_loaded"
+        value={row.digitized_with === null ? "" : String(row.digitized_with)}
+      />
       <WithLevel
         level={
           <LevelSelect
@@ -614,20 +598,6 @@ const DigitizerField = component$<{
           ))}
         </select>
       </WithLevel>
-      {scanner && row.digitized_with === null && (
-        <p class="mt-1 flex flex-wrap items-center gap-2 text-xs">
-          <span class={muted} data-testid="file-scanner">
-            {scanner.make} {scanner.model}
-          </span>
-          <button
-            type="button"
-            class={buttonSecondary}
-            onClick$={onRegisterScanner$}
-          >
-            機材を登録
-          </button>
-        </p>
-      )}
     </div>
   );
 });
@@ -693,8 +663,7 @@ const MediaFields = component$<{
   defaults: MetadataLevels;
   publicTags: string[];
   onReset$: QRL<(field: "exif" | "world" | "location") => void>;
-  onRegisterScanner$: QRL<() => void>;
-}>(({ row, cameras, defaults, publicTags, onReset$, onRegisterScanner$ }) => (
+}>(({ row, cameras, defaults, publicTags, onReset$ }) => (
   <>
     <fieldset class="space-y-3">
       <legend class={legend}>Visibility</legend>
@@ -766,6 +735,12 @@ const MediaFields = component$<{
         <label for="edit-camera" class="sr-only">
           Camera
         </label>
+        {/* What it was loaded with: only a change is saved (digitizePatch). */}
+        <input
+          type="hidden"
+          name="camera_loaded"
+          value={row.camera_id === null ? "" : String(row.camera_id)}
+        />
         <WithLevel
           level={
             <LevelSelect
@@ -804,12 +779,7 @@ const MediaFields = component$<{
           first.
         </p>
       </div>
-      <DigitizerField
-        row={row}
-        cameras={cameras}
-        defaults={defaults}
-        onRegisterScanner$={onRegisterScanner$}
-      />
+      <DigitizerField row={row} cameras={cameras} defaults={defaults} />
     </fieldset>
 
     <fieldset class="space-y-3">
@@ -1054,7 +1024,6 @@ export default component$(() => {
           message: "ファイルの値に戻します。読み込み後に反映されます。",
         };
   });
-  const register = useRegisterScanner();
   useTask$(({ track }) => {
     const v = track(() => action.value);
     if (!v) return;
@@ -1088,20 +1057,6 @@ export default component$(() => {
     // Another photo (prev/next reuse this component): a fresh form.
     track(() => (media.value.kind === "ok" ? media.value.row.id : null));
     dirty.value = false;
-  });
-  // 機材を登録 reloads the photo into the form: not over unsaved edits.
-  const registerScannerNow = $(async () => {
-    if (dirty.value) {
-      toast.value = { tone: "error", message: "先に保存してください" };
-      return;
-    }
-    const { value } = await register.submit();
-    toast.value = value.failed
-      ? { tone: "error", message: value.message ?? "登録できませんでした" }
-      : {
-          tone: "success",
-          message: `${value.name} を${value.created ? "登録" : "設定"}しました（${value.linked} 枚）。`,
-        };
   });
   usePreventNavigate$((url) => {
     // (The action's own reload does not navigate, so it never gets here.)
@@ -1381,7 +1336,6 @@ export default component$(() => {
           defaults={media.value.defaults}
           publicTags={media.value.publicTags}
           onReset$={resetFromFile}
-          onRegisterScanner$={registerScannerNow}
         />
 
         {/* Phones: fixed to the bottom of the screen, so Save and stepping
