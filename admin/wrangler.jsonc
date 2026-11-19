@@ -39,7 +39,7 @@
     // CF_ANALYTICS_API_TOKEN: the Web Analytics site tag (not the beacon
     // token). It covers the whole sksat.net zone, so the host narrows it
     // to the public gallery.
-    "WEB_ANALYTICS_SITE_TAG": "5e9a7cb92cdd4aedafe02f1f547e7b4c",
+    "WEB_ANALYTICS_SITE_TAG": "e02811320c7d4106aaa1e7ef097b03a6",
     "WEB_ANALYTICS_HOST": "gallery.sksat.net",
   },
   // The image Worker's AdminImage entrypoint (workers/image): resized
