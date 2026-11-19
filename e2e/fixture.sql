@@ -89,3 +89,18 @@ UPDATE media SET latitude = 35.658034, longitude = 139.701636, location_source =
 UPDATE media SET latitude = 35.0, longitude = 135.0, location_source = 'manual',
   metadata_visibility = json_set(metadata_visibility, '$.location', 'exact') WHERE id IN (2, 7);
 UPDATE media SET latitude = 34.702485, longitude = 135.495951, location_source = 'manual' WHERE id = 5;
+-- Fields of tags (admin migration 0010):
+-- - film (public) has 銘柄, ISO (shown) and ラボ (hidden by default);
+--   reaxxxxxxa has all three, so it shows 銘柄 and ISO under 「film」;
+-- - draft and secret are private: their fields' values (on vrcxxxxxxc and
+--   the private photo) are never returned.
+INSERT INTO tag_field (id, tag_id, label, type, options, position, visibility)
+  SELECT 1, id, '銘柄', 'select', '["Kodak Portra 400","Ilford HP5 Plus"]', 0, 'shown' FROM tag WHERE name = 'film';
+INSERT INTO tag_field (id, tag_id, label, type, position, visibility)
+  SELECT 2, id, 'ISO', 'number', 1, 'shown' FROM tag WHERE name = 'film';
+INSERT INTO tag_field (id, tag_id, label, type, position, visibility)
+  SELECT 3, id, 'ラボ', 'text', 2, 'hidden' FROM tag WHERE name = 'film';
+INSERT INTO tag_field (id, tag_id, label, type, position, visibility)
+  SELECT 4, id, 'メモ', 'text', 0, 'shown' FROM tag WHERE name = 'draft';
+UPDATE media SET tag_values = '{"1":"Kodak Portra 400","2":400,"3":"Fixture Lab"}' WHERE id = 1;
+UPDATE media SET tag_values = '{"4":"draft memo"}' WHERE id IN (5, 7);

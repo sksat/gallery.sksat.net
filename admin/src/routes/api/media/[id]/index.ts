@@ -1,6 +1,7 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { getCamera, getMedia, updateMedia } from "~/lib/db";
+import { resolveTagValuePatch } from "~/lib/db-tag-field";
 import { getDB } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
 import { validatePatch } from "~/lib/validate";
@@ -63,7 +64,20 @@ export const onPatch: RequestHandler = withErrorHandler(
       json(400, { error: "unknown digitized_with" });
       return;
     }
-    const updated = await updateMedia(db, id, res.patch);
+    const tf = await resolveTagValuePatch(
+      db,
+      res.patch.tag_values,
+      res.patch.tag_value_visibility,
+    );
+    if (!tf.ok) {
+      json(400, { error: tf.error });
+      return;
+    }
+    const updated = await updateMedia(db, id, {
+      ...res.patch,
+      tag_values: tf.values,
+      tag_value_visibility: tf.levels,
+    });
     if (!updated) {
       json(404, { error: "not found" });
       return;

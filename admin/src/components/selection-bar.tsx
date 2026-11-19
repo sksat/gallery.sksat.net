@@ -28,6 +28,9 @@ import {
 } from "~/lib/types";
 import { BulkInfoDialog } from "./bulk-info-dialog";
 import { BulkMetadataDialog } from "./bulk-metadata-dialog";
+import { BulkTagFieldDialog } from "./bulk-tag-field-dialog";
+import type { TagFieldDef } from "@shared/tag-field/tag-field";
+import { tagsWithFields } from "~/lib/bulk-tag-field";
 import { ChoicePicker } from "./choice-picker";
 import { ContextMenu } from "./context-menu";
 import type { FileTile } from "./file-browser";
@@ -54,6 +57,8 @@ export type SelectionAction =
   | { kind: "move"; dest: string; name: string }
   | { kind: "visibility"; visibility: Visibility }
   | { kind: "metadata"; levels: LevelChange }
+  /** Tag field values: field id → typed value, null clears. */
+  | { kind: "tag-values"; values: Record<string, string | null> }
   | { kind: "rename"; name: string }
   | { kind: "camera"; cameraId: number | null; cameraName: string | null }
   | { kind: "platform"; platform: MediaPlatform }
@@ -84,6 +89,8 @@ type Props = {
   siteDefaults: MetadataLevels;
   /** Registered cameras (the camera picker). */
   cameras: CameraChoice[];
+  /** Every tag field; the menu offers those of the selected photos' tags. */
+  tagFields: TagFieldDef[];
   /** A chunked action under way: photos done of total. */
   progress: { done: number; total: number } | null;
   busy: Signal<boolean>;
@@ -142,6 +149,7 @@ export const SelectionBar = component$<Props>(
     imageBase,
     siteDefaults,
     cameras,
+    tagFields,
     progress,
     busy,
     command,
@@ -151,6 +159,12 @@ export const SelectionBar = component$<Props>(
     const dialog = useSignal<HTMLDialogElement>();
     const metadataOpen = useSignal(false);
     const infoOpen = useSignal(false);
+    const tagFieldsOpen = useSignal(false);
+    // Tags of the selection that have fields: 「フィルムの項目…」 for one.
+    const fieldTags = tagsWithFields(
+      photos.map((p) => p.tags),
+      tagFields,
+    );
     /** The 情報 menu (at its button), and the picker it opened. */
     const infoMenu = useSignal<{
       x: number;
@@ -425,12 +439,25 @@ export const SelectionBar = component$<Props>(
               { kind: "item", id: "camera", label: "カメラ…" },
               { kind: "item", id: "platform", label: "プラットフォーム…" },
               { kind: "item", id: "info", label: "タグと撮影データ…" },
+              ...(fieldTags.length > 0
+                ? [
+                    {
+                      kind: "item" as const,
+                      id: "tag-fields",
+                      label:
+                        fieldTags.length === 1
+                          ? `${fieldTags[0]}の項目…`
+                          : "タグの項目…",
+                    },
+                  ]
+                : []),
               { kind: "item", id: "metadata", label: "公開する情報…" },
             ]}
             onClose$={() => (infoMenu.value = null)}
             onPick$={(id) => {
               if (id === "metadata") metadataOpen.value = true;
               else if (id === "info") infoOpen.value = true;
+              else if (id === "tag-fields") tagFieldsOpen.value = true;
               else picker.value = id as "camera" | "platform";
             }}
           />
@@ -481,6 +508,19 @@ export const SelectionBar = component$<Props>(
               if (!isPlatform(key)) return;
               const ok = await onAction$({ kind: "platform", platform: key });
               if (ok) picker.value = null;
+            }}
+          />
+        )}
+        {tagFieldsOpen.value && (
+          <BulkTagFieldDialog
+            ids={photos.map((p) => p.id)}
+            fields={tagFields.filter((f) => fieldTags.includes(f.tag))}
+            busy={busy}
+            onClose$={() => (tagFieldsOpen.value = false)}
+            onApply$={async (values) => {
+              if (await onAction$({ kind: "tag-values", values })) {
+                tagFieldsOpen.value = false;
+              }
             }}
           />
         )}

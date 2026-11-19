@@ -1,3 +1,8 @@
+import {
+  isTagFieldLevel,
+  type TagFieldLevel,
+  type TagFieldValue,
+} from "@shared/tag-field/tag-field";
 import { validateOverrides } from "./metadata";
 import {
   validateExifEdit,
@@ -44,6 +49,8 @@ const PATCH_FIELDS = new Set([
   "world_id",
   "world_name",
   "reset_from_file",
+  "tag_values",
+  "tag_value_visibility",
 ]);
 
 const RESETTABLE = ["exif", "world", "location", "taken_at"] as const;
@@ -208,7 +215,88 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     if (fields.length > 0) patch.reset_from_file = fields;
   }
 
+  // Shapes only: the values are checked against their fields in
+  // db-tag-field.ts (resolveTagValuePatch), which needs D1.
+  if ("tag_values" in obj) {
+    const v = validateTagValueShape(obj.tag_values);
+    if (!v.ok) return v;
+    patch.tag_values = v.value;
+  }
+  if ("tag_value_visibility" in obj) {
+    const v = validateTagLevelShape(obj.tag_value_visibility);
+    if (!v.ok) return v;
+    patch.tag_value_visibility = v.value;
+  }
+
   return { ok: true, patch };
+};
+
+/** Most field ids one change may name. */
+const MAX_TAG_FIELD_KEYS = 200;
+const FIELD_ID_RE = /^[1-9]\d{0,15}$/;
+
+const fieldMap = (
+  v: unknown,
+  name: string,
+):
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; error: string } => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return { ok: false, error: `${name} must be an object` };
+  }
+  const entries = Object.entries(v);
+  if (entries.length > MAX_TAG_FIELD_KEYS) {
+    return { ok: false, error: `${name} has too many fields` };
+  }
+  if (entries.some(([k]) => !FIELD_ID_RE.test(k))) {
+    return { ok: false, error: `${name} keys must be field ids` };
+  }
+  return { ok: true, value: v as Record<string, unknown> };
+};
+
+/** tag_values: field id → string, number or null (clear). */
+export const validateTagValueShape = (
+  v: unknown,
+):
+  | { ok: true; value: Record<string, TagFieldValue | null> }
+  | { ok: false; error: string } => {
+  const m = fieldMap(v, "tag_values");
+  if (!m.ok) return m;
+  for (const value of Object.values(m.value)) {
+    if (
+      value !== null &&
+      !(typeof value === "string" && value.length <= 400) &&
+      !(typeof value === "number" && Number.isFinite(value))
+    ) {
+      return { ok: false, error: "tag_values must be strings or numbers" };
+    }
+  }
+  return {
+    ok: true,
+    value: m.value as Record<string, TagFieldValue | null>,
+  };
+};
+
+/** tag_value_visibility: field id → shown / hidden, or null (default). */
+export const validateTagLevelShape = (
+  v: unknown,
+):
+  | { ok: true; value: Record<string, TagFieldLevel | null> }
+  | { ok: false; error: string } => {
+  const m = fieldMap(v, "tag_value_visibility");
+  if (!m.ok) return m;
+  for (const level of Object.values(m.value)) {
+    if (level !== null && !isTagFieldLevel(level)) {
+      return {
+        ok: false,
+        error: "tag_value_visibility must be shown, hidden or null",
+      };
+    }
+  }
+  return {
+    ok: true,
+    value: m.value as Record<string, TagFieldLevel | null>,
+  };
 };
 
 export type ValidateRestoreResult =

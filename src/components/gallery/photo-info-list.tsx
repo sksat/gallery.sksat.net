@@ -164,6 +164,22 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
           </dd>
         </div>
       )}
+      {i.tagFields.map((g) => (
+        // A tag's fields under its name: 「フィルム」 銘柄 Portra 400 …
+        <div key={g.tag} data-testid="info-tag-fields">
+          <dt>{g.tag}</dt>
+          <dd>
+            <dl class="mt-0.5 grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-0.5">
+              {g.fields.map((f) => (
+                <div key={f.label} class="contents">
+                  <dt class="text-white/60">{f.label}</dt>
+                  <dd>{f.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </dd>
+        </div>
+      ))}
       {i.file && (
         <div data-testid="info-file">
           <dt>ファイル名</dt>

@@ -1,3 +1,4 @@
+import type { PublicTagField } from "../../../shared/tag-field/tag-field";
 import type { ExifJSON } from "./metadata";
 
 /**
@@ -90,6 +91,12 @@ export type MediaItemJSON = {
   embed_exif: boolean;
   /** Only the tags marked public (admin `tag` table). */
   tags: string[];
+  /**
+   * Values of the fields of those tags (admin `tag_field`, 0010), each
+   * shown on this photo: by tag in `tags` order, then the field's order.
+   * Empty when there are none, or the tags are hidden.
+   */
+  tag_fields: PublicTagField[];
 };
 
 export type CameraKind = "digital" | "film" | "phone" | "virtual" | "scanner";

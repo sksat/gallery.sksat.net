@@ -1,3 +1,4 @@
+import type { TagFieldLevel, TagFieldValue } from "@shared/tag-field/tag-field";
 import type { MetadataOverrides } from "./metadata";
 import type { MetadataSource } from "./metadata-source";
 import type { ExifEdit, LocationEdit, WorldEdit } from "./photo-data";
@@ -111,6 +112,10 @@ export type MediaRow = {
   digitized_with: number | null;
   /** Served images carry its public info as EXIF; null = the site's. */
   embed_exif: boolean | null;
+  /** Its values of tag fields (0010): field id → value, as stored. */
+  tag_values: Record<string, unknown>;
+  /** Its own public levels for them: field id → level. */
+  tag_value_visibility: Record<string, TagFieldLevel>;
   updated_at: string;
 };
 
@@ -141,4 +146,11 @@ export type MediaPatch = {
   visibility?: Visibility;
   /** Replaces the photo's overrides ({} = all from the site). */
   metadata_visibility?: MetadataOverrides;
+  /**
+   * Tag field values by field id: a value sets, null clears; ids left out
+   * are kept. Checked against the fields (db-tag-field.ts) before storing.
+   */
+  tag_values?: Record<string, TagFieldValue | null>;
+  /** The photo's own levels by field id; null = the field's default. */
+  tag_value_visibility?: Record<string, TagFieldLevel | null>;
 };

@@ -196,6 +196,16 @@ test.describe("desktop", () => {
     await expect(d.getByTestId("info-camera")).toHaveCount(0);
     await expect(d.getByTestId("camera-card")).toHaveCount(0);
     await expect(d.getByTestId("info-file")).toHaveCount(0);
+    await expect(d.getByTestId("info-tag-fields")).toHaveCount(0);
+  });
+
+  test("a tag's fields", async ({ page }) => {
+    await page.goto("/photo/reaxxxxxxa/");
+    const group = detail(page).getByTestId("info-tag-fields");
+    await expect(group).toContainText("film");
+    await expect(group).toContainText("銘柄Kodak Portra 400");
+    await expect(group).toContainText("ISO400");
+    await expect(group).not.toContainText("ラボ");
   });
 
   test("its place on a small map, and an unlisted photo's day", async ({

@@ -66,6 +66,10 @@ import {
 } from "~/lib/photo-data";
 import { markUnread } from "~/lib/read-state";
 import { PhotoDataFields } from "~/components/photo-data-fields";
+import { TagFieldInputs } from "~/components/tag-field-inputs";
+import { fieldsOfTags, resolveTagValuePatch } from "~/lib/db-tag-field";
+import { tagFieldPatch } from "~/lib/tag-field-form";
+import type { TagFieldDef } from "@shared/tag-field/tag-field";
 import { withoutViewer } from "~/lib/review-keys";
 import { pendingBatches, type Pending } from "~/lib/review-pending";
 import { VisibilityBadge } from "~/components/visibility-badge";
@@ -110,6 +114,8 @@ type MediaLoaderResult =
       defaults: MetadataLevels;
       /** Which of the photo's tags are public. */
       publicTags: string[];
+      /** The fields of the photo's tags (0010). */
+      tagFields: TagFieldDef[];
     }
   | { kind: "missing-binding" }
   | { kind: "bad-request" }
@@ -142,12 +148,14 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
       status(404);
       return { kind: "not-found" };
     }
-    const [cameras, neighbors, defaults, rowPublicTags] = await Promise.all([
-      listCameraOptions(db),
-      getNeighbors(db, list, row, MAX_BULK_IDS),
-      getSiteDefaults(db),
-      publicTags(db, row.tags),
-    ]);
+    const [cameras, neighbors, defaults, rowPublicTags, tagFields] =
+      await Promise.all([
+        listCameraOptions(db),
+        getNeighbors(db, list, row, MAX_BULK_IDS),
+        getSiteDefaults(db),
+        publicTags(db, row.tags),
+        fieldsOfTags(db, row.tags),
+      ]);
     return {
       kind: "ok",
       row,
@@ -156,6 +164,7 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
       imageBase: getImageBase(platform),
       defaults,
       publicTags: rowPublicTags,
+      tagFields,
     };
   },
 );
@@ -241,6 +250,9 @@ export const useUpdateMedia = routeAction$(
     if (!Number.isInteger(id) || id <= 0) {
       return fail(400, { message: "invalid id" });
     }
+    // The flat string fields (the tag fields' objects apart).
+    const { tf, tfv, ...flat } = data;
+    const form = flat as Record<string, string | undefined>;
     // Route the form data through the same validator the API uses so the
     // contract has a single source of truth. A malformed camera value
     // (undefined here) is passed through as-is for validatePatch to reject.
@@ -252,15 +264,13 @@ export const useUpdateMedia = routeAction$(
       ...(data.mv_file_name !== undefined
         ? {
             metadata_visibility: Object.fromEntries(
-              EDITABLE_FIELDS.map((f) => [
-                f,
-                (data as Record<string, string | undefined>)[`mv_${f}`] ?? "",
-              ]),
+              EDITABLE_FIELDS.map((f) => [f, form[`mv_${f}`] ?? ""]),
             ),
           }
         : {}),
-      ...photoDataPatch(data as Record<string, string | undefined>),
+      ...photoDataPatch(form),
       ...digitizePatch(data),
+      ...tagFieldPatch(data.tag_fields_loaded, tf, tfv),
     });
     if (!v.ok) {
       return fail(400, { message: v.error });
@@ -284,6 +294,14 @@ export const useUpdateMedia = routeAction$(
     ) {
       return fail(400, { message: "unknown スキャン機材" });
     }
+    const checked = await resolveTagValuePatch(
+      db,
+      v.patch.tag_values,
+      v.patch.tag_value_visibility,
+    );
+    if (!checked.ok) return fail(400, { message: checked.error });
+    v.patch.tag_values = checked.values;
+    v.patch.tag_value_visibility = checked.levels;
     const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
       return fail(404, { message: "not found" });
@@ -331,6 +349,10 @@ export const useUpdateMedia = routeAction$(
     latitude: z.string().max(40).optional(),
     longitude: z.string().max(40).optional(),
     photo_data_loaded: z.string().max(4000).optional(),
+    // Tag fields (tag-field-inputs.tsx): f<id> → value / level.
+    tf: z.record(z.string().max(20), z.string().max(400)).optional(),
+    tfv: z.record(z.string().max(20), z.string().max(20)).optional(),
+    tag_fields_loaded: z.string().max(40_000).optional(),
   }),
 );
 
@@ -666,7 +688,8 @@ const MediaFields = component$<{
   defaults: MetadataLevels;
   publicTags: string[];
   onReset$: QRL<(field: "exif" | "world" | "location") => void>;
-}>(({ row, cameras, defaults, publicTags, onReset$ }) => (
+  tagFields: TagFieldDef[];
+}>(({ row, cameras, defaults, publicTags, onReset$, tagFields }) => (
   <>
     <fieldset class="space-y-3">
       <legend class={legend}>Visibility</legend>
@@ -928,6 +951,13 @@ const MediaFields = component$<{
         )}
       </div>
     </fieldset>
+
+    <TagFieldInputs
+      row={row}
+      fields={tagFields}
+      publicTags={publicTags}
+      defaults={defaults}
+    />
   </>
 ));
 
@@ -1339,6 +1369,7 @@ export default component$(() => {
           defaults={media.value.defaults}
           publicTags={media.value.publicTags}
           onReset$={resetFromFile}
+          tagFields={media.value.tagFields}
         />
 
         {/* Phones: fixed to the bottom of the screen, so Save and stepping

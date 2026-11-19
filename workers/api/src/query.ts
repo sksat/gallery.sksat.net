@@ -22,6 +22,11 @@ import {
   type MetadataField,
   type MetadataLevels,
 } from "./metadata";
+import {
+  publicTagFields,
+  rowToDef,
+  type TagFieldDef,
+} from "../../../shared/tag-field/tag-field";
 import type {
   CameraImageJSON,
   CameraJSON,
@@ -51,6 +56,10 @@ export type MediaJoinRow = {
   world_name: string | null;
   /** 0009: embed the public shooting info in served images (1/0/NULL). */
   embed_exif?: number | null;
+  /** The photo's values of its tags' fields (JSON, 0010), or NULL. */
+  tag_values?: string | null;
+  /** Its own levels for them (JSON), or NULL. */
+  tag_value_visibility?: string | null;
   camera_slug: string | null;
   camera_name: string | null;
   camera_manufacturer: string | null;
@@ -93,12 +102,15 @@ export type Context = {
    * shooting information as EXIF when a photo does not say (default on).
    */
   embedDefault: boolean;
+  /** The fields of public tags (0010); none when left out. */
+  tagFields?: readonly TagFieldDef[];
 };
 
 const MEDIA_SELECT = `
   SELECT m.public_id, m.file, m.path, m.platform, m.timestamp, m.tags,
          m.metadata_visibility, m.latitude, m.longitude,
          m.exif, m.world_id, m.world_name, m.embed_exif,
+         m.tag_values, m.tag_value_visibility,
          c.slug AS camera_slug, c.name AS camera_name,
          c.manufacturer AS camera_manufacturer, c.model AS camera_model,
          m.digitized_at,
@@ -155,17 +167,27 @@ const parseTags = (raw: string): string[] => {
 };
 
 /** The statements whose results make a Context (run them in the batch). */
-const contextStatements = (db: D1Database) => [
+const contextStatements = (db: D1Database, withFields = true) => [
   db.prepare(
     `SELECT key, value FROM setting
      WHERE key IN ('metadata_visibility', 'embed_exif')`,
   ),
   db.prepare("SELECT name FROM tag WHERE public = 1"),
+  // Only public tags' fields ever reach a projection (a handful of rows).
+  // The image Worker's lookups never use them: no rows read there.
+  db.prepare(
+    withFields
+      ? `SELECT f.id, t.name AS tag, f.label, f.type, f.options, f.visibility,
+                f.position
+         FROM tag_field f JOIN tag t ON t.id = f.tag_id WHERE t.public = 1`
+      : "SELECT 1 WHERE 0",
+  ),
 ];
 
 const toContext = (
   settings: D1Result<unknown>,
   tags: D1Result<unknown>,
+  fields: D1Result<unknown>,
 ): Context => {
   const rows = (settings.results ?? []) as { key: string; value: string }[];
   const value = (key: string) => rows.find((r) => r.key === key)?.value;
@@ -176,6 +198,9 @@ const toContext = (
     ),
     // Only an explicit false turns it off.
     embedDefault: value("embed_exif") !== "false",
+    tagFields: ((fields.results ?? []) as Parameters<typeof rowToDef>[0][])
+      .map(rowToDef)
+      .filter((d): d is TagFieldDef => d !== null),
   };
 };
 
@@ -253,6 +278,10 @@ export const projectPhoto = (
   const path = row.path ?? row.file;
   const name = path.slice(path.lastIndexOf("/") + 1);
   const timestamp = truncateTimestamp(row.timestamp, levels.taken_at);
+  const tags =
+    levels.tags === "public"
+      ? parseTags(row.tags).filter((t) => ctx.publicTags.has(t))
+      : [];
   return {
     id: row.public_id,
     file:
@@ -300,10 +329,15 @@ export const projectPhoto = (
         : row.embed_exif === 0
           ? false
           : ctx.embedDefault,
-    tags:
-      levels.tags === "public"
-        ? parseTags(row.tags).filter((t) => ctx.publicTags.has(t))
-        : [],
+    tags,
+    // Fields of the tags it shows (so never of a private tag, nor when
+    // its tags are hidden), each at its level on this photo.
+    tag_fields: publicTagFields(
+      tags,
+      (ctx.tagFields ?? []).filter((d) => ctx.publicTags.has(d.tag)),
+      row.tag_values,
+      row.tag_value_visibility,
+    ),
   };
 };
 
@@ -332,14 +366,14 @@ export const rowToCamera = (
 export const listPublicMedia = async (
   db: D1Database,
 ): Promise<MediaItemJSON[]> => {
-  const [site, tags, photos] = await db.batch([
+  const [site, tags, fields, photos] = await db.batch([
     ...contextStatements(db),
     db.prepare(
       `${MEDIA_SELECT} WHERE ${LISTED}
        ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
     ),
   ]);
-  const ctx = toContext(site, tags);
+  const ctx = toContext(site, tags, fields);
   return ((photos.results ?? []) as MediaJoinRow[]).map((r) =>
     projectPhoto(r, ctx),
   );
@@ -352,12 +386,13 @@ const onePhoto = async (
   arg: string,
   withKey: boolean,
 ): Promise<MediaItemJSON | null> => {
-  const [site, tags, photos] = await db.batch([
-    ...contextStatements(db),
+  const [site, tags, fields, photos] = await db.batch([
+    // The image Worker's lookup (withKey) has no use for tag fields.
+    ...contextStatements(db, !withKey),
     db.prepare(`${MEDIA_SELECT} WHERE ${where}`).bind(arg),
   ]);
   const row = (photos.results ?? [])[0] as MediaJoinRow | undefined;
-  return row ? projectPhoto(row, toContext(site, tags), withKey) : null;
+  return row ? projectPhoto(row, toContext(site, tags, fields), withKey) : null;
 };
 
 /** A public or unlisted photo by its public id. */
@@ -395,8 +430,8 @@ export const getPathAccess = async (
   db: D1Database,
   path: string,
 ): Promise<PathAccess | null> => {
-  const [site, tags, photos, images] = await db.batch([
-    ...contextStatements(db),
+  const [site, tags, fields, photos, images] = await db.batch([
+    ...contextStatements(db, false),
     db
       .prepare(
         `${MEDIA_SELECT} WHERE m.path = ?1 AND ${LISTED}
@@ -415,7 +450,7 @@ export const getPathAccess = async (
   ]);
   const row = (photos.results ?? [])[0] as MediaJoinRow | undefined;
   if (row) {
-    const photo = projectPhoto(row, toContext(site, tags), true);
+    const photo = projectPhoto(row, toContext(site, tags, fields), true);
     return { kind: "photo", photo: { ...photo, file: row.file } };
   }
   return (images.results ?? []).length > 0

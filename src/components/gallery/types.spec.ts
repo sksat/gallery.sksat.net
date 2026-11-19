@@ -5,8 +5,28 @@ import {
   parseMediaItem,
   parseMediaList,
   parseMediaTimestamp,
+  parseTagFields,
   transformMediaInfo,
 } from "./types";
+
+describe("parseTagFields", () => {
+  it("keeps well-formed fields as text, numbers as written", () => {
+    expect(
+      parseTagFields([
+        { tag: "フィルム", label: "銘柄", value: "Portra 400" },
+        { tag: "フィルム", label: "ISO", value: 400 },
+        { tag: "フィルム", label: "x", value: "" },
+        { tag: "フィルム", label: "y", value: Number.NaN },
+        { tag: "", label: "z", value: "a" },
+        "nope",
+      ]),
+    ).toEqual([
+      { tag: "フィルム", label: "銘柄", value: "Portra 400" },
+      { tag: "フィルム", label: "ISO", value: "400" },
+    ]);
+    expect(parseTagFields(null)).toEqual([]);
+  });
+});
 import type { MediaInfoJSON } from "./types";
 
 describe("parseMediaTimestamp", () => {
@@ -42,6 +62,7 @@ const item: MediaInfoJSON = {
   exif: null,
   location: null,
   tags: [],
+  tag_fields: [],
 };
 
 describe("formatTaken", () => {
