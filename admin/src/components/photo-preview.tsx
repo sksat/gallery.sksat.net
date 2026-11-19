@@ -63,6 +63,8 @@ type Props = {
   saving?: boolean;
   /** Mirrors the number of pending choices (the page's leave guard). */
   pendingCount: Signal<number>;
+  /** Mirrors whether the viewer is open (the page's leave guard). */
+  viewerOpen?: Signal<boolean>;
   /** 反映: apply the pending choices; returns what undo needs. */
   onApply$: QRL<
     (changes: { id: number; visibility: Visibility }[]) => Promise<ApplyResult>
@@ -128,6 +130,7 @@ export const PhotoPreview = component$<Props>((props) => {
   const openViewer = $(async () => {
     if (!dialog.value?.open) dialog.value?.showModal();
     open.value = true;
+    if (props.viewerOpen) props.viewerOpen.value = true;
     await syncUrl(true);
   });
 
@@ -417,6 +420,7 @@ export const PhotoPreview = component$<Props>((props) => {
         onClick$={() => dialog.value?.close()}
         onClose$={() => {
           open.value = false;
+          if (props.viewerOpen) props.viewerOpen.value = false;
           confirming.value = false;
           syncUrl(false);
           // The browser gives focus back to the photo itself; only if it
