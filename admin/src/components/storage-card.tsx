@@ -1,6 +1,5 @@
 import { component$ } from "@builder.io/qwik";
 import {
-  B2_FREE_STORAGE_BYTES,
   B2_PRICE_USD_PER_GB_MONTH,
   formatDecimalBytes,
   formatUsd,
@@ -17,8 +16,7 @@ const VISIBILITY_ROWS = [
   { key: "private", label: "非公開", bar: "bg-zinc-400 dark:bg-zinc-500" },
 ] as const;
 
-const FREE_GB = B2_FREE_STORAGE_BYTES / 1e9;
-const PRICE_PER_TB = B2_PRICE_USD_PER_GB_MONTH * 1000;
+const PRICE_PER_TB = (B2_PRICE_USD_PER_GB_MONTH * 1000).toFixed(2);
 
 const sliceText = (s: StorageSlice) =>
   `${formatDecimalBytes(s.bytes)} · ${s.count} 枚`;
@@ -81,7 +79,6 @@ export const StorageCard = component$<{
     );
   }
   const { total, byVisibility, byFolder, uploading, unsized } = summary;
-  const free = total.bytes <= B2_FREE_STORAGE_BYTES;
   return (
     <section aria-labelledby="storage-heading" class={[card, "p-5"]}>
       {heading}
@@ -94,7 +91,6 @@ export const StorageCard = component$<{
       <p class="mt-1 text-sm" data-testid="storage-cost">
         保存容量 {formatDecimalBytes(total.bytes)} · 月額の目安 約{" "}
         {formatUsd(monthlyCostUsd(total.bytes))}
-        {free && `（${FREE_GB} GB まで無料）`}
       </p>
 
       <div class="mt-5 grid gap-6 sm:grid-cols-2">
@@ -150,8 +146,8 @@ export const StorageCard = component$<{
         から計算した目安で、B2 の請求額ではありません。B2
         は古いバージョンや完了していないアップロードも数え、1
         か月の平均で請求するため、実際はこれより大きくなることがあります。アップロード中のファイルとカメラの写真
-        (/camera) は合計に含みません。料金は ${PRICE_PER_TB} / TB・月、最初の{" "}
-        {FREE_GB} GB は無料として計算しています (
+        (/camera) は合計に含みません。料金は ${PRICE_PER_TB} /
+        TB・月で計算しています (
         <a
           href="https://www.backblaze.com/cloud-storage/pricing"
           class="underline underline-offset-2"

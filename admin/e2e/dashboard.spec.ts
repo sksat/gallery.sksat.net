@@ -7,7 +7,7 @@ test("dashboard: storage card adds up the fixture", async ({ page }) => {
   const storage = page.getByRole("region", { name: "容量" });
   await expect(storage).toBeVisible();
   await expect(storage.getByTestId("storage-cost")).toHaveText(
-    "保存容量 30.0 MB · 月額の目安 約 $0.00（10 GB まで無料）",
+    "保存容量 30.0 MB · 月額の目安 約 < $0.01",
   );
   await expect(storage.getByText("5 枚", { exact: true })).toBeVisible();
 
