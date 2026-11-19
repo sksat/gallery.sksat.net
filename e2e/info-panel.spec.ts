@@ -115,6 +115,29 @@ test.describe("desktop", () => {
     await expect(place).toHaveAttribute("href", "/map/?photo=reaxxxxxxa");
   });
 
+  test("a tag's fields, under the tag; hidden and private ones absent", async ({
+    page,
+  }) => {
+    await openPhoto(page, "reaxxxxxxa");
+    const p = panel(page);
+    await openInfo(page);
+    const group = p.getByTestId("info-tag-fields");
+    await expect(group).toHaveCount(1);
+    await expect(group.locator("> dt")).toHaveText("film");
+    await expect(group.locator("dd dt")).toHaveText(["銘柄", "ISO"]);
+    await expect(group.locator("dd dd")).toHaveText([
+      "Kodak Portra 400",
+      "400",
+    ]);
+    // ラボ is hidden by default.
+    expect(await page.content()).not.toContain("Fixture Lab");
+    // The private tag "draft"'s field, on vrcxxxxxxc.
+    await openPhoto(page, "vrcxxxxxxc");
+    await openInfo(page);
+    await expect(p.getByTestId("info-tag-fields")).toHaveCount(0);
+    expect(await page.content()).not.toContain("draft memo");
+  });
+
   test("closed at first, the photo as large as without it", async ({
     page,
   }) => {

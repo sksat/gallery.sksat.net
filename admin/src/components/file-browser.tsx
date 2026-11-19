@@ -11,6 +11,7 @@ import {
   type QRL,
 } from "@builder.io/qwik";
 import { Link, useNavigate } from "@builder.io/qwik-city";
+import type { TagFieldDef } from "@shared/tag-field/tag-field";
 import {
   DEFAULT_PREFS,
   moveFocus,
@@ -90,6 +91,8 @@ export type FileTile = {
   metadata: MetadataOverrides;
   /** Its camera, if any. */
   camera_id: number | null;
+  /** Its tags (which tag fields a bulk change offers). */
+  tags: string[];
 };
 
 type Props = {
@@ -110,6 +113,8 @@ type Props = {
   siteDefaults: MetadataLevels;
   /** Registered cameras (the camera picker). */
   cameras: CameraChoice[];
+  /** Every tag field (the bar offers those of the selection's tags). */
+  tagFields?: TagFieldDef[];
   /** A chunked selection action under way (shown in the bar). */
   progress?: { done: number; total: number } | null;
   /**
@@ -365,6 +370,7 @@ export const FileBrowser = component$<Props>(
     date,
     siteDefaults,
     cameras,
+    tagFields,
     progress,
     onSelection$,
   }) => {
@@ -1358,6 +1364,7 @@ export const FileBrowser = component$<Props>(
               imageBase={imageBase}
               siteDefaults={siteDefaults}
               cameras={cameras}
+              tagFields={tagFields ?? []}
               progress={progress ?? null}
               busy={busy}
               command={command}

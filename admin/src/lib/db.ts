@@ -1,3 +1,4 @@
+import { parseLevelMap, parseValueMap } from "@shared/tag-field/tag-field";
 import { TAKEN_ON_SQL, takenOnArgs } from "./calendar";
 import { parseOverrides } from "./metadata";
 import { parseSources } from "./metadata-source";
@@ -43,6 +44,8 @@ type RawRow = {
   digitized_at?: string | null;
   digitized_with?: number | null;
   embed_exif?: number | null;
+  tag_values?: string | null;
+  tag_value_visibility?: string | null;
   updated_at: string;
 };
 
@@ -112,6 +115,8 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     digitized_with: raw.digitized_with ?? null,
     embed_exif:
       raw.embed_exif === 1 ? true : raw.embed_exif === 0 ? false : null,
+    tag_values: parseValueMap(raw.tag_values),
+    tag_value_visibility: parseLevelMap(raw.tag_value_visibility),
     updated_at: raw.updated_at,
   };
 };
@@ -392,6 +397,16 @@ export const updateMedia = async (
   if (reset.has("location")) sets.push("metadata_read_at = NULL");
   else if (reset.size > 0) {
     sets.push("metadata_read_at = '2000-01-01T00:00:00.000Z'");
+  }
+  // Tag field values and levels: a JSON merge patch (null removes a key),
+  // so ids left out keep what they have; none left is NULL.
+  for (const column of ["tag_values", "tag_value_visibility"] as const) {
+    const p = patch[column];
+    if (p === undefined || Object.keys(p).length === 0) continue;
+    sets.push(
+      `${column} = NULLIF(json_patch(COALESCE(${column}, '{}'), ?), '{}')`,
+    );
+    args.push(JSON.stringify(p));
   }
   // No-op patch: skip the UPDATE entirely (don't bump updated_at) and just
   // return the current row. Costs a second round-trip but keeps the

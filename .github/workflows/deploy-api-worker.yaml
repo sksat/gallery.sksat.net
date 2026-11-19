@@ -7,6 +7,8 @@ on:
       - "workers/api/**"
       # The tests run the queries on the admin's migrations.
       - "admin/migrations/**"
+      # Bundled into the Worker (tag fields' checks and projection).
+      - "shared/tag-field/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/deploy-api-worker.yaml"

@@ -946,3 +946,74 @@ describe("0005_path_trash.sql", () => {
     }
   });
 });
+
+describe("0010_tag_field.sql", () => {
+  const migrateAll = () => {
+    const db = migrate([["/a.png", "Real", null, null]]);
+    for (const f of [
+      "0003_visibility.sql",
+      "0004_upload.sql",
+      "0005_path_trash.sql",
+      "0007_list_indexes.sql",
+      "0010_tag_field.sql",
+    ]) {
+      db.exec(migration(f));
+    }
+    db.exec("INSERT INTO tag (id, name) VALUES (1, 'フィルム')");
+    return db;
+  };
+
+  it("leaves existing photos without values", () => {
+    const db = migrateAll();
+    expect(
+      db.prepare("SELECT tag_values, tag_value_visibility FROM media").all(),
+    ).toEqual([{ tag_values: null, tag_value_visibility: null }]);
+  });
+
+  it("keeps options for select fields only, and labels unique per tag", () => {
+    const db = migrateAll();
+    const add = (label: string, type: string, options: string | null) =>
+      db
+        .prepare(
+          "INSERT INTO tag_field (tag_id, label, type, options) VALUES (1, ?, ?, ?)",
+        )
+        .run(label, type, options);
+    add("銘柄", "select", '["Portra 400"]');
+    add("ISO", "number", null);
+    expect(() => add("x", "select", null)).toThrow(/CHECK/);
+    expect(() => add("y", "select", "[]")).toThrow(/CHECK/);
+    expect(() => add("z", "text", '["a"]')).toThrow(/CHECK/);
+    expect(() => add("w", "color", null)).toThrow(/CHECK/);
+    expect(() => add("", "text", null)).toThrow(/CHECK/);
+    expect(() => add("ISO", "text", null)).toThrow(/UNIQUE/);
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO tag_field (tag_id, label, type) VALUES (99, 'a', 'text')",
+        )
+        .run(),
+    ).toThrow(/FOREIGN KEY/);
+    expect(
+      db
+        .prepare(
+          "SELECT visibility, position FROM tag_field WHERE label = 'ISO'",
+        )
+        .get(),
+    ).toEqual({ visibility: "shown", position: 0 });
+  });
+
+  it("stores values and levels as JSON objects only", () => {
+    const db = migrateAll();
+    db.exec(
+      `UPDATE media SET tag_values = '{"1":"a"}', tag_value_visibility = '{"1":"hidden"}'`,
+    );
+    for (const bad of ["'[1]'", "'x'", "'1'"]) {
+      expect(() => db.exec(`UPDATE media SET tag_values = ${bad}`)).toThrow(
+        /CHECK/,
+      );
+      expect(() =>
+        db.exec(`UPDATE media SET tag_value_visibility = ${bad}`),
+      ).toThrow(/CHECK/);
+    }
+  });
+});

@@ -37,8 +37,8 @@ test("home: two tags selected (OR)", async ({ page }) => {
 
 // The overlay of vrcxxxxxxa (every piece of metadata public), with the
 // full-size image loaded and the info panel settled.
-const openPhoto = async (page: Page) => {
-  await openInOverlay(page, "vrcxxxxxxa");
+const openPhoto = async (page: Page, id = "vrcxxxxxxa") => {
+  await openInOverlay(page, id);
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible({ timeout: 10000 });
   // Wait until the full-size image (stacked over the thumbnail) has loaded.
@@ -59,9 +59,8 @@ const openPhoto = async (page: Page) => {
 const settled = (page: Page) =>
   page.waitForFunction(
     () =>
-      document
-        .querySelector('[data-testid="info-panel"]')
-        ?.getAnimations().length === 0,
+      document.querySelector('[data-testid="info-panel"]')?.getAnimations()
+        .length === 0,
   );
 
 // vrcxxxxxxa's own page, opened from the VRChat list (so it has a previous
@@ -77,9 +76,7 @@ const openDetail = async (page: Page) => {
         .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth),
     )
     .toBeGreaterThan(0);
-  await expect(detail.getByTestId("overlay-progress")).toHaveClass(
-    /opacity-0/,
-  );
+  await expect(detail.getByTestId("overlay-progress")).toHaveClass(/opacity-0/);
 };
 
 test("photo page", async ({ page }) => {
@@ -102,6 +99,15 @@ test("photo overlay: info panel open", async ({ page }) => {
   );
   await settled(page);
   await expect(page).toHaveScreenshot("photo-1-info-open.png");
+});
+
+// reaxxxxxxa: its film tag's fields under the tag.
+test("photo overlay: a tag's fields", async ({ page }) => {
+  await openPhoto(page, "reaxxxxxxa");
+  await page.getByTestId("info-summary").click();
+  await expect(page.getByTestId("info-tag-fields")).toBeVisible();
+  await settled(page);
+  await expect(page).toHaveScreenshot("photo-real1-tag-fields.png");
 });
 
 test.describe("phone", () => {
@@ -129,5 +135,13 @@ test.describe("phone", () => {
     );
     await settled(page);
     await expect(page).toHaveScreenshot("photo-1-phone-info.png");
+  });
+
+  test("photo overlay: a tag's fields", async ({ page }) => {
+    await openPhoto(page, "reaxxxxxxa");
+    await page.getByTestId("info-summary").click();
+    await expect(page.getByTestId("info-tag-fields")).toBeVisible();
+    await settled(page);
+    await expect(page).toHaveScreenshot("photo-real1-tag-fields-phone.png");
   });
 });

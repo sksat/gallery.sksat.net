@@ -46,6 +46,14 @@ import {
   setMetadataLevels,
   type StoredLevels,
 } from "~/lib/db-meta";
+import {
+  listTagFields,
+  parseTagList,
+  restoreTagValues,
+  setTagValues,
+  type PhotoPatch,
+} from "~/lib/db-tag-field";
+import type { TagFieldDef } from "@shared/tag-field/tag-field";
 import { storedOverrides, validateLevelChange } from "~/lib/bulk-metadata";
 import { inChunks } from "~/lib/selection";
 import {
@@ -170,6 +178,8 @@ type FilesData = {
   siteDefaults: MetadataLevels;
   /** Cameras to pick in a bulk change. */
   cameras: CameraChoice[];
+  /** Every tag field (0010), for the selection's タグの項目. */
+  tagFields: TagFieldDef[];
 };
 
 type MediaListResult =
@@ -250,9 +260,10 @@ export const useMediaList = routeLoader$<MediaListResult>(
           dir,
           folder: findFolder(tree, dir),
           files: filesInDir(rows, dir).map(
-            ({ metadata_visibility, ...r }): FileTile => ({
+            ({ metadata_visibility, tags, ...r }): FileTile => ({
               ...r,
               metadata: parseOverrides(metadata_visibility),
+              tags: parseTagList(tags),
             }),
           ),
           truncated,
@@ -265,6 +276,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
           ),
           siteDefaults: await getSiteDefaults(db),
           cameras: await listCameraChoices(db),
+          tagFields: await listTagFields(db),
         },
       };
     }
@@ -753,6 +765,47 @@ export const useRestoreMetadata = routeAction$(
   }),
 );
 
+/**
+ * Files view selection → タグの項目: the given field values on the selected
+ * photos that have each field's tag (null clears). Returns, for 元に戻す,
+ * what each changed photo had for them.
+ */
+export const useBulkTagValues = routeAction$(
+  async (data, { platform, fail }) => {
+    const r = await setTagValues(getDB(platform), data.ids, data.values);
+    if (!r.ok) return fail(400, { message: r.error });
+    return { ok: true as const, previous: r.value };
+  },
+  zod$({
+    ids: z.array(z.number().int().positive()).min(1).max(MAX_BULK_IDS),
+    values: z.record(
+      z.string().regex(/^[1-9]\d{0,15}$/),
+      z.string().max(400).nullable(),
+    ),
+  }),
+);
+
+/** Undo of useBulkTagValues (each value checked against its field). */
+export const useRestoreTagValues = routeAction$(
+  async (data, { platform }) => {
+    await restoreTagValues(getDB(platform), data.previous);
+    return { ok: true as const };
+  },
+  zod$({
+    previous: z
+      .array(
+        z.tuple([
+          z.number().int().positive(),
+          z.record(
+            z.string().regex(/^[1-9]\d{0,15}$/),
+            z.union([z.string().max(400), z.number(), z.null()]),
+          ),
+        ]),
+      )
+      .max(MAX_BULK_IDS),
+  }),
+);
+
 /** Undo of useFolderOp: moves back, or a restore out of the trash. */
 export const useUndoFolderOp = routeAction$(
   async (data, { platform, fail }) => {
@@ -914,6 +967,10 @@ export default component$(() => {
   const lastInfo = useSignal<InfoRow[] | null>(null);
   /** The last bulk camera change (what the photos had), for undo. */
   const lastCamera = useSignal<PreviousCamera[] | null>(null);
+  const bulkTagValues = useBulkTagValues();
+  const restoreTagValuesAction = useRestoreTagValues();
+  /** The last タグの項目 change (what the photos had), for undo. */
+  const lastTagValues = useSignal<PhotoPatch[] | null>(null);
   /** A selection action going through in chunks: photos done of total. */
   const progress = useSignal<{ done: number; total: number } | null>(null);
   /** The Files view's selection actions; true when it went through. */
@@ -923,6 +980,48 @@ export default component$(() => {
         data.value.kind === "ok" && data.value.files
           ? data.value.files.dir
           : "/";
+      lastTagValues.value = null;
+      if (a.kind === "tag-values") {
+        // Like the metadata levels: in chunks, the undo of what went
+        // through kept on a failure.
+        const total = items.photos.length;
+        progress.value = { done: 0, total };
+        const previous: PhotoPatch[] = [];
+        let error: string | null = null;
+        let done = 0;
+        for (const ids of inChunks(items.photos, MAX_BULK_IDS)) {
+          try {
+            const r = await bulkTagValues.submit({ ids, values: a.values });
+            if (r.value.failed) {
+              error = r.value.message ?? "失敗しました";
+              break;
+            }
+            previous.push(...r.value.previous);
+          } catch (err) {
+            error = err instanceof Error ? err.message : String(err);
+            break;
+          }
+          done += ids.length;
+          progress.value = { done, total };
+        }
+        progress.value = null;
+        lastFolderUndo.value = null;
+        lastMetadata.value = null;
+        lastChange.value = null;
+        lastCamera.value = null;
+        lastPlatform.value = null;
+        lastInfo.value = null;
+        lastTagValues.value = previous.length > 0 ? previous : null;
+        const what = `${previous.length} 枚のタグの項目を変えました。`;
+        toast.value = {
+          tone: error ? "error" : "success",
+          message: error
+            ? `${done} / ${total} 枚まで反映しました (${what}) 残りは失敗: ${error}`
+            : what,
+          actionLabel: previous.length > 0 ? "元に戻す" : undefined,
+        };
+        return error === null;
+      }
       if (
         a.kind === "metadata" ||
         a.kind === "visibility" ||
@@ -1213,6 +1312,7 @@ export default component$(() => {
     lastCamera.value = null;
     lastPlatform.value = null;
     lastInfo.value = null;
+    lastTagValues.value = null;
     toast.value = {
       tone: "success",
       message: `${v.selected} selected, ${v.changed} changed to ${VISIBILITY_LABELS[v.visibility]}.`,
@@ -1253,6 +1353,7 @@ export default component$(() => {
     lastCamera.value = null;
     lastPlatform.value = null;
     lastInfo.value = null;
+    lastTagValues.value = null;
     lastFolderUndo.value = v.undo
       ? { back: v.from, moves: v.undo }
       : v.trashed
@@ -1285,6 +1386,27 @@ export default component$(() => {
       const r = await undoFolderOp.submit(undo);
       if (!r.value.failed)
         await nav(mediaListHref({ view: "files", dir: back }));
+      return;
+    }
+    const tagValues = lastTagValues.value;
+    if (tagValues) {
+      lastTagValues.value = null;
+      const chunks = inChunks(tagValues, MAX_BULK_IDS);
+      for (const [i, previous] of chunks.entries()) {
+        const r = await restoreTagValuesAction
+          .submit({ previous })
+          .catch(() => null);
+        if (!r || r.value.failed) {
+          lastTagValues.value = chunks.slice(i).flat();
+          toast.value = {
+            tone: "error",
+            message: `元に戻せませんでした (${i * MAX_BULK_IDS} / ${tagValues.length} 枚は戻しました)`,
+            actionLabel: "元に戻す",
+          };
+          return;
+        }
+      }
+      toast.value = { tone: "success", message: "元に戻しました。" };
       return;
     }
     const metadata = lastMetadata.value;
@@ -1819,6 +1941,7 @@ export default component$(() => {
               date={date}
               siteDefaults={files.siteDefaults}
               cameras={files.cameras}
+              tagFields={files.tagFields}
               progress={progress.value}
               onSelection$={onSelection}
             >

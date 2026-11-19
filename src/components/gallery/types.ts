@@ -1,6 +1,7 @@
 // Photo and camera types, as served by the API Worker (workers/api, see its
 // src/types.ts) and as used at runtime.
 import { takenDateKey } from "@shared/calendar/calendar";
+import { formatValue } from "@shared/tag-field/tag-field";
 import {
   isLatLng,
   LOCATION_DECIMALS,
@@ -103,7 +104,12 @@ export type MediaInfoJSON = {
    */
   location?: MediaLocation | null;
   tags: string[];
+  /** Public values of its tags' fields (the API's `tag_fields`), as text. */
+  tag_fields?: MediaTagField[];
 };
+
+/** One field of a tag on a photo: 「フィルム」 → 銘柄: Portra 400. */
+export type MediaTagField = { tag: string; label: string; value: string };
 
 /** A photo's public position, rounded to its level (workers/api, locationAt). */
 export type MediaLocation = {
@@ -293,7 +299,28 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
     tags: Array.isArray(tags)
       ? tags.filter((t): t is string => typeof t === "string")
       : [],
+    tag_fields: parseTagFields(v.tag_fields),
   };
+};
+
+/**
+ * `tag_fields` from the API: each a tag, a label and a value (text, or a
+ * finite number shown as written). Anything else is dropped.
+ */
+export const parseTagFields = (v: unknown): MediaTagField[] => {
+  if (!Array.isArray(v)) return [];
+  const out: MediaTagField[] = [];
+  for (const f of v) {
+    if (!isRecord(f)) continue;
+    const tag = strOrNull(f.tag);
+    const label = strOrNull(f.label);
+    const value =
+      typeof f.value === "number" && Number.isFinite(f.value)
+        ? formatValue(f.value)
+        : strOrNull(f.value);
+    if (tag && label && value) out.push({ tag, label, value });
+  }
+  return out;
 };
 
 /**

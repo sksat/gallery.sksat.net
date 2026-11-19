@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   exifBody,
   exposureLine,
+  groupTagFields,
   hasDetails,
   infoSummary,
   placeOf,
@@ -13,6 +14,28 @@ import { placeLabel } from "../map/places";
 import { transformMediaInfo, type MediaInfoJSON } from "./types";
 
 // The time itself: taken.spec.ts.
+
+describe("groupTagFields", () => {
+  it("groups the fields by tag, in order", () => {
+    expect(
+      groupTagFields([
+        { tag: "フィルム", label: "銘柄", value: "Portra 400" },
+        { tag: "旅行", label: "行き先", value: "京都" },
+        { tag: "フィルム", label: "ISO", value: "400" },
+      ]),
+    ).toEqual([
+      {
+        tag: "フィルム",
+        fields: [
+          { label: "銘柄", value: "Portra 400" },
+          { label: "ISO", value: "400" },
+        ],
+      },
+      { tag: "旅行", fields: [{ label: "行き先", value: "京都" }] },
+    ]);
+    expect(groupTagFields(undefined)).toEqual([]);
+  });
+});
 
 describe("exposureLine", () => {
   it("joins what is known", () => {
@@ -134,6 +157,7 @@ describe("photoInfo", () => {
       world: { name: "Home", href: "https://vrchat.com/home/world/wrld_x" },
       location: null,
       tags: ["VRChat", "night"],
+      tagFields: [],
       file: "/2023/a.png",
     });
     expect(infoSummary(i)).toBe("2023/12/16 23:12 · VirtualLens2 · Home");

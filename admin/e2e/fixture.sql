@@ -19,6 +19,17 @@ INSERT INTO media (id, public_id, file, platform, timestamp, camera_id, tags, vi
   (5, 'aaaaaaaaa6', '/mock/vrchat3.png', 'VRChat', '2023-12-05T00:00:00Z', NULL, '["VRChat"]', 'private',  '2024-01-01T00:00:00.000Z');
 -- Tags: VRChat is public, "draft" (on no photo yet) private.
 INSERT INTO tag (name, public) VALUES ('VRChat', 1), ('draft', 0);
+-- Fields of the VRChat tag (0010): photo 2 has a value for イベント and
+-- hides 人数 of its own.
+DELETE FROM tag_field;
+INSERT INTO tag_field (id, tag_id, label, type, options, position, visibility)
+  SELECT 1, id, 'イベント', 'text', NULL, 0, 'shown' FROM tag WHERE name = 'VRChat';
+INSERT INTO tag_field (id, tag_id, label, type, options, position, visibility)
+  SELECT 2, id, 'インスタンス', 'select', '["Public","Friends+","Invite"]', 1, 'shown' FROM tag WHERE name = 'VRChat';
+INSERT INTO tag_field (id, tag_id, label, type, options, position, visibility)
+  SELECT 3, id, '人数', 'number', NULL, 2, 'hidden' FROM tag WHERE name = 'VRChat';
+UPDATE media SET tag_values = '{"1":"Fixture Meetup","2":"Friends+","3":12}',
+  tag_value_visibility = '{"3":"hidden"}' WHERE id = 2;
 INSERT INTO camera_image (id, camera_id, file, position, caption) VALUES
   (1, 1, '/camera/virtuallens2/front.png', 0, 'Front'),
   (2, 1, '/camera/virtuallens2/ui.png',    1, NULL);

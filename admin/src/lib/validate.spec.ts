@@ -13,6 +13,44 @@ import {
   validatePatch,
 } from "./validate";
 
+describe("validatePatch tag fields", () => {
+  it("takes field ids to values / levels, null clearing", () => {
+    expect(
+      validatePatch({
+        tag_values: { 1: "Portra", 2: 400, 3: null },
+        tag_value_visibility: { 2: "hidden", 3: null },
+      }),
+    ).toEqual({
+      ok: true,
+      patch: {
+        tag_values: { 1: "Portra", 2: 400, 3: null },
+        tag_value_visibility: { 2: "hidden", 3: null },
+      },
+    });
+  });
+
+  it("refuses other shapes", () => {
+    for (const bad of [
+      { tag_values: [] },
+      { tag_values: { iso: 1 } },
+      { tag_values: { 0: "a" } },
+      { tag_values: { 1: { nested: true } } },
+      { tag_values: { 1: Number.NaN } },
+      { tag_values: { 1: "a".repeat(401) } },
+      { tag_value_visibility: { 1: "public" } },
+      {
+        tag_values: Object.fromEntries(
+          Array.from({ length: 201 }, (_, i) => [i + 1, "a"]),
+        ),
+      },
+    ]) {
+      expect(validatePatch(bad).ok, JSON.stringify(bad).slice(0, 60)).toBe(
+        false,
+      );
+    }
+  });
+});
+
 describe("validatePatch visibility", () => {
   it("accepts each visibility", () => {
     for (const v of ["private", "unlisted", "public"]) {

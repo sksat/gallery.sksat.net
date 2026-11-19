@@ -22,6 +22,8 @@ export type MediaFileRow = {
   timestamp: string | null;
   /** Its camera (`camera.id`), if any: for the bulk camera change. */
   camera_id: number | null;
+  /** Its tags (JSON array): which tag fields the selection has. */
+  tags: string;
 };
 
 export type FilesParams = {
@@ -64,7 +66,7 @@ export const filesQuery = (
   }
   const whereSql = ` WHERE ${where.join(" AND ")}`;
   return {
-    sql: `SELECT id, file, path, platform, visibility, size, metadata_visibility, timestamp, camera_id FROM media${whereSql} ORDER BY path LIMIT ?`,
+    sql: `SELECT id, file, path, platform, visibility, size, metadata_visibility, timestamp, camera_id, tags FROM media${whereSql} ORDER BY path LIMIT ?`,
     args: [...args, params.limit + 1],
   };
 };

@@ -85,6 +85,7 @@ describe("listPublicMedia", () => {
       embed_exif: true,
       // "secret" is not a public tag.
       tags: ["VRChat"],
+      tag_fields: [],
     });
   });
 });
@@ -309,6 +310,98 @@ describe("tags", () => {
     const { raw, db } = setup();
     run(raw, "DELETE FROM tag WHERE name = 'film'");
     expect((await getMedia(db, "aaaaaaaaa2"))?.tags).toEqual([]);
+  });
+});
+
+describe("tag fields", () => {
+  // film (public) has 銘柄 (shown), ISO (shown) and ラボ (hidden by
+  // default); secret (private) has メモ. Photo 1 (film) and photo 2
+  // (VRChat, secret) have values for all of them.
+  const withFields = () => {
+    const s = setup();
+    run(
+      s.raw,
+      `INSERT INTO tag_field (id, tag_id, label, type, options, position, visibility)
+         SELECT 1, id, '銘柄', 'select', '["Portra 400","HP5"]', 0, 'shown' FROM tag WHERE name = 'film';
+       INSERT INTO tag_field (id, tag_id, label, type, position, visibility)
+         SELECT 2, id, 'ISO', 'number', 1, 'shown' FROM tag WHERE name = 'film';
+       INSERT INTO tag_field (id, tag_id, label, type, position, visibility)
+         SELECT 3, id, 'ラボ', 'text', 2, 'hidden' FROM tag WHERE name = 'film';
+       INSERT INTO tag_field (id, tag_id, label, type, position, visibility)
+         SELECT 4, id, 'メモ', 'text', 0, 'shown' FROM tag WHERE name = 'secret';
+       UPDATE media SET tag_values = '{"1":"Portra 400","2":400,"3":"Lab A","4":"memo text"}'
+         WHERE id IN (1, 2);`,
+    );
+    return s;
+  };
+
+  it("shows the shown fields of the photo's public tags, in order", async () => {
+    const { db } = withFields();
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tag_fields).toEqual([
+      { tag: "film", label: "銘柄", value: "Portra 400" },
+      { tag: "film", label: "ISO", value: 400 },
+    ]);
+    const listed = await listPublicMedia(db);
+    expect(listed.find((m) => m.id === "aaaaaaaaa2")?.tag_fields).toHaveLength(
+      2,
+    );
+  });
+
+  it("never shows a field of a tag the photo lacks, or of a private tag", async () => {
+    const { db } = withFields();
+    // Photo 2 has values for film's fields but not the tag; and secret is
+    // private.
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tag_fields).toEqual([]);
+    const everything = JSON.stringify([
+      await listPublicMedia(db),
+      await getMedia(db, "aaaaaaaaa3"),
+      await getPhotoForImage(db, "aaaaaaaaa3"),
+      await getPathAccess(db, "/p2.png"),
+    ]);
+    expect(everything).not.toContain("memo text");
+    expect(everything).not.toContain("メモ");
+    expect(everything).not.toContain("Lab A");
+  });
+
+  it("follows the photo's own levels and its tags level", async () => {
+    const { raw, db } = withFields();
+    run(
+      raw,
+      `UPDATE media SET tag_value_visibility = '{"1":"hidden","3":"shown"}' WHERE id = 1`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tag_fields).toEqual([
+      { tag: "film", label: "ISO", value: 400 },
+      { tag: "film", label: "ラボ", value: "Lab A" },
+    ]);
+    // An unknown level is hidden.
+    run(
+      raw,
+      `UPDATE media SET tag_value_visibility = '{"2":"yes","3":"shown"}' WHERE id = 1`,
+    );
+    expect(
+      (await getMedia(db, "aaaaaaaaa2"))?.tag_fields.map((f) => f.label),
+    ).toEqual(["銘柄", "ラボ"]);
+    // Tags hidden: their fields too.
+    run(
+      raw,
+      `UPDATE media SET metadata_visibility = '{"tags":"hidden"}' WHERE id = 1`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tag_fields).toEqual([]);
+  });
+
+  it("hides every field once the tag is made private", async () => {
+    const { raw, db } = withFields();
+    run(raw, "UPDATE tag SET public = 0 WHERE name = 'film'");
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tag_fields).toEqual([]);
+  });
+
+  it("drops values that do not fit the field", async () => {
+    const { raw, db } = withFields();
+    run(
+      raw,
+      `UPDATE media SET tag_values = '{"1":"","2":"400"}' WHERE id = 1`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tag_fields).toEqual([]);
   });
 });
 

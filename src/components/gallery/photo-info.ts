@@ -5,7 +5,13 @@ import { mapHrefFor, placeLabel } from "../map/places";
 import { cameraHref, cameraLabel, cameraSlug } from "./cameras";
 import { mediaTags } from "./tags";
 import { takenAt, type TakenAt } from "./taken";
-import type { MediaExif, MediaInfo, MediaLocation, MediaWorld } from "./types";
+import type {
+  MediaExif,
+  MediaInfo,
+  MediaLocation,
+  MediaTagField,
+  MediaWorld,
+} from "./types";
 
 /** A number without trailing zeros, to at most `digits` decimals. */
 const short = (n: number, digits: number) => {
@@ -113,8 +119,31 @@ export type PhotoInfo = {
   world: { name: string; href: string | null } | null;
   location: { label: string; href: string } | null;
   tags: string[];
+  /** Each tag's fields with their values, in the API's order. */
+  tagFields: TagFieldGroup[];
   /** The display path, else the file name. */
   file: string | null;
+};
+
+export type TagFieldGroup = {
+  tag: string;
+  fields: { label: string; value: string }[];
+};
+
+/** The API's tag_fields grouped by tag, keeping their order. */
+export const groupTagFields = (
+  fields: readonly MediaTagField[] | null | undefined,
+): TagFieldGroup[] => {
+  const groups: TagFieldGroup[] = [];
+  for (const f of fields ?? []) {
+    let g = groups.find((x) => x.tag === f.tag);
+    if (!g) {
+      g = { tag: f.tag, fields: [] };
+      groups.push(g);
+    }
+    g.fields.push({ label: f.label, value: f.value });
+  }
+  return groups;
 };
 
 export const photoInfo = (m: MediaInfo): PhotoInfo => {
@@ -140,6 +169,7 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
     world,
     location: placeOf(m.id, m.location),
     tags: mediaTags(m),
+    tagFields: groupTagFields(m.tag_fields),
     file: m.path ?? m.name ?? null,
   };
 };
@@ -156,6 +186,7 @@ export const hasDetails = (info: PhotoInfo): boolean =>
     info.exposure ||
     info.world ||
     info.location ||
+    info.tagFields.length > 0 ||
     info.file,
   );
 
