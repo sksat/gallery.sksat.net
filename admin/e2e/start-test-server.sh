@@ -46,7 +46,7 @@ FAKE_B2_PID=$!
 # on PORT+3 (e2e/fake-graphql.mjs) with this test token. Never the real one.
 FAKE_GRAPHQL_PORT=$((PORT + 3))
 node e2e/fake-graphql.mjs "$FAKE_GRAPHQL_PORT" e2e-analytics-token \
-  5e9a7cb92cdd4aedafe02f1f547e7b4c gallery.sksat.net &
+  e02811320c7d4106aaa1e7ef097b03a6 gallery.sksat.net &
 FAKE_GRAPHQL_PID=$!
 trap 'kill "$NOAUTH_PID" "$FAKE_B2_PID" "$FAKE_GRAPHQL_PID" 2>/dev/null || true' EXIT INT TERM
 
