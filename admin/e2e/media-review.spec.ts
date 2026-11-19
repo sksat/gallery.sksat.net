@@ -163,7 +163,11 @@ for (const size of [
       const params = new URLSearchParams("view=files&dir=/mock");
       const pending: Record<number, unknown> = {};
       for (let i = 0; i < 150; i++) {
-        pending[100_000 + i] = { to: "public", from: "private", file: `/x/${i}.png` };
+        pending[100_000 + i] = {
+          to: "public",
+          from: "private",
+          file: `/x/${i}.png`,
+        };
       }
       sessionStorage.setItem(
         `admin-review-pending:/media/?${params.toString()}`,
@@ -237,6 +241,9 @@ test("pending choices ask before leaving; 破棄 drops them", async ({
   await page.getByRole("link", { name: "← Media" }).click();
   await expect.poll(() => asked).toContain("反映していない");
   await expect(page.getByRole("heading", { name: "Edit #3" })).toBeVisible();
+  // Staying does not reopen the viewer (it would cover the page).
+  await page.waitForTimeout(300);
+  await expect(viewer(page)).toBeHidden();
 
   await bar(page).getByRole("button", { name: "破棄" }).click();
   await expect(bar(page)).toHaveCount(0);

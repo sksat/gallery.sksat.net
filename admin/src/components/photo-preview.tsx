@@ -143,7 +143,16 @@ export const PhotoPreview = component$<Props>((props) => {
       } catch {
         // Storage blocked.
       }
-      if (track(() => loc.url.searchParams.get("fs")) === "1") openViewer();
+      // loc.url can lag behind the address bar: closing the viewer drops
+      // fs=1 with replaceState only, so a later update of loc (a leave
+      // the guard cancelled) would still say fs=1 and reopen it.
+      const fs = track(() => loc.url.searchParams.get("fs"));
+      if (
+        fs === "1" &&
+        new URLSearchParams(location.search).get("fs") === "1"
+      ) {
+        openViewer();
+      }
     },
     { strategy: "document-ready" },
   );
