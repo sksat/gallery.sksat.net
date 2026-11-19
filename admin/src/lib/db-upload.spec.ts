@@ -23,7 +23,7 @@ describe("sizeMismatch", () => {
   });
 });
 import { listMedia } from "./db";
-import { PHOTO_META_PARSER_DATE } from "./photo-meta";
+import { EMPTY_STORED, PHOTO_META_PARSER_DATE } from "./photo-meta";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 const SHA_A = "a".repeat(64);
@@ -98,6 +98,8 @@ describe("initUpload", () => {
           digitizedAt: null,
           location: null,
           world: null,
+          photographer: null,
+          vrcx: null,
         },
         hints: {
           creatorTool: null,
@@ -138,7 +140,12 @@ describe("initUpload", () => {
           fileExif: { make: "FUJIFILM", f_number: 2.8, software: "fw 1.0" },
           digitizedAt: null,
           location: { latitude: 35.6587, longitude: 139.7447 },
-          world: { id: "wrld_x", name: "W", authorId: "usr_y" },
+          world: { id: "wrld_x", name: "W" },
+          photographer: { id: "usr_y", name: "Y" },
+          vrcx: {
+            instance_id: "wrld_x:1~region(jp)",
+            players: [{ id: "usr_z", name: "Z" }],
+          },
         },
         timestampSource: "exif",
         parserDate: PHOTO_META_PARSER_DATE,
@@ -150,13 +157,7 @@ describe("initUpload", () => {
       init({
         file: "/up/b.png",
         sha256: SHA_B,
-        meta: {
-          exif: null,
-          fileExif: null,
-          digitizedAt: null,
-          location: null,
-          world: null,
-        },
+        meta: EMPTY_STORED,
         parserDate: PHOTO_META_PARSER_DATE,
       }),
       id(1),
@@ -173,13 +174,7 @@ describe("initUpload", () => {
       init({
         file: "/up/d.png",
         sha256: "d".repeat(64),
-        meta: {
-          exif: null,
-          fileExif: null,
-          digitizedAt: null,
-          location: null,
-          world: null,
-        },
+        meta: EMPTY_STORED,
         parserDate: "2000-01-01T00:00:00.000Z",
       }),
       id(3),
@@ -193,7 +188,7 @@ describe("initUpload", () => {
       raw.prepare("SELECT metadata_read_at FROM media WHERE id = 5").get(),
     ).toEqual({ metadata_read_at: null });
     const cols =
-      "exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at IS NOT NULL AS read";
+      "exif, latitude, longitude, location_source, world_id, world_name, photographer_id, photographer_name, vrcx, metadata_read_at IS NOT NULL AS read";
     expect(raw.prepare(`SELECT ${cols} FROM media WHERE id = 2`).get()).toEqual(
       {
         exif: '{"make":"FUJIFILM","f_number":2.8}',
@@ -202,7 +197,9 @@ describe("initUpload", () => {
         location_source: "exif",
         world_id: "wrld_x",
         world_name: "W",
-        world_author_id: "usr_y",
+        photographer_id: "usr_y",
+        photographer_name: "Y",
+        vrcx: '{"instance_id":"wrld_x:1~region(jp)","players":[{"id":"usr_z","name":"Z"}]}',
         read: 1,
       },
     );
@@ -215,7 +212,9 @@ describe("initUpload", () => {
         location_source: null,
         world_id: null,
         world_name: null,
-        world_author_id: null,
+        photographer_id: null,
+        photographer_name: null,
+        vrcx: null,
         read: 1,
       },
     );
@@ -232,6 +231,8 @@ describe("initUpload", () => {
       digitizedAt: null,
       location: null,
       world: null,
+      photographer: null,
+      vrcx: null,
     });
     const dimensions = { width: 4000, height: 3000 };
     // Upright.

@@ -1,3 +1,4 @@
+import json
 import sys
 from PIL import Image, PngImagePlugin
 from PIL.TiffImagePlugin import IFDRational as R
@@ -59,6 +60,51 @@ xmp2026 = (
 info = PngImagePlugin.PngInfo()
 info.add_itxt("XML:com.adobe.xmp", xmp2026, zip=False)
 Image.new("RGB", (8, 8), (40, 20, 30)).save(f"{out}/vrchat-2026.png", "PNG", pnginfo=info)
+
+# VRCX (vrcx-team/VRCX, src/stores/vrcx.js processScreenshot and
+# ScreenshotHelper.WriteVRCXMetadata) adds an uncompressed iTXt chunk
+# "Description" with this JSON right after VRChat's chunks, before IDAT.
+# Values made up; the second player has a non-ASCII name.
+vrcx = json.dumps(
+    {
+        "application": "VRCX",
+        "version": 1,
+        "author": {
+            "id": "usr_00000000-1111-2222-3333-555555555555",
+            "displayName": "Someone",
+        },
+        "world": {
+            "name": "桜の川 （Sakura）",
+            "id": "wrld_00000000-aaaa-bbbb-cccc-000000000001",
+            "instanceId": "wrld_00000000-aaaa-bbbb-cccc-000000000001:75296~friends(usr_00000000-1111-2222-3333-555555555555)~region(jp)",
+        },
+        "players": [
+            {"id": "usr_00000000-1111-2222-3333-555555555555", "displayName": "Someone"},
+            {"id": "usr_00000000-1111-2222-3333-666666666666", "displayName": "ねこ"},
+        ],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
+# VRChat's XMP and VRCX's JSON, as VRCX leaves a screenshot.
+info = PngImagePlugin.PngInfo()
+info.add_itxt("XML:com.adobe.xmp", xmp2026, zip=False)
+info.add_itxt("Description", vrcx, zip=False)
+Image.new("RGB", (8, 8), (40, 20, 30)).save(f"{out}/vrcx.png", "PNG", pnginfo=info)
+
+# From before VRChat wrote XMP: VRCX's JSON is all there is.
+info = PngImagePlugin.PngInfo()
+info.add_itxt("Description", vrcx, zip=False)
+Image.new("RGB", (8, 8), (30, 40, 20)).save(f"{out}/vrcx-only.png", "PNG", pnginfo=info)
+
+# Other tools may keep the same JSON in a tEXt (UTF-8 inside, though the
+# spec says Latin-1) or a zTXt chunk.
+info = PngImagePlugin.PngInfo()
+info.add_text("Description", vrcx.encode("utf-8"))
+Image.new("RGB", (8, 8), (20, 30, 40)).save(f"{out}/vrcx-text.png", "PNG", pnginfo=info)
+info = PngImagePlugin.PngInfo()
+info.add_text("Description", vrcx.encode("utf-8"), zip=True)
+Image.new("RGB", (8, 8), (20, 40, 30)).save(f"{out}/vrcx-ztxt.png", "PNG", pnginfo=info)
 
 # Digitised from an analog original on a lab's Fuji Frontier: its EXIF
 # names the scanner, and DateTimeOriginal is when it was scanned.

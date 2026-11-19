@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   formatExposure,
   isScanner,
+  MAX_PLAYERS,
+  needsTail,
   normalizeHints,
+  normalizeStoredMeta,
+  photographerFromXmp,
   readPhotoMeta,
   readPhotoMetaSync,
+  readVrcxJson,
   worldFromXmp,
   xmpDateToIso,
   xmpTakenAt,
@@ -21,7 +26,6 @@ const fixture = (name: string) =>
 const WORLD = {
   id: "wrld_4cf554b4-430c-4f8f-b53e-1f294eed230b",
   name: "The Black Cat & Friends",
-  authorId: "usr_00000000-1111-2222-3333-444444444444",
 };
 
 describe("readPhotoMeta", () => {
@@ -49,6 +53,12 @@ describe("readPhotoMeta", () => {
     for (const name of ["vrchat-xmp.png", "vrchat-xmp-z.png"]) {
       const meta = await readPhotoMeta(fixture(name));
       expect(meta.world).toEqual(WORLD);
+      // vrc:AuthorID is who took it (no xmp:Author name in this one).
+      expect(meta.photographer).toEqual({
+        id: "usr_00000000-1111-2222-3333-444444444444",
+        name: null,
+      });
+      expect(meta.vrcx).toBeNull();
       expect(meta.exif).toBeNull();
       expect(meta.location).toBeNull();
       expect(meta.creatorTool).toBe("VRChat");
@@ -109,6 +119,8 @@ describe("readPhotoMeta", () => {
       location: null,
       world: null,
       creatorTool: null,
+      photographer: null,
+      vrcx: null,
     });
     expect(readPhotoMetaSync(new Uint8Array(0)).exif).toBeNull();
     // Every prefix parses without throwing.
@@ -235,7 +247,6 @@ describe("hostile and unusual EXIF", () => {
     expect((await readPhotoMeta(jpeg)).world).toEqual({
       id: "wrld_j",
       name: `Bob's "Room"`,
-      authorId: null,
     });
   });
 });
@@ -252,7 +263,10 @@ describe("dates", () => {
     expect(meta.world).toEqual({
       id: "wrld_00000000-aaaa-bbbb-cccc-000000000001",
       name: "桜の川 （Sakura）",
-      authorId: "usr_00000000-1111-2222-3333-555555555555",
+    });
+    expect(meta.photographer).toEqual({
+      id: "usr_00000000-1111-2222-3333-555555555555",
+      name: "Someone",
     });
   });
 
@@ -338,7 +352,7 @@ describe("worldFromXmp", () => {
       worldFromXmp(
         `<r vrc:WorldID="wrld_a" vrc:WorldDisplayName="Bob's Room"/>`,
       ),
-    ).toEqual({ id: "wrld_a", name: "Bob's Room", authorId: null });
+    ).toEqual({ id: "wrld_a", name: "Bob's Room" });
     expect(
       worldFromXmp(
         `<vrc:WorldDisplayName xml:lang="ja"><![CDATA[A & B]]></vrc:WorldDisplayName>`,
@@ -351,7 +365,7 @@ describe("worldFromXmp", () => {
       worldFromXmp(
         `<rdf:Description vrc:WorldID="wrld_abc-1" vrc:WorldDisplayName="A &lt;B&gt; &#x1F431;"/>`,
       ),
-    ).toEqual({ id: "wrld_abc-1", name: "A <B> 🐱", authorId: null });
+    ).toEqual({ id: "wrld_abc-1", name: "A <B> 🐱" });
   });
 
   it("drops ids that are not VRChat ids", () => {
@@ -361,6 +375,239 @@ describe("worldFromXmp", () => {
       ),
     ).toBeNull();
     expect(worldFromXmp("<x/>")).toBeNull();
+  });
+});
+
+describe("photographerFromXmp", () => {
+  const ID = "usr_00000000-1111-2222-3333-444444444444";
+  it("reads VRChat's AuthorID with the display name in xmp:Author", () => {
+    expect(
+      photographerFromXmp(
+        `<vrc:AuthorID>${ID}</vrc:AuthorID><xmp:Author>Neko &amp; Co</xmp:Author>`,
+      ),
+    ).toEqual({ id: ID, name: "Neko & Co" });
+  });
+
+  it("reads the user id that older VRChat wrote in xmp:Author", () => {
+    const TOOL = "<xmp:CreatorTool>VRChat</xmp:CreatorTool>";
+    expect(
+      photographerFromXmp(`${TOOL}<xmp:Author>${ID}</xmp:Author>`),
+    ).toEqual({ id: ID, name: null });
+    expect(
+      photographerFromXmp(
+        `<x xmlns:vrc="http://ns.vrchat.com/vrc/1.0/"><xmp:Author>Neko</xmp:Author></x>`,
+      ),
+    ).toEqual({ id: null, name: "Neko" });
+  });
+
+  it("ignores another tool's xmp:Author", () => {
+    expect(
+      photographerFromXmp(
+        "<xmp:CreatorTool>Lightroom</xmp:CreatorTool><xmp:Author>Me</xmp:Author>",
+      ),
+    ).toBeNull();
+  });
+
+  it("drops an AuthorID that is not a user id, and the name with it", () => {
+    expect(
+      photographerFromXmp(
+        "<vrc:AuthorID>javascript:x</vrc:AuthorID><xmp:Author>N</xmp:Author>",
+      ),
+    ).toBeNull();
+    expect(photographerFromXmp("<x/>")).toBeNull();
+  });
+});
+
+describe("VRCX", () => {
+  const SOMEONE = "usr_00000000-1111-2222-3333-555555555555";
+  const SAKURA = {
+    id: "wrld_00000000-aaaa-bbbb-cccc-000000000001",
+    name: "桜の川 （Sakura）",
+  };
+  const VRCX = {
+    instance_id: `${SAKURA.id}:75296~friends(${SOMEONE})~region(jp)`,
+    players: [
+      { id: SOMEONE, name: "Someone" },
+      { id: "usr_00000000-1111-2222-3333-666666666666", name: "ねこ" },
+    ],
+  };
+
+  it("reads VRCX's Description next to VRChat's XMP", async () => {
+    const meta = await readPhotoMeta(fixture("vrcx.png"));
+    expect(meta.world).toEqual(SAKURA);
+    expect(meta.photographer).toEqual({ id: SOMEONE, name: "Someone" });
+    expect(meta.vrcx).toEqual(VRCX);
+    expect(meta.takenAt).toBe("2026-11-02T11:31:36.959+09:00");
+  });
+
+  it("takes the world and photographer from VRCX alone (before VRChat's XMP)", async () => {
+    for (const name of ["vrcx-only.png", "vrcx-text.png", "vrcx-ztxt.png"]) {
+      const meta = await readPhotoMeta(fixture(name));
+      expect(meta.world, name).toEqual(SAKURA);
+      expect(meta.photographer, name).toEqual({ id: SOMEONE, name: "Someone" });
+      expect(meta.vrcx, name).toEqual(VRCX);
+    }
+    // Uncompressed text needs no inflating.
+    expect(readPhotoMetaSync(fixture("vrcx-text.png")).vrcx).toEqual(VRCX);
+  });
+
+  it("still reads the tail when the head has a Description but no XMP", () => {
+    // VRChat's XMP (and its CreateDate) may be after the image data.
+    const cut = (png: Uint8Array) =>
+      png.subarray(0, String.fromCharCode(...png).indexOf("IDAT") + 8);
+    expect(needsTail(cut(fixture("vrcx-only.png")))).toBe(true);
+    expect(needsTail(cut(fixture("vrcx.png")))).toBe(false);
+  });
+
+  it("finds a Description after the image data in the last bytes", async () => {
+    const png = fixture("vrcx-only.png");
+    const view = new DataView(png.buffer, png.byteOffset);
+    const chunks: Uint8Array[] = [];
+    let text: Uint8Array | null = null;
+    for (let p = 8; p < png.length;) {
+      const len = view.getUint32(p);
+      const chunk = png.subarray(p, p + 12 + len);
+      const type = String.fromCharCode(...png.subarray(p + 4, p + 8));
+      if (type === "iTXt") text = chunk;
+      else chunks.push(chunk);
+      p += 12 + len;
+    }
+    const iend = chunks.pop()!;
+    const moved = new Uint8Array(png.length);
+    let o = 0;
+    for (const c of [png.subarray(0, 8), ...chunks, text!, iend]) {
+      moved.set(c, o);
+      o += c.length;
+    }
+    const head = moved.subarray(0, 60);
+    expect(needsTail(head)).toBe(true);
+    const tail = moved.subarray(moved.length - text!.length - 12 - 5);
+    expect((await readPhotoMeta(head, tail)).vrcx).toEqual(VRCX);
+  });
+
+  it("ignores malformed JSON and other applications' text", () => {
+    expect(readVrcxJson("{not json")).toBeNull();
+    expect(readVrcxJson("lfs|2|author:usr_a,A")).toBeNull();
+    expect(readVrcxJson('{"application":"Other","world":{}}')).toBeNull();
+    expect(readVrcxJson("[1]")).toBeNull();
+    expect(readVrcxJson('{"application":"VRCX"}')).toEqual({
+      world: null,
+      author: null,
+      vrcx: null,
+    });
+  });
+
+  it("keeps only well-formed parts", () => {
+    const many = Array.from({ length: MAX_PLAYERS + 5 }, (_, i) => ({
+      id: `usr_${i}`,
+      displayName: `P${i}`,
+    }));
+    const r = readVrcxJson(
+      JSON.stringify({
+        application: "VRCX",
+        author: { id: "x", displayName: " Me " },
+        world: {
+          id: "javascript:x",
+          name: "",
+          instanceId: "wrld_a:1~private(usr_b)\n<script>",
+        },
+        players: [null, "x", { id: 5 }, { displayName: "  " }, ...many],
+      }),
+    );
+    expect(r?.world).toBeNull();
+    expect(r?.author).toEqual({ id: null, name: "Me" });
+    expect(r?.vrcx?.instance_id).toBeNull();
+    // The junk counts toward the cap; every kept one is a person.
+    expect(r?.vrcx?.players.length).toBe(MAX_PLAYERS - 4);
+    expect(r?.vrcx?.players[0]).toEqual({ id: "usr_0", name: "P0" });
+    // Each user once.
+    expect(
+      readVrcxJson(
+        JSON.stringify({
+          application: "VRCX",
+          players: [
+            { id: "usr_a", displayName: "A" },
+            { id: "usr_a", displayName: "A again" },
+          ],
+        }),
+      )?.vrcx?.players,
+    ).toEqual([{ id: "usr_a", name: "A" }]);
+    // "private" / "offline" locations have no world: no instance.
+    expect(
+      readVrcxJson(
+        '{"application":"VRCX","world":{"id":"","instanceId":"private"}}',
+      )?.vrcx,
+    ).toBeNull();
+  });
+
+  it("prefers VRChat's photographer, VRCX filling in the same user's name", async () => {
+    const ID = "usr_00000000-1111-2222-3333-444444444444";
+    const png = (xmp: string, author: object) => {
+      const meta = (keyword: string, text: string) => {
+        const body = new TextEncoder().encode(`${keyword}\0\0\0\0\0${text}`);
+        const len = body.length;
+        return [
+          len >>> 24,
+          (len >> 16) & 0xff,
+          (len >> 8) & 0xff,
+          len & 0xff,
+          ...Array.from("iTXt", (c) => c.charCodeAt(0)),
+          ...body,
+          0,
+          0,
+          0,
+          0,
+        ];
+      };
+      return Uint8Array.from([
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a,
+        ...meta("XML:com.adobe.xmp", xmp),
+        ...meta(
+          "Description",
+          JSON.stringify({ application: "VRCX", author }),
+        ),
+      ]);
+    };
+    const OLD = `<xmp:CreatorTool>VRChat</xmp:CreatorTool><xmp:Author>${ID}</xmp:Author>`;
+    // Older XMP: the id alone; VRCX names the same user.
+    expect(
+      (await readPhotoMeta(png(OLD, { id: ID, displayName: "A" })))
+        .photographer,
+    ).toEqual({ id: ID, name: "A" });
+    // Someone else in VRCX's author: VRChat's is kept as it is.
+    expect(
+      (
+        await readPhotoMeta(
+          png(OLD, {
+            id: "usr_other",
+            displayName: "B",
+          }),
+        )
+      ).photographer,
+    ).toEqual({ id: ID, name: null });
+  });
+
+  it("takes the photographer and VRCX's extras from an upload request leniently", () => {
+    const meta = normalizeStoredMeta({
+      photographer: { id: "usr_a", name: "A" },
+      vrcx: {
+        instance_id: "wrld_a:1",
+        players: [{ id: "bad", name: "B" }, 3],
+      },
+    });
+    expect(meta.photographer).toEqual({ id: "usr_a", name: "A" });
+    expect(meta.vrcx).toEqual({
+      instance_id: "wrld_a:1",
+      players: [{ id: null, name: "B" }],
+    });
+    expect(normalizeStoredMeta({ vrcx: { players: [] } }).vrcx).toBeNull();
   });
 });
 

@@ -8,10 +8,11 @@ import { validatePatch } from "./validate";
 const setup = () => {
   const raw = migratedSqlite();
   raw.exec(`INSERT INTO media (file, platform, exif, latitude, longitude,
-      location_source, world_id, world_name, world_author_id)
+      location_source, world_id, world_name, photographer_id,
+      photographer_name)
     VALUES ('/a.jpg', 'Real',
       '{"make":"FUJIFILM","lens":"L","orientation":6}',
-      35.5, 139.5, 'exif', 'wrld_a', 'A', 'usr_x')`);
+      35.5, 139.5, 'exif', 'wrld_a', 'A', 'usr_x', 'X')`);
   return { raw, db: sqliteD1(raw) };
 };
 
@@ -73,19 +74,16 @@ describe("updateMedia: shooting data", () => {
     expect(same?.metadata_source).toEqual({});
   });
 
-  it("drops the file's author when the world changes", async () => {
+  it("keeps the photographer when the world changes or is reset", async () => {
     const { db } = setup();
-    expect(
-      await updateMedia(db, 1, patch({ world_id: "wrld_a", world_name: "B" })),
-    ).toMatchObject({
-      world_id: "wrld_a",
-      world_name: "B",
-      world_author_id: "usr_x",
-    });
+    const photographer = { id: "usr_x", name: "X" };
     expect(
       await updateMedia(db, 1, patch({ world_id: "wrld_b", world_name: "B" })),
-    ).toMatchObject({ world_id: "wrld_b", world_author_id: null });
+    ).toMatchObject({ world_id: "wrld_b", photographer });
     expect(await getMedia(db, 1)).toMatchObject({ world_id: "wrld_b" });
+    expect(
+      await updateMedia(db, 1, patch({ reset_from_file: ["world"] })),
+    ).toMatchObject({ world_id: null, photographer });
   });
 
   it("keeps what a partial patch leaves out", async () => {
@@ -93,7 +91,7 @@ describe("updateMedia: shooting data", () => {
     expect(await updateMedia(db, 1, patch({ world_name: "B" }))).toMatchObject({
       world_id: "wrld_a",
       world_name: "B",
-      world_author_id: "usr_x",
+      photographer: { id: "usr_x", name: "X" },
     });
     const row = await updateMedia(db, 1, patch({ exif: { model: "X-T5" } }));
     expect(row?.exif).toEqual({

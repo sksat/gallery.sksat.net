@@ -52,7 +52,9 @@ describe("applyReading", () => {
     location_source: null,
     world_id: "wrld_mine",
     world_name: "Mine",
-    world_author_id: null,
+    photographer_id: null,
+    photographer_name: null,
+    vrcx: null,
     metadata_source: '{"taken_at":"filename","world":"manual"}',
     file_exif: null,
     digitized_at: null,
@@ -63,7 +65,22 @@ describe("applyReading", () => {
     fileExif: { make: "X", software: "S" },
     digitizedAt: null,
     location: { latitude: 1, longitude: 2 },
-    world: { id: "wrld_file", name: "File", authorId: "usr_a" },
+    world: { id: "wrld_file", name: "File" },
+    photographer: { id: "usr_a", name: "A" },
+    vrcx: {
+      instance_id: "wrld_file:1~friends(usr_a)~region(jp)",
+      players: [{ id: "usr_b", name: "B" }],
+    },
+  };
+  const NOTHING: Reading = {
+    takenAt: null,
+    exif: null,
+    fileExif: null,
+    digitizedAt: null,
+    location: null,
+    world: null,
+    photographer: null,
+    vrcx: null,
   };
 
   it("takes a location only on a first read, or over one from EXIF", () => {
@@ -100,25 +117,51 @@ describe("applyReading", () => {
   });
 
   it("never clears a value because nothing was read", () => {
-    const out = applyReading(row, {
-      takenAt: null,
-      exif: null,
-      fileExif: null,
-      digitizedAt: null,
-      location: null,
-      world: null,
+    const full = {
+      ...row,
+      photographer_id: "usr_a",
+      photographer_name: "A",
+      vrcx: '{"instance_id":null,"players":[{"id":null,"name":"B"}]}',
+    };
+    expect(applyReading(full, NOTHING)).toEqual(full);
+  });
+
+  it("takes the photographer and VRCX's extras from the file, whatever the world's source", () => {
+    // The world is manual here: the photographer is not the world's.
+    const out = applyReading(row, reading);
+    expect(out).toMatchObject({
+      world_id: "wrld_mine",
+      photographer_id: "usr_a",
+      photographer_name: "A",
     });
-    expect(out).toEqual(row);
+    expect(JSON.parse(out.vrcx!)).toEqual(reading.vrcx);
+    // An id alone keeps the name known for that user, not another's.
+    const named = { ...row, photographer_id: "usr_a", photographer_name: "A" };
+    expect(
+      applyReading(named, {
+        ...NOTHING,
+        photographer: { id: "usr_a", name: null },
+      }).photographer_name,
+    ).toBe("A");
+    expect(
+      applyReading(named, {
+        ...NOTHING,
+        photographer: { id: "usr_z", name: null },
+      }),
+    ).toMatchObject({ photographer_id: "usr_z", photographer_name: null });
+    // A name alone keeps the stored id.
+    expect(
+      applyReading(named, {
+        ...NOTHING,
+        photographer: { id: null, name: "A2" },
+      }),
+    ).toMatchObject({ photographer_id: "usr_a", photographer_name: "A2" });
   });
 
   it("takes a scanner's automatic EXIF off the shooting info, never a manual one", () => {
     const scan: Reading = {
-      takenAt: null,
-      exif: null,
+      ...NOTHING,
       fileExif: { make: "GCMC", model: "Scanner" },
-      digitizedAt: null,
-      location: null,
-      world: null,
     };
     const old = { ...row, exif: '{"make":"GCMC","model":"Scanner"}' };
     const auto = applyReading(
@@ -145,16 +188,13 @@ describe("applyReading", () => {
     const out = applyReading(
       { ...row, metadata_source: null },
       {
-        takenAt: null,
-        exif: null,
+        ...NOTHING,
         fileExif: {
           make: "GCMC",
           model: "Scanner",
           taken_at_original: "2021-01-01T00:31:12",
         },
         digitizedAt: "2021-01-01T00:31:12+09:00",
-        location: null,
-        world: null,
       },
     );
     expect(out).toMatchObject({

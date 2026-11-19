@@ -12,15 +12,18 @@ import {
 } from "~/lib/photo-data";
 import { hasRealPlace, type PlatformKind } from "~/lib/platform";
 import type { MediaRow } from "~/lib/types";
+import { parseInstance, userUrl } from "~/lib/vrcx";
 import { LevelSelect } from "./level-select";
 import { LocationPicker } from "./location-picker";
 import { field, label, link, muted } from "./ui";
+import { VisibilityIcon } from "./visibility-style";
 
 // 撮影データ on the edit page: what was read from the file (camera
 // settings, VRChat world, where it was taken), each with how much of it
 // the public site shows right beside it, and its values editable under
 // 編集. Part of the page's one form: Save sends it all. Editing changes
-// the row only, never the original file.
+// the row only, never the original file. Who took a VRChat photo and what
+// VRCX recorded (instance, players) are shown read-only and never public.
 
 type Field = "exif" | "world" | "location";
 
@@ -130,6 +133,90 @@ const Row = ({
 
 const None = () => <span class={muted}>なし</span>;
 
+/** Admin only: never on the public site (no level to choose). */
+const Private = () => (
+  <span class={["inline-flex", muted]} title="公開サイトには出しません">
+    <VisibilityIcon visibility="private" class="size-3.5" />
+    <span class="sr-only">非公開</span>
+  </span>
+);
+
+/** A VRChat user, linked to vrchat.com when the id is known. */
+const User = ({ id, name }: { id: string | null; name: string | null }) =>
+  id ? (
+    <a
+      href={userUrl(id)}
+      target="_blank"
+      rel="noopener noreferrer"
+      class={link}
+    >
+      {name ?? id}
+    </a>
+  ) : (
+    <span>{name}</span>
+  );
+
+/** More players than this start folded. */
+const PLAYERS_OPEN = 6;
+
+// What VRCX recorded with the photo (media.vrcx), under the world: the
+// instance (only while it is the photo's world) and who was there.
+const VrcxDetails = ({ row }: { row: MediaRow }) => {
+  const instance = parseInstance(row.vrcx?.instance_id ?? null);
+  const players = row.vrcx?.players ?? [];
+  const shownInstance =
+    instance && instance.worldId === row.world_id ? instance : null;
+  if (!shownInstance && players.length === 0) return null;
+  return (
+    <div class="mt-2 space-y-1">
+      {shownInstance && (
+        <p
+          class="flex flex-wrap items-center gap-x-2"
+          data-testid="world-instance"
+        >
+          <span class={["text-xs", muted]}>インスタンス</span>
+          <span>
+            {shownInstance.region
+              ? `${shownInstance.kind} ・ ${shownInstance.region}`
+              : shownInstance.kind}
+          </span>
+          <Private />
+        </p>
+      )}
+      {players.length > 0 && (
+        <details
+          class="group"
+          open={players.length <= PLAYERS_OPEN}
+          data-testid="world-players"
+        >
+          <summary
+            class={[
+              "inline-flex min-h-11 cursor-pointer list-none items-center gap-1 text-xs sm:min-h-0 [&::-webkit-details-marker]:hidden",
+              muted,
+            ]}
+          >
+            <span
+              aria-hidden="true"
+              class="transition-transform group-open:rotate-90"
+            >
+              ›
+            </span>
+            {`一緒にいた人（${players.length}人）`}
+            <Private />
+          </summary>
+          <ul class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+            {players.map((p, i) => (
+              <li key={p.id ?? `${i}`}>
+                <User id={p.id} name={p.name} />
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+};
+
 export const PhotoDataFields = ({
   row,
   kind,
@@ -231,7 +318,20 @@ export const PhotoDataFields = ({
         ) : (
           <None />
         )}
+        <VrcxDetails row={row} />
       </Row>
+
+      {row.photographer && (
+        <div class="py-3" data-testid="photo-data-photographer">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="text-sm font-medium">撮影者</p>
+            <Private />
+          </div>
+          <p class="mt-1 text-sm">
+            <User id={row.photographer.id} name={row.photographer.name} />
+          </p>
+        </div>
+      )}
 
       <Row
         f="location"

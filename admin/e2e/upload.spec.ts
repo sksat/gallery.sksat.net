@@ -523,6 +523,50 @@ test("the file's EXIF and VRChat world fill the shooting data, editable", async 
   );
 });
 
+test("VRCX's metadata: the photographer, the instance and who was there", async ({
+  page,
+}) => {
+  await newFolder(page, "/mock", "up-vrcx");
+  await page
+    .getByTestId("upload-input")
+    .setInputFiles([
+      fixture("vrcx.png", "image/png"),
+      fixture("vrcx-only.png", "image/png"),
+    ]);
+  await expect(page.getByTestId("file-tile")).toHaveCount(2);
+
+  for (const name of ["vrcx.png", "vrcx-only.png"]) {
+    await page.goto("/media/?view=files&dir=/mock/up-vrcx");
+    await page.getByTestId("file-tile").filter({ hasText: name }).click();
+    const data = page.getByTestId("photo-data");
+    // vrcx-only.png has no XMP: the world is VRCX's.
+    await expect(data.getByTestId("world-link")).toHaveText(
+      "桜の川 （Sakura）",
+    );
+    await expect(data.getByTestId("world-instance")).toContainText(
+      "Friends ・ JP",
+    );
+    const photographer = data.getByTestId("photo-data-photographer");
+    await expect(photographer).toContainText("撮影者");
+    await expect(photographer.getByRole("link")).toHaveText("Someone");
+    await expect(photographer.getByRole("link")).toHaveAttribute(
+      "href",
+      "https://vrchat.com/home/user/usr_00000000-1111-2222-3333-555555555555",
+    );
+    // Never public: no level to choose, a lock instead.
+    await expect(photographer.locator("select")).toHaveCount(0);
+    await expect(photographer).toContainText("非公開");
+    const players = data.getByTestId("world-players");
+    await expect(players.locator("summary")).toContainText(
+      "一緒にいた人（2人）",
+    );
+    await expect(players.getByRole("listitem")).toHaveText([
+      "Someone",
+      "ねこ",
+    ]);
+  }
+});
+
 test("a scanner's file: スキャン日時, its device, the taken-at by hand, no EXIF", async ({
   page,
 }) => {

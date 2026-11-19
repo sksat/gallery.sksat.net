@@ -1507,3 +1507,79 @@ describe("0014_platform.sql", () => {
     expect(plan).not.toContain("TEMP B-TREE");
   });
 });
+
+describe("0015_photographer_vrcx.sql", () => {
+  const files = readdirSync(resolve(__dirname, "../../migrations"))
+    .filter((f) => f.endsWith(".sql") && f !== "0015_photographer_vrcx.sql")
+    .sort();
+  /** Every table's indexes and triggers, as SQL. */
+  const schema = (db: DatabaseSync) =>
+    db
+      .prepare(
+        "SELECT name, sql FROM sqlite_master WHERE type IN ('index', 'trigger') AND sql IS NOT NULL ORDER BY name",
+      )
+      .all();
+  /**
+   * The other migrations (applied before it in production: 0015 runs after
+   * 0016 there), a VRChat photo with the misread author, then 0015.
+   */
+  const migrate15 = () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    for (const f of files) db.exec(migration(f));
+    db.exec(`INSERT INTO media (id, file, platform, world_id, world_author_id)
+      VALUES (1, '/v.png', 'VRChat', 'wrld_a', 'usr_x')`);
+    const before = schema(db);
+    db.exec(migration("0015_photographer_vrcx.sql"));
+    return { db, before };
+  };
+
+  it("renames the misread world author to the photographer, keeping values", () => {
+    const { db } = migrate15();
+    expect(
+      db
+        .prepare(
+          "SELECT world_id, photographer_id, photographer_name, vrcx FROM media",
+        )
+        .all(),
+    ).toEqual([
+      {
+        world_id: "wrld_a",
+        photographer_id: "usr_x",
+        photographer_name: null,
+        vrcx: null,
+      },
+    ]);
+    expect(() => db.prepare("SELECT world_author_id FROM media").all()).toThrow(
+      /no such column/,
+    );
+  });
+
+  it("keeps 0013's triggers, 0014's platform key and every index", () => {
+    const { db, before } = migrate15();
+    expect(schema(db)).toEqual(before);
+    // 0014: the platform must be a platform row's key.
+    expect(() =>
+      db.exec("INSERT INTO media (file, platform) VALUES ('/n.png', 'Nope')"),
+    ).toThrow(/FOREIGN KEY/);
+    // 0013: a new photo gets its original's media_file row.
+    db.exec("INSERT INTO media (file, platform) VALUES ('/r.png', 'Real')");
+    expect(
+      db
+        .prepare(
+          "SELECT role, object_key FROM media_file WHERE object_key = '/r.png'",
+        )
+        .all(),
+    ).toEqual([{ role: "original", object_key: "/r.png" }]);
+  });
+
+  it("keeps media.vrcx a JSON object", () => {
+    const { db } = migrate15();
+    db.exec(`UPDATE media SET vrcx = '{"instance_id":null,"players":[]}'`);
+    for (const bad of ["'nope'", "'[1]'"]) {
+      expect(() => db.exec(`UPDATE media SET vrcx = ${bad}`), bad).toThrow(
+        /CHECK/,
+      );
+    }
+  });
+});

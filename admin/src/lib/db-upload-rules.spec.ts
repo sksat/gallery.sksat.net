@@ -109,8 +109,10 @@ describe("decideUpload", () => {
       digitizedAt: null,
       location: null,
       world: null,
+      photographer: null,
+      vrcx: null,
     };
-    const photo = (file: string, sha: string) => ({
+    const photo =(file: string, sha: string) => ({
       ...init,
       file,
       sha256: sha.repeat(64),

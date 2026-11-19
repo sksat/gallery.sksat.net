@@ -85,7 +85,10 @@ export type SourcedRow = {
   location_source: string | null;
   world_id: string | null;
   world_name: string | null;
-  world_author_id: string | null;
+  /** 0015: who took it (usr_…, display name) and VRCX's extras (JSON). */
+  photographer_id: string | null;
+  photographer_name: string | null;
+  vrcx: string | null;
   metadata_source: string | null;
   /** 0009: the file's own EXIF (admin only) and when it was digitised. */
   file_exif: string | null;
@@ -134,9 +137,19 @@ export const applyReading = (
   if (r.world && mayReplace(src.world, "file")) {
     out.world_id = r.world.id;
     out.world_name = r.world.name;
-    out.world_author_id = r.world.authorId;
     src.world = "file";
   }
+  // Who took it and who was there are the file's alone (no edit sets
+  // them): the latest reading, but never cleared by one that lacks them.
+  if (r.photographer) {
+    // A part the reading lacks is kept, unless it is another user's name.
+    const id = r.photographer.id ?? row.photographer_id;
+    out.photographer_id = id;
+    out.photographer_name =
+      r.photographer.name ??
+      (id === row.photographer_id ? row.photographer_name : null);
+  }
+  if (r.vrcx) out.vrcx = JSON.stringify(r.vrcx);
   if (
     r.location &&
     (row.location_source === "exif" ||
