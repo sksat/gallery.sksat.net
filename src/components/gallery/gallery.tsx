@@ -4,6 +4,7 @@ import {
   useComputed$,
   useSignal,
   useStore,
+  useVisibleTask$,
 } from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
 
@@ -21,12 +22,14 @@ import { DateHeader } from "./date-header";
 import { SiteNav } from "../layout/site-nav";
 import { cameraHref, cameraLabel, cameraSlug, findCamera } from "./cameras";
 import { CameraHeader } from "./camera-header";
+import { GRID_CANDIDATES, imageUrl, photoSize, srcSet } from "./images";
 import {
-  dimensionsFromFile,
-  GRID_CANDIDATES,
-  imageUrl,
-  srcSet,
-} from "./images";
+  aspectOf,
+  FILLER_GROW,
+  hasKnownSize,
+  tileAspect,
+  tileStyle,
+} from "./tile";
 import { PhotoOverlay } from "./photo-overlay";
 import { SORT_LABELS, sortMedia, type SortKind, type SortOrder } from "./sort";
 import {
@@ -99,6 +102,23 @@ export default component$<GalleryProps>((props) => {
   const state = useStore<GalleryState>(galleryStateFromUrl(location.url));
   // The photo page to load once the overlay's entry has been left.
   const pendingPage = useSignal<string | null>(null);
+  // Aspect ratios of loaded photos whose size the API did not give.
+  const natural = useStore<Record<string, number>>({});
+  const grid = useSignal<HTMLElement>();
+  // Photos of unknown size that loaded before the page resumed (cached
+  // ones) fired their load event before anything could hear it.
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(() => {
+    for (const img of grid.value?.querySelectorAll<HTMLImageElement>(
+      "img[data-unsized]",
+    ) ?? []) {
+      const a = img.complete
+        ? aspectOf(img.naturalWidth, img.naturalHeight)
+        : null;
+      const id = img.dataset.unsized;
+      if (a !== null && id) natural[id] = a;
+    }
+  });
 
   // What to show for the current URL state.
   const view = useComputed$(() => {
@@ -459,12 +479,18 @@ export default component$<GalleryProps>((props) => {
               </div>
             </div>
             {/*
-                Justified rows: every tile has the row height and grows to
-                fill the line; the image covers the tile, so it is cropped
-                only by the few pixels the row was stretched. The trailing
-                filler soaks up the last row so it is not stretched.
+                Justified rows (tile.ts): each tile keeps its photo's
+                aspect ratio and a row's tiles widen by the same factor, so
+                a row stays straight and no photo is cropped. The row
+                height steps with the width, so a 16:9 photo sits about
+                2-3 per row. The trailing filler takes the last row's
+                space so it is not stretched.
               */}
-            <div data-testid="gallery-grid" class="flex flex-wrap gap-1">
+            <div
+              ref={grid}
+              data-testid="gallery-grid"
+              class="flex flex-wrap items-start gap-1 [--row-h:6rem] sm:[--row-h:8rem] md:[--row-h:10rem] lg:[--row-h:12rem] xl:[--row-h:15rem]"
+            >
               {
                 // 選択した画像をオーバーレイ表示
                 selected && (
@@ -505,60 +531,87 @@ export default component$<GalleryProps>((props) => {
               }
               {
                 // 画像の一覧表示
-                filteredMedia.map((m) => (
-                  <div
-                    key={m.value.id}
-                    data-testid="gallery-tile"
-                    // Row height steps with the width so a 16:9 photo
-                    // sits about 2-3 per row and is cropped little.
-                    class="group relative h-24 grow overflow-hidden sm:h-32 md:h-40 lg:h-48 xl:h-60"
-                  >
-                    <img
-                      data-testid="gallery-image"
-                      class="h-full w-auto min-w-full cursor-pointer object-cover align-bottom"
-                      {...dimensionsFromFile(m.value.file)}
-                      onClick$={() => openImage(m.value.id)}
-                      src={imageUrl(S3_BASE, m.value, IMAGE_BASE, "h240")}
-                      srcset={srcSet(
-                        S3_BASE,
-                        m.value,
-                        IMAGE_BASE,
-                        GRID_CANDIDATES,
-                      )}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <div class="pointer-events-none absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100">
-                      <div>{m.value.takenText}</div>
-                      {!m.value.camera && m.value.maker && (
-                        <div>{m.value.maker}</div>
-                      )}
-                      {m.value.camera && (
-                        <div>
-                          {/*
+                filteredMedia.map((m) => {
+                  const id = m.value.id;
+                  const known = hasKnownSize(m.value);
+                  return (
+                    <div
+                      key={id}
+                      data-testid="gallery-tile"
+                      data-photo-id={id}
+                      class="group relative aspect-(--ar) min-w-0 basis-[calc(var(--row-h)*var(--ar))] overflow-hidden"
+                      style={tileStyle(tileAspect(m.value, natural[id]))}
+                    >
+                      <img
+                        data-testid="gallery-image"
+                        // Its size is not known: the tile is 3:2 until the
+                        // image loads, then takes the image's own shape.
+                        data-unsized={known ? undefined : id}
+                        class="block h-full w-full cursor-pointer object-cover"
+                        {...photoSize(m.value)}
+                        onLoad$={
+                          known
+                            ? undefined
+                            : $((_: Event, img: HTMLImageElement) => {
+                                const a = aspectOf(
+                                  img.naturalWidth,
+                                  img.naturalHeight,
+                                );
+                                if (a !== null) natural[id] = a;
+                              })
+                        }
+                        onClick$={() => openImage(id)}
+                        src={imageUrl(S3_BASE, m.value, IMAGE_BASE, "h240")}
+                        srcset={srcSet(
+                          S3_BASE,
+                          m.value,
+                          IMAGE_BASE,
+                          GRID_CANDIDATES,
+                        )}
+                        loading="lazy"
+                        decoding="async"
+                      />
+                      <div class="pointer-events-none absolute bottom-0 left-0 w-full bg-black/50 p-2.5 text-left text-white opacity-0 transition-opacity duration-500 group-focus-within:opacity-100 group-hover:opacity-100">
+                        <div>{m.value.takenText}</div>
+                        {!m.value.camera && m.value.maker && (
+                          <div>{m.value.maker}</div>
+                        )}
+                        {m.value.camera && (
+                          <div>
+                            {/*
                               Clickable only while the caption shows, so a
                               click on an unhovered tile still opens the
                               photo. Plain <a>: see layout/header.tsx.
                             */}
-                          <a
-                            data-testid="camera-link"
-                            href={cameraHref(cameraSlug(m.value.camera))}
-                            class="pointer-events-none text-white underline decoration-white/50 underline-offset-2 group-focus-within:pointer-events-auto group-hover:pointer-events-auto hover:decoration-white"
-                          >
-                            {cameraLabel(m.value.camera)}
-                          </a>
+                            <a
+                              data-testid="camera-link"
+                              href={cameraHref(cameraSlug(m.value.camera))}
+                              class="pointer-events-none text-white underline decoration-white/50 underline-offset-2 group-focus-within:pointer-events-auto group-hover:pointer-events-auto hover:decoration-white"
+                            >
+                              {cameraLabel(m.value.camera)}
+                            </a>
+                          </div>
+                        )}
+                        <div class="flex gap-2">
+                          {m.value.tags.map((tag) => (
+                            <div key={tag}>{tag}</div>
+                          ))}
                         </div>
-                      )}
-                      <div class="flex gap-2">
-                        {m.value.tags.map((tag) => (
-                          <div key={tag}>{tag}</div>
-                        ))}
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               }
-              <div aria-hidden="true" class="grow-[10]" />
+              {/*
+                  A string: Qwik adds "px" to a number under a kebab-case
+                  key. -ml-1 takes back the gap, so the filler fits even
+                  after a full last row (never a line of its own).
+                */}
+              <div
+                aria-hidden="true"
+                class="-ml-1"
+                style={{ "flex-grow": String(FILLER_GROW) }}
+              />
             </div>
           </>
         );

@@ -238,7 +238,8 @@ export type UploadInit = {
   /**
    * The pixel size from the file's header (`width` / `height` of the
    * request, image-size.ts), when both were read: checked against the
-   * limits and looked at by the upload rules, not stored.
+   * limits, looked at by the upload rules and stored (turned by the
+   * file's EXIF orientation) as media.width / height.
    */
   dimensions?: { width: number; height: number };
 };
@@ -251,7 +252,7 @@ const TIMESTAMP_RE =
 /**
  * The init request body (POST /api/upload). It may also carry `width` /
  * `height` (from the file's header), which are checked against the limits
- * but not stored.
+ * and stored with the row.
  */
 export const validateUploadInit = (
   input: unknown,

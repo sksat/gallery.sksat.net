@@ -58,6 +58,9 @@ export type MediaJoinRow = {
   world_name: string | null;
   /** 0009: embed the public shooting info in served images (1/0/NULL). */
   embed_exif?: number | null;
+  /** 0016: the pixel size as displayed (NULL when unknown). */
+  width?: number | null;
+  height?: number | null;
   /** The photo's values of its tags' fields (JSON, 0010), or NULL. */
   tag_values?: string | null;
   /** Its own levels for them (JSON), or NULL. */
@@ -120,6 +123,10 @@ const MEDIA_SELECT = `
          m.metadata_visibility, m.latitude, m.longitude,
          m.exif, m.world_id, m.world_name, m.embed_exif,
          m.tag_values, m.tag_value_visibility,
+         -- The original's size (0016); an edit shown instead (0013) may
+         -- be cropped: unknown then, the gallery takes the image's own.
+         CASE WHEN m.active_file_id IS NULL THEN m.width END AS width,
+         CASE WHEN m.active_file_id IS NULL THEN m.height END AS height,
          c.slug AS camera_slug, c.name AS camera_name,
          c.manufacturer AS camera_manufacturer, c.model AS camera_model,
          m.digitized_at,
@@ -366,6 +373,18 @@ const levelsOf = (site: string | null, photo: string | null) => {
   return levels;
 };
 
+/** The pixel size (0016): both positive integers, or both null. */
+const sizeOf = (
+  width: number | null | undefined,
+  height: number | null | undefined,
+): { width: number | null; height: number | null } =>
+  Number.isInteger(width) &&
+  Number.isInteger(height) &&
+  (width as number) > 0 &&
+  (height as number) > 0
+    ? { width: width as number, height: height as number }
+    : { width: null, height: null };
+
 /**
  * A photo as the public API shows it: each piece of metadata at the level
  * its visibility allows. `withKey` is for the image Worker's own lookups
@@ -440,6 +459,8 @@ export const projectPhoto = (
         : row.embed_exif === 0
           ? false
           : ctx.embedDefault,
+    // Not metadata to hide: anyone who sees the photo sees its size.
+    ...sizeOf(row.width, row.height),
     tags,
     // Fields of the tags it shows (so never of a private tag, nor when
     // its tags are hidden), each at its level on this photo.

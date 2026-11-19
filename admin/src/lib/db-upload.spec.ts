@@ -224,6 +224,40 @@ describe("initUpload", () => {
     ).toMatchObject({ exif: null, read: 0 });
   });
 
+  it("stores the pixel size as displayed, once the orientation is known", async () => {
+    const { raw, db } = setup();
+    const meta = (orientation?: number) => ({
+      exif: null,
+      fileExif: orientation === undefined ? null : { orientation },
+      digitizedAt: null,
+      location: null,
+      world: null,
+    });
+    const dimensions = { width: 4000, height: 3000 };
+    // Upright.
+    await initUpload(db, init({ dimensions, meta: meta() }), row);
+    // Turned a quarter by its EXIF orientation: shown 3000 × 4000.
+    await initUpload(
+      db,
+      init({ file: "/up/b.jpg", sha256: SHA_B, dimensions, meta: meta(6) }),
+      id(1),
+    );
+    // The browser did not read the file: the orientation is unknown, so
+    // the reader fills the size in later.
+    await initUpload(
+      db,
+      init({ file: "/up/c.png", sha256: "c".repeat(64), dimensions }),
+      id(2),
+    );
+    expect(
+      raw.prepare("SELECT id, width, height FROM media WHERE id > 1").all(),
+    ).toEqual([
+      { id: 2, width: 4000, height: 3000 },
+      { id: 3, width: 3000, height: 4000 },
+      { id: 4, width: null, height: null },
+    ]);
+  });
+
   it("resumes the same photo, wherever its earlier attempt went", async () => {
     const { db } = setup();
     await initUpload(db, init(), row);
