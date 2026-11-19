@@ -51,12 +51,12 @@ import {
   type ApplyResult,
   type UndoChange,
 } from "~/components/photo-preview";
-import { MetadataSelect } from "~/components/metadata-select";
+import { LevelSelect, WithLevel } from "~/components/level-select";
 import { ensureTags, getSiteDefaults, publicTags } from "~/lib/db-meta";
 import {
   EDITABLE_FIELDS,
   EMBED_LABEL,
-  FILE_DATA_FIELDS,
+  type EditableField,
   type MetadataLevels,
 } from "~/lib/metadata";
 import type { FileExifJSON } from "~/lib/photo-meta";
@@ -565,6 +565,13 @@ const VISIBILITY_HELP: Record<Visibility, string> = {
 
 const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 
+/** Whether the public site shows a field that has (or lacks) a value. */
+const shows = (row: MediaRow, hasValue: boolean) =>
+  hasValue && row.visibility !== "private";
+
+/** The form's id, for the ファイル名 level that sits by 場所と名前. */
+const MEDIA_FORM = "media-form";
+
 /**
  * スキャン機材: the camera row it was digitised with (scanners first). A
  * scanner's file with no row for it yet shows its make and model with
@@ -573,28 +580,40 @@ const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 const DigitizerField = component$<{
   row: MediaRow;
   cameras: CameraOption[];
+  defaults: MetadataLevels;
   onRegisterScanner$: QRL<() => void>;
-}>(({ row, cameras, onRegisterScanner$ }) => {
+}>(({ row, cameras, defaults, onRegisterScanner$ }) => {
   const scanner = scannerOf(row.file_exif);
   return (
-    <div class="max-w-sm">
+    <div>
       <label for="edit-digitizer" class={label}>
         スキャン機材
       </label>
-      <select id="edit-digitizer" name="digitized_with" class={field}>
-        <option value="" selected={row.digitized_with === null}>
-          (none)
-        </option>
-        {digitizerOptions(cameras).map((c) => (
-          <option
-            key={c.id}
-            value={String(c.id)}
-            selected={row.digitized_with === c.id}
-          >
-            {c.name}
+      <WithLevel
+        level={
+          <LevelSelect
+            field="digitizer"
+            value={row.metadata_visibility.digitizer ?? ""}
+            siteDefault={defaults.digitizer}
+            live={shows(row, row.digitized_with !== null)}
+          />
+        }
+      >
+        <select id="edit-digitizer" name="digitized_with" class={field}>
+          <option value="" selected={row.digitized_with === null}>
+            (none)
           </option>
-        ))}
-      </select>
+          {digitizerOptions(cameras).map((c) => (
+            <option
+              key={c.id}
+              value={String(c.id)}
+              selected={row.digitized_with === c.id}
+            >
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </WithLevel>
       {scanner && row.digitized_with === null && (
         <p class="mt-1 flex flex-wrap items-center gap-2 text-xs">
           <span class={muted} data-testid="file-scanner">
@@ -612,6 +631,40 @@ const DigitizerField = component$<{
     </div>
   );
 });
+
+/** A level with no control on the page: saved as it is. */
+const KeptLevel = ({
+  row,
+  field: f,
+}: {
+  row: MediaRow;
+  field: EditableField;
+}) => (
+  <input
+    type="hidden"
+    name={`mv_${f}`}
+    value={row.metadata_visibility[f] ?? ""}
+  />
+);
+
+/**
+ * The ファイル名 level, by 場所と名前 (outside the form, but saved with
+ * it). A component of its own for the same reason as MediaFields.
+ */
+const FileNameLevel = component$<{
+  row: MediaRow;
+  defaults: MetadataLevels;
+  onChange$: QRL<() => void>;
+}>(({ row, defaults, onChange$ }) => (
+  <LevelSelect
+    field="file_name"
+    value={row.metadata_visibility.file_name ?? ""}
+    siteDefault={defaults.file_name}
+    live={shows(row, true)}
+    form={MEDIA_FORM}
+    onChange$={onChange$}
+  />
+));
 
 /** The file's own EXIF as read (admin only), folded. */
 const FileExifDetails = component$<{ exif: FileExifJSON }>(({ exif }) => (
@@ -680,31 +733,9 @@ const MediaFields = component$<{
       </div>
     </fieldset>
 
-    <fieldset class="space-y-3">
-      <legend class={legend}>
-        公開する情報{" "}
-        <Link
-          prefetch="js"
-          href="/setting/"
-          class={[link, "ml-2 text-xs font-normal"]}
-        >
-          既定
-        </Link>
-      </legend>
-      <div class="grid gap-3 sm:grid-cols-2">
-        {EDITABLE_FIELDS.filter(
-          (f) => !(FILE_DATA_FIELDS as readonly string[]).includes(f),
-        ).map((f) => (
-          <MetadataSelect
-            key={f}
-            field={f}
-            name={`mv_${f}`}
-            value={row.metadata_visibility[f] ?? ""}
-            siteDefault={defaults[f]}
-          />
-        ))}
-      </div>
-    </fieldset>
+    {/* Levels whose control is not shown keep their value. */}
+    {row.trashed_at && <KeptLevel row={row} field="file_name" />}
+    {!row.digitized_at && <KeptLevel row={row} field="digitized_at" />}
 
     <fieldset class="space-y-3" data-testid="photo-data">
       <legend class={legend}>撮影データ</legend>
@@ -730,30 +761,41 @@ const MediaFields = component$<{
 
     <fieldset class="space-y-3">
       <legend class={legend}>Camera</legend>
-      <div class="max-w-sm">
+      <div>
         {/* The fieldset legend already says "Camera". */}
         <label for="edit-camera" class="sr-only">
           Camera
         </label>
-        <select
-          id="edit-camera"
-          name="camera_id"
-          aria-describedby="edit-camera-help"
-          class={field}
+        <WithLevel
+          level={
+            <LevelSelect
+              field="camera"
+              value={row.metadata_visibility.camera ?? ""}
+              siteDefault={defaults.camera}
+              live={shows(row, row.camera_id !== null)}
+            />
+          }
         >
-          <option value="" selected={row.camera_id === null}>
-            (none)
-          </option>
-          {cameras.map((c) => (
-            <option
-              key={c.id}
-              value={String(c.id)}
-              selected={row.camera_id === c.id}
-            >
-              {c.name}
+          <select
+            id="edit-camera"
+            name="camera_id"
+            aria-describedby="edit-camera-help"
+            class={field}
+          >
+            <option value="" selected={row.camera_id === null}>
+              (none)
             </option>
-          ))}
-        </select>
+            {cameras.map((c) => (
+              <option
+                key={c.id}
+                value={String(c.id)}
+                selected={row.camera_id === c.id}
+              >
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </WithLevel>
         <p id="edit-camera-help" class={["mt-1 text-xs", muted]}>
           Not listed?{" "}
           <Link prefetch="js" href="/camera/new/" class={link}>
@@ -765,17 +807,27 @@ const MediaFields = component$<{
       <DigitizerField
         row={row}
         cameras={cameras}
+        defaults={defaults}
         onRegisterScanner$={onRegisterScanner$}
       />
     </fieldset>
 
     <fieldset class="space-y-3">
       <legend class={legend}>日時</legend>
-      <div class="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label for="edit-taken-at" class={label}>
-            撮影日時
-          </label>
+      <div>
+        <label for="edit-taken-at" class={label}>
+          撮影日時
+        </label>
+        <WithLevel
+          level={
+            <LevelSelect
+              field="taken_at"
+              value={row.metadata_visibility.taken_at ?? ""}
+              siteDefault={defaults.taken_at}
+              live={shows(row, row.timestamp !== null)}
+            />
+          }
+        >
           <input
             id="edit-taken-at"
             type="datetime-local"
@@ -784,43 +836,51 @@ const MediaFields = component$<{
             value={takenAtInputValue(row.timestamp)}
             class={field}
           />
-          <input
-            type="hidden"
-            name="taken_at_loaded"
-            value={takenAtInputValue(row.timestamp)}
-          />
-          <input
-            type="hidden"
-            name="taken_at_offset"
-            value={takenAtOffset(row.timestamp)}
-          />
-        </div>
-        <div>
-          <label for="edit-embed-exif" class={label}>
-            {EMBED_LABEL}
-          </label>
-          <select id="edit-embed-exif" name="embed_exif" class={field}>
-            <option value="" selected={row.embed_exif === null}>
-              既定
-            </option>
-            <option value="on" selected={row.embed_exif === true}>
-              する
-            </option>
-            <option value="off" selected={row.embed_exif === false}>
-              しない
-            </option>
-          </select>
-        </div>
+        </WithLevel>
+        <input
+          type="hidden"
+          name="taken_at_loaded"
+          value={takenAtInputValue(row.timestamp)}
+        />
+        <input
+          type="hidden"
+          name="taken_at_offset"
+          value={takenAtOffset(row.timestamp)}
+        />
       </div>
       {row.digitized_at && (
-        <p class="text-sm">
-          <span class={muted}>スキャン日時</span>{" "}
-          <span class="tabular-nums" data-testid="digitized-at">
-            {formatJst(row.digitized_at)}
-          </span>{" "}
-          <span class={["text-xs", muted]}>JST</span>
-        </p>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-sm">
+            <span class={muted}>スキャン日時</span>{" "}
+            <span class="tabular-nums" data-testid="digitized-at">
+              {formatJst(row.digitized_at)}
+            </span>{" "}
+            <span class={["text-xs", muted]}>JST</span>
+          </p>
+          <LevelSelect
+            field="digitized_at"
+            value={row.metadata_visibility.digitized_at ?? ""}
+            siteDefault={defaults.digitized_at}
+            live={shows(row, true)}
+          />
+        </div>
       )}
+      <div class="max-w-xs">
+        <label for="edit-embed-exif" class={label}>
+          {EMBED_LABEL}
+        </label>
+        <select id="edit-embed-exif" name="embed_exif" class={field}>
+          <option value="" selected={row.embed_exif === null}>
+            既定
+          </option>
+          <option value="on" selected={row.embed_exif === true}>
+            する
+          </option>
+          <option value="off" selected={row.embed_exif === false}>
+            しない
+          </option>
+        </select>
+      </div>
       {row.file_exif && <FileExifDetails exif={row.file_exif} />}
     </fieldset>
 
@@ -830,19 +890,34 @@ const MediaFields = component$<{
         <label for="edit-tags" class={label}>
           Tags (comma-separated)
         </label>
-        <input
-          id="edit-tags"
-          type="text"
-          name="tags"
-          value={row.tags.join(", ")}
-          maxLength={2000}
-          aria-describedby="edit-tags-help"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellcheck={false}
-          enterKeyHint="done"
-          class={field}
-        />
+        <WithLevel
+          level={
+            <LevelSelect
+              field="tags"
+              value={row.metadata_visibility.tags ?? ""}
+              siteDefault={defaults.tags}
+              // Only public tags ever leave.
+              live={shows(
+                row,
+                row.tags.some((t) => publicTags.includes(t)),
+              )}
+            />
+          }
+        >
+          <input
+            id="edit-tags"
+            type="text"
+            name="tags"
+            value={row.tags.join(", ")}
+            maxLength={2000}
+            aria-describedby="edit-tags-help"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellcheck={false}
+            enterKeyHint="done"
+            class={field}
+          />
+        </WithLevel>
         <p id="edit-tags-help" class={["mt-1 text-xs", muted]}>
           e.g. <code>VRChat, night</code>. Saved to D1 immediately; the public
           gallery shows it within about a minute.
@@ -1005,6 +1080,10 @@ export default component$(() => {
   // typed while it is in flight keeps the form dirty.
   const edits = useSignal(0);
   const editsSent = useSignal(0);
+  const markEdited = $(() => {
+    dirty.value = true;
+    edits.value++;
+  });
   useTask$(({ track }) => {
     // Another photo (prev/next reuse this component): a fresh form.
     track(() => (media.value.kind === "ok" ? media.value.row.id : null));
@@ -1280,16 +1359,11 @@ export default component$(() => {
         // A fresh form (and dirty state) per photo when prev/next reuse
         // this component.
         key={row.id}
+        id={MEDIA_FORM}
         action={action}
         aria-busy={action.isRunning}
-        onInput$={() => {
-          dirty.value = true;
-          edits.value++;
-        }}
-        onChange$={() => {
-          dirty.value = true;
-          edits.value++;
-        }}
+        onInput$={markEdited}
+        onChange$={markEdited}
         onSubmit$={() => {
           editsSent.value = edits.value;
         }}
@@ -1391,32 +1465,44 @@ export default component$(() => {
           </div>
         ) : (
           <>
-            <Form
-              action={move}
-              aria-label="移動・名前の変更"
-              class="flex flex-wrap items-end gap-2"
-            >
-              <div class="min-w-0 flex-1">
+            <div>
+              <div class="flex flex-wrap items-center justify-between gap-x-2">
                 <label for="move-path" class={label}>
                   場所と名前
                 </label>
-                <input
-                  // Keyed: a successful move shows the new path.
-                  key={row.path}
-                  id="move-path"
-                  name="path"
-                  value={row.path}
-                  required
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellcheck={false}
-                  class={field}
+                {/* Part of the form above: Save sends it. Keyed like
+                    the form: a fresh choice per photo. */}
+                <FileNameLevel
+                  key={row.id}
+                  row={row}
+                  defaults={media.value.defaults}
+                  onChange$={markEdited}
                 />
               </div>
-              <SubmitButton running={move.isRunning} class={buttonSecondary}>
-                移動・名前を変更
-              </SubmitButton>
-            </Form>
+              <Form
+                action={move}
+                aria-label="移動・名前の変更"
+                class="flex flex-wrap items-end gap-2"
+              >
+                <div class="min-w-0 flex-1">
+                  <input
+                    // Keyed: a successful move shows the new path.
+                    key={row.path}
+                    id="move-path"
+                    name="path"
+                    value={row.path}
+                    required
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellcheck={false}
+                    class={field}
+                  />
+                </div>
+                <SubmitButton running={move.isRunning} class={buttonSecondary}>
+                  移動・名前を変更
+                </SubmitButton>
+              </Form>
+            </div>
             <Form action={trash}>
               <SubmitButton
                 running={trash.isRunning}
