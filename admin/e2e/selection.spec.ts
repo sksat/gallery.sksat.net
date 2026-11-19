@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { folderWith, png, tick, tile, tiles } from "./files-helpers";
+import { mapLoaded, stubMaps } from "./map-helpers";
 
 // The Files view's selection: picking tiles and what the selection bar
 // does with them, the keyboard, the context menu, dragging onto folders
@@ -316,6 +317,114 @@ test("a platform for the selection, and undo", async ({ page }) => {
   await expect(picker.locator("[aria-pressed=true]")).toHaveCount(0);
 });
 
+test("tags and shooting data for the selection, and undo", async ({
+  page,
+}) => {
+  const external = await stubMaps(page);
+  await folderWith(page, "sel-info", ["a.png", "b.png"]);
+  const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
+  const chip = (name: string) =>
+    sheet.getByRole("checkbox", { name: new RegExp(`^${name}`) });
+  const open = async () => {
+    await info(page, "タグと撮影データ…");
+    await expect(sheet.getByText("読み込み中…")).toHaveCount(0);
+  };
+
+  // One photo: a new tag (private), a setting and a position.
+  await tick(page, "a.png").click();
+  await open();
+  await sheet.getByPlaceholder("タグを追加").fill("roll-a");
+  await sheet.getByPlaceholder("タグを追加").press("Enter");
+  await expect(chip("roll-a")).toHaveAttribute("aria-checked", "true");
+  await sheet.getByLabel("ISO", { exact: true }).fill("400");
+  await sheet.getByLabel("日付", { exact: true }).fill("2001-02-03");
+  await sheet.getByLabel("時刻", { exact: true }).fill("10:20:30");
+  // The position from the map, as on the edit page: it fills the inputs.
+  const map = sheet.getByTestId("location-map");
+  await mapLoaded(map);
+  await map.click({ position: { x: 120, y: 80 } });
+  await expect(sheet.getByLabel("緯度", { exact: true })).not.toHaveValue("");
+  await expect(sheet.getByLabel("経度", { exact: true })).not.toHaveValue("");
+  await expect(sheet.getByTestId("location-pin")).toHaveCount(1);
+  await sheet.getByRole("button", { name: "適用" }).click();
+  await expect(
+    page.getByText(
+      "1 枚のタグと撮影データを変えました。 新しいタグ『roll-a』は非公開です。",
+    ),
+  ).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+
+  // Both: what only one has is mixed, and a click puts it on both.
+  await page.keyboard.press("ControlOrMeta+a");
+  await open();
+  await expect(chip("roll-a")).toHaveAttribute("aria-checked", "mixed");
+  await expect(chip("roll-a")).toContainText("1/2");
+  await expect(chip("roll-a")).toHaveAttribute("data-public", "false");
+  const iso = sheet.getByLabel("ISO", { exact: true });
+  await expect(iso).toHaveValue("");
+  await expect(iso).toHaveAttribute("placeholder", "そのまま（写真ごと）");
+  await chip("roll-a").click();
+  await expect(chip("roll-a")).toHaveAttribute("aria-checked", "true");
+  await expect(chip("roll-a")).toContainText("2/2");
+  // The dates differ: a new one keeps each photo's own time (none for b).
+  const date = sheet.getByLabel("日付", { exact: true });
+  await expect(date).toHaveAttribute("placeholder", "そのまま（写真ごと）");
+  await date.click();
+  await date.fill("1999-08-01");
+  await sheet.getByLabel("レンズ", { exact: true }).fill("50mm");
+  // Checked like the edit page: a position needs both numbers in range.
+  // (The photos' positions differ: one alone would not say where.)
+  await sheet.getByLabel("緯度", { exact: true }).fill("95");
+  await sheet.getByRole("button", { name: "適用" }).click();
+  await expect(sheet.getByRole("alert")).toHaveText(
+    "緯度と経度を両方入れてください",
+  );
+  await sheet.getByLabel("経度", { exact: true }).fill("10");
+  await sheet.getByRole("button", { name: "適用" }).click();
+  await expect(sheet.getByRole("alert")).toContainText("緯度は -90〜90");
+  await sheet.getByRole("button", { name: "緯度を消す" }).click();
+  await sheet.getByRole("button", { name: "経度を消す" }).click();
+  await sheet.getByRole("button", { name: "適用" }).click();
+  await expect(
+    page.getByText("2 枚のタグと撮影データを変えました。"),
+  ).toBeVisible();
+
+  await page.keyboard.press("ControlOrMeta+a");
+  await open();
+  await expect(chip("roll-a")).toHaveAttribute("aria-checked", "true");
+  await expect(sheet.getByLabel("日付", { exact: true })).toHaveValue("1999-08-01");
+  await expect(sheet.getByLabel("時刻", { exact: true })).toHaveAttribute(
+    "placeholder",
+    "そのまま（写真ごと）",
+  );
+  await expect(sheet.getByLabel("レンズ", { exact: true })).toHaveValue("50mm");
+  await expect(sheet.getByLabel("緯度", { exact: true })).toHaveValue("");
+  await expect(iso).toHaveAttribute("placeholder", "そのまま（写真ごと）");
+  await sheet.getByRole("button", { name: "やめる" }).click();
+
+  // Undo: each photo as it was.
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+a");
+  await open();
+  await expect(chip("roll-a")).toHaveAttribute("aria-checked", "mixed");
+  await expect(sheet.getByLabel("レンズ", { exact: true })).toHaveValue("");
+  await expect(sheet.getByLabel("緯度", { exact: true })).toHaveAttribute(
+    "placeholder",
+    "そのまま（写真ごと）",
+  );
+  await sheet.getByRole("button", { name: "やめる" }).click();
+
+  // a.png keeps the first edit, entered by hand like on the edit page (so
+  // the metadata reader leaves it).
+  await page.keyboard.press("Escape");
+  await tile(page, "a.png").focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/media\/\d+\/\?back=/);
+  await expect(page.getByTestId("manual-exif")).toBeVisible();
+  expect(external).toEqual([]);
+});
+
 test("a reload that lacks a selected item for a while keeps it selected", async ({
   page,
   context,
@@ -578,6 +687,36 @@ test.describe("selection on a phone", () => {
     await pentax.tap();
     await expect(page.getByText(/2 枚のカメラを「PENTAX SP」に/)).toBeVisible();
     // Undone, so the fixture camera keeps no photos for other specs.
+    await page.getByRole("button", { name: "元に戻す" }).tap();
+    await expect(page.getByText("元に戻しました。")).toBeVisible();
+  });
+
+  test("tags and shooting data from the bar on a phone", async ({ page }) => {
+    await stubMaps(page);
+    await folderWith(page, "sel-info-phone", ["a.png", "b.png"]);
+    await tick(page, "a.png").tap();
+    await tick(page, "b.png").tap();
+    await bar(page).getByRole("button", { name: "情報…" }).tap();
+    await page.getByRole("menuitem", { name: "タグと撮影データ…" }).tap();
+    const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
+    const apply = sheet.getByRole("button", { name: "適用" });
+    await expect(apply).toBeEnabled();
+    // A sheet along the bottom: its buttons stay on screen while the
+    // sections scroll.
+    for (const el of [apply, sheet.getByPlaceholder("タグを追加")]) {
+      const r = await el.boundingBox();
+      expect(r?.height).toBeGreaterThanOrEqual(44);
+      expect((r?.x ?? 0) + (r?.width ?? 0)).toBeLessThanOrEqual(390);
+    }
+    const r = await apply.boundingBox();
+    expect((r?.y ?? 0) + (r?.height ?? 0)).toBeLessThanOrEqual(844);
+    await sheet.getByPlaceholder("タグを追加").fill("phone-roll");
+    await sheet.getByRole("button", { name: "追加" }).tap();
+    await sheet.getByLabel("F 値", { exact: true }).fill("2.8");
+    await apply.tap();
+    await expect(
+      page.getByText(/2 枚のタグと撮影データを変えました。/),
+    ).toBeVisible();
     await page.getByRole("button", { name: "元に戻す" }).tap();
     await expect(page.getByText("元に戻しました。")).toBeVisible();
   });

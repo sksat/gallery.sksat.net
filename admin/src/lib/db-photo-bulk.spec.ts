@@ -1,15 +1,188 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+  backfillBatch,
+  PHOTO_META_PARSER_DATE,
+  type ReadBytes,
+} from "./backfill";
 import {
   listCameraChoices,
   listCameraPhotos,
   removeCameraFrom,
   restoreCameras,
+  restoreInfo,
   restorePlatforms,
   setCameras,
+  setInfo,
   setPlatforms,
   UnknownCameraError,
 } from "./db-photo-bulk";
+import { KEEP, validateInfoRestore, type InfoRow } from "./bulk-info";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
+
+const fixture = (name: string) =>
+  new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
+
+describe("setInfo / restoreInfo", () => {
+  it("edits the touched columns, creates new tags private, and undoes per photo", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`
+      INSERT INTO media (id, file, platform, tags, timestamp, exif) VALUES
+        (1, '/a.png', 'Real', '["night"]', '2023-01-01T00:00:00Z', NULL),
+        (2, '/b.png', 'Real', '["roll1"]', NULL, '{"iso":100}');
+      INSERT INTO tag (name, public) VALUES ('night', 1);
+    `);
+    const db = sqliteD1(raw);
+    const read = () =>
+      raw
+        .prepare(
+          "SELECT id, tags, timestamp, exif, metadata_visibility AS mv FROM media ORDER BY id",
+        )
+        .all();
+    const before = read();
+    const { previous, newTags } = await setInfo(db, [1, 2], {
+      tagsAdd: ["roll1"],
+      takenAt: { date: "1999-08-01", time: null, offset: "keep" },
+      exif: { lens: "50mm" },
+    });
+    expect(newTags).toEqual(["roll1"]);
+    expect(
+      raw.prepare("SELECT public FROM tag WHERE name = 'roll1'").get(),
+    ).toEqual({ public: 0 });
+    expect(read()).toEqual([
+      {
+        id: 1,
+        tags: '["night","roll1"]',
+        timestamp: "1999-08-01T00:00:00Z",
+        exif: '{"lens":"50mm"}',
+        mv: '{"taken_at":"date"}',
+      },
+      {
+        id: 2,
+        tags: '["roll1"]',
+        timestamp: "1999-08-01T00:00:00+09:00",
+        exif: '{"lens":"50mm","iso":100}',
+        mv: '{"taken_at":"date"}',
+      },
+    ]);
+    expect(previous.map((p) => p.id)).toEqual([1, 2]);
+    // Through the undo's own check, as the action takes it.
+    const back = validateInfoRestore(JSON.parse(JSON.stringify(previous)), 100);
+    if (!back.ok) throw new Error(back.error);
+    await restoreInfo(db, back.rows);
+    expect(read()).toEqual(before);
+  });
+
+  it("marks what it changes manual, and the undo puts the sources back exactly", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`
+      INSERT INTO media (id, file, platform, timestamp, exif, metadata_source) VALUES
+        (1, '/a.png', 'Real', '2023-01-01T00:00:00Z', '{"iso":100}',
+         '{"taken_at":"exif","exif":"file","digitized_with":"manual"}'),
+        (2, '/b.png', 'Real', NULL, NULL, NULL),
+        (3, '/c.png', 'Real', NULL, '{"iso":100}', '{"exif":"file"}');
+    `);
+    const db = sqliteD1(raw);
+    const sources = () =>
+      raw
+        .prepare("SELECT metadata_source AS s FROM media ORDER BY id")
+        .all()
+        .map((r) => r.s);
+    const before = sources();
+    const { previous } = await setInfo(db, [1, 2, 3], {
+      takenAt: { date: "1999-08-01", time: "10:00", offset: "keep" },
+      exif: { iso: 100 },
+    });
+    expect(sources().map((s) => JSON.parse(String(s)))).toEqual([
+      // iso was already 100 on 1 and 3: only the time taken changed there.
+      { taken_at: "manual", exif: "file", digitized_with: "manual" },
+      { taken_at: "manual", exif: "manual" },
+      { exif: "file", taken_at: "manual" },
+    ]);
+    const back = validateInfoRestore(JSON.parse(JSON.stringify(previous)), 100);
+    if (!back.ok) throw new Error(back.error);
+    await restoreInfo(db, back.rows);
+    expect(sources()).toEqual(before);
+  });
+
+  it("the undo leaves a source marked since by another edit", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`
+      INSERT INTO media (id, file, platform, timestamp, latitude, longitude,
+                         location_source, metadata_source) VALUES
+        (1, '/a.png', 'Real', '2023-01-01T00:00:00Z', 35, 139, 'exif',
+         '{"taken_at":"exif"}');
+    `);
+    const db = sqliteD1(raw);
+    const { previous } = await setInfo(db, [1], {
+      takenAt: { date: "1999-08-01", time: KEEP, offset: KEEP },
+      location: null,
+    });
+    const now = () =>
+      raw
+        .prepare(
+          "SELECT latitude, location_source, metadata_source AS s FROM media",
+        )
+        .get();
+    expect(now()).toEqual({
+      latitude: null,
+      location_source: "manual",
+      s: '{"taken_at":"manual"}',
+    });
+    // The edit page chooses a スキャン機材 meanwhile.
+    raw.exec(
+      `UPDATE media SET metadata_source = json_set(metadata_source, '$.digitized_with', 'manual')`,
+    );
+    const back = validateInfoRestore(JSON.parse(JSON.stringify(previous)), 100);
+    if (!back.ok) throw new Error(back.error);
+    await restoreInfo(db, back.rows);
+    expect(now()).toEqual({
+      latitude: 35,
+      location_source: "exif",
+      s: '{"taken_at":"exif","digitized_with":"manual"}',
+    });
+  });
+
+  it("leaves what it set to the metadata reader's later reading alone", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`
+      INSERT INTO media (id, file, platform, timestamp) VALUES
+        (1, '/a/exif.jpg', 'Real', NULL),
+        (2, '/a/world.png', 'VRChat', NULL);
+    `);
+    const db = sqliteD1(raw);
+    const files: Record<string, Uint8Array> = {
+      "/a/exif.jpg": fixture("exif-gps.jpg"),
+      "/a/world.png": fixture("vrchat-xmp.png"),
+    };
+    const read: ReadBytes = async (file, range) => {
+      const all = files[file];
+      if (!all) return null;
+      const bytes =
+        "suffix" in range
+          ? all.subarray(Math.max(0, all.length - range.suffix))
+          : all.subarray(range.offset, range.offset + range.length);
+      return { bytes, size: all.length };
+    };
+    await setInfo(db, [1, 2], {
+      takenAt: { date: "1999-08-01", time: "10:00", offset: "+09:00" },
+      exif: { lens: "hand" },
+      world: { id: "wrld_00000000-0000-0000-0000-000000000000", name: "Hand" },
+    });
+    const columns = () =>
+      raw
+        .prepare(
+          "SELECT timestamp, exif, world_id, world_name FROM media ORDER BY id",
+        )
+        .all();
+    const set = columns();
+    const now = Date.parse(PHOTO_META_PARSER_DATE) + 24 * 3600 * 1000;
+    const r = await backfillBatch(db, read, 10, now);
+    expect(r.read).toBe(2);
+    expect(r.failed).toBe(0);
+    expect(columns()).toEqual(set);
+  });
+});
 
 const setup = () => {
   const raw = migratedSqlite();
@@ -159,7 +332,13 @@ describe("the API's content version", () => {
 
   it("is bumped by every write here", async () => {
     const { db, raw } = setup();
+    let info: InfoRow[] = [];
     const writes: (() => Promise<unknown>)[] = [
+      async () => {
+        info = (await setInfo(db, [1], { exif: { iso: 200 } })).previous;
+        expect(info).toHaveLength(1);
+      },
+      () => restoreInfo(db, info),
       () => setCameras(db, [1, 2], 2),
       () =>
         restoreCameras(db, [{ id: 2, camera_id: null, camera_source: null }]),

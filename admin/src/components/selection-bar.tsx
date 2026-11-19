@@ -6,6 +6,7 @@ import {
   type QRL,
   type Signal,
 } from "@builder.io/qwik";
+import type { InfoEdit } from "~/lib/bulk-info";
 import type { LevelChange } from "~/lib/bulk-metadata";
 import { isWithin, type FolderNode } from "~/lib/folders";
 import type { MetadataLevels } from "~/lib/metadata";
@@ -25,6 +26,7 @@ import {
   type MediaPlatform,
   type Visibility,
 } from "~/lib/types";
+import { BulkInfoDialog } from "./bulk-info-dialog";
 import { BulkMetadataDialog } from "./bulk-metadata-dialog";
 import { ChoicePicker } from "./choice-picker";
 import { ContextMenu } from "./context-menu";
@@ -42,7 +44,8 @@ import {
 // selected photos (one button per level, in its own look; making photos
 // public or unlisted first shows them as thumbnails, as the viewer's 反映
 // does), 情報 (a menu: カメラ and プラットフォーム in choice-picker.tsx,
-// 公開する情報 in bulk-metadata-dialog.tsx), ゴミ箱へ, and clearing it.
+// タグと撮影データ in bulk-info-dialog.tsx, 公開する情報 in
+// bulk-metadata-dialog.tsx), ゴミ箱へ, and clearing it.
 // Every change can be undone from the page's toast. A bar fixed at the
 // bottom on phones (replacing the tab bar, data-bottom-bar), sticky above
 // the grid from sm up.
@@ -54,6 +57,7 @@ export type SelectionAction =
   | { kind: "rename"; name: string }
   | { kind: "camera"; cameraId: number | null; cameraName: string | null }
   | { kind: "platform"; platform: MediaPlatform }
+  | { kind: "info"; edit: InfoEdit }
   | { kind: "trash" }
   | { kind: "clear" };
 
@@ -61,6 +65,7 @@ export type SelectionAction =
 export type BarCommand =
   | { kind: "move" }
   | { kind: "metadata" }
+  | { kind: "info" }
   | { kind: "camera" }
   | { kind: "platform" }
   | { kind: "visibility"; visibility: Visibility };
@@ -145,6 +150,7 @@ export const SelectionBar = component$<Props>(
   }) => {
     const dialog = useSignal<HTMLDialogElement>();
     const metadataOpen = useSignal(false);
+    const infoOpen = useSignal(false);
     /** The 情報 menu (at its button), and the picker it opened. */
     const infoMenu = useSignal<{
       x: number;
@@ -198,6 +204,7 @@ export const SelectionBar = component$<Props>(
       command.value = null;
       if (c.kind === "move") await openMove();
       else if (c.kind === "metadata") metadataOpen.value = true;
+      else if (c.kind === "info") infoOpen.value = true;
       else if (c.kind === "camera" || c.kind === "platform") {
         picker.value = c.kind;
       } else await pickVisibility(c.visibility);
@@ -417,11 +424,13 @@ export const SelectionBar = component$<Props>(
             items={[
               { kind: "item", id: "camera", label: "カメラ…" },
               { kind: "item", id: "platform", label: "プラットフォーム…" },
+              { kind: "item", id: "info", label: "タグと撮影データ…" },
               { kind: "item", id: "metadata", label: "公開する情報…" },
             ]}
             onClose$={() => (infoMenu.value = null)}
             onPick$={(id) => {
               if (id === "metadata") metadataOpen.value = true;
+              else if (id === "info") infoOpen.value = true;
               else picker.value = id as "camera" | "platform";
             }}
           />
@@ -472,6 +481,19 @@ export const SelectionBar = component$<Props>(
               if (!isPlatform(key)) return;
               const ok = await onAction$({ kind: "platform", platform: key });
               if (ok) picker.value = null;
+            }}
+          />
+        )}
+        {infoOpen.value && (
+          <BulkInfoDialog
+            ids={photos.map((p) => p.id)}
+            platforms={photos.map((p) => p.platform)}
+            busy={busy}
+            onClose$={() => (infoOpen.value = false)}
+            onApply$={async (edit) => {
+              if (await onAction$({ kind: "info", edit })) {
+                infoOpen.value = false;
+              }
             }}
           />
         )}
