@@ -23,17 +23,20 @@ const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 
 export const TagFieldInputs = ({
   row,
+  tags: photoTags,
   fields,
   publicTags,
   defaults,
 }: {
   row: MediaRow;
+  /** Its tags: its own and those its camera passes on (0011). */
+  tags: string[];
   /** The fields of the photo's tags. */
   fields: TagFieldDef[];
   publicTags: string[];
   defaults: MetadataLevels;
 }) => {
-  const tags = row.tags.filter((t) => fields.some((f) => f.tag === t));
+  const tags = photoTags.filter((t) => fields.some((f) => f.tag === t));
   if (tags.length === 0) return null;
   const loaded = tagFieldFormValues(row, fields);
   return (

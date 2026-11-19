@@ -87,6 +87,40 @@ describe("tags", () => {
     ]);
   });
 
+  it("counts the tags cameras pass on, once per photo", async () => {
+    const { raw, db } = setup();
+    raw.exec(`
+      INSERT INTO camera (id, slug, name) VALUES (1, 'sp', 'SP'), (2, 'gr', 'GR');
+      UPDATE media SET camera_id = 1 WHERE id IN (1, 3);
+      UPDATE media SET camera_id = 2 WHERE id = 2;
+      INSERT INTO camera_tag (camera_id, tag, propagate) VALUES
+        (1, 'film', 1), (1, 'kept', 0), (2, 'film', 1), (2, 'night', 1);
+    `);
+    // film: photo 1 (own and from its camera) and photo 2 (camera); the
+    // trashed photo 3 not. night: still 2. kept: on the camera only.
+    expect(await listTags(db)).toEqual([
+      { name: "film", public: false, count: 2 },
+      { name: "kept", public: false, count: 0 },
+      { name: "night", public: true, count: 2 },
+      { name: "unused", public: false, count: 0 },
+    ]);
+  });
+
+  it("reaches the cameras' photos through the camera_id index", () => {
+    const { raw } = setup();
+    const plan = raw
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT media.id, ct.tag FROM camera_tag ct
+         CROSS JOIN media ON media.camera_id = ct.camera_id
+         WHERE ct.propagate = 1 AND status = 'ready' AND trashed_at IS NULL`,
+      )
+      .all()
+      .map((r) => String((r as { detail: string }).detail));
+    expect(plan.join("\n")).toMatch(
+      /SEARCH media USING INDEX idx_media_camera_id/,
+    );
+  });
+
   it("marks a tag public or private", async () => {
     const { db } = setup();
     await setTagPublic(db, "film", true);

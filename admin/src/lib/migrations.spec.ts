@@ -947,6 +947,44 @@ describe("0005_path_trash.sql", () => {
   });
 });
 
+describe("0011_camera_tag.sql", () => {
+  it("keeps one row per camera and tag, gone with the camera", () => {
+    const db = migrate([["/a.png", "Real", null, null]]);
+    for (const f of [
+      "0003_visibility.sql",
+      "0004_upload.sql",
+      "0005_path_trash.sql",
+      "0007_list_indexes.sql",
+      "0010_tag_field.sql",
+      "0011_camera_tag.sql",
+    ]) {
+      db.exec(migration(f));
+    }
+    db.exec(
+      "INSERT INTO camera (id, slug, name) VALUES (9, 'x', 'X'); INSERT INTO camera_tag (camera_id, tag) VALUES (9, 'フィルム')",
+    );
+    expect(
+      db.prepare("SELECT propagate, position FROM camera_tag").get(),
+    ).toEqual({ propagate: 1, position: 0 });
+    expect(() =>
+      db.exec("INSERT INTO camera_tag (camera_id, tag) VALUES (9, 'フィルム')"),
+    ).toThrow(/UNIQUE|PRIMARY/);
+    for (const bad of ["(9, '', 1)", "(9, 'a', 2)", "(99, 'a', 1)"]) {
+      expect(
+        () =>
+          db.exec(
+            `INSERT INTO camera_tag (camera_id, tag, propagate) VALUES ${bad}`,
+          ),
+        bad,
+      ).toThrow(/CHECK|FOREIGN KEY/);
+    }
+    db.exec("DELETE FROM camera WHERE id = 9");
+    expect(db.prepare("SELECT COUNT(*) AS n FROM camera_tag").get()).toEqual({
+      n: 0,
+    });
+  });
+});
+
 describe("0010_tag_field.sql", () => {
   const migrateAll = () => {
     const db = migrate([["/a.png", "Real", null, null]]);

@@ -326,6 +326,27 @@ export const publicTagFields = (
   return out;
 };
 
+/**
+ * A photo's tags (admin migration 0011): its own, then the tags its
+ * camera passes on (camera_tag.propagate) that it does not have already.
+ * Worked out when read, never stored.
+ */
+export const effectiveTags = (
+  own: readonly string[],
+  inherited: readonly string[] | null | undefined,
+): string[] => [
+  ...own,
+  ...(inherited ?? []).filter(
+    (t, i, all) => !own.includes(t) && all.indexOf(t) === i,
+  ),
+];
+
+/** The camera's tags that a photo has only through its camera. */
+export const inheritedOnly = (
+  own: readonly string[],
+  inherited: readonly string[] | null | undefined,
+): string[] => effectiveTags(own, inherited).slice(own.length);
+
 /** A field row (tag_field joined with its tag's name) read leniently. */
 export const rowToDef = (row: {
   id: number;

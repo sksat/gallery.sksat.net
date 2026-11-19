@@ -313,6 +313,81 @@ describe("tags", () => {
   });
 });
 
+describe("tags a camera passes on", () => {
+  // Camera 1 (photo 2's) passes on film (public) and secret (private),
+  // and keeps night (public) to itself; camera 4 (photo 1's) passes on
+  // film, which photo 1 has already.
+  const withCameraTags = () => {
+    const s = setup();
+    run(
+      s.raw,
+      `INSERT INTO tag (name, public) VALUES ('night', 1);
+       INSERT INTO camera_tag (camera_id, tag, propagate, position) VALUES
+         (1, 'film', 1, 0), (1, 'secret', 1, 1), (1, 'night', 0, 2),
+         (4, 'film', 1, 0);`,
+    );
+    return s;
+  };
+
+  it("adds the camera's public, passed-on tags after the photo's own", async () => {
+    const { db } = withCameraTags();
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual([
+      "VRChat",
+      "film",
+    ]);
+    // Not twice.
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tags).toEqual(["film"]);
+    const listed = await listPublicMedia(db);
+    expect(listed.find((m) => m.id === "aaaaaaaaa3")?.tags).toEqual([
+      "VRChat",
+      "film",
+    ]);
+    // The image Worker's lookups (og captions) see the same tags.
+    expect((await getPhotoForImage(db, "aaaaaaaaa3"))?.tags).toEqual([
+      "VRChat",
+      "film",
+    ]);
+  });
+
+  it("never passes on a private tag, one kept to the camera, or hidden tags", async () => {
+    const { raw, db } = withCameraTags();
+    const everything = JSON.stringify([
+      await listPublicMedia(db),
+      await getMedia(db, "aaaaaaaaa3"),
+      await getPathAccess(db, "/p2.png"),
+    ]);
+    expect(everything).not.toContain("secret");
+    expect(everything).not.toContain("night");
+    run(
+      raw,
+      `UPDATE media SET metadata_visibility = '{"tags":"hidden"}' WHERE id = 2`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual([]);
+  });
+
+  it("follows the photo's camera and the camera's tags as they are now", async () => {
+    const { raw, db } = withCameraTags();
+    run(raw, "UPDATE media SET camera_id = NULL WHERE id = 2");
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
+    run(raw, "UPDATE media SET camera_id = 1 WHERE id = 2");
+    run(raw, "UPDATE camera_tag SET propagate = 0 WHERE camera_id = 1");
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
+  });
+
+  it("shows an inherited tag's fields, with the photo's own values", async () => {
+    const { raw, db } = withCameraTags();
+    run(
+      raw,
+      `INSERT INTO tag_field (id, tag_id, label, type, position, visibility)
+         SELECT 1, id, '銘柄', 'text', 0, 'shown' FROM tag WHERE name = 'film';
+       UPDATE media SET tag_values = '{"1":"Portra 400"}' WHERE id = 2;`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tag_fields).toEqual([
+      { tag: "film", label: "銘柄", value: "Portra 400" },
+    ]);
+  });
+});
+
 describe("tag fields", () => {
   // film (public) has 銘柄 (shown), ISO (shown) and ラボ (hidden by
   // default); secret (private) has メモ. Photo 1 (film) and photo 2

@@ -30,6 +30,11 @@ INSERT INTO tag_field (id, tag_id, label, type, options, position, visibility)
   SELECT 3, id, '人数', 'number', NULL, 2, 'hidden' FROM tag WHERE name = 'VRChat';
 UPDATE media SET tag_values = '{"1":"Fixture Meetup","2":"Friends+","3":12}',
   tag_value_visibility = '{"3":"hidden"}' WHERE id = 2;
+-- Tags of camera 1 (0011): VRChat goes to its photos (photo 2 has it
+-- already), draft stays on the camera. No count changes.
+DELETE FROM camera_tag;
+INSERT INTO camera_tag (camera_id, tag, propagate, position) VALUES
+  (1, 'VRChat', 1, 0), (1, 'draft', 0, 1);
 INSERT INTO camera_image (id, camera_id, file, position, caption) VALUES
   (1, 1, '/camera/virtuallens2/front.png', 0, 'Front'),
   (2, 1, '/camera/virtuallens2/ui.png',    1, NULL);

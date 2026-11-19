@@ -46,6 +46,13 @@ import {
   type CameraPhoto,
   type PreviousCamera,
 } from "~/lib/db-photo-bulk";
+import {
+  addCameraTag,
+  listCameraTags,
+  removeCameraTag,
+  setCameraTagPropagate,
+  type CameraTagRow,
+} from "~/lib/db-camera-tag";
 import { getDB, getImageBase } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
 import { inChunks } from "~/lib/selection";
@@ -69,6 +76,10 @@ type CameraLoaderResult =
       images: CameraImageRow[];
       /** The photos taken with it, newest first. */
       photos: CameraPhoto[];
+      /** The camera's tags (0011). */
+      tags: CameraTagRow[];
+      /** Every tag's name, to pick from. */
+      tagNames: string[];
       /** Image Worker base URL, or null for placeholder tiles. */
       imageBase: string | null;
     }
@@ -96,10 +107,15 @@ export const useCamera = routeLoader$<CameraLoaderResult>(
       status(500);
       return { kind: "missing-binding" };
     }
-    const [camera, images, photos] = await Promise.all([
+    const [camera, images, photos, tags, tagNames] = await Promise.all([
       getCamera(db, id),
       listCameraImages(db, id),
       listCameraPhotos(db, id),
+      listCameraTags(db, id),
+      db
+        .prepare("SELECT name FROM tag ORDER BY name")
+        .all<{ name: string }>()
+        .then((r) => (r.results ?? []).map((t) => t.name)),
     ]);
     if (!camera) {
       status(404);
@@ -110,6 +126,8 @@ export const useCamera = routeLoader$<CameraLoaderResult>(
       camera,
       images,
       photos,
+      tags,
+      tagNames,
       imageBase: getImageBase(platform),
     };
   },
@@ -150,6 +168,61 @@ export const useRestoreCameraPhotos = routeAction$(
         }),
       )
       .max(MAX_BULK_IDS),
+  }),
+);
+
+/**
+ * The camera's tags (0011): add one (a new tag starts private), take one
+ * off, pass one on to its photos or not, and put a removed one back.
+ */
+export const useCameraTagOp = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = parseId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    const db = getDB(platform);
+    const tag = data.tag.trim();
+    if (tag.length === 0 || tag.length > 200) {
+      return fail(400, { message: "タグは 1〜200 文字です" });
+    }
+    // A photo's tags are typed comma-separated: a comma could never be
+    // one of them.
+    if (tag.includes(",")) {
+      return fail(400, { message: "タグに , は使えません" });
+    }
+    if (!(await getCamera(db, id))) return fail(404, { message: "not found" });
+    switch (data.op) {
+      case "add":
+      case "restore": {
+        const r = await addCameraTag(
+          db,
+          id,
+          tag,
+          data.propagate !== "0",
+          data.op === "restore" ? data.position : undefined,
+        );
+        if (!r.added)
+          return fail(409, { message: `『${tag}』はもう付いています` });
+        return { ok: true as const, op: data.op, tag, newTag: r.newTag };
+      }
+      case "remove": {
+        const removed = await removeCameraTag(db, id, tag);
+        if (!removed) return fail(404, { message: "付いていないタグです" });
+        return { ok: true as const, op: data.op, tag, removed };
+      }
+      case "propagate": {
+        const on = data.propagate === "1";
+        if (!(await setCameraTagPropagate(db, id, tag, on))) {
+          return fail(404, { message: "付いていないタグです" });
+        }
+        return { ok: true as const, op: data.op, tag, propagate: on };
+      }
+    }
+  },
+  zod$({
+    op: z.enum(["add", "remove", "propagate", "restore"]),
+    tag: z.string().max(400),
+    propagate: z.enum(["0", "1"]).optional(),
+    position: z.coerce.number().int().min(0).max(10_000).optional(),
   }),
 );
 
@@ -410,6 +483,16 @@ export default component$(() => {
   });
   /** What 元に戻す puts back after カメラを外す (photos). */
   const photoUndo = useSignal<PreviousCamera[] | null>(null);
+  const tagOp = useCameraTagOp();
+  /** The last change to the camera's tags, as the op that undoes it. */
+  const tagUndo = useSignal<{
+    op: "remove" | "restore" | "propagate";
+    tag: string;
+    propagate?: "0" | "1";
+    position?: number;
+  } | null>(null);
+  /** Whether the running tag op is an undo (no new undo for it). */
+  const undoingTag = useSignal(false);
   /** The last removed picture, for 「元に戻す」. */
   const removed = useSignal<{
     file: string;
@@ -429,6 +512,7 @@ export default component$(() => {
     if (v.op === "remove") {
       removed.value = v.removed ?? null;
       photoUndo.value = null;
+      tagUndo.value = null;
     } else if (toast.value?.actionLabel) {
       // E.g. a caption saved on blur by the tap on Remove, landing after
       // it: keep the undo in view.
@@ -468,6 +552,7 @@ export default component$(() => {
       previous.push(...r.value.previous);
     }
     removed.value = null;
+    tagUndo.value = null;
     photoUndo.value = previous.length > 0 ? previous : null;
     const what = `${previous.length} 枚からカメラを外しました。`;
     toast.value = error
@@ -483,7 +568,69 @@ export default component$(() => {
         };
     return error === null;
   });
+  useTask$(({ track }) => {
+    const v = track(() => tagOp.value);
+    if (!v) return;
+    const wasUndo = undoingTag.value;
+    undoingTag.value = false;
+    if (v.failed) {
+      // A failed undo stays available to try again.
+      toast.value = {
+        tone: "error",
+        message: wasUndo
+          ? `元に戻せませんでした: ${v.message ?? ""}`
+          : (v.message ?? "変更できませんでした"),
+        actionLabel: wasUndo && tagUndo.value ? "元に戻す" : undefined,
+      };
+      return;
+    }
+    if (wasUndo) {
+      tagUndo.value = null;
+      toast.value = { tone: "success", message: "元に戻しました。" };
+      return;
+    }
+    removed.value = null;
+    photoUndo.value = null;
+    if (v.op === "add") {
+      tagUndo.value = { op: "remove", tag: v.tag };
+    } else if (v.op === "remove") {
+      tagUndo.value = {
+        op: "restore",
+        tag: v.tag,
+        propagate: v.removed.propagate ? "1" : "0",
+        position: v.removed.position,
+      };
+    } else if (v.op === "propagate") {
+      tagUndo.value = {
+        op: "propagate",
+        tag: v.tag,
+        propagate: v.propagate ? "0" : "1",
+      };
+    }
+    toast.value = {
+      tone: "success",
+      message:
+        v.op === "add"
+          ? `『${v.tag}』を付けました。` +
+            (v.newTag ? "新しいタグは非公開です。" : "")
+          : v.op === "remove"
+            ? `『${v.tag}』を外しました。`
+            : v.op === "propagate"
+              ? v.propagate
+                ? `『${v.tag}』をこのカメラの写真にも付けます。`
+                : `『${v.tag}』をこのカメラの写真には付けません。`
+              : "元に戻しました。",
+      actionLabel: v.op === "restore" ? undefined : "元に戻す",
+    };
+  });
   const undoRemove = $(async () => {
+    const t = tagUndo.value;
+    if (t) {
+      // Kept until it goes through (the task clears it then).
+      undoingTag.value = true;
+      await tagOp.submit(t);
+      return;
+    }
     const photos = photoUndo.value;
     if (photos) {
       photoUndo.value = null;
@@ -540,7 +687,7 @@ export default component$(() => {
     );
   }
 
-  const { camera, images, photos, imageBase } = data.value;
+  const { camera, images, photos, imageBase, tags, tagNames } = data.value;
   const opRunning = (key: string) => imageOp.isRunning && busyKey.value === key;
 
   return (
@@ -579,6 +726,119 @@ export default component$(() => {
           </SubmitButton>
         </div>
       </Form>
+
+      <section
+        aria-labelledby="tags-heading"
+        data-testid="camera-tags"
+        class={[card, "space-y-4 p-5"]}
+      >
+        <h2 id="tags-heading" class={legend}>
+          タグ
+        </h2>
+        {tags.length > 0 && (
+          <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {tags.map((t) => (
+              <li
+                key={t.tag}
+                data-testid="camera-tag"
+                class="flex flex-wrap items-center gap-x-3 py-1.5"
+              >
+                <span class="flex min-w-0 flex-1 items-center gap-1 font-medium">
+                  {!t.public && (
+                    <span aria-hidden="true" title="非公開のタグ">
+                      🔒
+                    </span>
+                  )}
+                  <span class="truncate">{t.tag}</span>
+                  <span class="sr-only">
+                    （{t.public ? "公開" : "非公開"}）
+                  </span>
+                </span>
+                {/* A switch: does every photo with this camera get it? */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={t.propagate}
+                  disabled={tagOp.isRunning}
+                  onClick$={() =>
+                    tagOp.submit({
+                      op: "propagate",
+                      tag: t.tag,
+                      propagate: t.propagate ? "0" : "1",
+                    })
+                  }
+                  class="flex h-11 items-center gap-2 text-sm sm:h-9"
+                >
+                  <span
+                    class={[
+                      "relative inline-flex h-6 w-10 shrink-0 rounded-full transition-colors",
+                      t.propagate
+                        ? "bg-sky-600"
+                        : "bg-zinc-300 dark:bg-zinc-700",
+                    ]}
+                  >
+                    <span
+                      class={[
+                        "absolute top-0.5 size-5 rounded-full bg-white shadow transition-transform",
+                        t.propagate ? "translate-x-4.5" : "translate-x-0.5",
+                      ]}
+                    />
+                  </span>
+                  写真にも付ける
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${t.tag}を外す`}
+                  disabled={tagOp.isRunning}
+                  onClick$={() => tagOp.submit({ op: "remove", tag: t.tag })}
+                  class="inline-flex size-11 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 disabled:opacity-40 sm:size-9 dark:hover:bg-zinc-800"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Form
+          action={tagOp}
+          aria-busy={tagOp.isRunning}
+          onSubmitCompleted$={(ev, form) => {
+            const { value } = ev.detail as { value?: { ok?: boolean } };
+            if (value?.ok) form.reset();
+          }}
+          class="flex items-end gap-2"
+        >
+          <input type="hidden" name="op" value="add" />
+          <div class="min-w-0 flex-1">
+            <label for="camera-tag-new" class={label}>
+              タグを付ける
+            </label>
+            <input
+              id="camera-tag-new"
+              name="tag"
+              required
+              maxLength={200}
+              // (Qwik's input type has no `list`; the browser does.)
+              {...{ list: "camera-tag-names" }}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellcheck={false}
+              enterKeyHint="done"
+              class={field}
+            />
+            <datalist id="camera-tag-names">
+              {tagNames
+                .filter((n) => !tags.some((t) => t.tag === n))
+                .map((n) => (
+                  <option key={n} value={n} />
+                ))}
+            </datalist>
+          </div>
+          <SubmitButton running={tagOp.isRunning} class={buttonSecondary}>
+            付ける
+          </SubmitButton>
+        </Form>
+      </section>
 
       <section aria-labelledby="images-heading" class={[card, "space-y-5 p-5"]}>
         <div class="flex items-start justify-between gap-3">

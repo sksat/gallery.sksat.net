@@ -46,6 +46,7 @@ import {
   setMetadataLevels,
   type StoredLevels,
 } from "~/lib/db-meta";
+import { passedOnTags, photoTags } from "~/lib/db-camera-tag";
 import {
   listTagFields,
   parseTagList,
@@ -244,6 +245,8 @@ export const useMediaList = routeLoader$<MediaListResult>(
             ),
           )
         : buildFolderTree(rows, folders);
+      // Tags cameras pass on count as the photos' own (0011).
+      const passed = await passedOnTags(db);
       return {
         kind: "ok",
         view: "files",
@@ -263,7 +266,7 @@ export const useMediaList = routeLoader$<MediaListResult>(
             ({ metadata_visibility, tags, ...r }): FileTile => ({
               ...r,
               metadata: parseOverrides(metadata_visibility),
-              tags: parseTagList(tags),
+              tags: photoTags(parseTagList(tags), r.camera_id, passed),
             }),
           ),
           truncated,
@@ -307,10 +310,16 @@ export const useMediaList = routeLoader$<MediaListResult>(
         }),
       );
     }
+    // The list shows a photo's tags with those its camera passes on (0011);
+    // the rows here are only shown, never written back.
+    const passed = await passedOnTags(db);
     return {
       kind: "ok",
       view: "list",
-      rows,
+      rows: rows.map((r) => ({
+        ...r,
+        tags: photoTags(r.tags, r.camera_id, passed),
+      })),
       total,
       page,
       platform: onPlatform ?? null,
