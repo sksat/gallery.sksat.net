@@ -1,8 +1,13 @@
 import { inDate, parseDateKey } from "@shared/calendar/calendar";
 
-import { cameraHref, takenWith } from "./cameras";
-import { DEFAULT_SORT, serializeSort, type SortOrder } from "./sort";
-import { filterMediaByTags, serializeTagFilter, type TagFilter } from "./tags";
+import { cameraHref, cameraSlugFromPath, takenWith } from "./cameras";
+import { DEFAULT_SORT, parseSort, serializeSort, type SortOrder } from "./sort";
+import {
+  filterMediaByTags,
+  parseTagFilter,
+  serializeTagFilter,
+  type TagFilter,
+} from "./tags";
 import { PUBLIC_ID_RE, type MediaIndex, type MediaInfo } from "./types";
 
 /**
@@ -93,20 +98,17 @@ const appendList = (
 };
 
 /**
- * URL for a gallery state: the list (`/` or `/camera/{slug}/`) with the
- * photo open in the overlay as `?photo={id}`, and a date from the calendar,
- * the tag filter and sort order, so closing, reloading or going Back keeps
- * them.
+ * URL of a list: the gallery (`/`) or a camera page (`/camera/{slug}/`),
+ * with a date from the calendar, the tag filter and sort order, so
+ * reloading or going Back keeps them.
  */
 export const galleryUrl = (
-  imageId: string | null,
   filter: TagFilter,
   sort: SortOrder = DEFAULT_SORT,
   camera: string | null = null,
   date: string | null = null,
 ): string => {
   const params = new URLSearchParams();
-  if (imageId !== null) params.set("photo", imageId);
   appendList(params, filter, sort, date);
   return withQuery(camera === null ? "/" : cameraHref(camera), params);
 };
@@ -114,7 +116,8 @@ export const galleryUrl = (
 /**
  * A photo's own page, `/photo/{id}/` (its canonical URL, the one shared),
  * carrying the list it was opened from (`?camera=`, date, tags, sort) so
- * its previous / next and back link follow that list.
+ * its previous / next and back link follow that list. The gallery's
+ * overlay shows the photo at this URL too, so a reload opens its page.
  */
 export const photoPageUrl = (
   imageId: string,
@@ -129,8 +132,42 @@ export const photoPageUrl = (
   return withQuery(`/photo/${imageId}/`, params);
 };
 
-/** The photo open in the overlay (`?photo=`), if it is a public id. */
-export const photoIdFromQuery = (params: URLSearchParams): string | null => {
-  const id = params.get("photo");
-  return id !== null && PUBLIC_ID_RE.test(id) ? id : null;
+/** The photo of a `/photo/{id}/` path (trailing slash optional), if any. */
+export const photoIdFromPath = (pathname: string): string | null => {
+  const match = /^\/photo\/([^/]+)\/?$/.exec(pathname);
+  return match && PUBLIC_ID_RE.test(match[1]) ? match[1] : null;
+};
+
+/** What the gallery shows for a URL. */
+export type GalleryUrlState = {
+  /** The photo open in the overlay, else null. */
+  selectedImageId: string | null;
+  filter: TagFilter;
+  sort: SortOrder;
+  /** Camera slug of the list, else null. */
+  camera: string | null;
+  /** A year, month or day picked in the calendar (`?date=`), else null. */
+  date: string | null;
+};
+
+/**
+ * The gallery state a URL encodes: a list URL (`galleryUrl`), or a photo
+ * URL (`photoPageUrl`) the overlay pushed over one, whose list is in its
+ * query (`?camera=` for a camera page). The calendar leads to the whole
+ * gallery only; a camera's list has no date.
+ */
+export const galleryStateFromUrl = (url: URL): GalleryUrlState => {
+  const params = url.searchParams;
+  const selectedImageId = photoIdFromPath(url.pathname);
+  const camera =
+    selectedImageId === null
+      ? cameraSlugFromPath(url.pathname)
+      : params.get("camera") || null;
+  return {
+    selectedImageId,
+    filter: parseTagFilter(params),
+    sort: parseSort(params),
+    camera,
+    date: camera === null ? dateParam(params) : null,
+  };
 };

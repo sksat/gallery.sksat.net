@@ -1,25 +1,25 @@
-import { component$, $, useComputed$, useStore } from "@builder.io/qwik";
+import {
+  component$,
+  $,
+  useComputed$,
+  useSignal,
+  useStore,
+} from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
 
 import { useGalleryIndex } from "~/routes/layout";
 import { transformMediaInfo, type CameraJSON } from "./types";
 import {
-  dateParam,
+  galleryStateFromUrl,
   galleryUrl,
   neighborIds,
-  photoIdFromQuery,
   photoPageUrl,
   visibleMedia,
+  type GalleryUrlState,
 } from "./logic";
 import { DateHeader } from "./date-header";
 import { SiteNav } from "../layout/site-nav";
-import {
-  cameraHref,
-  cameraLabel,
-  cameraSlug,
-  cameraSlugFromPath,
-  findCamera,
-} from "./cameras";
+import { cameraHref, cameraLabel, cameraSlug, findCamera } from "./cameras";
 import { CameraHeader } from "./camera-header";
 import {
   dimensionsFromFile,
@@ -28,17 +28,10 @@ import {
   srcSet,
 } from "./images";
 import { PhotoOverlay } from "./photo-overlay";
-import {
-  parseSort,
-  SORT_LABELS,
-  sortMedia,
-  type SortKind,
-  type SortOrder,
-} from "./sort";
+import { SORT_LABELS, sortMedia, type SortKind, type SortOrder } from "./sort";
 import {
   DEFAULT_TAG_MODE,
   mediaTags,
-  parseTagFilter,
   tagCounts,
   toggleTag,
   type TagFilter,
@@ -49,16 +42,7 @@ const S3_BASE = import.meta.env.VITE_S3_BASE_URL;
 // Image Worker base (workers/image); unset in dev/tests to use the originals.
 const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
 
-interface GalleryState {
-  /** Public id of the open photo. */
-  selectedImageId: null | string;
-  filter: TagFilter;
-  sort: SortOrder;
-  /** Camera slug on a camera page, else null. */
-  camera: null | string;
-  /** A year, month or day picked in the calendar (`?date=`), else null. */
-  date: null | string;
-}
+type GalleryState = GalleryUrlState;
 
 type GalleryProps = {
   /** The camera of a /camera/<slug>/ page, from its route. */
@@ -82,20 +66,26 @@ const MODE_LABELS: Record<TagMatchMode, string> = {
 };
 
 /**
- * Photo (`?photo=`, open in the overlay), filter, sort order and camera (a
- * `/camera/<slug>/` path) as encoded in a URL.
+ * Marks the history entries the overlay pushed (`history.state`), so
+ * closing it goes back to the list entry under it.
  */
-const stateFromUrl = (url: URL) => ({
-  selectedImageId: photoIdFromQuery(url.searchParams),
-  filter: parseTagFilter(url.searchParams),
-  sort: parseSort(url.searchParams),
-  camera: cameraSlugFromPath(url.pathname),
-  // The calendar leads to the whole gallery only; a camera page has no date.
-  date:
-    cameraSlugFromPath(url.pathname) === null
-      ? dateParam(url.searchParams)
-      : null,
-});
+const OVERLAY_ENTRY = "galleryOverlay";
+
+/** The list's URL (`/` or `/camera/<slug>/` with its query). */
+const listUrl = (s: GalleryState) =>
+  galleryUrl(s.filter, s.sort, s.camera, s.date);
+
+/**
+ * The URL of a photo open over the list: its own page with the list in
+ * its query, so a reload or a shared link opens that page, and Cloudflare
+ * Web Analytics (which records the path, not the query) counts the view.
+ */
+const overlayUrl = (s: GalleryState, imageId: string) =>
+  photoPageUrl(imageId, s.filter, s.sort, s.camera, s.date);
+
+const isOverlayEntry = () =>
+  (window.history.state as Record<string, unknown> | null)?.[OVERLAY_ENTRY] ===
+  true;
 
 /** Keys that act on the focused control rather than on the photo. */
 const isControl = (t: EventTarget | null) =>
@@ -106,7 +96,9 @@ export default component$<GalleryProps>((props) => {
   const location = useLocation();
   // Loaded by the layout for every page (public photos and cameras only).
   const index = useGalleryIndex();
-  const state = useStore<GalleryState>(stateFromUrl(location.url));
+  const state = useStore<GalleryState>(galleryStateFromUrl(location.url));
+  // The photo page to load once the overlay's entry has been left.
+  const pendingPage = useSignal<string | null>(null);
 
   // What to show for the current URL state.
   const view = useComputed$(() => {
@@ -170,49 +162,42 @@ export default component$<GalleryProps>((props) => {
   });
 
   // Filter and sort changes replace the history entry instead of pushing
-  // one, so Back leaves the gallery rather than undoing each click.
+  // one, so Back leaves the gallery rather than undoing each click. They
+  // are behind the overlay, so the list is what is shown.
   const setFilter = $((filter: TagFilter) => {
     state.filter = filter;
-    window.history.replaceState(
-      null,
-      "",
-      galleryUrl(
-        state.selectedImageId,
-        filter,
-        state.sort,
-        state.camera,
-        state.date,
-      ),
-    );
+    window.history.replaceState(null, "", listUrl(state));
   });
 
   const setSort = $((sort: SortOrder) => {
     state.sort = sort;
-    window.history.replaceState(
-      null,
-      "",
-      galleryUrl(
-        state.selectedImageId,
-        state.filter,
-        sort,
-        state.camera,
-        state.date,
-      ),
-    );
+    window.history.replaceState(null, "", listUrl(state));
   });
 
-  const selectImage = $((imageId: null | string) => {
-    if (imageId !== null && state.selectedImageId === null) {
+  // Opening a photo pushes its URL over the list's.
+  const openImage = $((imageId: string) => {
+    if (state.selectedImageId === null) {
       // Clicking an <img> does not move focus, so a chip or AND/OR radio
       // would keep it and react to Space/arrow keys behind the overlay.
       (document.activeElement as HTMLElement | null)?.blur();
     }
     state.selectedImageId = imageId;
     window.history.pushState(
-      null,
+      { [OVERLAY_ENTRY]: true },
       "",
-      galleryUrl(imageId, state.filter, state.sort, state.camera, state.date),
+      overlayUrl(state, imageId),
     );
+  });
+
+  // Closing returns to the list entry the overlay was pushed over, so
+  // Forward reopens the photo and Back leaves the list; an entry the
+  // overlay did not push (none today) is replaced by the list instead.
+  const closeImage = $(() => {
+    // Already closed (a second click before the overlay went away).
+    if (state.selectedImageId === null) return;
+    state.selectedImageId = null;
+    if (isOverlayEntry()) window.history.back();
+    else window.history.replaceState(null, "", listUrl(state));
   });
 
   // A tag in the info panel: close the photo and show the photos with
@@ -224,26 +209,43 @@ export default component$<GalleryProps>((props) => {
     state.filter = filter;
     state.selectedImageId = null;
     state.camera = camera;
-    window.history.pushState(
-      null,
-      "",
-      galleryUrl(null, filter, state.sort, camera),
-    );
+    window.history.pushState(null, "", galleryUrl(filter, state.sort, camera));
   });
 
   // Arrow keys replace the entry, so one Back returns to the list.
   const stepImage = $((imageId: string) => {
     state.selectedImageId = imageId;
     window.history.replaceState(
-      null,
+      { [OVERLAY_ENTRY]: true },
       "",
-      galleryUrl(imageId, state.filter, state.sort, state.camera, state.date),
+      overlayUrl(state, imageId),
     );
   });
 
   // Back/Forward: restore the photo and filter from the URL we pushed.
   const onPopState = $(() => {
-    Object.assign(state, stateFromUrl(new URL(window.location.href)));
+    // Also on the way to the photo page, so a bfcache restore of this
+    // document matches the list entry it comes back to.
+    Object.assign(state, galleryStateFromUrl(new URL(window.location.href)));
+    const page = pendingPage.value;
+    if (page !== null) {
+      pendingPage.value = null;
+      window.location.assign(page);
+    }
+  });
+
+  // The page button and Enter: load the photo's own page, the URL the
+  // overlay is on. Loading the current URL again would be a reload in
+  // Chrome, which keeps this document's entries, so Back from the page
+  // would only change the URL; leave the overlay's entry first and load
+  // the page from the list's, so Back from it returns to the list.
+  const openPage = $((url: string) => {
+    // A second click before the first has left the entry.
+    if (pendingPage.value !== null) return;
+    if (isOverlayEntry()) {
+      pendingPage.value = url;
+      window.history.back();
+    } else window.location.assign(url);
   });
 
   // ←/→ and swipes. A photo opened from a URL may not match the filter;
@@ -283,7 +285,7 @@ export default component$<GalleryProps>((props) => {
     ) {
       // Enter opens the photo's own page (a focused link or button keeps
       // its own Enter).
-      window.location.assign(
+      openPage(
         photoPageUrl(
           current,
           state.filter,
@@ -471,7 +473,7 @@ export default component$<GalleryProps>((props) => {
                   <PhotoOverlay
                     key={selected.id}
                     src={{ id: selected.id, file: selected.file }}
-                    onClose$={() => selectImage(null)}
+                    onClose$={closeImage}
                     info={selected}
                     detailHref={photoPageUrl(
                       selected.id,
@@ -480,9 +482,20 @@ export default component$<GalleryProps>((props) => {
                       camera,
                       state.date,
                     )}
+                    onDetail$={() =>
+                      openPage(
+                        photoPageUrl(
+                          selected.id,
+                          state.filter,
+                          state.sort,
+                          camera,
+                          state.date,
+                        ),
+                      )
+                    }
                     tagLinks={mediaTags(selected).map((tag) => ({
                       tag,
-                      href: galleryUrl(null, tagOnly(tag), state.sort, camera),
+                      href: galleryUrl(tagOnly(tag), state.sort, camera),
                     }))}
                     onTag$={filterByTag}
                     neighbors={view.value.neighbors}
@@ -504,7 +517,7 @@ export default component$<GalleryProps>((props) => {
                       data-testid="gallery-image"
                       class="h-full w-auto min-w-full cursor-pointer object-cover align-bottom"
                       {...dimensionsFromFile(m.value.file)}
-                      onClick$={() => selectImage(m.value.id)}
+                      onClick$={() => openImage(m.value.id)}
                       src={imageUrl(S3_BASE, m.value, IMAGE_BASE, "h240")}
                       srcset={srcSet(
                         S3_BASE,

@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { openInOverlay } from "../open-photo";
+
 test.use({ viewport: { width: 1280, height: 800 } });
 
 /**
@@ -36,7 +38,7 @@ test("home: two tags selected (OR)", async ({ page }) => {
 // The overlay of vrcxxxxxxa (every piece of metadata public), with the
 // full-size image loaded and the info panel settled.
 const openPhoto = async (page: Page) => {
-  await page.goto("/?photo=vrcxxxxxxa");
+  await openInOverlay(page, "vrcxxxxxxa");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible({ timeout: 10000 });
   // Wait until the full-size image (stacked over the thumbnail) has loaded.
@@ -85,7 +87,7 @@ test("photo page", async ({ page }) => {
   await expect(page).toHaveScreenshot("photo-page.png", { fullPage: true });
 });
 
-test("photo overlay: direct navigation (summary)", async ({ page }) => {
+test("photo overlay: summary", async ({ page }) => {
   await openPhoto(page);
   await settled(page);
   await expect(page).toHaveScreenshot("photo-1.png");

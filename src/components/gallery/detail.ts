@@ -62,7 +62,7 @@ export const photoContext = (
     sort,
     camera,
     date,
-    backHref: galleryUrl(null, filter, sort, camera, date),
+    backHref: galleryUrl(filter, sort, camera, date),
     prevHref: href(around.prev),
     nextHref: href(around.next),
   };

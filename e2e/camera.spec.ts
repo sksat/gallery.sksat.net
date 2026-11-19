@@ -78,13 +78,13 @@ test("camera: photos open and close within the camera page", async ({
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible();
   await expect(page).toHaveURL(
-    /\/camera\/virtuallens2\/\?photo=vrcxxxxxxc$/,
+    /\/photo\/vrcxxxxxxc\/\?camera=virtuallens2$/,
   );
 
   // Arrow keys stay within the camera's photos, skipping the others.
   await page.keyboard.press("ArrowRight");
   await expect(page).toHaveURL(
-    /\/camera\/virtuallens2\/\?photo=vrcxxxxxxa$/,
+    /\/photo\/vrcxxxxxxa\/\?camera=virtuallens2$/,
   );
 
   await overlay.click({ position: { x: 5, y: 5 } });
@@ -92,13 +92,23 @@ test("camera: photos open and close within the camera page", async ({
   await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
   await expect(images).toHaveCount(2);
 
-  // A reloaded overlay URL keeps the camera page.
-  await page.goto("/camera/virtuallens2/?photo=vrcxxxxxxc");
-  await expect(overlay).toBeVisible({ timeout: 10000 });
+  // Forward reopens the photo over the camera page, and closing returns to
+  // that page again.
+  await page.goForward();
+  await expect(overlay).toBeVisible();
+  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/\?camera=virtuallens2$/);
   await expect(page.getByTestId("camera-header")).toContainText(
     "VirtualLens2",
   );
-  await expect(images).toHaveCount(2);
+  await overlay.click({ position: { x: 5, y: 5 } });
+  await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
+
+  // A reloaded overlay URL is the photo's page, back to the camera.
+  await page.goto("/photo/vrcxxxxxxc/?camera=virtuallens2");
+  await expect(page.getByTestId("back-link")).toHaveAttribute(
+    "href",
+    "/camera/virtuallens2/",
+  );
 });
 
 test("camera: the sort order works on a camera page", async ({ page }) => {
@@ -112,7 +122,7 @@ test("camera: the sort order works on a camera page", async ({ page }) => {
   await expect(images.first()).toHaveAttribute("src", /vrchat1\.png$/);
   await images.first().dispatchEvent("click");
   await expect(page).toHaveURL(
-    /\/camera\/virtuallens2\/\?photo=vrcxxxxxxa&sort=old$/,
+    /\/photo\/vrcxxxxxxa\/\?camera=virtuallens2&sort=old$/,
   );
 });
 

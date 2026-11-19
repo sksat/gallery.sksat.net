@@ -4,7 +4,8 @@ import {
   galleryUrl,
   navigateImage,
   neighborIds,
-  photoIdFromQuery,
+  galleryStateFromUrl,
+  photoIdFromPath,
   photoPageUrl,
   visibleMedia,
 } from "./logic";
@@ -66,57 +67,39 @@ describe("navigateImage", () => {
 
 describe("galleryUrl", () => {
   const none = { tags: [], mode: "and" as const };
-  const id = "abcdefghjk";
 
-  it("returns / with no photo and no filter", () => {
-    expect(galleryUrl(null, none)).toBe("/");
-  });
-
-  it("opens a photo in the overlay with ?photo=", () => {
-    expect(galleryUrl(id, none)).toBe(`/?photo=${id}`);
+  it("returns / with no filter", () => {
+    expect(galleryUrl(none)).toBe("/");
   });
 
   it("keeps the tag filter in the query", () => {
     const filter = { tags: ["VRChat", "film"], mode: "or" as const };
-    expect(galleryUrl(null, filter)).toBe("/?tag=VRChat&tag=film&mode=or");
-    expect(galleryUrl(id, filter)).toBe(
-      `/?photo=${id}&tag=VRChat&tag=film&mode=or`,
-    );
+    expect(galleryUrl(filter)).toBe("/?tag=VRChat&tag=film&mode=or");
   });
 
   it("encodes tags", () => {
-    expect(galleryUrl(null, { tags: ["夜 景&"], mode: "and" })).toBe(
+    expect(galleryUrl({ tags: ["夜 景&"], mode: "and" })).toBe(
       "/?tag=%E5%A4%9C+%E6%99%AF%26",
     );
   });
 
   it("appends a non-default sort order after the filter", () => {
-    expect(galleryUrl(null, none, { kind: "old", seed: 0 })).toBe("/?sort=old");
+    expect(galleryUrl(none, { kind: "old", seed: 0 })).toBe("/?sort=old");
     expect(
-      galleryUrl(
-        id,
-        { tags: ["VRChat"], mode: "and" },
-        { kind: "random", seed: 7 },
-      ),
-    ).toBe(`/?photo=${id}&tag=VRChat&sort=random&seed=7`);
-    expect(galleryUrl(null, none, { kind: "new", seed: 0 })).toBe("/");
+      galleryUrl({ tags: ["VRChat"], mode: "and" }, { kind: "random", seed: 7 }),
+    ).toBe(`/?tag=VRChat&sort=random&seed=7`);
+    expect(galleryUrl(none, { kind: "new", seed: 0 })).toBe("/");
   });
 
-  it("stays on the camera page with a photo open", () => {
+  it("is the camera page for a camera", () => {
     const newest = { kind: "new" as const, seed: 0 };
-    expect(galleryUrl(null, none, newest, "virtuallens2")).toBe(
+    expect(galleryUrl(none, newest, "virtuallens2")).toBe(
       "/camera/virtuallens2/",
-    );
-    expect(galleryUrl(id, none, newest, "virtuallens2")).toBe(
-      `/camera/virtuallens2/?photo=${id}`,
     );
     const filter = { tags: ["VRChat"], mode: "and" as const };
     const oldest = { kind: "old" as const, seed: 0 };
-    expect(galleryUrl(null, filter, oldest, "virtuallens2")).toBe(
+    expect(galleryUrl(filter, oldest, "virtuallens2")).toBe(
       "/camera/virtuallens2/?tag=VRChat&sort=old",
-    );
-    expect(galleryUrl(id, filter, oldest, "virtuallens2")).toBe(
-      `/camera/virtuallens2/?photo=${id}&tag=VRChat&sort=old`,
     );
   });
 });
@@ -142,17 +125,78 @@ describe("photoPageUrl", () => {
   });
 });
 
-describe("photoIdFromQuery", () => {
-  it("reads a public id from ?photo=", () => {
-    expect(photoIdFromQuery(new URLSearchParams("photo=abcdefghjk"))).toBe(
-      "abcdefghjk",
-    );
+describe("photoIdFromPath", () => {
+  it("reads a public id from /photo/{id}/", () => {
+    expect(photoIdFromPath("/photo/abcdefghjk/")).toBe("abcdefghjk");
+    expect(photoIdFromPath("/photo/abcdefghjk")).toBe("abcdefghjk");
   });
 
   it("ignores anything else", () => {
-    expect(photoIdFromQuery(new URLSearchParams(""))).toBeNull();
-    expect(photoIdFromQuery(new URLSearchParams("photo=3"))).toBeNull();
-    expect(photoIdFromQuery(new URLSearchParams("photo=abcdefghjo"))).toBeNull();
+    expect(photoIdFromPath("/")).toBeNull();
+    expect(photoIdFromPath("/photo/3/")).toBeNull();
+    expect(photoIdFromPath("/photo/abcdefghjo/")).toBeNull();
+    expect(photoIdFromPath("/photo/abcdefghjk/x/")).toBeNull();
+    expect(photoIdFromPath("/camera/abcdefghjk/")).toBeNull();
+  });
+});
+
+describe("galleryStateFromUrl", () => {
+  const at = (path: string) =>
+    galleryStateFromUrl(new URL(path, "https://example.com"));
+  const none = { tags: [], mode: "and" };
+  const newest = { kind: "new", seed: 0 };
+
+  it("reads a list URL", () => {
+    expect(at("/?tag=night&sort=old&date=2023-12")).toEqual({
+      selectedImageId: null,
+      filter: { tags: ["night"], mode: "and" },
+      sort: { kind: "old", seed: 0 },
+      camera: null,
+      date: "2023-12",
+    });
+    expect(at("/camera/virtuallens2/?date=2023-12")).toEqual({
+      selectedImageId: null,
+      filter: none,
+      sort: newest,
+      camera: "virtuallens2",
+      date: null,
+    });
+  });
+
+  it("ignores the old ?photo= on a list", () => {
+    expect(at("/?photo=abcdefghjk").selectedImageId).toBeNull();
+  });
+
+  it("reads the overlay's photo URL back to the photo and its list", () => {
+    const filter = { tags: ["VRChat"], mode: "or" as const };
+    const random = { kind: "random" as const, seed: 3 };
+    expect(
+      at(photoPageUrl("abcdefghjk", filter, random, null, "2023-12-04")),
+    ).toEqual({
+      selectedImageId: "abcdefghjk",
+      filter,
+      sort: random,
+      camera: null,
+      date: "2023-12-04",
+    });
+    expect(
+      at(photoPageUrl("abcdefghjk", filter, random, "virtuallens2")),
+    ).toEqual({
+      selectedImageId: "abcdefghjk",
+      filter,
+      sort: random,
+      camera: "virtuallens2",
+      date: null,
+    });
+  });
+
+  it("goes back to the list the photo was opened over", () => {
+    const filter = { tags: ["night"], mode: "and" as const };
+    const sort = { kind: "old" as const, seed: 0 };
+    const state = at(photoPageUrl("abcdefghjk", filter, sort, "virtuallens2"));
+    expect(
+      galleryUrl(state.filter, state.sort, state.camera, state.date),
+    ).toBe(galleryUrl(filter, sort, "virtuallens2"));
   });
 });
 
@@ -223,19 +267,13 @@ describe("visibleMedia", () => {
 
 describe("galleryUrl with a date", () => {
   const none = { tags: [], mode: "and" as const };
-  it("keeps ?date= on the gallery and on a photo", () => {
-    expect(galleryUrl(null, none, undefined, null, "2023-12-04")).toBe(
+  it("keeps ?date= on the gallery", () => {
+    expect(galleryUrl(none, undefined, null, "2023-12-04")).toBe(
       "/?date=2023-12-04",
     );
     expect(
-      galleryUrl(
-        "abcdefghjk",
-        { tags: ["night"], mode: "and" },
-        undefined,
-        null,
-        "2023-12",
-      ),
-    ).toBe("/?photo=abcdefghjk&date=2023-12&tag=night");
+      galleryUrl({ tags: ["night"], mode: "and" }, undefined, null, "2023-12"),
+    ).toBe("/?date=2023-12&tag=night");
   });
 
   it("keeps it on the photo's page", () => {

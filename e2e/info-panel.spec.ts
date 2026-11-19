@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { openInOverlay } from "./open-photo";
+
 // Test data: e2e/fixture.sql. The info panel shows what the API returns
 // for each photo's metadata levels, and nothing else:
 //   vrcxxxxxxa everything (second, camera page, world link, all EXIF; no
@@ -11,10 +13,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 const panel = (page: Page) => page.getByTestId("info-panel");
 
-const openPhoto = async (page: Page, id: string) => {
-  await page.goto(`/?photo=${id}`);
-  await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
-};
+const openPhoto = openInOverlay;
 
 /** Open the panel with its ⓘ button (it starts closed everywhere). */
 const openInfo = async (page: Page) => {
@@ -152,17 +151,19 @@ test.describe("desktop", () => {
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(p).not.toBeInViewport();
 
-    // Not remembered: a reload starts closed again.
+    // Not remembered: reopening the photo starts closed again.
     await page.keyboard.press("i");
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await page.reload();
+    await page.getByTestId("overlay").click({ position: { x: 5, y: 400 } });
+    await expect(page.getByTestId("overlay")).toHaveCount(0);
+    await page.getByTestId("gallery-image").nth(3).dispatchEvent("click");
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
       "false",
     );
     await page.keyboard.press("ArrowRight");
     // Newest first: vrcxxxxxxa is followed by reaxxxxxxa, also closed.
-    await expect(page).toHaveURL(/\?photo=reaxxxxxxa/);
+    await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\//);
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
       "false",
@@ -190,7 +191,7 @@ test.describe("desktop", () => {
     );
     // Arrows still browse; a click outside still closes.
     await page.keyboard.press("ArrowLeft");
-    await expect(page).toHaveURL(/\?photo=vrcxxxxxxa/);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\//);
     await page.getByTestId("overlay").click({ position: { x: 5, y: 400 } });
     await expect(page.getByTestId("overlay")).toHaveCount(0);
   });
@@ -198,7 +199,7 @@ test.describe("desktop", () => {
   test("a tag filters the gallery", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("gallery-image").nth(1).dispatchEvent("click");
-    await expect(page).toHaveURL(/\?photo=vrcxxxxxxb$/);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/$/);
     await openInfo(page);
     const night = panel(page).getByTestId("info-tag").filter({ hasText: "night" });
     await expect(night).toHaveAttribute("href", "/?tag=night");
@@ -208,13 +209,16 @@ test.describe("desktop", () => {
     await expect(page.getByTestId("gallery-image")).toHaveCount(2);
     // Back returns to the photo.
     await page.goBack();
-    await expect(page).toHaveURL(/\?photo=vrcxxxxxxb$/);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/$/);
     await expect(page.getByTestId("overlay")).toBeVisible();
   });
 
-  test("is in the server-rendered page", async ({ request }) => {
-    const html = await (await request.get("/?photo=vrcxxxxxxa")).text();
-    expect(html).toContain('data-testid="info-panel"');
+  test("is in the server-rendered page of the overlay's URL", async ({
+    request,
+  }) => {
+    // A reload of an open photo loads its page, with the same facts.
+    const html = await (await request.get("/photo/vrcxxxxxxa/")).text();
+    expect(html).toContain('data-testid="info-exposure"');
     expect(html).toContain("f/2.8 · 1/250 s · ISO 100 · 35 mm");
     expect(html).toContain("Fixture World");
     expect(html).toContain("2023/12/02 00:00");
