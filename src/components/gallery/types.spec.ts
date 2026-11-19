@@ -49,6 +49,8 @@ const item: MediaInfoJSON = {
   file: "/media/test.jpg",
   path: null,
   platform: "Real",
+  platform_name: "Real",
+  platform_kind: "real",
   name: null,
   timestamp: "2023-12-01T00:00:00Z",
   timestamp_precision: null,
@@ -188,6 +190,29 @@ describe("parseMediaItem", () => {
     ).toBeNull();
   });
 
+  it("takes any platform, shown by its name", () => {
+    expect(
+      parseMediaItem({
+        ...item,
+        platform: "Neos-VR",
+        platform_name: "Neos VR",
+        platform_kind: "virtual",
+      }),
+    ).toMatchObject({
+      platform: "Neos-VR",
+      platform_name: "Neos VR",
+      platform_kind: "virtual",
+    });
+    // Without a name: the key.
+    const bare: Record<string, unknown> = { ...item, platform: "Resonite" };
+    delete bare.platform_name;
+    delete bare.platform_kind;
+    expect(parseMediaItem(bare)).toMatchObject({
+      platform_name: "Resonite",
+      platform_kind: undefined,
+    });
+  });
+
   it("needs platform (no old name)", () => {
     const old: Record<string, unknown> = { ...item, world: "Real" };
     delete old.platform;
@@ -207,7 +232,8 @@ describe("parseMediaItem", () => {
     expect(parseMediaItem({ ...item, id: "abcdefghjo" })).toBeNull();
     expect(parseMediaItem({ ...item, file: "/a/../b.png" })).toBeNull();
     expect(parseMediaItem({ ...item, file: "https://x/a.png" })).toBeNull();
-    expect(parseMediaItem({ ...item, platform: "Mars" })).toBeNull();
+    expect(parseMediaItem({ ...item, platform: "" })).toBeNull();
+    expect(parseMediaItem({ ...item, platform: 1 })).toBeNull();
     expect(parseMediaItem(null)).toBeNull();
   });
 
@@ -315,11 +341,12 @@ describe("parseLocation", () => {
       tags: [],
     };
     expect(parseMediaItem(base)?.location).toBeNull();
-    // Never for a VRChat photo, whatever the API says.
+    // Never for a photo on a virtual platform, whatever the API says.
     expect(
       parseMediaItem({
         ...base,
-        platform: "VRChat",
+        platform: "Neos-VR",
+        platform_kind: "virtual",
         location: { latitude: 35, longitude: 139, precision: "exact" },
       })?.location,
     ).toBeNull();

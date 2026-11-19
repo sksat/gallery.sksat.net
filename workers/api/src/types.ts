@@ -50,8 +50,15 @@ export type MediaItemJSON = {
   path: string | null;
   /** The file name without its folder, at "path" or "name". */
   name: string | null;
-  /** Where the photo was taken (admin media.platform). */
-  platform: "Real" | "VRChat";
+  /**
+   * Where the photo was taken: the key of the admin's `platform` row
+   * (media.platform; "Real", "VRChat", …), fixed once added.
+   */
+  platform: string;
+  /** Its name as the site shows it (the owner may rename it). */
+  platform_name: string;
+  /** "virtual" (VRChat, …): no real-world `location`, ever. */
+  platform_kind: PlatformKind;
   /** ISO 8601 in the photo's own offset, cut to `timestamp_precision`. */
   timestamp: string | null;
   timestamp_precision: TimestampPrecision | null;
@@ -98,6 +105,9 @@ export type MediaItemJSON = {
    */
   tag_fields: PublicTagField[];
 };
+
+/** A platform's kind (admin migration 0014). */
+export type PlatformKind = "real" | "virtual";
 
 export type CameraKind = "digital" | "film" | "phone" | "virtual" | "scanner";
 

@@ -1347,3 +1347,143 @@ describe("0013_media_file.sql", () => {
     expect(row.path).toBe("/n.png");
   });
 });
+
+describe("0014_platform.sql", () => {
+  const files = readdirSync(resolve(__dirname, "../../migrations"))
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  /** Indexes and triggers on media, as SQL. */
+  const schema = (db: DatabaseSync) =>
+    Object.fromEntries(
+      (
+        db
+          .prepare(
+            "SELECT name, sql FROM sqlite_master WHERE tbl_name = 'media' AND type IN ('index', 'trigger') AND sql IS NOT NULL ORDER BY name",
+          )
+          .all() as { name: string; sql: string }[]
+      ).map((r) => [r.name, r.sql]),
+    );
+  /** Every migration before 0014, these rows, then 0014. */
+  const migrate14 = (insert: string) => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    for (const f of files.filter((f) => f < "0014")) db.exec(migration(f));
+    db.exec(insert);
+    const rows = db.prepare("SELECT * FROM media ORDER BY id").all();
+    const before = schema(db);
+    db.exec(migration("0014_platform.sql"));
+    return { db, rows, before };
+  };
+  const ROWS = `INSERT INTO media (id, file, platform, visibility, timestamp, tags) VALUES
+    (1, '/2022/neos.png', 'Real', 'public', '2022-05-01T10:00:00+09:00', '["a"]'),
+    (2, '/VRChat/v.png', 'VRChat', 'private', '2023-12-01T00:00:00+09:00', '[]'),
+    (3, '/r.jpg', 'Real', 'unlisted', NULL, '[]');
+    UPDATE media SET trashed_at = '2026-01-01T00:00:00Z' WHERE id = 3;`;
+
+  it("keeps every row, public id and value", () => {
+    const { db, rows } = migrate14(ROWS);
+    expect(rows).toHaveLength(3);
+    expect(db.prepare("SELECT * FROM media ORDER BY id").all()).toEqual(rows);
+  });
+
+  it("seeds Real and VRChat", () => {
+    const { db } = migrate14(ROWS);
+    expect(
+      db.prepare("SELECT key, name, kind, position FROM platform").all(),
+    ).toEqual([
+      { key: "Real", name: "Real", kind: "real", position: 0 },
+      { key: "VRChat", name: "VRChat", kind: "virtual", position: 1 },
+    ]);
+  });
+
+  it("keeps the indexes and triggers exactly, and adds the NOT NULL ones", () => {
+    const { db, before } = migrate14(ROWS);
+    const after = schema(db);
+    expect(Object.keys(after).sort()).toEqual(
+      [
+        ...Object.keys(before),
+        "media_platform_required_insert",
+        "media_platform_required_update",
+      ].sort(),
+    );
+    for (const [name, sql] of Object.entries(before)) {
+      expect(after[name], name).toBe(sql);
+    }
+  });
+
+  it("takes any platform in the table, and only those", () => {
+    const { db } = migrate14(ROWS);
+    expect(() =>
+      db.exec("INSERT INTO media (file, platform) VALUES ('/m.png', 'Mars')"),
+    ).toThrow(/FOREIGN KEY/);
+    expect(() => db.exec("INSERT INTO media (file) VALUES ('/m.png')")).toThrow(
+      /NOT NULL/,
+    );
+    expect(() =>
+      db.exec("UPDATE media SET platform = NULL WHERE id = 1"),
+    ).toThrow(/NOT NULL/);
+    db.exec(
+      "INSERT INTO platform (key, name, kind, position) VALUES ('Neos-VR', 'Neos VR', 'virtual', 2)",
+    );
+    db.exec("UPDATE media SET platform = 'Neos-VR' WHERE id = 1");
+    // The triggers of 0003 and 0005 still work.
+    db.exec("INSERT INTO media (file, platform) VALUES ('/n.png', 'Neos-VR')");
+    expect(
+      db
+        .prepare(
+          "SELECT path, length(public_id) AS n FROM media WHERE file = '/n.png'",
+        )
+        .get(),
+    ).toEqual({ path: "/n.png", n: 10 });
+    expect(() =>
+      db.exec("UPDATE media SET public_id = 'zzzzzzzzzz' WHERE id = 1"),
+    ).toThrow(/cannot be changed/);
+    // In use: not deleted.
+    expect(() =>
+      db.exec("DELETE FROM platform WHERE key = 'Neos-VR'"),
+    ).toThrow(/FOREIGN KEY/);
+  });
+
+  it("refuses malformed keys, names and kinds", () => {
+    const { db } = migrate14("");
+    for (const [key, name, kind] of [
+      ["Neos VR", "a", "virtual"],
+      ["-x", "b", "virtual"],
+      ["ok", " c", "virtual"],
+      ["ok", "", "virtual"],
+      ["ok", "d", "space"],
+    ]) {
+      expect(
+        () =>
+          db
+            .prepare(
+              "INSERT INTO platform (key, name, kind, position) VALUES (?, ?, ?, 9)",
+            )
+            .run(key, name, kind),
+        `${key} ${name} ${kind}`,
+      ).toThrow(/CHECK/);
+    }
+    expect(() =>
+      db.exec(
+        "INSERT INTO platform (key, name, kind, position) VALUES ('v2', 'vrchat', 'virtual', 9)",
+      ),
+    ).toThrow(/UNIQUE/);
+  });
+
+  it("keeps a filtered list on idx_media_live_timestamp", () => {
+    const { db } = migrate14(ROWS);
+    const plan = (
+      db
+        .prepare(
+          `EXPLAIN QUERY PLAN SELECT id FROM media
+           WHERE status = 'ready' AND trashed_at IS NULL AND platform = ?
+           ORDER BY timestamp DESC, id DESC LIMIT 50`,
+        )
+        .all("VRChat") as { detail: string }[]
+    )
+      .map((r) => r.detail)
+      .join("\n");
+    expect(plan).toContain("idx_media_live_timestamp");
+    expect(plan).not.toContain("TEMP B-TREE");
+  });
+});

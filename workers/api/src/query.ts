@@ -34,6 +34,7 @@ import type {
   CameraKind,
   MediaCameraJSON,
   MediaItemJSON,
+  PlatformKind,
 } from "./types";
 
 /** media joined with its camera's names. */
@@ -109,6 +110,8 @@ export type Context = {
   tagFields?: readonly TagFieldDef[];
   /** Tags each camera passes on to its photos (0011), by camera id. */
   cameraTags?: ReadonlyMap<number, readonly string[]>;
+  /** The admin's `platform` table (0014) by key. */
+  platforms: ReadonlyMap<string, { name: string; kind: PlatformKind }>;
 };
 
 const MEDIA_SELECT = `
@@ -248,13 +251,16 @@ const contextStatements = (db: D1Database, withFields = true) => [
      WHERE ct.propagate = 1 AND t.public = 1
      ORDER BY ct.camera_id, ct.position, ct.tag`,
   ),
+  // The platforms (0014; a few rows: read whole rather than joined to
+  // every photo).
+  db.prepare("SELECT key, name, kind FROM platform"),
 ];
 
 /** How many results of a batch contextStatements makes. */
-const CONTEXT_SIZE = 4;
+const CONTEXT_SIZE = 5;
 
 const toContext = (results: readonly D1Result<unknown>[]): Context => {
-  const [settings, tags, fields, cameraTags] = results;
+  const [settings, tags, fields, cameraTags, platforms] = results;
   const rows = (settings.results ?? []) as { key: string; value: string }[];
   const value = (key: string) => rows.find((r) => r.key === key)?.value;
   const byCamera = new Map<number, string[]>();
@@ -275,8 +281,31 @@ const toContext = (results: readonly D1Result<unknown>[]): Context => {
       .map(rowToDef)
       .filter((d): d is TagFieldDef => d !== null),
     cameraTags: byCamera,
+    platforms: new Map(
+      (
+        (platforms.results ?? []) as {
+          key: string;
+          name: string;
+          kind: string;
+        }[]
+      ).map((p) => [
+        p.key,
+        { name: p.name, kind: p.kind === "real" ? "real" : "virtual" },
+      ]),
+    ),
   };
 };
+
+/**
+ * A photo's platform: its row, or for a key with none (cannot happen while
+ * media.platform REFERENCES platform) the key as its name and virtual, so
+ * no position is shown.
+ */
+const platformOf = (
+  ctx: Context,
+  key: string,
+): { name: string; kind: PlatformKind } =>
+  ctx.platforms.get(key) ?? { name: key, kind: "virtual" };
 
 type JoinedCamera = {
   slug: string | null | undefined;
@@ -360,6 +389,7 @@ export const projectPhoto = (
           row.camera_id == null ? [] : ctx.cameraTags?.get(row.camera_id),
         ).filter((t) => ctx.publicTags.has(t))
       : [];
+  const platform = platformOf(ctx, row.platform);
   return {
     id: row.public_id,
     file:
@@ -368,7 +398,9 @@ export const projectPhoto = (
         : null,
     path: levels.file_name === "path" ? path : null,
     name: levels.file_name === "hidden" ? null : name,
-    platform: row.platform === "VRChat" ? "VRChat" : "Real",
+    platform: row.platform,
+    platform_name: platform.name,
+    platform_kind: platform.kind,
     timestamp,
     timestamp_precision:
       timestamp === null || levels.taken_at === "hidden"
@@ -393,10 +425,11 @@ export const projectPhoto = (
       levels.digitizer,
     ),
     ...digitizedAt(row.digitized_at ?? null, levels.digitized_at),
-    // A VRChat photo was taken in a world, not at a real-world place: a
-    // position on one (a mistake, or the player's own GPS) is never public.
+    // A photo on a virtual platform (VRChat, …) was taken in a world, not
+    // at a real-world place: a position on one (a mistake, or the player's
+    // own GPS) is never public.
     location:
-      row.platform === "VRChat"
+      platform.kind !== "real"
         ? null
         : locationAt(row.latitude, row.longitude, levels.location),
     world: worldAt(row.world_id, row.world_name, levels.world),

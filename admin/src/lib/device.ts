@@ -13,6 +13,7 @@
 // registered by hand).
 
 import { type ExifJSON, type FileExifJSON, isScanner } from "./photo-meta";
+import { VRCHAT } from "./platform";
 import type { MediaPlatform } from "./types";
 
 export type CameraKind = "digital" | "phone" | "scanner";
@@ -100,6 +101,8 @@ export const deviceOf = (
     fileExif?: FileExifJSON | null;
   },
   platform: MediaPlatform | string | null,
+  /** Keys of the virtual platforms (VRChat's alone unless read from D1). */
+  virtualPlatforms: ReadonlySet<string> = new Set([VRCHAT]),
 ): Device | null => {
   const file = meta.fileExif;
   if (isScanner(file?.make, file?.model)) {
@@ -126,7 +129,9 @@ export const deviceOf = (
     rawModel,
     ...normalizeDevice(rawMake, rawModel),
     kind: cameraKind(rawMake, rawModel),
-    create: platform !== "VRChat",
+    // A virtual platform's cameras (VRChat's VirtualLens2, …) are
+    // registered by hand.
+    create: platform === null || !virtualPlatforms.has(platform),
   };
 };
 

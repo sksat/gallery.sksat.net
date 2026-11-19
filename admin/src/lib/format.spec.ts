@@ -19,7 +19,10 @@ describe("platformParam", () => {
     const p = (q: string) => platformParam(new URLSearchParams(q));
     expect(p("platform=VRChat")).toBe("VRChat");
     expect(p("world=Real")).toBeNull();
-    expect(p("platform=Mars")).toBeNull();
+    // Any platform key (0014); a malformed one is no filter.
+    expect(p("platform=Neos-VR")).toBe("Neos-VR");
+    expect(p("platform=../x")).toBeNull();
+    expect(p("platform=Neos%20VR")).toBeNull();
     expect(p("")).toBeNull();
   });
 });

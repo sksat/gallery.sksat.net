@@ -8,12 +8,26 @@ import { openInOverlay } from "./open-photo";
 //   vrcxxxxxxa VRChat [VRChat]        2023-12-02
 //   reaxxxxxxb Real   [night]         2023-12-03
 //   vrcxxxxxxb VRChat [VRChat, night] 2023-12-04
-//   vrcxxxxxxc VRChat [VRChat]        2023-12-05
+//   vrcxxxxxxc Neos VR [VRChat]       2023-12-05
 // plus unxxxxxxxx (unlisted) and pvxxxxxxxx (private), which must never
 // show up in the grid, the tag counts or the arrow-key order.
 
 const chip = (page: Page, tag: string) =>
   page.getByTestId("tag-chip").filter({ hasText: new RegExp(`^${tag}\\d+$`) });
+
+test("gallery: a platform the owner added is a tag by its name", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const images = page.getByTestId("gallery-image");
+  await expect(images.first()).toBeVisible({ timeout: 10000 });
+  await expect(chip(page, "Neos VR")).toHaveText(/^Neos VR1$/);
+  await chip(page, "Neos VR").click();
+  await expect(images).toHaveCount(1);
+  await expect(page).toHaveURL(/\/\?tag=Neos(\+|%20)VR$/);
+  await images.first().dispatchEvent("click");
+  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\//);
+});
 
 test("gallery: filter by tags with AND / OR", async ({ page }) => {
   await page.goto("/");

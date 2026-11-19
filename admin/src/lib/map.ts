@@ -64,7 +64,8 @@ export type LocatedPhoto = {
   id: number;
   file: string;
   path: string;
-  platform: "Real" | "VRChat";
+  /** A platform key. */
+  platform: string;
   visibility: Visibility;
   timestamp: string | null;
   latitude: number;
@@ -84,7 +85,6 @@ export const listLocatedPhotos = async (
     .all<LocatedPhoto>();
   return (res.results ?? []).map((r) => ({
     ...r,
-    platform: r.platform === "VRChat" ? "VRChat" : "Real",
     visibility: isVisibility(r.visibility) ? r.visibility : "private",
   }));
 };

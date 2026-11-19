@@ -201,6 +201,19 @@ export const backfillBatch = async (
     ).results ?? []) as ClaimedRow[]
   ).sort((a, b) => a.id - b.id);
 
+  // Photos on a virtual platform never get a new camera row (device.ts).
+  const virtualPlatforms = new Set(
+    claimed.length === 0
+      ? []
+      : (
+          (
+            await db
+              .prepare("SELECT key FROM platform WHERE kind = 'virtual'")
+              .all<{ key: string }>()
+          ).results ?? []
+        ).map((r) => r.key),
+  );
+
   const errors: string[] = [];
   const results = await Promise.all(
     claimed.map(async (row) => {
@@ -264,6 +277,7 @@ export const backfillBatch = async (
     const device = deviceOf(
       { exif: normalizeExif(parseJson(next.exif)), fileExif: reading.fileExif },
       row.platform,
+      virtualPlatforms,
     );
     const update = db
       .prepare(

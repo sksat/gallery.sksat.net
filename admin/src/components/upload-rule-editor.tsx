@@ -12,7 +12,9 @@ import {
   LEVEL_LABELS,
   METADATA_LEVELS,
 } from "~/lib/metadata";
-import { PLATFORMS, VISIBILITIES } from "~/lib/types";
+import { platformOf, VRCHAT } from "~/lib/platform";
+import { VISIBILITIES } from "~/lib/types";
+import { usePlatformList } from "~/routes/layout";
 import {
   EXTENSIONS,
   NAME_PRESETS,
@@ -179,6 +181,7 @@ export const UploadRuleEditor = component$<Props>(
       ref.value?.showModal();
     });
 
+    const platforms = usePlatformList().value;
     const d = draft.value;
     const conds = Object.keys(d.conditions) as CondKey[];
     const acts = Object.keys(d.actions) as ActionKey[];
@@ -359,10 +362,13 @@ export const UploadRuleEditor = component$<Props>(
             <Choice
               name={id}
               legend="Platform"
-              options={PLATFORMS.map((p) => ({ value: p, label: p }))}
+              options={platforms.map((p) => ({ value: p.key, label: p.name }))}
               value={a.platform!}
               onPick$={$((v: string) => setAction("platform", v))}
-              styleOf={(p) => platformBadge(p) + " h-11! rounded-lg! px-3!"}
+              styleOf={(p) =>
+                platformBadge(platformOf(platforms, p).kind) +
+                " h-11! rounded-lg! px-3!"
+              }
             />
           );
           break;
@@ -593,7 +599,7 @@ export const UploadRuleEditor = component$<Props>(
                   el.value = "";
                   if (!k) return;
                   const initial: Record<ActionKey, unknown> = {
-                    platform: "VRChat",
+                    platform: VRCHAT,
                     cameraId: cameras[0]?.id,
                     tags: [],
                     visibility: "private",

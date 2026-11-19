@@ -5,6 +5,7 @@ import {
   type QRL,
   type Signal,
 } from "@builder.io/qwik";
+import type { PlatformKind } from "~/lib/platform";
 import { Thumb } from "./thumb";
 import { buttonSecondary, card, muted, platformBadge } from "./ui";
 
@@ -20,6 +21,8 @@ export type Choice = {
   /** A picture (a bucket path), "none" for a crossed-out icon, "badge"
    *  for the label in a platform badge, or nothing for a blank square. */
   image?: string | "none" | "badge" | null;
+  /** The badge's colour (a platform's kind). */
+  kind?: PlatformKind;
 };
 
 type Props = {
@@ -150,7 +153,9 @@ export const ChoicePicker = component$<Props>(
                     <span class="size-10 shrink-0 rounded-md bg-zinc-100 dark:bg-zinc-800" />
                   )}
                   {c.image === "badge" ? (
-                    <span class={platformBadge(c.label)}>{c.label}</span>
+                    <span class={platformBadge(c.kind ?? "real")}>
+                      {c.label}
+                    </span>
                   ) : (
                     <span class="truncate">{c.label}</span>
                   )}

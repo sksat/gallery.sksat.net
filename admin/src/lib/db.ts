@@ -13,7 +13,6 @@ import {
   type MediaPatch,
   type MediaRow,
   type MediaPlatform,
-  isPlatform,
   isVisibility,
   LIVE_PHOTO,
   type Visibility,
@@ -81,9 +80,7 @@ const parseTags = (raw: string): string[] => {
 };
 
 export const rowToMedia = (raw: RawRow): MediaRow => {
-  if (!isPlatform(raw.platform)) {
-    throw new Error(`unknown platform value in DB: ${raw.platform}`);
-  }
+  // media.platform REFERENCES platform (0014): any key there.
   if (!isVisibility(raw.visibility)) {
     throw new Error(`unknown visibility value in DB: ${raw.visibility}`);
   }

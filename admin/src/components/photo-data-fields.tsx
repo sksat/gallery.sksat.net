@@ -10,6 +10,7 @@ import {
   rowFormValues,
   worldUrl,
 } from "~/lib/photo-data";
+import { hasRealPlace, type PlatformKind } from "~/lib/platform";
 import type { MediaRow } from "~/lib/types";
 import { LevelSelect } from "./level-select";
 import { LocationPicker } from "./location-picker";
@@ -131,10 +132,13 @@ const None = () => <span class={muted}>なし</span>;
 
 export const PhotoDataFields = ({
   row,
+  kind,
   defaults,
   onReset$,
 }: {
   row: MediaRow;
+  /** The kind of the photo's platform: a virtual one has no map. */
+  kind: PlatformKind;
   defaults: MetadataLevels;
   /** Set a field back to what the file says (reset_from_file). */
   onReset$?: QRL<(field: Field) => void>;
@@ -275,9 +279,10 @@ export const PhotoDataFields = ({
         ) : (
           <None />
         )}
-        {/* A VRChat photo has no real-world place (the public site never
-            shows one): no map unless a position is already set. */}
-        {(row.platform !== "VRChat" || hasLocation) && (
+        {/* A photo on a virtual platform (VRChat, …) has no real-world
+            place (the public site never shows one): no map unless a
+            position is already set. */}
+        {(hasRealPlace(kind) || hasLocation) && (
           <LocationPicker latitude={row.latitude} longitude={row.longitude} />
         )}
       </Row>

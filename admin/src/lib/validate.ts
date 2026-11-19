@@ -4,6 +4,7 @@ import {
   type TagFieldValue,
 } from "@shared/tag-field/tag-field";
 import { validateOverrides } from "./metadata";
+import { isPlatformKey } from "./platform";
 import {
   validateExifEdit,
   validateLocationEdit,
@@ -88,8 +89,10 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
 
   if ("platform" in obj) {
     const platform = obj.platform;
-    if (platform !== "Real" && platform !== "VRChat") {
-      return { ok: false, error: "platform must be 'Real' or 'VRChat'" };
+    // A platform key; whether it exists is for D1 (media.platform
+    // REFERENCES platform, checked by the caller like camera_id).
+    if (!isPlatformKey(platform)) {
+      return { ok: false, error: "platform must be a platform key" };
     }
     patch.platform = platform;
   }

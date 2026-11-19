@@ -10,6 +10,8 @@ import {
 import { calendarHref, type CalendarCover } from "~/lib/calendar";
 import { mediaListHref } from "~/lib/format";
 import { imageUrl } from "~/lib/images";
+import { platformOf } from "~/lib/platform";
+import { usePlatformList } from "~/routes/layout";
 import { VISIBILITIES, type Visibility } from "~/lib/types";
 import { muted } from "./ui";
 import {
@@ -100,6 +102,7 @@ export const AdminMonthCalendar = component$<{
   view: MonthView<CalendarCover>;
   imageBase: string | null;
 }>(({ view, imageBase }) => {
+  const platforms = usePlatformList().value;
   const { year, month, prev, next } = view;
   return (
     <div class="mx-auto max-w-3xl space-y-4">
@@ -179,7 +182,8 @@ export const AdminMonthCalendar = component$<{
                           data-testid="thumb-placeholder"
                           class={[
                             "absolute inset-0",
-                            cover.platform === "VRChat"
+                            platformOf(platforms, cover.platform).kind ===
+                            "virtual"
                               ? "bg-violet-200 dark:bg-violet-900"
                               : "bg-emerald-200 dark:bg-emerald-900",
                           ]}

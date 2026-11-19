@@ -48,6 +48,7 @@ import {
 import { formatDecimalBytes } from "~/lib/storage";
 import { VISIBILITIES, type MediaPlatform, type Visibility } from "~/lib/types";
 import { ContextMenu, type MenuItem } from "./context-menu";
+import { PlatformBadge } from "./platform-badge";
 import {
   SelectionBar,
   type BarCommand,
@@ -64,7 +65,6 @@ import {
   field,
   label,
   muted,
-  platformBadge,
 } from "./ui";
 
 // File-manager view of /media: the folder tree built from the file paths on
@@ -1312,9 +1312,7 @@ export const FileBrowser = component$<Props>(
                             <VisibilityBadge visibility={f.visibility} />
                           </span>
                           <span class="max-sm:hidden">
-                            <span class={platformBadge(f.platform)}>
-                              {f.platform}
-                            </span>
+                            <PlatformBadge platform={f.platform} />
                           </span>
                         </>
                       ) : (

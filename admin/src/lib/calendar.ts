@@ -136,7 +136,7 @@ export const indexFromDays = (
       cover: {
         id: r.id,
         file: r.file,
-        platform: r.platform === "VRChat" ? "VRChat" : "Real",
+        platform: r.platform,
       },
       kinds,
     };

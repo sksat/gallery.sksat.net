@@ -27,6 +27,13 @@ INSERT INTO media (id, public_id, file, platform, timestamp, camera_id, tags, vi
   (5, 'vrcxxxxxxc', '/mock/vrchat3.png',  'VRChat', '2023-12-05T00:00:00Z', 2,    '["VRChat","draft"]', 'public'),
   (6, 'unxxxxxxxx', '/mock/unlisted.png', 'VRChat', '2023-12-06T00:00:00Z', 2,    '["VRChat","night"]', 'unlisted'),
   (7, 'pvxxxxxxxx', '/mock/private.png',  'Real',   '2023-12-07T00:00:00Z', NULL, '["secret"]',         'private');
+-- Platforms (admin migration 0014 seeds Real and VRChat): vrcxxxxxxc is on
+-- one the owner added, "Neos VR" (a VRChat-looking file that was really a
+-- Neos VR screenshot). It keeps its "VRChat" tag, so the tag counts below
+-- stay as they were and "Neos VR" is one more tag with one photo.
+INSERT INTO platform (key, name, kind, position) VALUES
+  ('Neos-VR', 'Neos VR', 'virtual', 2);
+UPDATE media SET platform = 'Neos-VR' WHERE id = 5;
 -- Tags: "draft" (on vrchat3) and "secret" are private; the API never
 -- returns them.
 INSERT INTO tag (name, public) VALUES

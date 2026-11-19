@@ -43,6 +43,22 @@ describe("mediaTags", () => {
   it("returns the platform even when tags are empty", () => {
     expect(mediaTags(fixture[4])).toEqual(["Real"]);
   });
+
+  it("uses the platform's name, for any platform", () => {
+    const neos = {
+      ...media("Neos-VR", ["night"]),
+      platform_name: "Neos VR",
+    };
+    expect(mediaTags(neos)).toEqual(["Neos VR", "night"]);
+    expect(
+      indices(
+        filterMediaByTags([...fixture, neos], {
+          tags: ["Neos VR"],
+          mode: "and",
+        }),
+      ),
+    ).toEqual([5]);
+  });
 });
 
 describe("tagCounts", () => {

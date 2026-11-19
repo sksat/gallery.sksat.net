@@ -68,6 +68,8 @@ describe("listPublicMedia", () => {
       path: "/p2.png",
       name: "p2.png",
       platform: "VRChat",
+      platform_name: "VRChat",
+      platform_kind: "virtual",
       timestamp: "2023-12-02T00:00:00Z",
       timestamp_precision: "second",
       camera: {
@@ -290,6 +292,36 @@ describe("location", () => {
     });
     // A VRChat photo has no real-world position, whatever its level.
     expect((await getMedia(db, "aaaaaaaaa3"))?.location).toBeNull();
+  });
+
+  it("follows the platform's kind and name in the table", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `UPDATE media SET latitude = 35.681236, longitude = 139.767125,
+         metadata_visibility = '{"location":"exact"}' WHERE id = 1;
+       INSERT INTO platform (key, name, kind, position)
+         VALUES ('Neos-VR', 'Neos VR', 'virtual', 2);`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa2"))?.location).not.toBeNull();
+    // Set on a virtual platform: the position goes.
+    run(raw, "UPDATE media SET platform = 'Neos-VR' WHERE id = 1");
+    expect(await getMedia(db, "aaaaaaaaa2")).toMatchObject({
+      platform: "Neos-VR",
+      platform_name: "Neos VR",
+      platform_kind: "virtual",
+      location: null,
+    });
+    // A platform made real shows it again, under its new name.
+    run(
+      raw,
+      "UPDATE platform SET kind = 'real', name = 'Neos' WHERE key = 'Neos-VR'",
+    );
+    const listed = (await listPublicMedia(db)).find(
+      (m) => m.id === "aaaaaaaaa2",
+    );
+    expect(listed).toMatchObject({ platform_name: "Neos", platform_kind: "real" });
+    expect(listed?.location).not.toBeNull();
   });
 });
 
@@ -607,7 +639,16 @@ describe("projectPhoto", () => {
     world_id: null,
     world_name: null,
   };
-  const ctx = { site: null, publicTags: new Set(["x"]), embedDefault: true };
+  const ctx = {
+    site: null,
+    publicTags: new Set(["x"]),
+    embedDefault: true,
+    platforms: new Map([
+      ["Real", { name: "Real", kind: "real" as const }],
+      ["VRChat", { name: "VRChat", kind: "virtual" as const }],
+      ["Neos-VR", { name: "Neos VR", kind: "virtual" as const }],
+    ]),
+  };
   const at = (levels: Record<string, string>) =>
     projectPhoto(
       { ...row, metadata_visibility: JSON.stringify(levels) },
@@ -805,17 +846,30 @@ describe("projectPhoto", () => {
         ctx,
       ).location,
     ).toBeNull();
-    // A VRChat photo: no real-world position, whatever the level.
-    expect(
-      projectPhoto(
-        {
-          ...row,
-          platform: "VRChat",
-          metadata_visibility: '{"location":"exact"}',
-        },
-        ctx,
-      ).location,
-    ).toBeNull();
+    // A photo on a virtual platform (VRChat, Neos VR, …) or one with no
+    // row: no real-world position, whatever the level.
+    for (const platform of ["VRChat", "Neos-VR", "Gone"]) {
+      expect(
+        projectPhoto(
+          { ...row, platform, metadata_visibility: '{"location":"exact"}' },
+          ctx,
+        ).location,
+        platform,
+      ).toBeNull();
+    }
+  });
+
+  it("gives the platform's key, name and kind", () => {
+    expect(projectPhoto({ ...row, platform: "Neos-VR" }, ctx)).toMatchObject({
+      platform: "Neos-VR",
+      platform_name: "Neos VR",
+      platform_kind: "virtual",
+    });
+    expect(projectPhoto({ ...row, platform: "Gone" }, ctx)).toMatchObject({
+      platform: "Gone",
+      platform_name: "Gone",
+      platform_kind: "virtual",
+    });
   });
 
   it("shows public tags only, or none", () => {

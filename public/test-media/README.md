@@ -14,7 +14,7 @@ Seven photos with fixed timestamps and public ids.
 | `vrcxxxxxxa` | `/mock/vrchat1.png`  | VRChat   | `2023-12-02T00:00:00Z`      | `virtuallens2` | VRChat        | public     |
 | `reaxxxxxxb` | `/mock/real2.png`    | Real     | `2023-12-03T00:00:00Z`      | —              | night         | public     |
 | `vrcxxxxxxb` | `/mock/vrchat2.png`  | VRChat   | `2023-12-04T12:34:56+09:00` | —              | VRChat, night | public     |
-| `vrcxxxxxxc` | `/mock/vrchat3.png`  | VRChat   | `2023-12-05T00:00:00Z`      | `virtuallens2` | VRChat, draft | public     |
+| `vrcxxxxxxc` | `/mock/vrchat3.png`  | Neos VR  | `2023-12-05T00:00:00Z`      | `virtuallens2` | VRChat, draft | public     |
 | `unxxxxxxxx` | `/mock/unlisted.png` | VRChat   | `2023-12-06T00:00:00Z`      | `virtuallens2` | VRChat, night | unlisted   |
 | `pvxxxxxxxx` | `/mock/private.png`  | Real     | `2023-12-07T00:00:00Z`      | —              | secret        | private    |
 
@@ -24,7 +24,9 @@ For the overlay's info panel (`e2e/info-panel.spec.ts`) the fixture also covers 
 
 Positions (the map; hidden by default): `reaxxxxxxa` at its exact position (Tokyo Station, 35.68124, 139.76713) and `reaxxxxxxb` only to the city (35.66, 139.70, drawn as an area). `vrcxxxxxxa` and the private photo also have public-level positions, but VRChat and private photos never reach the map, and `vrcxxxxxxc`'s position stays hidden. `map-style.json` is the map style tests use (`VITE_MAP_STYLE_URL`): a plain background with no tiles, so no test reaches the tile server.
 
-Only the five public photos are listed. The gallery treats `platform` as one more tag, so the tag counts are **VRChat 3**, **Real 2**, **night 2**, **film 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = `reaxxxxxxb`, `Real` OR `night` = three photos. The unlisted and the private photo are the newest and carry tags of their own, so a leak into a list, a count or the top page's card shows up in the tests.
+Platforms are the admin's `platform` rows: Real and VRChat (from migration 0014) and `Neos-VR`, named "Neos VR" (virtual), which the fixture adds for `vrcxxxxxxc`; that photo keeps its `VRChat` tag.
+
+Only the five public photos are listed. The gallery treats the platform (by name) as one more tag, so the tag counts are **VRChat 3**, **Real 2**, **night 2**, **film 1**, **Neos VR 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = `reaxxxxxxb`, `Real` OR `night` = three photos. The unlisted and the private photo are the newest and carry tags of their own, so a leak into a list, a count or the top page's card shows up in the tests.
 
 Two cameras:
 

@@ -70,18 +70,17 @@ describe("rowToMedia", () => {
     expect(row.camera_id).toBeNull();
   });
 
-  it("rejects unknown platform value", () => {
-    expect(() =>
-      rowToMedia({
-        id: 3,
-        file: "x",
-        platform: "Mars",
-        timestamp: null,
-        camera_id: null,
-        tags: "[]",
-        ...NEW_COLS,
-      }),
-    ).toThrow(/unknown platform/);
+  it("keeps any platform key (the table has them, 0014)", () => {
+    const row = rowToMedia({
+      id: 3,
+      file: "x",
+      platform: "Neos-VR",
+      timestamp: null,
+      camera_id: null,
+      tags: "[]",
+      ...NEW_COLS,
+    });
+    expect(row.platform).toBe("Neos-VR");
   });
 
   it("rejects unknown visibility value", () => {

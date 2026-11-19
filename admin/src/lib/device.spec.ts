@@ -69,6 +69,14 @@ describe("deviceOf", () => {
       role: "camera",
       create: false,
     });
+    // Any virtual platform the caller names (the reader reads them).
+    const virtual = new Set(["VRChat", "Neos-VR"]);
+    expect(
+      deviceOf({ exif: x, fileExif: x }, "Neos-VR", virtual),
+    ).toMatchObject({ create: false });
+    expect(deviceOf({ exif: x, fileExif: x }, "Real", virtual)).toMatchObject(
+      { create: true },
+    );
     expect(deviceOf({ exif: { make: "FUJIFILM" } }, "Real")).toBeNull();
     expect(
       deviceOf({ exif: null, fileExif: { make: "GCMC" } }, "Real"),

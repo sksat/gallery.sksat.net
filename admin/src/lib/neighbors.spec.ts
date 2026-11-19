@@ -43,7 +43,7 @@ describe("parseListHref", () => {
 
   it("ignores bad values", () => {
     expect(
-      parseListHref("/media/?platform=Moon&visibility=x&page=-1&dir=/../a"),
+      parseListHref("/media/?platform=M%20oon&visibility=x&page=-1&dir=/../a"),
     ).toEqual(list());
     expect(parseListHref("/media/")).toEqual(list());
   });
