@@ -10,6 +10,7 @@ import {
   z,
   type DocumentHead,
 } from "@builder.io/qwik-city";
+import { FileMetadata } from "~/components/file-metadata";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { PhotoViews } from "~/components/photo-views";
 import { StatePanel } from "~/components/state-panel";
@@ -1567,6 +1568,8 @@ export default component$(() => {
           </>
         )}
       </section>
+      {/* Keyed: prev/next start closed, on the other photo's file. */}
+      <FileMetadata key={row.id} id={row.id} file={row.file} />
       <Toast toast={toast} onAction$={undoLastMove} />
     </div>
   );
