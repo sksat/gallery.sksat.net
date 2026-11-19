@@ -6,7 +6,7 @@ import type { SwipeDirection } from "@shared/gestures/swipe";
 import { Manufacturer } from "./camera-header";
 import { CAMERA_KIND_LABELS, cameraHref, findCamera } from "./cameras";
 import { photoContext } from "./detail";
-import { dimensionsFromFile, imageUrl } from "./images";
+import { imageUrl, photoSize } from "./images";
 import { isTextTarget } from "./keys";
 import { galleryUrl } from "./logic";
 import { SiteNav } from "../layout/site-nav";
@@ -134,7 +134,7 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
 
   const { photo, ctx, camera, listed, info, backLabel, tagLinks } = page.value;
   const cover = camera?.images[0]?.file;
-  const size = dimensionsFromFile(photo.file);
+  const size = photoSize(photo);
   const aspect = "width" in size ? `${size.width} / ${size.height}` : "3 / 2";
 
   return (

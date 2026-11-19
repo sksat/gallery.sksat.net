@@ -28,6 +28,8 @@ Platforms are the admin's `platform` rows: Real and VRChat (from migration 0014)
 
 Only the five public photos are listed. The gallery treats the platform (by name) as one more tag, so the tag counts are **VRChat 3**, **Real 2**, **night 2**, **film 1**, **Neos VR 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = `reaxxxxxxb`, `Real` OR `night` = three photos. The unlisted and the private photo are the newest and carry tags of their own, so a leak into a list, a count or the top page's card shows up in the tests.
 
+Pixel sizes (`media.width` / `height`, the grid's layout; `e2e/grid-layout.spec.ts`): `mock/real1.png` is a 60x80 portrait gradient and `reaxxxxxxa` has that size, so its tile is 3:4; `mock/vrchat{1,2,3}.png` are 64x36 (16:9) gradients, with that size on `vrcxxxxxxa` and `vrcxxxxxxb` and none on `vrcxxxxxxc`, whose tile is 3:2 until the image loads and then 16:9. `reaxxxxxxb` has no size either and shows the grey 1x1 stand-in, so its tile ends up square. The other files are 1x1.
+
 Two cameras:
 
 | slug           | name         | kind    | manufacturer (url) / model            | description / productUrl       | images                                    |

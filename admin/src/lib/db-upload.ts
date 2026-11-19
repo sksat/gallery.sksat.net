@@ -8,6 +8,7 @@ import {
   deviceOf,
   ensureDeviceStatement,
 } from "./device";
+import { displaySize, type ImageSize } from "./image-size";
 import { contentVersionStatement } from "./last-good";
 import type { MetadataOverrides } from "./metadata";
 import { serializeSources } from "./metadata-source";
@@ -31,6 +32,19 @@ export const metaColumns = (meta: StoredMeta) => ({
   file_exif: meta.fileExif ? JSON.stringify(meta.fileExif) : null,
   digitized_at: meta.digitizedAt,
 });
+
+/**
+ * media.width / height (0016) of an upload: the header's size as the photo
+ * is displayed (turned by its EXIF orientation). Only when the browser
+ * read the file's metadata, since the orientation is unknown otherwise;
+ * the metadata reader fills it in then.
+ */
+export const displaySizeOf = (
+  init: Pick<UploadInit, "dimensions" | "meta">,
+): ImageSize | null =>
+  init.dimensions && init.meta
+    ? displaySize(init.dimensions, init.meta.fileExif?.orientation)
+    : null;
 
 export type InitOutcome =
   /**
@@ -214,13 +228,14 @@ export const initUpload = async (
   const device =
     named && !(named.role === "camera" && row.cameraId != null) ? named : null;
   const deviceId = deviceIdSql("?20", "?21", "?22", "?23");
+  const size = displaySizeOf(init);
   try {
     const insert = db
       .prepare(
         `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256,
            exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at,
            metadata_source, file_exif, digitized_at, camera_id, digitized_with,
-           metadata_visibility)
+           metadata_visibility, width, height)
          VALUES (?1, ?2, ?2, ?3, ?4, ?24, ?25, 'uploading', ?5, ?6,
            ?7, ?8, ?9, ?10, ?11, ?12, ?13,
            CASE WHEN ?14 THEN MAX(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?16) END, ?15,
@@ -228,7 +243,7 @@ export const initUpload = async (
            CASE WHEN ?26 IS NOT NULL THEN ?26
                 WHEN ?19 = 'camera' THEN ${deviceId} END,
            CASE WHEN ?19 = 'digitizer' THEN ${deviceId} END,
-           ?27) RETURNING id`,
+           ?27, ?28, ?29) RETURNING id`,
       )
       .bind(
         row.publicId,
@@ -261,6 +276,8 @@ export const initUpload = async (
         row.metadataVisibility && Object.keys(row.metadataVisibility).length > 0
           ? JSON.stringify(row.metadataVisibility)
           : null,
+        size?.width ?? null,
+        size?.height ?? null,
       );
     // What wrote the file, on the original's media_file row (0013; the
     // trigger created it with the INSERT): what the reader would write.

@@ -63,6 +63,8 @@ const item: MediaInfoJSON = {
   world: null,
   exif: null,
   location: null,
+  width: null,
+  height: null,
   tags: [],
   tag_fields: [],
 };
@@ -235,6 +237,23 @@ describe("parseMediaItem", () => {
     expect(parseMediaItem({ ...item, platform: "" })).toBeNull();
     expect(parseMediaItem({ ...item, platform: 1 })).toBeNull();
     expect(parseMediaItem(null)).toBeNull();
+  });
+
+  it("reads the pixel size, both sides or neither", () => {
+    expect(parseMediaItem({ ...item, width: 3000, height: 4000 })).toEqual({
+      ...item,
+      width: 3000,
+      height: 4000,
+    });
+    for (const [width, height] of [
+      [3000, null],
+      [0, 4000],
+      [3000.5, 4000],
+      ["3000", 4000],
+      [3000, -1],
+    ]) {
+      expect(parseMediaItem({ ...item, width, height })).toEqual(item);
+    }
   });
 
   it("drops malformed optional fields", () => {

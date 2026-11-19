@@ -12,6 +12,7 @@
 // top first), and tags add up.
 
 import { validateFolderPath } from "./folders";
+import { displaySize } from "./image-size";
 import {
   EDITABLE_FIELDS,
   FIELD_LABELS,
@@ -152,9 +153,7 @@ const shownOrientation = (
   d: { width: number; height: number },
   exifOrientation: number | undefined,
 ): Orientation => {
-  const turned = exifOrientation !== undefined && exifOrientation >= 5;
-  const w = turned ? d.height : d.width;
-  const h = turned ? d.width : d.height;
+  const { width: w, height: h } = displaySize(d, exifOrientation);
   return w === h ? "square" : w > h ? "landscape" : "portrait";
 };
 

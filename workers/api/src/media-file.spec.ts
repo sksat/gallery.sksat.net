@@ -37,6 +37,23 @@ const setup = () => {
 const sourceById = async (db: D1Database, id: string) =>
   (await getPhotoForImage(db, id))?.source;
 
+describe("the pixel size (0016)", () => {
+  it("is the original's, and unknown while an edit is shown", async () => {
+    const { raw, db } = setup();
+    raw.exec("UPDATE media SET width = 3000, height = 4000 WHERE id = 1");
+    expect((await listPublicMedia(db))[0]).toMatchObject({
+      width: 3000,
+      height: 4000,
+    });
+    // An edit may be cropped: the gallery takes the image's own shape.
+    raw.exec("UPDATE media SET active_file_id = 10 WHERE id = 1");
+    expect((await listPublicMedia(db))[0]).toMatchObject({
+      width: null,
+      height: null,
+    });
+  });
+});
+
 describe("the file to resize", () => {
   it("is the original, or its display copy, while the photo shows it", async () => {
     const { raw, db } = setup();

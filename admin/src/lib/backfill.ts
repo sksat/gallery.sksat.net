@@ -39,10 +39,11 @@ import {
   type FileDates,
   type FileTool,
 } from "./photo-meta";
-
-const NO_TOOL: FileTool = { creatorTool: null, xmpSummary: null };
+import { displaySize, imageSize, type ImageSize } from "./image-size";
 import { contentChanged } from "./last-good";
 import { pickTakenAt } from "./taken-at";
+
+const NO_TOOL: FileTool = { creatorTool: null, xmpSummary: null };
 /**
  * types.ts LIVE_PHOTO with its columns kept off their indexes (unary +):
  * idx_media_status would match nearly every row, and the planner (no
@@ -225,6 +226,7 @@ export const backfillBatch = async (
         }
         let reading: Reading;
         let tool: FileTool = NO_TOOL;
+        let size: ImageSize | null = null;
         if (!head) {
           // Not in the bucket: nothing to read, but the name may say.
           reading = {
@@ -239,8 +241,11 @@ export const backfillBatch = async (
           } = await readPhotoMeta(head.bytes, tail);
           reading = { ...meta, takenAt: pickTakenAt(dates, row.file) };
           tool = await readFileTool(head.bytes, tail, meta.fileExif?.software);
+          // The pixel size as displayed (0016), from the same header.
+          const header = imageSize(head.bytes);
+          size = header && displaySize(header, meta.fileExif?.orientation);
         }
-        return { row, reading, tool };
+        return { row, reading, tool, size };
       } catch (err) {
         console.error(`backfill ${row.file} failed:`, err);
         errors.push(err instanceof Error ? err.message : String(err));
@@ -257,7 +262,7 @@ export const backfillBatch = async (
   // file names when there is none yet (device.ts): the write links it.
   // Before it, under the same guard, what wrote the original goes to its
   // media_file row (0013; the rest of that row follows media's columns).
-  const write = ({ row, reading, tool }: (typeof readOk)[number]) => {
+  const write = ({ row, reading, tool, size }: (typeof readOk)[number]) => {
     const fileRow = db
       .prepare(
         `UPDATE media_file SET creator_tool = ?4, xmp_summary = ?5
@@ -285,6 +290,7 @@ export const backfillBatch = async (
            longitude = ?7, location_source = ?8, world_id = ?9,
            world_name = ?10, world_author_id = ?11, metadata_source = ?12,
            metadata_read_at = ?13, file_exif = ?14, digitized_at = ?15,
+           width = COALESCE(?21, width), height = COALESCE(?22, height),
            ${linkDeviceSql("?16", "?17", "?18", "?19", "?20")}
          WHERE ${GUARD}`,
       )
@@ -306,6 +312,8 @@ export const backfillBatch = async (
         next.digitized_at,
         device?.role ?? null,
         ...deviceIdArgs(device),
+        size?.width ?? null,
+        size?.height ?? null,
       );
     return device?.create
       ? [ensureDeviceStatement(db, device, row.id), fileRow, update]
@@ -524,7 +532,7 @@ export const readEditFiles = async (
 
 /**
  * A batch, then a new content version (last-good.ts) when it wrote any
- * photo: its timestamp, metadata, camera or スキャン機材 may now read
+ * photo: its timestamp, metadata, size, camera or スキャン機材 may now read
  * differently in the public API. What POST /api/metadata/backfill runs.
  */
 export const backfillAndPublish = async (

@@ -1,6 +1,23 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { imageSize } from "./image-size";
+import { displaySize, imageSize } from "./image-size";
+
+describe("displaySize", () => {
+  const size = { width: 4000, height: 3000 };
+  it("swaps width and height for orientations 5–8 (a quarter turn)", () => {
+    for (const o of [5, 6, 7, 8]) {
+      expect(displaySize(size, o), String(o)).toEqual({
+        width: 3000,
+        height: 4000,
+      });
+    }
+  });
+  it("keeps them for the other orientations and when there is none", () => {
+    for (const o of [1, 2, 3, 4, 0, 9, null, undefined]) {
+      expect(displaySize(size, o), String(o)).toEqual(size);
+    }
+  });
+});
 
 const fixture = (name: string) =>
   new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));

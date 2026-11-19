@@ -111,3 +111,12 @@ INSERT INTO tag_field (id, tag_id, label, type, position, visibility)
   SELECT 4, id, 'メモ', 'text', 0, 'shown' FROM tag WHERE name = 'draft';
 UPDATE media SET tag_values = '{"1":"Kodak Portra 400","2":400,"3":"Fixture Lab"}' WHERE id = 1;
 UPDATE media SET tag_values = '{"4":"draft memo"}' WHERE id IN (5, 7);
+-- Pixel sizes as displayed (admin migration 0016), for the grid's layout:
+-- - reaxxxxxxa is a portrait photo (60 × 80): its tile must be 3:4, not
+--   cropped to the row;
+-- - vrcxxxxxxa and vrcxxxxxxb are 16:9 (64 × 36);
+-- - vrcxxxxxxc (also 64 × 36) and reaxxxxxxb have no size: their tiles
+--   are 3:2 until the image loads, then take its own shape (vrcxxxxxxc
+--   16:9; reaxxxxxxb's grey 1 × 1 stand-in square).
+UPDATE media SET width = 60, height = 80 WHERE id = 1;
+UPDATE media SET width = 64, height = 36 WHERE id IN (2, 4);

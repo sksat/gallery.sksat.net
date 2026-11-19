@@ -85,9 +85,36 @@ describe("listPublicMedia", () => {
       world: null,
       exif: null,
       embed_exif: true,
+      width: null,
+      height: null,
       // "secret" is not a public tag.
       tags: ["VRChat"],
       tag_fields: [],
+    });
+  });
+});
+
+describe("pixel size", () => {
+  it("is given for public and unlisted photos, whatever the levels", async () => {
+    const { raw, db } = setup();
+    raw.exec(`UPDATE media SET width = 3000, height = 4000,
+      metadata_visibility = '{"file_name":"hidden","taken_at":"hidden","camera":"hidden","exif":"hidden","tags":"hidden"}'`);
+    const listed = await listPublicMedia(db);
+    expect(listed.map((m) => [m.width, m.height])).toEqual(
+      listed.map(() => [3000, 4000]),
+    );
+    expect(await getMedia(db, "aaaaaaaaa4")).toMatchObject({
+      width: 3000,
+      height: 4000,
+    });
+  });
+
+  it("is null when unknown, or when only one side is known", async () => {
+    const { raw, db } = setup();
+    raw.exec("UPDATE media SET width = 3000 WHERE public_id = 'aaaaaaaaa3'");
+    expect(await getMedia(db, "aaaaaaaaa3")).toMatchObject({
+      width: null,
+      height: null,
     });
   });
 });

@@ -96,6 +96,12 @@ export type MediaItemJSON = {
    * EXIF (the photo's choice, else the site's; the image Worker reads it).
    */
   embed_exif: boolean;
+  /**
+   * The size in pixels as displayed (after the EXIF orientation), for
+   * laying the photo out before it loads; both null when unknown.
+   */
+  width: number | null;
+  height: number | null;
   /** Only the tags marked public (admin `tag` table). */
   tags: string[];
   /**

@@ -335,6 +335,31 @@ describe("backfillBatch", () => {
     expect(b.calls.length).toBe(before);
   });
 
+  it("stores the pixel size as displayed, turned by the EXIF orientation", async () => {
+    // exif-gps.jpg (orientation 6) made 12 × 8 in its SOF: shown 8 × 12.
+    const jpeg = fixture("exif-gps.jpg").slice();
+    const sof = jpeg.findIndex((b, i) => b === 0xff && jpeg[i + 1] === 0xc0);
+    new DataView(jpeg.buffer).setUint16(sof + 7, 12);
+    const { raw, db } = setup();
+    // A size already known stays when the file is missing.
+    raw.exec("UPDATE media SET width = 30, height = 20 WHERE id = 3");
+    await backfillBatch(
+      db,
+      bucket({ ...files, "/a/exif.jpg": jpeg }).read,
+      10,
+      NOW,
+    );
+    expect(
+      raw.prepare("SELECT id, width, height FROM media ORDER BY id").all(),
+    ).toEqual([
+      { id: 1, width: 8, height: 12 },
+      // A PNG has no orientation here: as in its IHDR.
+      { id: 2, width: 8, height: 8 },
+      { id: 3, width: 30, height: 20 },
+      { id: 4, width: null, height: null },
+    ]);
+  });
+
   it("reads the end of a large PNG only when its start has no XMP", async () => {
     const big = new Uint8Array(300 * 1024);
     big.set(fixture("vrchat-xmp.png").subarray(0, 33)); // signature + IHDR

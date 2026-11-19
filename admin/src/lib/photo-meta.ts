@@ -24,9 +24,10 @@
  * apart from the shooting information; 2026-11-21: a reading links the
  * camera or scanner the file names, creating its camera row, device.ts;
  * 2026-11-22: what wrote the file, creator_tool / xmp_summary of its
- * media_file row, readFileTool.)
+ * media_file row, readFileTool; 2026-11-23: the pixel size as displayed,
+ * media.width / height, 0016.)
  */
-export const PHOTO_META_PARSER_DATE = "2026-11-22T00:00:00.000Z";
+export const PHOTO_META_PARSER_DATE = "2026-11-23T00:00:00.000Z";
 
 /** Offset assumed when a date in the file has none (cameras on JST). */
 export const DEFAULT_OFFSET = "+09:00";

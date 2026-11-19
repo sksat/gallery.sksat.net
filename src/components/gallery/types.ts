@@ -112,6 +112,13 @@ export type MediaInfoJSON = {
    * `location`); null when hidden or unknown, and always for VRChat.
    */
   location?: MediaLocation | null;
+  /**
+   * The size in pixels as displayed (after the EXIF orientation): the
+   * grid lays the tile out at this aspect ratio before the image loads.
+   * Both null when unknown.
+   */
+  width?: number | null;
+  height?: number | null;
   tags: string[];
   /** Public values of its tags' fields (the API's `tag_fields`), as text. */
   tag_fields?: MediaTagField[];
@@ -224,6 +231,20 @@ const parseExif = (v: unknown): MediaExif | null => {
   return Object.keys(out).length > 0 ? out : null;
 };
 
+/** `width` / `height` from the API: two positive integers, else both null. */
+const parseSize = (
+  width: unknown,
+  height: unknown,
+): { width: number | null; height: number | null } =>
+  typeof width === "number" &&
+  typeof height === "number" &&
+  Number.isInteger(width) &&
+  Number.isInteger(height) &&
+  width > 0 &&
+  height > 0
+    ? { width, height }
+    : { width: null, height: null };
+
 /**
  * A camera field of the API (`camera`, `digitizer`): the camera with its
  * page, or (at the manufacturer level) only its maker.
@@ -314,6 +335,7 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
     // A photo on a virtual platform has no real-world position: never
     // keep one (the API gives none either).
     location: platformKind === "virtual" ? null : parseLocation(v.location),
+    ...parseSize(v.width, v.height),
     tags: Array.isArray(tags)
       ? tags.filter((t): t is string => typeof t === "string")
       : [],

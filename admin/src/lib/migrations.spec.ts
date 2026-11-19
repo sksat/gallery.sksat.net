@@ -985,6 +985,26 @@ describe("0011_camera_tag.sql", () => {
   });
 });
 
+describe("0016_media_size.sql", () => {
+  it("leaves existing photos unsized and takes positive sizes only", () => {
+    const db = migrate([["/a.png", "Real", null, null]]);
+    for (const f of [
+      "0003_visibility.sql",
+      "0004_upload.sql",
+      "0005_path_trash.sql",
+      "0016_media_size.sql",
+    ]) {
+      db.exec(migration(f));
+    }
+    expect(db.prepare("SELECT width, height FROM media").all()).toEqual([
+      { width: null, height: null },
+    ]);
+    db.exec("UPDATE media SET width = 3000, height = 4000");
+    expect(() => db.exec("UPDATE media SET width = 0")).toThrow(/CHECK/);
+    expect(() => db.exec("UPDATE media SET height = -1")).toThrow(/CHECK/);
+  });
+});
+
 describe("0010_tag_field.sql", () => {
   const migrateAll = () => {
     const db = migrate([["/a.png", "Real", null, null]]);

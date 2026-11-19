@@ -16,7 +16,15 @@ export type { PresetName };
  * whether the photo may be shown) or a bucket path (camera pictures). A
  * photo's `file` is null when its file name is not public.
  */
-export type ImageSource = { id: string; file: string | null } | string;
+export type ImageSource =
+  | {
+      id: string;
+      file: string | null;
+      /** The pixel size as displayed, when known (photoSize). */
+      width?: number | null;
+      height?: number | null;
+    }
+  | string;
 
 const fileOf = (src: ImageSource): string | null =>
   typeof src === "string" ? src : src.file;
@@ -77,6 +85,23 @@ export const dimensionsFromFile = (
   const height = Number(match[2]);
   return width > 0 && height > 0 ? { width, height } : {};
 };
+
+/**
+ * A photo's pixel size as displayed: the API's `width` / `height` (after
+ * the EXIF orientation), else empty. Not the file name's: the API leaves
+ * the size out while an edit is shown (it may be cropped), and the name
+ * is the original's.
+ */
+export const photoSize = (photo: {
+  width?: number | null;
+  height?: number | null;
+}): { width: number; height: number } | Record<string, never> =>
+  photo.width != null &&
+  photo.height != null &&
+  photo.width > 0 &&
+  photo.height > 0
+    ? { width: photo.width, height: photo.height }
+    : {};
 
 /** Grid rows are at most 240 CSS px tall; 2x for high-density screens. */
 export const GRID_CANDIDATES: [PresetName, string][] = [

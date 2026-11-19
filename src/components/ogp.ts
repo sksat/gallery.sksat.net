@@ -15,6 +15,7 @@ import {
 import {
   dimensionsFromFile,
   imageUrl,
+  photoSize,
   type ImageSource,
 } from "./gallery/images";
 import { mediaTags } from "./gallery/tags";
@@ -60,8 +61,8 @@ export type ImageBases = {
 /**
  * Card image for a photo: one of the Worker's 1200x630 card presets (`og`
  * adds the photo's date, camera and tags; `og-site` has just the badge), or
- * the original when the Worker is not configured (its size is then known
- * only from VRChat file names).
+ * the original when the Worker is not configured (its size then from the
+ * API, else from a VRChat file name).
  */
 export const ogImage = (
   { s3Base, imageBase }: ImageBases,
@@ -75,10 +76,18 @@ export const ogImage = (
   alt,
   ...(imageBase
     ? OG_CARD_SIZE
-    : dimensionsFromFile(typeof src === "string" ? src : src.file)),
+    : typeof src === "string"
+      ? dimensionsFromFile(src)
+      : // The original itself: its name may say its size too.
+        { ...dimensionsFromFile(src.file), ...photoSize(src) }),
 });
 
-const photoSource = ({ id, file }: MediaInfoJSON) => ({ id, file });
+const photoSource = ({ id, file, width, height }: MediaInfoJSON) => ({
+  id,
+  file,
+  width,
+  height,
+});
 
 /**
  * Index of the newest photo by timestamp, used as the top page's card.

@@ -60,6 +60,19 @@ const jpegSize = (b: Uint8Array): ImageSize | null => {
 };
 
 /**
+ * The size as the photo is displayed: EXIF orientations 5–8 turn it a
+ * quarter, so the file's width and height swap (what media.width /
+ * height store, 0016). Any other value, or none, leaves it as it is.
+ */
+export const displaySize = (
+  size: ImageSize,
+  orientation: number | null | undefined,
+): ImageSize =>
+  orientation != null && orientation >= 5 && orientation <= 8
+    ? { width: size.height, height: size.width }
+    : size;
+
+/**
  * Width and height of a PNG or JPEG from its first bytes, or null when the
  * bytes are not one, are cut off before the size, or give a zero size
  * (a JPEG whose height comes later in a DNL segment).
