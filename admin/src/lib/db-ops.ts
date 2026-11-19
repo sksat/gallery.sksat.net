@@ -6,6 +6,12 @@
 import { numberedPaths } from "./db-upload";
 import { planMoves, type Move, type Plan, type Tree } from "./file-ops";
 import { dirOf } from "./folders";
+import {
+  photoObjects,
+  UnsupportedStorageError,
+  type FileObject,
+  type FileStorage,
+} from "./media-file";
 import type { MediaPlatform } from "./types";
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
@@ -273,33 +279,45 @@ export type PurgeResult = {
 };
 
 /**
- * Delete trashed photos for good: first every version of the B2 object
- * (`removeObject`, b2-delete.ts), then the row. Retry-safe: a row whose
- * object is already gone just loses its row next time. Only trashed rows
- * are touched; a file that is also a camera picture keeps its object.
+ * Delete trashed photos for good: first every version of each of the
+ * photo's files (media_file, 0013: the original, retouched versions and
+ * copies; `removeObject`, b2-delete.ts), then the row, which takes its
+ * media_file rows with it. Retry-safe: an object already gone is skipped
+ * next time, and a failure leaves the row (and every file row) for a
+ * retry. Only trashed rows are touched; a file that is also a camera
+ * picture keeps its object.
  */
 export const purgeItems = async (
   db: D1Database,
   ids: readonly number[],
-  removeObject: (file: string) => Promise<void>,
+  removeObject: (object: FileObject) => Promise<void>,
+  /** Where objects can be deleted from (R2 has no binding yet). */
+  storages: readonly FileStorage[] = ["b2"],
 ): Promise<PurgeResult> => {
   const rows =
     (
       await db
         .prepare(
-          `SELECT id, file,
-             EXISTS (SELECT 1 FROM camera_image c WHERE c.file = m.file) AS shared
-           FROM media m WHERE trashed_at IS NOT NULL AND status = 'ready'
+          `SELECT id FROM media WHERE trashed_at IS NOT NULL AND status = 'ready'
              AND id IN (SELECT value FROM json_each(?1))
            ORDER BY id`,
         )
         .bind(JSON.stringify(ids))
-        .all<{ id: number; file: string; shared: number }>()
+        .all<{ id: number }>()
     ).results ?? [];
+  const objects = await photoObjects(
+    db,
+    rows.map((r) => r.id),
+  );
   const result: PurgeResult = { deleted: [], failed: [] };
   for (const r of rows) {
     try {
-      if (!r.shared) await removeObject(r.file);
+      const mine = objects.filter((o) => o.mediaId === r.id && !o.shared);
+      // Nothing is deleted from a photo some of whose objects cannot be:
+      // it stays in the trash whole, and can still be restored.
+      const stuck = mine.find((o) => !storages.includes(o.storage));
+      if (stuck) throw new UnsupportedStorageError(stuck.storage);
+      for (const o of mine) await removeObject(o);
       await db
         .prepare("DELETE FROM media WHERE id = ? AND trashed_at IS NOT NULL")
         .bind(r.id)

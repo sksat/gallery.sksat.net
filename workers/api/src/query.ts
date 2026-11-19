@@ -125,6 +125,58 @@ const MEDIA_SELECT = `
   FROM media m LEFT JOIN camera c ON c.id = m.camera_id
   LEFT JOIN camera d ON d.id = m.digitized_with`;
 
+/**
+ * The file the image Worker resizes for the photo `m` (admin 0013): the
+ * file the photo shows (`active_file_id`, NULL = its original), or that
+ * file's newest ready display copy when it has one. A few index steps for
+ * one photo (the original by idx_media_file_original, the shown file by
+ * its id, the copy by idx_media_file_source): only the single-photo RPC
+ * lookups add it. The public list never reads media_file.
+ */
+const SOURCE_COLUMNS = `,
+  src.storage AS source_storage, src.object_key AS source_key`;
+const SOURCE_JOINS = `
+  LEFT JOIN media_file shown ON shown.id = COALESCE(m.active_file_id,
+    (SELECT o.id FROM media_file o
+     WHERE o.media_id = m.id AND o.role = 'original'))
+    AND shown.media_id = m.id
+  LEFT JOIN media_file src ON src.id = COALESCE(
+    (SELECT dc.id FROM media_file dc
+     WHERE dc.source_file_id = shown.id AND dc.role = 'display'
+       AND dc.status = 'ready' AND dc.media_id = m.id
+     ORDER BY dc.id DESC LIMIT 1),
+    shown.id)`;
+
+/** MEDIA_SELECT with the file to resize (sourceOf). */
+const MEDIA_SELECT_WITH_SOURCE = MEDIA_SELECT.replace(
+  " FROM media m",
+  `${SOURCE_COLUMNS}\n  FROM media m`,
+).concat(SOURCE_JOINS);
+
+/** media_file.storage (admin 0013). */
+export type FileStorage = "b2" | "r2";
+
+/** Where the image Worker reads a photo's image from. */
+export type FileSource = { storage: FileStorage; key: string };
+
+type SourceRow = {
+  source_storage?: string | null;
+  source_key?: string | null;
+};
+
+/**
+ * The file to resize, from the SOURCE_COLUMNS of a row: the original's
+ * bucket key when the photo has no media_file row (0013 and its trigger
+ * give every photo one; this only keeps such a photo servable).
+ */
+export const sourceOf = (row: MediaJoinRow & SourceRow): FileSource =>
+  row.source_key
+    ? {
+        storage: row.source_storage === "r2" ? "r2" : "b2",
+        key: row.source_key,
+      }
+    : { storage: "b2", key: row.file };
+
 const SITE_SETTING =
   "(SELECT value FROM setting WHERE key = 'metadata_visibility')";
 
@@ -394,10 +446,7 @@ export const listPublicMedia = async (
 ): Promise<MediaItemJSON[]> => {
   const results = await db.batch([
     ...contextStatements(db),
-    db.prepare(
-      `${MEDIA_SELECT} WHERE ${LISTED}
-       ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
-    ),
+    db.prepare(LIST_SQL),
   ]);
   const ctx = toContext(results);
   const photos = results[CONTEXT_SIZE];
@@ -406,50 +455,84 @@ export const listPublicMedia = async (
   );
 };
 
-/** One public or unlisted photo by public id, projected. */
-const onePhoto = async (
+/** The public API's single-photo query (no media_file). */
+export const MEDIA_BY_ID_SQL = `${MEDIA_SELECT} WHERE m.public_id = ? AND ${VIEWABLE}`;
+
+/** The image Worker's: the same photo and the file to resize. */
+export const IMAGE_BY_ID_SQL = `${MEDIA_SELECT_WITH_SOURCE} WHERE m.public_id = ? AND ${VIEWABLE}`;
+
+/** The public list (`/api/media`); it never reads media_file. */
+export const LIST_SQL = `${MEDIA_SELECT} WHERE ${LISTED}
+       ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`;
+
+/** A public or unlisted photo by its public id. */
+export const getMedia = async (
   db: D1Database,
-  where: string,
-  arg: string,
-  withKey: boolean,
+  publicId: string,
 ): Promise<MediaItemJSON | null> => {
   const results = await db.batch([
-    // The image Worker's lookup (withKey) has no use for tag fields.
-    ...contextStatements(db, !withKey),
-    db.prepare(`${MEDIA_SELECT} WHERE ${where}`).bind(arg),
+    ...contextStatements(db),
+    db.prepare(MEDIA_BY_ID_SQL).bind(publicId),
   ]);
   const row = (results[CONTEXT_SIZE].results ?? [])[0] as
     MediaJoinRow | undefined;
-  return row ? projectPhoto(row, toContext(results), withKey) : null;
+  return row ? projectPhoto(row, toContext(results)) : null;
 };
 
-/** A public or unlisted photo by its public id. */
-export const getMedia = (
-  db: D1Database,
-  publicId: string,
-): Promise<MediaItemJSON | null> =>
-  onePhoto(db, `m.public_id = ? AND ${VIEWABLE}`, publicId, false);
-
 /**
- * A public or unlisted photo by its public id, with its bucket key in
- * `file` whatever its file name level: for the image Worker (RPC), which
- * fetches the original by it and never shows it.
+ * A photo as the image Worker gets it (RPC): projected, but with its
+ * bucket key in `file` whatever its file name level, and `source`, the
+ * file to resize (sourceOf). Never shown.
  */
-export const getPhotoForImage = (
+export type ImagePhoto = MediaItemJSON & { file: string; source: FileSource };
+
+const imagePhoto = (
+  row: MediaJoinRow & SourceRow,
+  ctx: Context,
+): ImagePhoto => ({
+  ...projectPhoto(row, ctx, true),
+  file: row.file,
+  source: sourceOf(row),
+});
+
+/** A public or unlisted photo by its public id, for the image Worker. */
+export const getPhotoForImage = async (
   db: D1Database,
   publicId: string,
-): Promise<MediaItemJSON | null> =>
-  onePhoto(db, `m.public_id = ? AND ${VIEWABLE}`, publicId, true);
+): Promise<ImagePhoto | null> => {
+  const results = await db.batch([
+    // The image Worker has no use for tag fields.
+    ...contextStatements(db, false),
+    db.prepare(IMAGE_BY_ID_SQL).bind(publicId),
+  ]);
+  const row = (results[CONTEXT_SIZE].results ?? [])[0] as
+    (MediaJoinRow & SourceRow) | undefined;
+  return row ? imagePhoto(row, toContext(results)) : null;
+};
 
 export type PathAccess =
-  | { kind: "photo"; photo: MediaItemJSON & { file: string } }
-  | { kind: "camera-image"; file: string };
+  { kind: "photo"; photo: ImagePhoto } | { kind: "camera-image"; file: string };
+
+/** The image Worker's photo by display path (see getPathAccess). */
+export const IMAGE_BY_PATH_SQL = `${MEDIA_SELECT_WITH_SOURCE} WHERE m.path = ?1 AND ${LISTED}
+           AND ${levelSql("file_name")} = 'path'`;
+
+/**
+ * A camera picture at a bucket path that is no photo's file. A file of a
+ * photo (any of them, admin 0013) follows the photo's visibility and
+ * status: listing a private photo (or one still being uploaded) as a
+ * camera picture must not publish it by path.
+ */
+export const CAMERA_IMAGE_SQL = `SELECT 1 AS found FROM camera_image WHERE file = ?1
+           AND NOT EXISTS (SELECT 1 FROM media_file
+                           WHERE storage = 'b2' AND object_key = ?1) LIMIT 1`;
 
 /**
  * What the image Worker may serve at /img/<path>: a public photo whose
  * display path is `path` and whose file name level is "path" (so a moved
  * photo is found at its new path, and its bucket key, which may differ,
- * comes back in `photo.file`; the rest is projected, for captions); or a
+ * comes back in `photo.file`, and the file to resize in `photo.source`;
+ * the rest is projected, for captions); or a
  * camera picture whose bucket path is `path`. Null for anything else, in
  * particular unlisted and private photos, whose predictable paths must not
  * give them away, and a moved photo's old path.
@@ -460,27 +543,14 @@ export const getPathAccess = async (
 ): Promise<PathAccess | null> => {
   const results = await db.batch([
     ...contextStatements(db, false),
-    db
-      .prepare(
-        `${MEDIA_SELECT} WHERE m.path = ?1 AND ${LISTED}
-           AND ${levelSql("file_name")} = 'path'`,
-      )
-      .bind(path),
-    // A camera picture that is also a photo row follows the photo's
-    // visibility and status: listing a private photo (or one still being
-    // uploaded) as a camera picture must not publish it by path.
-    db
-      .prepare(
-        `SELECT 1 AS found FROM camera_image WHERE file = ?1
-           AND NOT EXISTS (SELECT 1 FROM media WHERE file = ?1) LIMIT 1`,
-      )
-      .bind(path),
+    db.prepare(IMAGE_BY_PATH_SQL).bind(path),
+    db.prepare(CAMERA_IMAGE_SQL).bind(path),
   ]);
   const [photos, images] = results.slice(CONTEXT_SIZE);
-  const row = (photos.results ?? [])[0] as MediaJoinRow | undefined;
+  const row = (photos.results ?? [])[0] as
+    (MediaJoinRow & SourceRow) | undefined;
   if (row) {
-    const photo = projectPhoto(row, toContext(results), true);
-    return { kind: "photo", photo: { ...photo, file: row.file } };
+    return { kind: "photo", photo: imagePhoto(row, toContext(results)) };
   }
   return (images.results ?? []).length > 0
     ? { kind: "camera-image", file: path }

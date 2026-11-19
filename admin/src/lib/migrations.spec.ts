@@ -1,7 +1,7 @@
 // Runs the D1 migrations against an in-memory SQLite (node:sqlite) with rows
 // in the pre-0002 shape, to pin the camera backfill. E2E only ever applies
 // the migrations to an empty database.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
@@ -1053,5 +1053,297 @@ describe("0010_tag_field.sql", () => {
         db.exec(`UPDATE media SET tag_value_visibility = ${bad}`),
       ).toThrow(/CHECK/);
     }
+  });
+});
+
+describe("0013_media_file.sql", () => {
+  const dir = resolve(__dirname, "../../migrations");
+  /** Every migration before 0013, then `rows`, then 0013. */
+  const migrate13 = (rows = "") => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    const names = readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    for (const f of names.filter((f) => f < "0013")) db.exec(migration(f));
+    if (rows) db.exec(rows);
+    for (const f of names.filter((f) => f >= "0013")) db.exec(migration(f));
+    return db;
+  };
+  const SHA = "a".repeat(64);
+  const files = (db: DatabaseSync) =>
+    db
+      .prepare(
+        `SELECT media_id, role, storage, object_key, source_file_id, status,
+           upload_id, size, sha256, mime_type, file_exif, metadata_read_at,
+           uploaded_at FROM media_file ORDER BY id`,
+      )
+      .all();
+  const raises = (db: DatabaseSync, sql: string, msg: RegExp) =>
+    expect(() => db.exec(sql), sql).toThrow(msg);
+
+  it("gives every existing photo its original, copied from media", () => {
+    const db = migrate13(`
+      INSERT INTO media (file, platform, status, size, sha256, file_exif,
+        metadata_read_at, uploaded_at) VALUES
+      ('/a/x.png', 'VRChat', 'ready', 10, '${SHA}', '{"make":"A"}',
+        '2026-01-01T00:00:00.000Z', '2025-12-31T00:00:00.000Z'),
+      ('/a/y.JPG', 'Real', 'uploading', 20, NULL, NULL, NULL, NULL),
+      ('/a/z.webp', 'Real', 'ready', NULL, NULL, NULL, NULL, NULL);`);
+    expect(files(db)).toEqual([
+      {
+        media_id: 1,
+        role: "original",
+        storage: "b2",
+        object_key: "/a/x.png",
+        source_file_id: null,
+        status: "ready",
+        upload_id: null,
+        size: 10,
+        sha256: SHA,
+        mime_type: "image/png",
+        file_exif: '{"make":"A"}',
+        metadata_read_at: "2026-01-01T00:00:00.000Z",
+        uploaded_at: "2025-12-31T00:00:00.000Z",
+      },
+      expect.objectContaining({
+        media_id: 2,
+        object_key: "/a/y.JPG",
+        status: "uploading",
+        mime_type: "image/jpeg",
+      }),
+      expect.objectContaining({ media_id: 3, mime_type: null }),
+    ]);
+    // No photo shows another file yet.
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM media WHERE active_file_id IS NOT NULL",
+        )
+        .get(),
+    ).toEqual({ c: 0 });
+  });
+
+  it("creates a new photo's original in the same statement, and keeps it in step", () => {
+    const db = migrate13();
+    db.exec(
+      `INSERT INTO media (file, platform, status, size, sha256)
+       VALUES ('/u/a.jpg', 'Real', 'uploading', 5, '${SHA}')`,
+    );
+    db.exec("UPDATE media_file SET upload_id = 'mp-1' WHERE media_id = 1");
+    expect(files(db)).toEqual([
+      expect.objectContaining({
+        role: "original",
+        object_key: "/u/a.jpg",
+        status: "uploading",
+        upload_id: "mp-1",
+        sha256: SHA,
+      }),
+    ]);
+    db.exec(
+      `UPDATE media SET status = 'ready', uploaded_at = '2026-11-20T00:00:00.000Z',
+         file_exif = '{"software":"x"}', metadata_read_at = 'reading:t' WHERE id = 1`,
+    );
+    expect(files(db)).toEqual([
+      expect.objectContaining({
+        status: "ready",
+        // A completed upload has no multipart upload left.
+        upload_id: null,
+        uploaded_at: "2026-11-20T00:00:00.000Z",
+        file_exif: '{"software":"x"}',
+        metadata_read_at: "reading:t",
+      }),
+    ]);
+  });
+
+  it("refuses a second original, a duplicate object or hash, and bad values", () => {
+    const db = migrate13(
+      `INSERT INTO media (file, platform, sha256) VALUES ('/a.png', 'Real', '${SHA}');`,
+    );
+    raises(
+      db,
+      "INSERT INTO media_file (media_id, role, object_key) VALUES (1, 'original', '/b.png')",
+      /UNIQUE/,
+    );
+    raises(
+      db,
+      "INSERT INTO media_file (media_id, role, object_key) VALUES (1, 'edit', '/a.png')",
+      /UNIQUE/,
+    );
+    raises(
+      db,
+      `INSERT INTO media_file (media_id, role, object_key, sha256) VALUES (1, 'edit', '/b.png', '${SHA}')`,
+      /UNIQUE/,
+    );
+    // The same key in another storage is another object.
+    db.exec(
+      "INSERT INTO media_file (media_id, role, storage, object_key) VALUES (1, 'edit', 'r2', '/a.png')",
+    );
+    for (const bad of [
+      "(1, 'thumb', 'b2', '/c.png', NULL, 'ready', NULL)",
+      "(1, 'edit', 's3', '/c.png', NULL, 'ready', NULL)",
+
+      "(1, 'edit', 'b2', '/c.png', NULL, 'gone', NULL)",
+      // A multipart upload id only while uploading.
+      "(1, 'edit', 'b2', '/c.png', NULL, 'ready', 'mp')",
+      // A display copy, poster or playback copy says what it was made from.
+      "(1, 'display', 'b2', '/c.png', NULL, 'ready', NULL)",
+      "(1, 'poster', 'b2', '/c.png', NULL, 'ready', NULL)",
+      // An original was made from nothing.
+      "(1, 'original', 'b2', '/c.png', 1, 'ready', NULL)",
+    ]) {
+      raises(
+        db,
+        `INSERT INTO media_file (media_id, role, storage, object_key, source_file_id, status, upload_id) VALUES ${bad}`,
+        /CHECK/,
+      );
+    }
+  });
+
+  it("makes files only from files of the same photo", () => {
+    const db = migrate13(
+      "INSERT INTO media (file, platform) VALUES ('/a.png', 'Real'), ('/b.png', 'Real');",
+    );
+    // 1, 2: the originals of photos 1 and 2.
+    raises(
+      db,
+      "INSERT INTO media_file (media_id, role, object_key, source_file_id) VALUES (1, 'edit', '/a-e.jpg', 2)",
+      /same photo/,
+    );
+    db.exec(
+      "INSERT INTO media_file (media_id, role, object_key, source_file_id, status) VALUES (1, 'edit', '/a-e.jpg', 1, 'ready')",
+    );
+    raises(
+      db,
+      "UPDATE media_file SET source_file_id = 2 WHERE id = 3",
+      /same photo/,
+    );
+    // An edit with no recorded source and a display copy made from it
+    // cannot move to another photo and leave its copy behind...
+    db.exec(`UPDATE media_file SET source_file_id = NULL WHERE id = 3;
+      INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status)
+        VALUES (4, 1, 'display', '/a-e.d.jpg', 3, 'ready')`);
+    raises(
+      db,
+      "UPDATE media_file SET media_id = 2 WHERE id = 3",
+      /made from it/,
+    );
+    // ... but can once the copy is gone.
+    db.exec("DELETE FROM media_file WHERE id = 4");
+    db.exec("UPDATE media_file SET media_id = 2 WHERE id = 3");
+  });
+
+  it("shows only a ready original or edit of the same photo, whichever is chosen", () => {
+    const db = migrate13(
+      "INSERT INTO media (file, platform) VALUES ('/a.png', 'Real'), ('/b.png', 'Real');",
+    );
+    db.exec(`INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status) VALUES
+      (10, 1, 'edit', '/a-lr.jpg', 1, 'ready'),
+      (11, 1, 'edit', '/a-on1.png', 1, 'ready'),
+      (12, 1, 'edit', '/a-wip.png', 1, 'uploading'),
+      (13, 1, 'display', '/a-d.jpg', 10, 'ready'),
+      (14, 2, 'edit', '/b-lr.jpg', 2, 'ready')`);
+    // Any ready edit, or the original itself.
+    for (const id of [10, 11, 1, 10]) {
+      db.exec(`UPDATE media SET active_file_id = ${id} WHERE id = 1`);
+    }
+    for (const id of [12, 13, 14, 2, 999]) {
+      raises(
+        db,
+        `UPDATE media SET active_file_id = ${id} WHERE id = 1`,
+        /active_file_id/,
+      );
+    }
+    raises(
+      db,
+      "INSERT INTO media (file, platform, active_file_id) VALUES ('/c.png', 'Real', 10)",
+      /active_file_id/,
+    );
+    // The shown file stays a ready original or edit of the photo...
+    raises(
+      db,
+      "UPDATE media_file SET status = 'failed' WHERE id = 10",
+      /shows/,
+    );
+    raises(db, "UPDATE media_file SET role = 'display' WHERE id = 10", /shows/);
+    raises(
+      db,
+      "UPDATE media_file SET media_id = 2, source_file_id = 2 WHERE id = 10",
+      // (its display copy 13 would be left behind, too)
+      /shows|made from it/,
+    );
+    // ... and cannot be deleted while shown, but other files can.
+    raises(db, "DELETE FROM media_file WHERE id = 10", /FOREIGN KEY/);
+    db.exec("UPDATE media_file SET status = 'failed' WHERE id = 11");
+    db.exec("UPDATE media SET active_file_id = NULL WHERE id = 1");
+    db.exec("DELETE FROM media_file WHERE id = 13");
+    db.exec("DELETE FROM media_file WHERE id = 10");
+  });
+
+  it("deletes a photo's files with it, the shown one and copies included", () => {
+    const db = migrate13(
+      "INSERT INTO media (file, platform) VALUES ('/a.png', 'Real'), ('/b.png', 'Real');",
+    );
+    db.exec(`INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status) VALUES
+      (10, 1, 'edit', '/a-lr.jpg', 1, 'ready'),
+      (11, 1, 'display', '/a-d.jpg', 10, 'ready')`);
+    db.exec("UPDATE media SET active_file_id = 10 WHERE id = 1");
+    db.exec("DELETE FROM media WHERE id = 1");
+    expect(
+      db.prepare("SELECT media_id, object_key FROM media_file").all(),
+    ).toEqual([{ media_id: 2, object_key: "/b.png" }]);
+  });
+
+  it("keeps the earlier triggers and indexes", () => {
+    const db = migrate13();
+    const names = (type: string) =>
+      (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = ? ORDER BY name",
+          )
+          .all(type) as { name: string }[]
+      ).map((r) => r.name);
+    expect(names("trigger")).toEqual(
+      expect.arrayContaining([
+        "media_public_id_default",
+        "media_public_id_fixed",
+        "media_path_default",
+        "media_file_original_insert",
+        "media_file_original_sync",
+        "media_active_file_insert",
+        "media_active_file_update",
+        "media_file_active_guard",
+        "media_file_source_insert",
+        "media_file_source_update",
+        "media_file_source_moved",
+      ]),
+    );
+    expect(names("index")).toEqual(
+      expect.arrayContaining([
+        "idx_media_public_id",
+        "idx_media_sha256",
+        "idx_media_path_live",
+        "idx_media_live_timestamp",
+        "idx_media_uploading",
+        "idx_media_trashed",
+        "idx_media_metadata_read_at",
+        "idx_media_digitized_with",
+        "idx_media_file_original",
+        "idx_media_file_media",
+        "idx_media_file_source",
+        "idx_media_file_sha256",
+        "idx_media_file_edit_read",
+        "idx_media_active_file",
+      ]),
+    );
+    // A row inserted without a public id or path still gets both.
+    db.exec("INSERT INTO media (file, platform) VALUES ('/n.png', 'Real')");
+    const row = db.prepare("SELECT public_id, path FROM media").get() as {
+      public_id: string;
+      path: string;
+    };
+    expect(row.public_id).toMatch(PUBLIC_ID_RE);
+    expect(row.path).toBe("/n.png");
   });
 });

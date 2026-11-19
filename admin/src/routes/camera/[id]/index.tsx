@@ -877,6 +877,7 @@ export default component$(() => {
                   platform={null}
                   imageBase={imageBase}
                   variant="list"
+                  exact
                   class="w-24 rounded-md sm:w-40"
                 />
                 <div class="min-w-0 flex-1 space-y-2">

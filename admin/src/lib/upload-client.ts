@@ -4,7 +4,11 @@
 
 import { imageSize } from "./image-size";
 import { markUnread } from "./read-state";
-import { PHOTO_META_PARSER_DATE, readPhotoMeta } from "./photo-meta";
+import {
+  PHOTO_META_PARSER_DATE,
+  readFileTool,
+  readPhotoMeta,
+} from "./photo-meta";
 import { pickTakenAt } from "./taken-at";
 import { checkUploadLimits, uploadContentType } from "./upload";
 import {
@@ -40,9 +44,10 @@ export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
   const size = imageSize(new Uint8Array(bytes));
   const refused = checkUploadLimits({ size: f.size, ...size });
   if (refused) throw new UploadError(refused, false);
-  const [digest, meta] = await Promise.all([
+  const [digest, meta, tool] = await Promise.all([
     crypto.subtle.digest("SHA-256", bytes),
     readPhotoMeta(new Uint8Array(bytes)),
+    readFileTool(new Uint8Array(bytes)),
   ]);
   const { takenAt: _, dates, creatorTool, ...stored } = meta;
   // EXIF, then XMP, then the VRChat name (taken-at.ts).
@@ -57,7 +62,7 @@ export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
     // Always sent, even empty: the server then knows the file was read.
     meta: stored,
     parserDate: PHOTO_META_PARSER_DATE,
-    hints: { creatorTool },
+    hints: { creatorTool, xmpSummary: tool.xmpSummary },
   };
 };
 

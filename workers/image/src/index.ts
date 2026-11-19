@@ -16,9 +16,13 @@
  *   photo is public or unlisted; a path is served only for a public photo
  *   whose file name is public with its folder (by its display path, so it
  *   follows a move) or a camera picture (by its bucket path). It has no trusted-caller branch.
+ *   A photo is resized from the file the API names as its `source`: the
+ *   file the photo shows (its original or a retouched version, admin
+ *   media_file), or that file's display copy.
  * - `AdminImage` (a named RPC entrypoint, reachable only through a service
  *   binding that names it: the admin's) serves any photo, private included,
- *   and only after verifying the admin request's Cloudflare Access JWT. Its
+ *   and only after verifying the admin request's Cloudflare Access JWT. The
+ *   admin resolves which file of a photo to resize itself. Its
  *   `stat` reports an object's size and hash metadata (upload checks), and
  *   `bytes` returns an original's first or last bytes (metadata backfill).
  *
@@ -52,24 +56,27 @@ import {
   type TransformOptions,
 } from "./request";
 
+/** Where a file is (the API's FileSource; admin migration 0013). */
+type FileSource = { storage: "b2" | "r2"; key: string };
+
 /**
- * What the API returns for a photo (workers/api/src/types.ts). `file` is
- * null over HTTP when the file name is not public; the `photo` RPC always
- * has it.
+ * A photo as the API's RPCs return it (workers/api/src/query.ts
+ * ImagePhoto): `file` is the original's bucket key, `source` the file to
+ * resize (the file the photo shows, or its display copy). An API Worker
+ * from before media_file has no `source`: the original then.
  */
-type Photo = CaptionSource & PublicMeta & { id: string; file: string | null };
+type Photo = CaptionSource &
+  PublicMeta & { id: string; file: string; source?: FileSource };
 
 /** The API's getPathAccess (workers/api/src/query.ts). */
 type PathAccess =
-  | { kind: "photo"; photo: Photo & { file: string } }
-  | { kind: "camera-image"; file: string };
+  { kind: "photo"; photo: Photo } | { kind: "camera-image"; file: string };
 
 /** The API Worker, through a service binding. */
 interface Api {
-  fetch(request: Request): Promise<Response>;
-  /** What a public path shows: a photo (with its bucket key) or a camera picture (RPC). */
+  /** What a public path shows: a photo (with its files) or a camera picture (RPC). */
   pathAccess(path: string): Promise<PathAccess | null>;
-  /** A public or unlisted photo by public id, with its bucket path (RPC). */
+  /** A public or unlisted photo by public id, with its files (RPC). */
   photo(publicId: string): Promise<Photo | null>;
 }
 
@@ -83,42 +90,37 @@ interface Env extends OriginEnv {
 const plain = (status: number, body: string) =>
   new Response(body, { status, headers: { "Cache-Control": "no-store" } });
 
-/** The photo over the API's HTTP handler (no file when its name is hidden). */
-const photoOverHttp = async (env: Env, id: string): Promise<Photo | null> => {
-  // The host is a placeholder: a service binding ignores it.
-  const res = await env.API.fetch(
-    new Request(`https://gallery-api/api/media/${id}`),
-  );
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`API returned ${res.status} for ${id}`);
-  return (await res.json()) as Photo;
+/**
+ * The bucket key to resize for a photo: its `source` (the original when
+ * the API gives none), held to the same shape as a requested bucket path,
+ * as it goes into the origin URL. Null when it is not a usable B2 key; a
+ * file in R2 cannot be served yet (no R2 binding).
+ */
+const sourceKey = (photo: Photo): string | null => {
+  const source = photo.source ?? { storage: "b2", key: photo.file };
+  if (source.storage !== "b2" || typeof source.key !== "string") return null;
+  return parseFilePath(source.key);
 };
 
 /**
- * A public or unlisted photo by public id; null if there is none (private
- * or unknown). Throws if the API fails.
+ * A public or unlisted photo by public id, with the key to resize; null if
+ * there is none (private or unknown). Throws if the API fails or gives no
+ * usable key.
  *
  * This runs on every request, before the edge cache (its key needs the
- * file, and a photo made private must stop at once), so it goes through
- * the API's HTTP handler first: that answer is cached for 60 s (Cache
- * API), which keeps D1 reads down. Only when the HTTP answer leaves the
- * file out (its name is not public) does it ask the `photo` RPC, which
- * reads D1 each time but includes the bucket path. An API Worker from
- * before that RPC always returns the file, so it never gets there.
+ * file, and a photo made private must stop at once). The `photo` RPC's
+ * answers are kept by the API per content version (its last-good.ts), so
+ * D1 is read once per data centre after each change.
  */
 const photoById = async (
   env: Env,
   id: string,
-): Promise<(Photo & { file: string }) | null> => {
-  let photo = await photoOverHttp(env, id);
-  if (photo && photo.file === null) photo = await env.API.photo(id);
+): Promise<(Photo & { key: string }) | null> => {
+  const photo = await env.API.photo(id);
   if (!photo) return null;
-  // The file goes into the origin URL: hold it to the same shape as a
-  // requested bucket path.
-  const file =
-    typeof photo.file === "string" ? parseFilePath(photo.file) : null;
-  if (!file) throw new Error(`API returned no usable file for ${id}`);
-  return { ...photo, file };
+  const key = sourceKey(photo);
+  if (!key) throw new Error(`API returned no usable file for ${id}`);
+  return { ...photo, key };
 };
 
 const transform = (originUrl: string, image: TransformOptions) =>
@@ -264,7 +266,7 @@ export default {
         return plain(503, "Service Unavailable");
       }
       if (!photo) return notFound();
-      file = photo.file;
+      file = photo.key;
       if (parsed.preset === "og") caption = captionFor(photo);
       meta = photo;
     } else {
@@ -285,8 +287,10 @@ export default {
       if (parsed.preset === "og-site" && access.kind !== "camera-image") {
         return notFound();
       }
-      const key = access.kind === "photo" ? access.photo.file : access.file;
-      const checked = parseFilePath(key);
+      const checked =
+        access.kind === "photo"
+          ? sourceKey(access.photo)
+          : parseFilePath(access.file);
       if (!checked) {
         console.error(`API returned no usable file for ${parsed.path}`);
         return plain(503, "Service Unavailable");

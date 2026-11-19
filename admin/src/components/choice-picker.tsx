@@ -143,6 +143,7 @@ export const ChoicePicker = component$<Props>(
                       platform={null}
                       imageBase={imageBase}
                       variant="list"
+                      exact
                       class="size-10 shrink-0 rounded-md object-cover"
                     />
                   ) : (

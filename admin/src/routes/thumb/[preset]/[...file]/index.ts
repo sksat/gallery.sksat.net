@@ -1,5 +1,7 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
-import { getAdminImages, getImageBase } from "~/lib/env";
+import { getAdminImages, getDB, getImageBase } from "~/lib/env";
+import { THUMB_EXACT } from "~/lib/images";
+import { imageSource, type FileObject } from "~/lib/media-file";
 
 // GET /thumb/<preset>/<file…>: a resized thumbnail of any photo or camera
 // picture, private ones included, for the admin's own pages.
@@ -14,6 +16,7 @@ export const onGet: RequestHandler = async ({
   request,
   platform,
   send,
+  url,
 }) => {
   const images = getAdminImages(platform);
   if (!images || getImageBase(platform) === null) {
@@ -22,14 +25,25 @@ export const onGet: RequestHandler = async ({
   }
   let upstream: Response;
   try {
+    // A photo's image is resized from the file it shows (or that file's
+    // display copy), whose key the pages do not link: one indexed lookup.
+    // ?exact: a camera picture, resized as it is.
+    const file = `/${params.file}`;
+    const source: FileObject = url.searchParams.has(THUMB_EXACT)
+      ? { storage: "b2", key: file }
+      : await imageSource(getDB(platform), file);
+    if (source.storage !== "b2") {
+      send(new Response("Not Found", { status: 404 }));
+      return;
+    }
     upstream = await images.image(
       request.headers.get("cf-access-jwt-assertion"),
-      `/${params.file}`,
+      source.key,
       params.preset,
       request.headers.get("accept"),
     );
   } catch (err) {
-    console.error("/thumb: AdminImage call failed:", err);
+    console.error("/thumb: file lookup or AdminImage call failed:", err);
     send(new Response("Service unavailable", { status: 503 }));
     return;
   }

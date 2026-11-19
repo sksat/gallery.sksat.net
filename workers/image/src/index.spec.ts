@@ -45,10 +45,7 @@ const env = {
   B2_KEY_ID: "key-id",
   B2_APPLICATION_KEY: "app-key",
   API: {
-    fetch: async (req: Request) =>
-      new URL(req.url).pathname === `/api/media/${ID}`
-        ? Response.json(photo)
-        : new Response("Not Found", { status: 404 }),
+    photo: async (id: string) => (id === ID ? photo : null),
     pathAccess: async (path: string) =>
       path === FILE ? { kind: "photo" as const, photo } : null,
   },
@@ -134,7 +131,7 @@ describe("public fetch handler", () => {
     const hidden = {
       ...env,
       API: {
-        fetch: async () => new Response("Not Found", { status: 404 }),
+        photo: async () => null,
         pathAccess: async () => null,
       },
     };
@@ -171,17 +168,7 @@ describe("public fetch handler", () => {
   });
 });
 
-describe("a photo whose file name is not public", () => {
-  // The HTTP API leaves the file out; the photo RPC has it; the file is
-  // not served by path.
-  const hiddenName = {
-    ...env,
-    API: {
-      fetch: async () => Response.json({ ...photo, file: null }),
-      photo: async (id: string) => (id === ID ? photo : null),
-      pathAccess: async () => null,
-    },
-  };
+describe("the file a photo is resized from", () => {
   const getWith = (e: unknown, path: string) =>
     worker.fetch(
       new Request(`https://gallery.sksat.net${path}`, {
@@ -190,32 +177,51 @@ describe("a photo whose file name is not public", () => {
       e as never,
       ctx,
     );
+  const EDIT = "/VRChat/2023-12/a_lightroom.jpg";
+  /** The API names a retouched version as the file to resize. */
+  const shown = (source: unknown) => {
+    const p = { ...photo, source };
+    return {
+      ...env,
+      API: {
+        photo: async (id: string) => (id === ID ? p : null),
+        pathAccess: async (path: string) =>
+          path === FILE ? { kind: "photo" as const, photo: p } : null,
+      },
+    };
+  };
 
-  it("is served by public id through the RPC", async () => {
-    const res = await getWith(hiddenName, `/img/${ID}?size=h240`);
+  it("is the API's source, by public id and by path, and keys the edge cache", async () => {
+    const e = shown({ storage: "b2", key: EDIT });
+    for (const path of [`/img/${ID}?size=h240`, `/img${FILE}?size=h480`]) {
+      const res = await getWith(e, path);
+      expect(res.status, path).toBe(200);
+    }
+    expect(transforms).toHaveLength(2);
+    for (const t of transforms) expect(t).toContain(EDIT.slice(1));
+    await Promise.all(pending);
+    expect([...store.keys()]).toEqual([
+      `https://gallery.sksat.net/img${EDIT}?size=h240&format=avif`,
+      `https://gallery.sksat.net/img${EDIT}?size=h480&format=avif`,
+    ]);
+  });
+
+  it("is the original when the API gives no source (before media_file)", async () => {
+    const res = await getWith(env, `/img/${ID}?size=h240`);
     expect(res.status).toBe(200);
     expect(transforms[0]).toContain(FILE.slice(1));
   });
 
-  it("is not served by its bucket path", async () => {
-    expect((await getWith(hiddenName, `/img${FILE}?size=h240`)).status).toBe(404);
+  it("is not served from R2 yet, nor from an unusable key", async () => {
+    for (const source of [
+      { storage: "r2", key: EDIT },
+      { storage: "b2", key: "../x.png" },
+    ]) {
+      const e = shown(source);
+      expect((await getWith(e, `/img/${ID}?size=h240`)).status).toBe(503);
+      expect((await getWith(e, `/img${FILE}?size=h240`)).status).toBe(503);
+    }
     expect(transforms).toEqual([]);
-  });
-
-  it("uses only HTTP (cached by the API) while it has the file", async () => {
-    // Like the API Worker from before the photo RPC.
-    const rpc = vi.fn(async () => {
-      throw new TypeError("The RPC receiver does not implement the method");
-    });
-    const old = { ...env, API: { ...env.API, photo: rpc } };
-    expect((await getWith(old, `/img/${ID}?size=h240`)).status).toBe(200);
-    expect(rpc).not.toHaveBeenCalled();
-    // ...and fails (503) for a hidden name, rather than guessing.
-    const oldHidden = {
-      ...hiddenName,
-      API: { ...hiddenName.API, photo: old.API.photo },
-    };
-    expect((await getWith(oldHidden, `/img/${ID}?size=h240`)).status).toBe(503);
   });
 });
 
@@ -292,7 +298,7 @@ describe("public EXIF", () => {
   const metaEnv = (p: unknown) => ({
     ...env,
     API: {
-      fetch: async () => Response.json(p),
+      photo: async () => p,
       pathAccess: async (path: string) =>
         path === "/trip/sunset.png"
           ? { kind: "photo" as const, photo: p }

@@ -22,9 +22,11 @@
  * slightly ahead of the deploy is fine. (2026-11-19: the XMP CreateDate,
  * scanners' dates; 2026-11-20: the file's own EXIF and the scan time
  * apart from the shooting information; 2026-11-21: a reading links the
- * camera or scanner the file names, creating its camera row, device.ts.)
+ * camera or scanner the file names, creating its camera row, device.ts;
+ * 2026-11-22: what wrote the file, creator_tool / xmp_summary of its
+ * media_file row, readFileTool.)
  */
-export const PHOTO_META_PARSER_DATE = "2026-11-21T00:00:00.000Z";
+export const PHOTO_META_PARSER_DATE = "2026-11-22T00:00:00.000Z";
 
 /** Offset assumed when a date in the file has none (cameras on JST). */
 export const DEFAULT_OFFSET = "+09:00";
@@ -773,6 +775,129 @@ export const readPhotoMeta = async (
 export const MAX_XMP_BYTES = 1024 * 1024;
 
 /**
+ * media_file.xmp_summary (migration 0013, admin only): a small summary of
+ * what a retouching program wrote into the file's XMP, never the packet.
+ */
+export type XmpSummary = {
+  /** A few develop settings (Lightroom / Camera Raw crs:*), by name. */
+  crs?: Record<string, string>;
+  /** How many crs:* settings the packet has in all. */
+  crs_count?: number;
+  /** The last steps of xmpMM:History (oldest first). */
+  history?: { action?: string; agent?: string; when?: string }[];
+  /** How many steps the history has in all. */
+  history_count?: number;
+};
+
+/** What wrote a file (media_file.creator_tool / xmp_summary). */
+export type FileTool = {
+  creatorTool: string | null;
+  xmpSummary: XmpSummary | null;
+};
+
+/** The crs:* settings kept by name (the rest are only counted). */
+export const CRS_KEYS = [
+  "ProcessVersion",
+  "WhiteBalance",
+  "Temperature",
+  "Tint",
+  "Exposure2012",
+  "Contrast2012",
+  "Highlights2012",
+  "Shadows2012",
+  "Whites2012",
+  "Blacks2012",
+  "Texture",
+  "Clarity2012",
+  "Dehaze",
+  "Vibrance",
+  "Saturation",
+  "HasCrop",
+  "HasSettings",
+  "LookName",
+] as const;
+
+/** Steps of the history kept. */
+export const MAX_HISTORY = 10;
+
+/** Longest value kept in the summary. */
+const MAX_SUMMARY_TEXT = 64;
+
+const CRS_ATTR_RE =
+  /\bcrs:([A-Za-z][A-Za-z0-9_]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+const CRS_ELEM_RE =
+  /<crs:([A-Za-z][A-Za-z0-9_]*)(?:\s[^>]*)?>([^<]*)<\/crs:\1>/g;
+
+/** The summary of one XMP packet, or null when it has none of it. */
+export const xmpSummaryOf = (xmp: string): XmpSummary | null => {
+  const crs = new Map<string, string>();
+  for (const m of xmp.matchAll(CRS_ATTR_RE)) {
+    crs.set(m[1], decodeEntities(m[2] ?? m[3] ?? "").trim());
+  }
+  for (const m of xmp.matchAll(CRS_ELEM_RE)) {
+    if (!crs.has(m[1])) crs.set(m[1], decodeEntities(m[2]).trim());
+  }
+  const out: XmpSummary = {};
+  if (crs.size > 0) {
+    const kept: Record<string, string> = {};
+    for (const k of CRS_KEYS) {
+      const v = crs.get(k);
+      if (v) kept[k] = cut(v, MAX_SUMMARY_TEXT);
+    }
+    if (Object.keys(kept).length > 0) out.crs = kept;
+    out.crs_count = crs.size;
+  }
+  const history = /<xmpMM:History\b[^>]*>([\s\S]*?)<\/xmpMM:History>/.exec(xmp);
+  if (history) {
+    // Each step is an rdf:li, its fields as attributes or elements.
+    const steps = [
+      ...history[1].matchAll(/<rdf:li\b([^>]*?)(?:\/>|>([\s\S]*?)<\/rdf:li>)/g),
+    ].map((m) => {
+      const li = `<x ${m[1]}>${m[2] ?? ""}`;
+      const step: { action?: string; agent?: string; when?: string } = {};
+      const action = xmpValue(li, "stEvt:action");
+      const agent = xmpValue(li, "stEvt:softwareAgent");
+      const when = xmpValue(li, "stEvt:when");
+      if (action) step.action = cut(action, MAX_SUMMARY_TEXT);
+      if (agent) step.agent = cut(agent, MAX_SUMMARY_TEXT);
+      if (when) step.when = cut(when, MAX_SUMMARY_TEXT);
+      return step;
+    });
+    if (steps.length > 0) {
+      out.history = steps.slice(-MAX_HISTORY);
+      out.history_count = steps.length;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+};
+
+/**
+ * What wrote a file, from the same bytes as readPhotoMeta: XMP
+ * xmp:CreatorTool, else the EXIF Software (`software`, from readPhotoMeta's
+ * fileExif), and the XMP summary. For media_file rows only: it never
+ * becomes the photo's shooting information.
+ */
+export const readFileTool = async (
+  head: Uint8Array,
+  tail?: Uint8Array,
+  software?: string | null,
+): Promise<FileTool> => {
+  const found = find(head, tail);
+  const xmp = [...found.xmp];
+  for (const z of found.compressedXmp) {
+    const text = await inflateCapped(z, MAX_XMP_BYTES);
+    if (text !== null) xmp.push(text);
+  }
+  let creatorTool: string | null = null;
+  let xmpSummary: XmpSummary | null = null;
+  for (const x of xmp) {
+    creatorTool ??= creatorToolFromXmp(x);
+    xmpSummary ??= xmpSummaryOf(x);
+  }
+  return { creatorTool: creatorTool ?? software ?? null, xmpSummary };
+};
+
+/**
  * zlib data as UTF-8 text, or null when it is not valid zlib or inflates
  * past `max` bytes (a crafted chunk must not take all the memory).
  */
@@ -815,22 +940,76 @@ export const readPhotoMetaSync = (head: Uint8Array): PhotoMeta => {
 };
 
 /** What is stored from a file (takenAt goes to media.timestamp apart). */
-export type StoredMeta = Omit<
-  PhotoMeta,
-  "takenAt" | "dates" | "creatorTool"
->;
+export type StoredMeta = Omit<PhotoMeta, "takenAt" | "dates" | "creatorTool">;
 
 /**
  * What the upload rules (upload-rules.ts) look at besides the stored
  * metadata; not stored. (The pixel size is the init's own width / height,
  * image-size.ts.)
  */
-export type FileHints = Pick<PhotoMeta, "creatorTool">;
+export type FileHints = Pick<PhotoMeta, "creatorTool"> & {
+  /** The XMP summary (readFileTool), kept on the original's media_file row. */
+  xmpSummary?: XmpSummary | null;
+};
 
 /** Hints from a request, malformed parts left out. */
 export const normalizeHints = (v: unknown): FileHints => {
   if (typeof v !== "object" || v === null) return { creatorTool: null };
-  return { creatorTool: text((v as Record<string, unknown>).creatorTool) };
+  const o = v as Record<string, unknown>;
+  const xmpSummary = normalizeXmpSummary(o.xmpSummary);
+  return {
+    creatorTool: text(o.creatorTool),
+    ...(xmpSummary ? { xmpSummary } : {}),
+  };
+};
+
+/** Text of the summary from a request: cut like the parser's. */
+const summaryText = (v: unknown): string | null =>
+  typeof v === "string" && v.trim() !== ""
+    ? cut(v.trim(), MAX_SUMMARY_TEXT)
+    : null;
+
+/**
+ * An XMP summary from a request: only its known parts, in the parser's
+ * bounds (CRS_KEYS, MAX_HISTORY steps, MAX_SUMMARY_TEXT). Null when
+ * nothing is left.
+ */
+export const normalizeXmpSummary = (v: unknown): XmpSummary | null => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const out: XmpSummary = {};
+  if (typeof o.crs === "object" && o.crs !== null && !Array.isArray(o.crs)) {
+    const crs: Record<string, string> = {};
+    for (const k of CRS_KEYS) {
+      const s = summaryText((o.crs as Record<string, unknown>)[k]);
+      if (s !== null) crs[k] = s;
+    }
+    if (Object.keys(crs).length > 0) out.crs = crs;
+  }
+  const count = (n: unknown) =>
+    typeof n === "number" && Number.isInteger(n) && n > 0 && n < 1e6 ? n : null;
+  const crsCount = count(o.crs_count);
+  if (crsCount !== null) out.crs_count = crsCount;
+  if (Array.isArray(o.history)) {
+    const steps = o.history
+      .slice(-MAX_HISTORY)
+      .filter(
+        (s): s is Record<string, unknown> =>
+          typeof s === "object" && s !== null,
+      )
+      .map((s) => {
+        const step: { action?: string; agent?: string; when?: string } = {};
+        for (const k of ["action", "agent", "when"] as const) {
+          const t = summaryText(s[k]);
+          if (t !== null) step[k] = t;
+        }
+        return step;
+      });
+    if (steps.length > 0) out.history = steps;
+  }
+  const historyCount = count(o.history_count);
+  if (historyCount !== null) out.history_count = historyCount;
+  return Object.keys(out).length > 0 ? out : null;
 };
 
 export const EMPTY_STORED: StoredMeta = {

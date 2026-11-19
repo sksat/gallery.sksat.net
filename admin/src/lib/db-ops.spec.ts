@@ -166,18 +166,52 @@ describe("purgeItems", () => {
   it("deletes the object, then the row; only trashed photos", async () => {
     const { raw, db } = setup();
     await trashItems(db, { photos: [1, 2], folders: [] });
-    const remove = vi.fn(async (file: string) => {
-      if (file === "/V/b.png") throw new Error("削除の権限がありません");
+    const remove = vi.fn(async (o: { key: string }) => {
+      if (o.key === "/V/b.png") throw new Error("削除の権限がありません");
     });
     expect(await purgeItems(db, [1, 2, 3], remove)).toEqual({
       deleted: [1],
       failed: [{ id: 2, error: "削除の権限がありません" }],
     });
     expect(remove.mock.calls.map((c) => c[0])).toEqual([
-      "/V/a.png",
-      "/V/b.png",
+      { storage: "b2", key: "/V/a.png", mediaId: 1, shared: false },
+      { storage: "b2", key: "/V/b.png", mediaId: 2, shared: false },
     ]);
     expect(paths(raw).map((r) => r.id)).toEqual([2, 3, 4]);
+  });
+
+  it("deletes every file of a photo, then its file rows with it", async () => {
+    const { raw, db } = setup();
+    raw.exec(`INSERT INTO media_file (id, media_id, role, storage, object_key, source_file_id, status) VALUES
+      (100, 1, 'edit', 'b2', '/V/a_lightroom.jpg', 1, 'ready'),
+      (101, 1, 'display', 'b2', '/V/a_lightroom.d.jpg', 100, 'ready'),
+      (102, 2, 'edit', 'r2', '/V/b_ON1.png', NULL, 'ready');
+      UPDATE media SET active_file_id = 100 WHERE id = 1;`);
+    await trashItems(db, { photos: [1, 2], folders: [] });
+    const removed: string[] = [];
+    const remove = async (o: { key: string }) => {
+      removed.push(o.key);
+    };
+    // R2 has no binding yet: photo 2 is left whole, nothing of it deleted.
+    expect(await purgeItems(db, [1, 2], remove)).toEqual({
+      deleted: [1],
+      failed: [{ id: 2, error: "r2 のファイルはまだ削除できません" }],
+    });
+    expect(removed).toEqual([
+      "/V/a.png",
+      "/V/a_lightroom.jpg",
+      "/V/a_lightroom.d.jpg",
+    ]);
+    expect(
+      raw
+        .prepare(
+          "SELECT media_id, object_key FROM media_file WHERE media_id IN (1, 2) ORDER BY id",
+        )
+        .all(),
+    ).toEqual([
+      { media_id: 2, object_key: "/V/b.png" },
+      { media_id: 2, object_key: "/V/b_ON1.png" },
+    ]);
   });
 
   it("keeps the object of a file that is also a camera picture", async () => {

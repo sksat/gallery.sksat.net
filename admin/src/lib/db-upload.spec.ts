@@ -87,6 +87,47 @@ describe("initUpload", () => {
     expect((await listMedia(db, { limit: 10, offset: 0 })).total).toBe(1);
   });
 
+  it("keeps what wrote the file on the original's file row", async () => {
+    const { raw, db } = setup();
+    await initUpload(
+      db,
+      init({
+        meta: {
+          exif: null,
+          fileExif: { software: "ON1 Photo RAW 2026" },
+          digitizedAt: null,
+          location: null,
+          world: null,
+        },
+        hints: {
+          creatorTool: null,
+          xmpSummary: { crs: { ProcessVersion: "15.4" }, crs_count: 1 },
+        },
+        parserDate: PHOTO_META_PARSER_DATE,
+      }),
+      row,
+    );
+    await initUpload(
+      db,
+      init({ file: "/up/b.png", sha256: SHA_B, hints: { creatorTool: "LR" } }),
+      id(1),
+    );
+    expect(
+      raw
+        .prepare(
+          "SELECT object_key, creator_tool, xmp_summary FROM media_file WHERE role = 'original' AND object_key LIKE '/up/%' ORDER BY id",
+        )
+        .all(),
+    ).toEqual([
+      {
+        object_key: "/up/a.png",
+        creator_tool: "ON1 Photo RAW 2026",
+        xmp_summary: '{"crs":{"ProcessVersion":"15.4"},"crs_count":1}',
+      },
+      { object_key: "/up/b.png", creator_tool: "LR", xmp_summary: null },
+    ]);
+  });
+
   it("stores the metadata read from the file, marked as read", async () => {
     const { raw, db } = setup();
     await initUpload(
@@ -380,9 +421,48 @@ describe("initUpload lookups", () => {
       )
         .map((r) => r.detail)
         .join("\n");
-      expect(plan).not.toMatch(/SCAN media\b|json_each/);
-      expect(plan).toMatch(/SEARCH media USING (COVERING )?INDEX/);
+      expect(plan).not.toMatch(/\bSCAN\b|json_each/);
+      expect(plan).toMatch(
+        /SEARCH (media|f|media_file) USING (COVERING )?INDEX/,
+      );
     }
+  });
+
+  it("finds a hash or a bucket key among every file of every photo", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`
+      INSERT INTO media (id, file, platform) VALUES (1, '/r/a.png', 'Real');
+      INSERT INTO media_file (media_id, role, object_key, source_file_id, status, sha256) VALUES
+        (1, 'edit', '/r/a_lightroom.jpg', 1, 'ready', '${SHA_B}'),
+        (1, 'edit', '/r/x.png', 1, 'uploading', '${"c".repeat(64)}');`);
+    const db = sqliteD1(raw);
+    // A retouched version's bytes: that photo has them.
+    expect(
+      await initUpload(db, init({ file: "/up/y.jpg", sha256: SHA_B }), row),
+    ).toEqual({ kind: "exists", id: 1, file: "/r/a.png" });
+    expect(
+      await initUpload(
+        db,
+        init({ file: "/up/y.jpg", sha256: "c".repeat(64) }),
+        row,
+      ),
+    ).toMatchObject({ kind: "conflict", retry: false });
+    // A retouched version's key is taken in the bucket.
+    expect(await initUpload(db, init({ file: "/r/x.png" }), row)).toMatchObject(
+      { kind: "upload", file: "/r/x-1.png" },
+    );
+    expect(
+      raw
+        .prepare(
+          "SELECT role, object_key, status, sha256 FROM media_file WHERE object_key = '/r/x-1.png'",
+        )
+        .get(),
+    ).toEqual({
+      role: "original",
+      object_key: "/r/x-1.png",
+      status: "uploading",
+      sha256: SHA_A,
+    });
   });
 
   it("ranges over the numbered names only", () => {
@@ -415,12 +495,27 @@ describe("completeUpload", () => {
   it("marks the row ready once the bucket has the file, and again is fine", async () => {
     const { raw, db } = setup();
     await initUpload(db, init(), row);
+    // A multipart upload's id, while it uploads (media_file, 0013).
+    raw.exec("UPDATE media_file SET upload_id = 'mp' WHERE media_id = 2");
     expect(await completeUpload(db, 2, UPLOADED)).toEqual({ kind: "ready" });
     const r = raw
       .prepare("SELECT status, uploaded_at FROM media WHERE id = 2")
       .get();
     expect(r?.status).toBe("ready");
     expect(r?.uploaded_at).toMatch(/^\d{4}-/);
+    // Its original's file row with it, in the same statement.
+    expect(
+      raw
+        .prepare(
+          "SELECT role, status, upload_id, uploaded_at FROM media_file WHERE media_id = 2",
+        )
+        .get(),
+    ).toEqual({
+      role: "original",
+      status: "ready",
+      upload_id: null,
+      uploaded_at: r?.uploaded_at,
+    });
     // Already ready: the bucket is not asked again.
     expect(await completeUpload(db, 2, bucket({}))).toEqual({ kind: "ready" });
     expect(await completeUpload(db, 99, UPLOADED)).toEqual({
@@ -473,11 +568,10 @@ describe("completeUpload", () => {
     await completeUpload(db, 2, UPLOADED);
     expect(version()).toBeUndefined();
     // Unlisted by a rule: it opens by URL once ready.
-    await initUpload(
-      db,
-      init({ file: "/up/b.png", sha256: SHA_B }),
-      { ...id(1), visibility: "unlisted" },
-    );
+    await initUpload(db, init({ file: "/up/b.png", sha256: SHA_B }), {
+      ...id(1),
+      visibility: "unlisted",
+    });
     expect(version()).toBeUndefined();
     await completeUpload(
       db,
