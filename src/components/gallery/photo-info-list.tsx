@@ -68,6 +68,28 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
           )}
         </div>
       )}
+      {i.digitizer && (
+        <div data-testid="info-digitizer">
+          <dt>スキャン機材</dt>
+          <dd>
+            {i.digitizer.href ? (
+              <a href={i.digitizer.href} class={LINK}>
+                {i.digitizer.label}
+              </a>
+            ) : (
+              i.digitizer.label
+            )}
+          </dd>
+        </div>
+      )}
+      {i.digitized && (
+        <div data-testid="info-digitized">
+          <dt>スキャン日時</dt>
+          <dd>
+            <time dateTime={i.digitized.datetime}>{i.digitized.text}</time>
+          </dd>
+        </div>
+      )}
       {i.exposure && (
         <div data-testid="info-exposure">
           <dt>撮影設定</dt>

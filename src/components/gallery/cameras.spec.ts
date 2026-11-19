@@ -6,6 +6,7 @@ import {
   cameraSlugFromPath,
   camerasFromMedia,
   cameraSummaries,
+  digitizedWith,
   findCamera,
   isImagePath,
   parseCameras,
@@ -202,6 +203,58 @@ describe("takenWith", () => {
     expect(takenWith(photo(vl2), "virtuallens2")).toBe(true);
     expect(takenWith(photo(null), "virtuallens2")).toBe(false);
     expect(takenWith(photo(vl2), "pentax-sp")).toBe(false);
+  });
+});
+
+describe("a スキャン機材", () => {
+  const scanner: MediaCamera = {
+    slug: "scanner",
+    name: "Scanner",
+    manufacturer: "GCMC",
+    model: "Scanner",
+  };
+  const scanned: MediaInfo = {
+    ...photo(vl2),
+    id: "sxxxxxxxxx",
+    digitizer: scanner,
+  };
+  const record: CameraJSON = {
+    slug: "scanner",
+    name: "Scanner",
+    manufacturer: "GCMC",
+    manufacturerUrl: null,
+    model: "Scanner",
+    kind: "scanner",
+    description: null,
+    productUrl: null,
+    images: [],
+  };
+
+  it("has its own card, counting the photos digitised with it", () => {
+    const cards = cameraSummaries([scanned, photo(vl2)], [record]);
+    expect(
+      cards.map((c) => [c.camera.slug, c.count]).sort(),
+    ).toEqual([
+      ["scanner", 1],
+      ["virtuallens2", 2],
+    ]);
+  });
+
+  it("has a card from the photos alone, and counts a photo once", () => {
+    const cards = cameraSummaries([scanned], null);
+    expect(cards.map((c) => [c.camera.slug, c.count]).sort()).toEqual([
+      ["scanner", 1],
+      ["virtuallens2", 1],
+    ]);
+    const same = { ...scanned, digitizer: vl2 };
+    expect(cameraSummaries([same], null).map((c) => c.count)).toEqual([1]);
+  });
+
+  it("lists them apart from the photos taken with it", () => {
+    expect(digitizedWith([scanned, photo(vl2)], "scanner")).toEqual([
+      scanned,
+    ]);
+    expect(digitizedWith([scanned], "virtuallens2")).toEqual([]);
   });
 });
 

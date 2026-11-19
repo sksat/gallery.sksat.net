@@ -22,6 +22,13 @@ export const METADATA_LEVELS = {
   location: ["exact", "city", "prefecture", "country", "hidden"],
   world: ["link", "name", "hidden"],
   exif: ["all", "basic", "hidden"],
+  /**
+   * The device it was digitised with (admin 0009 media.digitized_with), a
+   * camera row: "model" with its page, "manufacturer" the maker only.
+   */
+  digitizer: ["model", "manufacturer", "hidden"],
+  /** When it was digitised (media.digitized_at), cut down like taken_at. */
+  digitized_at: ["second", "minute", "date", "month", "year", "hidden"],
 } as const;
 
 export type MetadataField = keyof typeof METADATA_LEVELS;
@@ -44,6 +51,9 @@ export const BUILTIN_DEFAULTS: MetadataLevels = {
   location: "hidden",
   world: "link",
   exif: "basic",
+  // Admin-only until the owner shows them (0009).
+  digitizer: "hidden",
+  digitized_at: "hidden",
 };
 
 export const isLevel = <F extends MetadataField>(

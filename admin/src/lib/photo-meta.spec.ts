@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   formatExposure,
-  isFilmScanner,
+  isScanner,
   readPhotoMeta,
   readPhotoMetaSync,
   worldFromXmp,
@@ -91,6 +91,8 @@ describe("readPhotoMeta", () => {
       takenAt: null,
       dates: { exifOriginal: null, xmp: null, exifDateTime: null },
       exif: null,
+      fileExif: null,
+      digitizedAt: null,
       location: null,
       world: null,
     });
@@ -240,13 +242,16 @@ describe("dates", () => {
     });
   });
 
-  it("never takes a film scanner's dates, but keeps its EXIF", async () => {
-    const meta = await readPhotoMeta(fixture("film-scan.jpg"));
-    expect(meta.exif).toMatchObject({
+  it("keeps a scanner's EXIF and date apart from the shooting info", async () => {
+    const meta = await readPhotoMeta(fixture("lab-scan.jpg"));
+    expect(meta.exif).toBeNull();
+    expect(meta.fileExif).toMatchObject({
       make: "FUJI PHOTO FILM CO., LTD.",
       model: "SP-2000",
       taken_at_original: "2023-12-12T10:00:00",
+      date_time: "2023-12-12T10:00:00+09:00",
     });
+    expect(meta.digitizedAt).toBe("2023-12-12T10:00:00+09:00");
     expect(meta.dates).toEqual({
       exifOriginal: null,
       xmp: null,
@@ -257,11 +262,13 @@ describe("dates", () => {
 
   it("never takes a date from a GCMC Scanner's unset clock", async () => {
     const meta = await readPhotoMeta(fixture("gcmc-scan.jpg"));
-    expect(meta.exif).toMatchObject({
+    expect(meta.exif).toBeNull();
+    expect(meta.fileExif).toMatchObject({
       make: "GCMC",
       model: "Scanner",
       taken_at_original: "2021-01-01T00:31:12",
     });
+    expect(meta.digitizedAt).toBe("2021-01-01T00:31:12+09:00");
     expect(meta.dates).toEqual({
       exifOriginal: null,
       xmp: null,
@@ -283,14 +290,14 @@ describe("dates", () => {
       ["Nikon", "LS-5000"],
       ["EPSON", "Perfection V600"],
     ]) {
-      expect(isFilmScanner(make, model), `${make} ${model}`).toBe(true);
+      expect(isScanner(make, model), `${make} ${model}`).toBe(true);
     }
     for (const [make, model] of [
       ["FUJIFILM", "X-T5"],
       ["NIKON CORPORATION", "NIKON Z 6"],
       [undefined, undefined],
     ]) {
-      expect(isFilmScanner(make, model), `${make} ${model}`).toBe(false);
+      expect(isScanner(make, model), `${make} ${model}`).toBe(false);
     }
   });
 

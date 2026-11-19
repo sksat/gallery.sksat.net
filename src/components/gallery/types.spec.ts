@@ -34,6 +34,10 @@ const item: MediaInfoJSON = {
   timestamp_precision: null,
   camera: null,
   maker: null,
+  digitizer: null,
+  digitizerMaker: null,
+  digitized_at: null,
+  digitized_at_precision: null,
   world: null,
   exif: null,
   location: null,
@@ -200,6 +204,48 @@ describe("parseMediaItem", () => {
       camera: null,
       maker: "no slug",
       tags: ["a"],
+    });
+  });
+});
+
+describe("parseMediaItem: the スキャン機材", () => {
+  it("reads the device and its date, at their levels", () => {
+    expect(
+      parseMediaItem({
+        ...item,
+        digitizer: {
+          slug: "gcmc-scanner",
+          name: "Scanner",
+          manufacturer: "GCMC",
+          model: "Scanner",
+        },
+        digitized_at: "2021-01-01T00:00:00+09:00",
+        digitized_at_precision: "date",
+      }),
+    ).toMatchObject({
+      digitizer: {
+        slug: "gcmc-scanner",
+        name: "Scanner",
+        manufacturer: "GCMC",
+        model: "Scanner",
+      },
+      digitizerMaker: null,
+      digitized_at: "2021-01-01T00:00:00+09:00",
+      digitized_at_precision: "date",
+    });
+    // The maker only; a date without a known precision is dropped.
+    expect(
+      parseMediaItem({
+        ...item,
+        digitizer: { slug: null, name: "GCMC", manufacturer: "GCMC" },
+        digitized_at: "2021-01-01T00:00:00+09:00",
+        digitized_at_precision: "fortnight",
+      }),
+    ).toMatchObject({
+      digitizer: null,
+      digitizerMaker: "GCMC",
+      digitized_at: null,
+      digitized_at_precision: null,
     });
   });
 });

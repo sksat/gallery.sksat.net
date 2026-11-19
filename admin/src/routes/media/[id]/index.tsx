@@ -29,15 +29,23 @@ import {
   platformBadge,
 } from "~/components/ui";
 import {
+  digitizerOptions,
   getCamera,
   getMedia,
   listCameraOptions,
   type CameraOption,
   MAX_BULK_IDS,
+  registerScanner,
   restoreVisibility,
   setVisibility,
   updateMedia,
 } from "~/lib/db";
+import { scannerOf } from "~/lib/digitizer";
+import {
+  takenAtFromInput,
+  takenAtInputValue,
+  takenAtOffset,
+} from "~/lib/taken-at-input";
 import {
   PhotoPreview,
   type ApplyResult,
@@ -47,9 +55,11 @@ import { MetadataSelect } from "~/components/metadata-select";
 import { ensureTags, getSiteDefaults, publicTags } from "~/lib/db-meta";
 import {
   EDITABLE_FIELDS,
+  EMBED_LABEL,
   FILE_DATA_FIELDS,
   type MetadataLevels,
 } from "~/lib/metadata";
+import type { FileExifJSON } from "~/lib/photo-meta";
 import {
   changedGroups,
   EXIF_EDIT_KEYS,
@@ -184,6 +194,61 @@ const photoDataPatch = (data: Record<string, string | undefined>) => {
   };
 };
 
+/**
+ * The 撮影日時, スキャン機材 and EXIF choice of the form, each only when
+ * the form has it; the taken-at only when it was edited since the page
+ * loaded (as typed: an unreadable one is sent as is for validatePatch to
+ * reject).
+ */
+const digitizePatch = (data: {
+  digitized_with?: string;
+  embed_exif?: "" | "on" | "off";
+  taken_at?: string;
+  taken_at_loaded?: string;
+  taken_at_offset?: string;
+}) => {
+  const out: Record<string, unknown> = {};
+  if (data.digitized_with !== undefined) {
+    out.digitized_with = parseCameraIdInput(data.digitized_with);
+  }
+  if (data.embed_exif !== undefined) {
+    out.embed_exif = data.embed_exif === "" ? null : data.embed_exif === "on";
+  }
+  if (data.taken_at !== undefined && data.taken_at !== data.taken_at_loaded) {
+    const ts = takenAtFromInput(data.taken_at, data.taken_at_offset ?? "");
+    out.timestamp = ts === undefined ? data.taken_at : ts;
+  }
+  return out;
+};
+
+/**
+ * 機材を登録: a camera row (kind scanner) for the scanner the photo's file
+ * names, linked to this photo and every other photo whose file names it
+ * (registerScanner).
+ */
+export const useRegisterScanner = routeAction$(
+  async (_data, { platform, params, fail }) => {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return fail(400, { message: "invalid id" });
+    }
+    const db = getDB(platform);
+    const row = await getMedia(db, id);
+    if (!row) return fail(404, { message: "not found" });
+    const scanner = scannerOf(row.file_exif);
+    if (!scanner)
+      return fail(400, { message: "スキャナーのファイルではありません" });
+    const { camera, created, linked } = await registerScanner(db, scanner, id);
+    return {
+      ok: true,
+      name: camera.name,
+      cameraId: camera.id,
+      created,
+      linked,
+    };
+  },
+);
+
 export const useUpdateMedia = routeAction$(
   async (data, { platform, params, fail }) => {
     const id = Number(params.id);
@@ -210,6 +275,7 @@ export const useUpdateMedia = routeAction$(
           }
         : {}),
       ...photoDataPatch(data as Record<string, string | undefined>),
+      ...digitizePatch(data),
     });
     if (!v.ok) {
       return fail(400, { message: v.error });
@@ -226,6 +292,12 @@ export const useUpdateMedia = routeAction$(
       !(await getCamera(db, v.patch.camera_id))
     ) {
       return fail(400, { message: "unknown camera" });
+    }
+    if (
+      v.patch.digitized_with != null &&
+      !(await getCamera(db, v.patch.digitized_with))
+    ) {
+      return fail(400, { message: "unknown スキャン機材" });
     }
     const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
@@ -251,6 +323,14 @@ export const useUpdateMedia = routeAction$(
     mv_exif: z.string().max(20).optional(),
     mv_world: z.string().max(20).optional(),
     mv_location: z.string().max(20).optional(),
+    mv_digitizer: z.string().max(20).optional(),
+    mv_digitized_at: z.string().max(20).optional(),
+    // Left out: unchanged (an older page, or a form without them).
+    digitized_with: z.string().max(20).optional(),
+    embed_exif: z.enum(["", "on", "off"]).optional(),
+    taken_at: z.string().max(40).optional(),
+    taken_at_loaded: z.string().max(40).optional(),
+    taken_at_offset: z.string().max(10).optional(),
     exif_make: z.string().max(400).optional(),
     exif_model: z.string().max(400).optional(),
     exif_lens: z.string().max(400).optional(),
@@ -470,6 +550,69 @@ const VISIBILITY_HELP: Record<Visibility, string> = {
 const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 
 /**
+ * スキャン機材: the camera row it was digitised with (scanners first). A
+ * scanner's file with no row for it yet shows its make and model with
+ * 機材を登録, which creates the row and links the photos that name it.
+ */
+const DigitizerField = component$<{
+  row: MediaRow;
+  cameras: CameraOption[];
+  onRegisterScanner$: QRL<() => void>;
+}>(({ row, cameras, onRegisterScanner$ }) => {
+  const scanner = scannerOf(row.file_exif);
+  return (
+    <div class="max-w-sm">
+      <label for="edit-digitizer" class={label}>
+        スキャン機材
+      </label>
+      <select id="edit-digitizer" name="digitized_with" class={field}>
+        <option value="" selected={row.digitized_with === null}>
+          (none)
+        </option>
+        {digitizerOptions(cameras).map((c) => (
+          <option
+            key={c.id}
+            value={String(c.id)}
+            selected={row.digitized_with === c.id}
+          >
+            {c.name}
+          </option>
+        ))}
+      </select>
+      {scanner && row.digitized_with === null && (
+        <p class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+          <span class={muted} data-testid="file-scanner">
+            {scanner.make} {scanner.model}
+          </span>
+          <button
+            type="button"
+            class={buttonSecondary}
+            onClick$={onRegisterScanner$}
+          >
+            機材を登録
+          </button>
+        </p>
+      )}
+    </div>
+  );
+});
+
+/** The file's own EXIF as read (admin only), folded. */
+const FileExifDetails = component$<{ exif: FileExifJSON }>(({ exif }) => (
+  <details class="text-sm" data-testid="file-exif">
+    <summary class={["cursor-pointer", muted]}>ファイルの EXIF</summary>
+    <dl class="mt-2 grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-xs">
+      {Object.entries(exif).map(([k, v]) => (
+        <div key={k} class="contents">
+          <dt class={muted}>{k}</dt>
+          <dd class="break-all">{String(v)}</dd>
+        </div>
+      ))}
+    </dl>
+  </details>
+));
+
+/**
  * The editable fields. A component of its own so that the page re-rendering
  * (unsaved mark, busy state, folding) never re-applies the saved values'
  * `checked` / `selected` / `value` over what the user just picked; it
@@ -481,7 +624,8 @@ const MediaFields = component$<{
   defaults: MetadataLevels;
   publicTags: string[];
   onReset$: QRL<(field: "exif" | "world" | "location") => void>;
-}>(({ row, cameras, defaults, publicTags, onReset$ }) => (
+  onRegisterScanner$: QRL<() => void>;
+}>(({ row, cameras, defaults, publicTags, onReset$, onRegisterScanner$ }) => (
   <>
     <fieldset class="space-y-3">
       <legend class={legend}>Visibility</legend>
@@ -602,6 +746,66 @@ const MediaFields = component$<{
           first.
         </p>
       </div>
+      <DigitizerField
+        row={row}
+        cameras={cameras}
+        onRegisterScanner$={onRegisterScanner$}
+      />
+    </fieldset>
+
+    <fieldset class="space-y-3">
+      <legend class={legend}>日時</legend>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label for="edit-taken-at" class={label}>
+            撮影日時
+          </label>
+          <input
+            id="edit-taken-at"
+            type="datetime-local"
+            step="1"
+            name="taken_at"
+            value={takenAtInputValue(row.timestamp)}
+            class={field}
+          />
+          <input
+            type="hidden"
+            name="taken_at_loaded"
+            value={takenAtInputValue(row.timestamp)}
+          />
+          <input
+            type="hidden"
+            name="taken_at_offset"
+            value={takenAtOffset(row.timestamp)}
+          />
+        </div>
+        <div>
+          <label for="edit-embed-exif" class={label}>
+            {EMBED_LABEL}
+          </label>
+          <select id="edit-embed-exif" name="embed_exif" class={field}>
+            <option value="" selected={row.embed_exif === null}>
+              既定
+            </option>
+            <option value="on" selected={row.embed_exif === true}>
+              する
+            </option>
+            <option value="off" selected={row.embed_exif === false}>
+              しない
+            </option>
+          </select>
+        </div>
+      </div>
+      {row.digitized_at && (
+        <p class="text-sm">
+          <span class={muted}>スキャン日時</span>{" "}
+          <span class="tabular-nums" data-testid="digitized-at">
+            {formatJst(row.digitized_at)}
+          </span>{" "}
+          <span class={["text-xs", muted]}>JST</span>
+        </p>
+      )}
+      {row.file_exif && <FileExifDetails exif={row.file_exif} />}
     </fieldset>
 
     <fieldset class="space-y-3">
@@ -759,6 +963,7 @@ export default component$(() => {
           message: "ファイルの値に戻します。読み込み後に反映されます。",
         };
   });
+  const register = useRegisterScanner();
   useTask$(({ track }) => {
     const v = track(() => action.value);
     if (!v) return;
@@ -788,6 +993,20 @@ export default component$(() => {
     // Another photo (prev/next reuse this component): a fresh form.
     track(() => (media.value.kind === "ok" ? media.value.row.id : null));
     dirty.value = false;
+  });
+  // 機材を登録 reloads the photo into the form: not over unsaved edits.
+  const registerScannerNow = $(async () => {
+    if (dirty.value) {
+      toast.value = { tone: "error", message: "先に保存してください" };
+      return;
+    }
+    const { value } = await register.submit();
+    toast.value = value.failed
+      ? { tone: "error", message: value.message ?? "登録できませんでした" }
+      : {
+          tone: "success",
+          message: `${value.name} を${value.created ? "登録" : "設定"}しました（${value.linked} 枚）。`,
+        };
   });
   usePreventNavigate$((url) => {
     // (The action's own reload does not navigate, so it never gets here.)
@@ -1072,6 +1291,7 @@ export default component$(() => {
           defaults={media.value.defaults}
           publicTags={media.value.publicTags}
           onReset$={resetFromFile}
+          onRegisterScanner$={registerScannerNow}
         />
 
         {/* Phones: fixed to the bottom of the screen, so Save and stepping

@@ -20,9 +20,10 @@
  * When this parser last learned to find something new: photos read before
  * it are read again (backfill.ts). Bump it with every such change; a date
  * slightly ahead of the deploy is fine. (2026-11-19: the XMP CreateDate,
- * film scanners' dates.)
+ * scanners' dates; 2026-11-20: the file's own EXIF and the scan time
+ * apart from the shooting information.)
  */
-export const PHOTO_META_PARSER_DATE = "2026-11-19T00:00:00.000Z";
+export const PHOTO_META_PARSER_DATE = "2026-11-20T00:00:00.000Z";
 
 /** Offset assumed when a date in the file has none (cameras on JST). */
 export const DEFAULT_OFFSET = "+09:00";
@@ -90,6 +91,17 @@ export type ExifJSON = {
   taken_at_original?: string;
 };
 
+/**
+ * media.file_exif (migration 0009, admin only): the file's own EXIF as
+ * read, whatever made it: a camera's, or a scanner's for a photo
+ * digitised from an analog original. Never public.
+ */
+export type FileExifJSON = ExifJSON & {
+  software?: string;
+  /** IFD0 DateTime (when the file was written), ISO. */
+  date_time?: string;
+};
+
 export type WorldMeta = {
   /** wrld_… */
   id: string | null;
@@ -116,7 +128,15 @@ export type PhotoMeta = {
   /** When it was taken, from the file alone (takenAtOf(dates)). */
   takenAt: string | null;
   dates: FileDates;
+  /**
+   * The shooting information: the camera's EXIF. Null for a file a
+   * scanner wrote (its EXIF describes the scanner, not the shot).
+   */
   exif: ExifJSON | null;
+  /** The file's own EXIF, whatever wrote it (admin only). */
+  fileExif: FileExifJSON | null;
+  /** When a scanner digitised the analog original (its EXIF date). */
+  digitizedAt: string | null;
   /** WGS 84 degrees from the GPS IFD. */
   location: { latitude: number; longitude: number } | null;
   world: WorldMeta | null;
@@ -129,6 +149,7 @@ const T = {
   model: 0x0110,
   orientation: 0x0112,
   dateTime: 0x0132,
+  software: 0x0131,
   exifIfd: 0x8769,
   gpsIfd: 0x8825,
   exposureTime: 0x829a,
@@ -306,26 +327,33 @@ const gpsCoord = (
   return round(v, 7) + 0;
 };
 
-type TiffMeta = Pick<PhotoMeta, "exif" | "location"> & {
+type TiffMeta = Pick<
+  PhotoMeta,
+  "exif" | "fileExif" | "digitizedAt" | "location"
+> & {
   exifOriginal: string | null;
   exifDateTime: string | null;
 };
 
 const NO_TIFF: TiffMeta = {
   exif: null,
+  fileExif: null,
+  digitizedAt: null,
   location: null,
   exifOriginal: null,
   exifDateTime: null,
 };
 
 /**
- * Whether EXIF Make/Model name a film scanner rather than a camera: its
- * dates are when the film was scanned, not when the photo was taken. A
- * short list of the common lab and desktop scanners, and any make or model
- * with "scanner" in it (migrations/0008_metadata_source.sql has the same
- * list in SQL; migrations.spec.ts checks they agree).
+ * Whether EXIF Make/Model name a scanner rather than a camera: the file
+ * was digitised from an analog original (a negative or slide, an instant
+ * photo, a glass plate, a print), so its EXIF and dates describe the
+ * scan, not the shot. A short list of the common lab, film and flatbed
+ * scanners, and any make or model with "scanner" in it.
+ * migrations/0008_metadata_source.sql and 0009_file_exif.sql have the
+ * same list in SQL (migrations.spec.ts checks they agree).
  */
-export const isFilmScanner = (
+export const isScanner = (
   make: string | undefined,
   model: string | undefined,
 ): boolean => {
@@ -400,15 +428,24 @@ const fromTiff = (view: DataView, tiff: number): TiffMeta => {
       : null;
 
   const dateTime = str(ifd0, T.dateTime);
-  // A scanner's dates are the scan's: kept in exif, never the taken-at.
-  const scanner = isFilmScanner(make, model);
+  const software = str(ifd0, T.software);
+  const any = Object.keys(exif).length > 0;
+  const fileExif: FileExifJSON = { ...exif };
+  if (software) fileExif.software = cut(software, MAX_META_TEXT);
+  const dateTimeIso = dateTime ? exifDateToIso(dateTime, null) : null;
+  if (dateTimeIso) fileExif.date_time = dateTimeIso;
+  // A scanner's EXIF and dates are the scan's: the file's own EXIF and the
+  // scan time, never the shooting information or the taken-at.
+  const scanner = isScanner(make, model);
+  const originalAt = original ? exifDateToIso(original, offset ?? null) : null;
 
   return {
-    exif: Object.keys(exif).length > 0 ? exif : null,
+    exif: any && !scanner ? exif : null,
+    fileExif: Object.keys(fileExif).length > 0 ? fileExif : null,
+    digitizedAt: scanner ? (originalAt ?? dateTimeIso) : null,
     location,
-    exifOriginal:
-      original && !scanner ? exifDateToIso(original, offset ?? null) : null,
-    exifDateTime: dateTime && !scanner ? exifDateToIso(dateTime, null) : null,
+    exifOriginal: scanner ? null : originalAt,
+    exifDateTime: scanner ? null : dateTimeIso,
   };
 };
 
@@ -678,7 +715,7 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
     if (world) break;
   }
   // A scanner's XMP dates are the scan's too.
-  const scanner = isFilmScanner(tiffMeta.exif?.make, tiffMeta.exif?.model);
+  const scanner = isScanner(tiffMeta.fileExif?.make, tiffMeta.fileExif?.model);
   let xmpDate: string | null = null;
   for (const x of scanner ? [] : xmp) {
     xmpDate = xmpTakenAt(x);
@@ -693,6 +730,8 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
     takenAt: takenAtOf(dates),
     dates,
     exif: tiffMeta.exif,
+    fileExif: tiffMeta.fileExif,
+    digitizedAt: tiffMeta.digitizedAt,
     location: tiffMeta.location,
     world,
   };
@@ -767,6 +806,8 @@ export type StoredMeta = Omit<PhotoMeta, "takenAt" | "dates">;
 
 export const EMPTY_STORED: StoredMeta = {
   exif: null,
+  fileExif: null,
+  digitizedAt: null,
   location: null,
   world: null,
 };
@@ -846,12 +887,38 @@ export const normalizeWorld = (v: unknown): WorldMeta | null => {
   return id || name ? { id, name, authorId } : null;
 };
 
+/** A file's own EXIF from a request: normalizeExif plus its extras. */
+export const normalizeFileExif = (v: unknown): FileExifJSON | null => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const out: FileExifJSON = { ...(normalizeExif(v) ?? {}) };
+  const software = text(o.software);
+  if (software) out.software = software;
+  if (typeof o.date_time === "string" && ISO_RE.test(o.date_time)) {
+    out.date_time = o.date_time;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+};
+
+const ISO_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?(Z|[+-]\d\d:\d\d)$/;
+
 /** The metadata of an upload request, every part optional. */
 export const normalizeStoredMeta = (v: unknown): StoredMeta => {
   if (typeof v !== "object" || v === null) return EMPTY_STORED;
   const o = v as Record<string, unknown>;
+  const fileExif = normalizeFileExif(o.fileExif);
+  const digitized = isScanner(fileExif?.make, fileExif?.model);
   return {
-    exif: normalizeExif(o.exif),
+    // A scanner's EXIF is never the shooting information, whatever a
+    // client says.
+    exif: digitized ? null : normalizeExif(o.exif),
+    fileExif,
+    digitizedAt:
+      digitized &&
+      typeof o.digitizedAt === "string" &&
+      ISO_RE.test(o.digitizedAt)
+        ? o.digitizedAt
+        : null,
     location: normalizeLocation(o.location),
     world: normalizeWorld(o.world),
   };
@@ -859,4 +926,7 @@ export const normalizeStoredMeta = (v: unknown): StoredMeta => {
 
 /** Whether anything was found. */
 export const hasMeta = (m: StoredMeta) =>
-  m.exif !== null || m.location !== null || m.world !== null;
+  m.exif !== null ||
+  m.fileExif !== null ||
+  m.location !== null ||
+  m.world !== null;

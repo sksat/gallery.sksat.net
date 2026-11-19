@@ -14,6 +14,7 @@ export const CAMERA_KIND_LABELS: Record<CameraKind, string> = {
   film: "Film",
   phone: "Phone",
   virtual: "Virtual (in-game)",
+  scanner: "Scanner",
 };
 
 /**

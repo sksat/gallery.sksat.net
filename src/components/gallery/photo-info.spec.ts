@@ -126,6 +126,8 @@ describe("photoInfo", () => {
     expect(i).toEqual({
       taken: { text: "2023/12/16 23:12", datetime: "2023-12-16T23:12+09:00" },
       camera: { label: "VirtualLens2", href: "/camera/virtuallens2/" },
+      digitizer: null,
+      digitized: null,
       body: "Canon EOS R5",
       lens: "RF35mm F1.8",
       exposure: "f/1.8",
@@ -135,6 +137,30 @@ describe("photoInfo", () => {
       file: "/2023/a.png",
     });
     expect(infoSummary(i)).toBe("2023/12/16 23:12 · VirtualLens2 · Home");
+  });
+
+  it("shows the スキャン機材 and スキャン日時 when the API gives them", () => {
+    const i = info({
+      camera: { slug: "fm2", name: "FM2", manufacturer: "Nikon", model: "FM2" },
+      digitizer: {
+        slug: "gcmc-scanner",
+        name: "Scanner",
+        manufacturer: "GCMC",
+        model: "Scanner",
+      },
+      digitized_at: "2021-01-01T00:31:12+09:00",
+      digitized_at_precision: "date",
+    });
+    expect(i.camera?.href).toBe("/camera/fm2/");
+    expect(i.digitizer).toEqual({
+      label: "Scanner",
+      href: "/camera/gcmc-scanner/",
+    });
+    expect(i.digitized?.text).toBe("2021/01/01");
+    expect(info({ digitizerMaker: "GCMC" }).digitizer).toEqual({
+      label: "GCMC",
+      href: null,
+    });
   });
 
   it("leaves out what the API did not give", () => {

@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { PUBLIC_ID_RE } from "./public-id";
 import { CAMERA_SLUG_RE } from "./validate";
-import { isFilmScanner } from "./photo-meta";
+import { isScanner } from "./photo-meta";
 
 const migration = (name: string) =>
   readFileSync(resolve(__dirname, "../../migrations", name), "utf8");
@@ -646,7 +646,7 @@ describe("0005_path_trash.sql", () => {
     expect(src("/f.jpg")).toEqual({ exif: "file" });
   });
 
-  it("0008 knows the same scanners as isFilmScanner", () => {
+  it("0008 knows the same scanners as isScanner", () => {
     const pairs: [string, string][] = [
       ["GCMC", "Scanner"],
       ["FUJI PHOTO FILM CO., LTD.", "SP-2000"],
@@ -697,9 +697,240 @@ describe("0005_path_trash.sql", () => {
         .prepare("SELECT metadata_source FROM media WHERE file = ?")
         .get(`/${i}.jpg`) as { metadata_source: string };
       const manual = JSON.parse(metadata_source).taken_at === "manual";
-      expect(manual, `${make} ${model}`).toBe(isFilmScanner(make, model));
+      expect(manual, `${make} ${model}`).toBe(isScanner(make, model));
     });
-    expect(pairs.filter(([a, b]) => isFilmScanner(a, b)).length).toBe(19);
+    expect(pairs.filter(([a, b]) => isScanner(a, b)).length).toBe(19);
+  });
+
+  describe("0009: the file's EXIF apart from the shooting info", () => {
+    const GCMC = JSON.stringify({
+      make: "GCMC",
+      model: "Scanner",
+      taken_at_original: "2021-01-01T00:31:12",
+    });
+    const XT5 = JSON.stringify({
+      make: "FUJIFILM",
+      model: "X-T5",
+      f_number: 2.8,
+      taken_at_original: "2023-12-11T01:21:32+09:00",
+    });
+    /** Up to 0008, these rows, then 0009. */
+    const migrate9 = (insert: string, before = "") => {
+      const db = migrate5([]);
+      db.exec(migration("0007_list_indexes.sql"));
+      db.exec(insert);
+      db.exec(migration("0008_metadata_source.sql"));
+      if (before) db.exec(before);
+      db.exec(migration("0009_file_exif.sql"));
+      return db;
+    };
+    const row = (db: DatabaseSync, file: string) =>
+      db
+        .prepare(
+          `SELECT timestamp, exif, file_exif, digitized_at, digitized_with,
+             embed_exif, metadata_source FROM media WHERE file = ?`,
+        )
+        .get(file) as Record<string, unknown>;
+
+    it("moves a GCMC Scanner's EXIF and unset-clock date off the photo", () => {
+      const db =
+        migrate9(`INSERT INTO media (file, platform, timestamp, exif, metadata_visibility) VALUES
+        -- Still the scanner's date: cleared, so 2021-01-01 leaves the calendars.
+        ('/2024/auto.jpg', 'Real', '2021-01-01T00:31:12+09:00', '${GCMC}', NULL),
+        -- Set by hand from the folder (0008 marks it manual): kept.
+        ('/2024/month.jpg', 'Real', '2024-02-01T00:00:00+09:00', '${GCMC}', '{"taken_at":"month"}'),
+        ('/2024/date.jpg', 'Real', '2024-03-08T00:00:00+09:00', '${GCMC}', '{"taken_at":"date"}'),
+        -- A camera's file: everything stays, its EXIF also kept as the file's.
+        ('/x-t5.jpg', 'Real', '2023-12-11T01:21:32+09:00', '${XT5}', NULL),
+        ('/none.png', 'Real', NULL, NULL, NULL)`);
+      expect(row(db, "/2024/auto.jpg")).toEqual({
+        timestamp: null,
+        exif: null,
+        file_exif: GCMC,
+        digitized_at: "2021-01-01T00:31:12+09:00",
+        digitized_with: null,
+        embed_exif: null,
+        metadata_source: null,
+      });
+      expect(row(db, "/2024/month.jpg")).toMatchObject({
+        timestamp: "2024-02-01T00:00:00+09:00",
+        exif: null,
+        file_exif: GCMC,
+        digitized_at: "2021-01-01T00:31:12+09:00",
+        metadata_source: '{"taken_at":"manual"}',
+      });
+      expect(row(db, "/2024/date.jpg")).toMatchObject({
+        timestamp: "2024-03-08T00:00:00+09:00",
+        metadata_source: '{"taken_at":"manual"}',
+      });
+      expect(row(db, "/x-t5.jpg")).toEqual({
+        timestamp: "2023-12-11T01:21:32+09:00",
+        exif: XT5,
+        file_exif: XT5,
+        digitized_at: null,
+        digitized_with: null,
+        embed_exif: null,
+        metadata_source: '{"taken_at":"filename","exif":"file"}',
+      });
+      expect(row(db, "/none.png")).toMatchObject({
+        file_exif: null,
+        digitized_at: null,
+      });
+      expect(
+        db.prepare("SELECT value FROM setting WHERE key = 'embed_exif'").get(),
+      ).toEqual({ value: "true" });
+    });
+
+    it("never touches a value entered by hand", () => {
+      const db = migrate9(
+        `INSERT INTO media (file, platform, timestamp, exif) VALUES
+          ('/a.jpg', 'Real', '2021-01-01T00:31:12+09:00', '${GCMC}')`,
+        // As if edited by hand after 0008, before 0009.
+        `UPDATE media SET metadata_source = '{"taken_at":"manual","exif":"manual"}'`,
+      );
+      expect(row(db, "/a.jpg")).toMatchObject({
+        timestamp: "2021-01-01T00:31:12+09:00",
+        // The scanner's own keys are not the edit: they go, else they would
+        // be public as the camera's.
+        exif: null,
+        // An edited exif is not the file's: the reader fills this later.
+        file_exif: null,
+        digitized_at: "2021-01-01T00:31:12+09:00",
+        metadata_source: '{"taken_at":"manual","exif":"manual"}',
+      });
+    });
+
+    it("clears an automatic taken-at of a scanner's file without DateTimeOriginal", () => {
+      // The old parser took EXIF DateTime then: the scan's too.
+      const db = migrate9(
+        `INSERT INTO media (file, platform, timestamp, exif) VALUES
+          ('/a.jpg', 'Real', '2021-01-01T00:31:12+09:00', '{"make":"GCMC","model":"Scanner"}')`,
+      );
+      expect(row(db, "/a.jpg")).toMatchObject({
+        timestamp: null,
+        exif: null,
+        digitized_at: null,
+      });
+    });
+
+    it("keeps the hand-typed exposure of a scanner's photo, not its make", () => {
+      const edited = JSON.stringify({
+        make: "GCMC",
+        model: "Scanner",
+        taken_at_original: "2021-01-01T00:31:12",
+        f_number: 8,
+        iso: 400,
+      });
+      const db = migrate9(
+        `INSERT INTO media (file, platform, exif) VALUES ('/a.jpg', 'Real', '${edited}')`,
+        `UPDATE media SET metadata_source = '{"exif":"manual"}'`,
+      );
+      expect(JSON.parse(row(db, "/a.jpg").exif as string)).toEqual({
+        f_number: 8,
+        iso: 400,
+      });
+    });
+
+    it("links a camera row that already names the scanner", () => {
+      const db = migrate5([]);
+      db.exec(migration("0007_list_indexes.sql"));
+      db.exec(`INSERT INTO camera (slug, name, manufacturer, model)
+        VALUES ('scanner', 'Scanner', 'gcmc', 'SCANNER')`);
+      db.exec(
+        `INSERT INTO media (file, platform, exif) VALUES ('/a.jpg', 'Real', '${GCMC}')`,
+      );
+      db.exec(migration("0008_metadata_source.sql"));
+      db.exec(migration("0009_file_exif.sql"));
+      expect(row(db, "/a.jpg").digitized_with).toBe(
+        (db.prepare("SELECT id FROM camera").get() as { id: number }).id,
+      );
+    });
+
+    it("lets camera.kind be 'scanner', keeping the rows, pictures and links", () => {
+      const db = migrate5([]);
+      db.exec("PRAGMA foreign_keys = ON");
+      db.exec(migration("0007_list_indexes.sql"));
+      db.exec(
+        `INSERT INTO camera (slug, name, kind) VALUES ('fm2', 'FM2', 'film')`,
+      );
+      db.exec(
+        `INSERT INTO camera_image (camera_id, file) VALUES (1, '/camera/fm2/a.png')`,
+      );
+      db.exec(
+        `INSERT INTO media (file, platform, camera_id) VALUES ('/a.jpg', 'Real', 1)`,
+      );
+      db.exec(migration("0008_metadata_source.sql"));
+      db.exec(migration("0009_file_exif.sql"));
+      expect(db.prepare("SELECT id, slug, kind FROM camera").all()).toEqual([
+        { id: 1, slug: "fm2", kind: "film" },
+      ]);
+      expect(
+        db.prepare("SELECT COUNT(*) AS n FROM camera_image").get(),
+      ).toEqual({ n: 1 });
+      expect(db.prepare("SELECT camera_id FROM media").get()).toEqual({
+        camera_id: 1,
+      });
+      db.exec(
+        `INSERT INTO camera (slug, name, kind) VALUES ('s', 'S', 'scanner')`,
+      );
+      expect(() =>
+        db.exec(
+          `INSERT INTO camera (slug, name, kind) VALUES ('t', 'T', 'toaster')`,
+        ),
+      ).toThrow(/CHECK/);
+      expect(() => db.exec("UPDATE media SET digitized_with = 99")).toThrow(
+        /FOREIGN KEY/,
+      );
+      expect(() => db.exec("UPDATE media SET embed_exif = 2")).toThrow(/CHECK/);
+    });
+
+    it("knows the same scanners as isScanner", () => {
+      const pairs: [string, string][] = [
+        ["GCMC", "Scanner"],
+        ["gcmc", "SCANNER"],
+        ["FUJI PHOTO FILM CO., LTD.", "SP-2000"],
+        ["fujifilm", "sp-3000"],
+        ["FUJIFILM", "Frontier LP5000"],
+        ["NORITSU KOKI", "QSS-32"],
+        ["Eastman Kodak Company", "Pakon F-135"],
+        ["Hasselblad", "Flextight X5"],
+        ["nikon", "ls-50"],
+        ["Nikon", "Nikon SUPER COOLSCAN 5000 ED"],
+        ["EPSON", "Perfection V600"],
+        ["Plustek", "OpticFilm 8200i"],
+        ["Pacific Image", "PrimeFilm XAs"],
+        ["Konica", "HS-1800"],
+        ["NORITSU", "EZController"],
+        ["Generic Scanner Co", "X"],
+        ["FUJIFILM", "X-T5"],
+        ["NIKON CORPORATION", "NIKON Z 6"],
+        ["SONY", "ILCE-7M4"],
+        ["Apple", "iPhone 15 Pro"],
+        ["FUJIFILM", "GFX100S"],
+      ];
+      const db = migrate5([]);
+      db.exec(migration("0007_list_indexes.sql"));
+      pairs.forEach(([make, model], i) =>
+        db
+          .prepare(
+            "INSERT INTO media (file, platform, exif) VALUES (?, 'Real', ?)",
+          )
+          .run(
+            `/${i}.jpg`,
+            JSON.stringify({
+              make,
+              model,
+              taken_at_original: "2021-01-01T00:00:00",
+            }),
+          ),
+      );
+      db.exec(migration("0008_metadata_source.sql"));
+      db.exec(migration("0009_file_exif.sql"));
+      pairs.forEach(([make, model], i) => {
+        const digitized = row(db, `/${i}.jpg`).digitized_at !== null;
+        expect(digitized, `${make} ${model}`).toBe(isScanner(make, model));
+      });
+    });
   });
 
   it("rejects malformed paths", () => {

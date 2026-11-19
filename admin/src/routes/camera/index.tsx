@@ -81,6 +81,14 @@ export default component$(() => {
                 >
                   {c.photo_count} {c.photo_count === 1 ? "photo" : "photos"}
                 </span>
+                {c.digitized_count > 0 && (
+                  <span
+                    class={["text-right text-sm tabular-nums", muted]}
+                    data-testid="camera-digitized-count"
+                  >
+                    スキャン {c.digitized_count}
+                  </span>
+                )}
               </Link>
             </li>
           ))}

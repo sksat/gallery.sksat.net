@@ -56,6 +56,15 @@ export type MediaItemJSON = {
   timestamp_precision: TimestampPrecision | null;
   camera: MediaCameraJSON | null;
   /**
+   * The device it was digitised with (スキャン機材: a scanner, or a camera
+   * used to copy an analog original), like `camera` at its own level
+   * (hidden by default). `camera` stays the camera it was shot with.
+   */
+  digitizer: MediaCameraJSON | null;
+  /** When it was digitised, cut to its level (hidden by default). */
+  digitized_at: string | null;
+  digitized_at_precision: TimestampPrecision | null;
+  /**
    * Where it was taken, as precisely as its `location` level allows:
    * "exact" to 5 decimals (about 1 m); "city", "prefecture" and "country"
    * only as a coarse position (2, 1 and 0 decimals) with no place name
@@ -74,11 +83,16 @@ export type MediaItemJSON = {
    * when hidden or unknown.
    */
   exif: ExifJSON | null;
+  /**
+   * Whether the photo's served images carry this public information as
+   * EXIF (the photo's choice, else the site's; the image Worker reads it).
+   */
+  embed_exif: boolean;
   /** Only the tags marked public (admin `tag` table). */
   tags: string[];
 };
 
-export type CameraKind = "digital" | "film" | "phone" | "virtual";
+export type CameraKind = "digital" | "film" | "phone" | "virtual" | "scanner";
 
 export type CameraImageJSON = {
   file: string;

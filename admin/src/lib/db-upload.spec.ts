@@ -94,6 +94,8 @@ describe("initUpload", () => {
       init({
         meta: {
           exif: { make: "FUJIFILM", f_number: 2.8 },
+          fileExif: { make: "FUJIFILM", f_number: 2.8, software: "fw 1.0" },
+          digitizedAt: null,
           location: { latitude: 35.6587, longitude: 139.7447 },
           world: { id: "wrld_x", name: "W", authorId: "usr_y" },
         },
@@ -107,7 +109,13 @@ describe("initUpload", () => {
       init({
         file: "/up/b.png",
         sha256: SHA_B,
-        meta: { exif: null, location: null, world: null },
+        meta: {
+          exif: null,
+          fileExif: null,
+          digitizedAt: null,
+          location: null,
+          world: null,
+        },
         parserDate: PHOTO_META_PARSER_DATE,
       }),
       id(1),
@@ -124,7 +132,13 @@ describe("initUpload", () => {
       init({
         file: "/up/d.png",
         sha256: "d".repeat(64),
-        meta: { exif: null, location: null, world: null },
+        meta: {
+          exif: null,
+          fileExif: null,
+          digitizedAt: null,
+          location: null,
+          world: null,
+        },
         parserDate: "2000-01-01T00:00:00.000Z",
       }),
       id(3),

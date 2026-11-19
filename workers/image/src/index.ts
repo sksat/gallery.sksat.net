@@ -298,7 +298,7 @@ export default {
     // The public metadata as EXIF, for resized photos (cards carry none).
     // It cannot go into AVIF here, so a photo with any gets WebP or JPEG.
     const tiff =
-      meta && !isCardPreset(parsed.preset)
+      meta && meta.embed_exif !== false && !isCardPreset(parsed.preset)
         ? encodeTiff(publicExif(meta))
         : null;
     const accept = tiff

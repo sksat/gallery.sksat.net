@@ -488,6 +488,53 @@ test("the file's EXIF and VRChat world fill the shooting data, editable", async 
   );
 });
 
+test("a scanner's file: スキャン日時, 機材を登録, the taken-at by hand, no EXIF", async ({
+  page,
+}) => {
+  await newFolder(page, "/mock", "up-scan");
+  await page
+    .getByTestId("upload-input")
+    .setInputFiles([fixture("gcmc-scan.jpg", "image/jpeg")]);
+  await expect(page.getByTestId("file-tile")).toHaveCount(1);
+  await page.getByTestId("file-tile").click();
+
+  // A GCMC Scanner with an unset clock: 2021-01-01 is when it was scanned,
+  // not a taken-at, and its EXIF is not the shooting data.
+  await expect(page.getByTestId("digitized-at")).toContainText("2021/01/01");
+  await expect(page.locator("#edit-taken-at")).toHaveValue("");
+  await expect(page.getByTestId("exif-gear")).toHaveCount(0);
+  await page.getByTestId("file-exif").locator("summary").click();
+  await expect(page.getByTestId("file-exif")).toContainText("GCMC");
+
+  // No camera row names it yet: one tap registers it and links the photo.
+  await expect(page.getByTestId("file-scanner")).toHaveText("GCMC Scanner");
+  await page.getByRole("button", { name: "機材を登録" }).click();
+  await expect(page.getByText(/Scanner を登録しました（1 枚）/)).toBeVisible();
+  await page.reload();
+  const device = page.locator("#edit-digitizer");
+  await expect(device.locator("option:checked")).toHaveText("Scanner");
+  await expect(page.getByTestId("file-scanner")).toHaveCount(0);
+
+  // The taken-at from the folder, and no EXIF in its served images.
+  await page.locator("#edit-taken-at").fill("2024-02-01T00:00");
+  await page.locator("#edit-embed-exif").selectOption("off");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/^Saved at /)).toBeVisible();
+  await page.reload();
+  await expect(page.locator("#edit-taken-at")).toHaveValue("2024-02-01T00:00");
+  await expect(page.locator("#media-meta")).toContainText("2024/02/01");
+  await expect(page.locator("#edit-embed-exif")).toHaveValue("off");
+
+  // The device is a camera row of its own, counted apart.
+  await page.goto("/camera/");
+  await expect(
+    page
+      .locator("li")
+      .filter({ hasText: "Scanner" })
+      .getByTestId("camera-digitized-count"),
+  ).toHaveText("スキャン 1");
+});
+
 test("photos uploaded unread are read in the background, quietly", async ({
   page,
 }) => {
@@ -505,7 +552,7 @@ test("photos uploaded unread are read in the background, quietly", async ({
     .getByTestId("upload-input")
     .setInputFiles([
       { ...fixture("vrchat-2026.png", "image/png"), name: VR },
-      fixture("film-scan.jpg", "image/jpeg"),
+      fixture("lab-scan.jpg", "image/jpeg"),
     ]);
   await expect(page.getByTestId("file-tile")).toHaveCount(2);
   await page.unroute("**/api/upload");
@@ -523,16 +570,20 @@ test("photos uploaded unread are read in the background, quietly", async ({
   // The XMP CreateDate, to the millisecond, over the file name.
   await expect(page.locator("main")).toContainText("2026/11/02 11:31");
 
-  // The film scan: its EXIF is kept, but the scan date is no taken-at.
+  // Digitised on a lab's scanner: its EXIF is the file's, not the shot's,
+  // and its date the スキャン日時, not a taken-at.
   await page.goto("/media/?view=files&dir=/mock/up-unread");
   await page
     .getByTestId("file-tile")
-    .filter({ hasText: "film-scan.jpg" })
+    .filter({ hasText: "lab-scan.jpg" })
     .click();
-  await expect(page.getByTestId("exif-gear")).toHaveText(
+  await expect(page.getByTestId("file-scanner")).toHaveText(
     "FUJI PHOTO FILM CO., LTD. SP-2000",
   );
-  await expect(page.locator("main")).not.toContainText("2023/12/12");
+  await expect(page.getByTestId("exif-gear")).toHaveCount(0);
+  await expect(page.getByTestId("digitized-at")).toContainText("2023/12/12");
+  await expect(page.locator("#media-meta")).not.toContainText("2023/12/12");
+  await expect(page.locator("#edit-taken-at")).toHaveValue("");
 
   // Nothing left to read: no indicator at all.
   await page.goto("/");

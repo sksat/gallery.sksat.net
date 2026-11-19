@@ -10,10 +10,12 @@ import { describe, expect, it } from "vitest";
 import { embedExif, embedJpeg, embedWebp } from "./exif-embed";
 import { encodeTiff, TAG, type ExifIfds } from "./exif-encode";
 import {
+  digitizerText,
   exifDateTime,
   exposureRational,
   publicExif,
   type PublicMeta,
+  userComment,
 } from "./public-exif";
 
 const fixture = (name: string) =>
@@ -107,6 +109,52 @@ describe("publicExif → encodeTiff", () => {
     });
     expect(film.ifd0.get(TAG.make)).toEqual({ type: "ascii", value: "Nikon" });
     expect(film.ifd0.get(TAG.model)).toEqual({ type: "ascii", value: "FM2" });
+  });
+
+  it("puts the スキャン機材 in UserComment and its date in DateTimeDigitized", async () => {
+    const ifds = publicExif({
+      camera: { slug: "fm2", manufacturer: "Nikon", model: "FM2" },
+      digitizer: { manufacturer: "GCMC", model: "Scanner" },
+      digitized_at: "2021-01-01T00:31:12+09:00",
+      digitized_at_precision: "date",
+    });
+    const got = await readTiff(encodeTiff(ifds)!);
+    // Make / Model stay the shooting camera.
+    expect(got.ifd0[TAG.make]).toBe("Nikon");
+    expect(got.ifd0[TAG.model]).toBe("FM2");
+    // At "date": the time blanked (exifr trims the trailing spaces).
+    expect(String(got.exif[TAG.dateTimeDigitized]).trimEnd()).toBe(
+      "2021:01:01   :  :",
+    );
+    expect(got.exif[TAG.offsetTimeDigitized]).toBe("+09:00");
+    const comment = ifds.exif.get(TAG.userComment);
+    expect(comment?.type).toBe("undefined");
+    expect(
+      Buffer.from(comment?.value as Uint8Array).toString("latin1"),
+    ).toBe("ASCII\0\0\0Scanned with: GCMC Scanner");
+    expect(
+      Buffer.from(encodeTiff(ifds)!).includes(
+        Buffer.from("ASCII\0\0\0Scanned with: GCMC Scanner"),
+      ),
+    ).toBe(true);
+    // A maker's name that is also the model's start is said once.
+    expect(digitizerText({ manufacturer: "Nikon", model: "Nikon LS-5000" })).toBe(
+      "Nikon LS-5000",
+    );
+    expect(digitizerText({ manufacturer: "Epson", model: null })).toBe("Epson");
+    // Hidden: neither.
+    const none = publicExif({ digitizer: null, digitized_at: null });
+    expect(encodeTiff(none)).toBeNull();
+  });
+
+  it("writes a non-ASCII UserComment as UTF-16", () => {
+    const v = userComment("ス");
+    expect(v.type).toBe("undefined");
+    expect([...(v.value as Uint8Array)]).toEqual([
+      ...new TextEncoder().encode("UNICODE\0"),
+      0x30,
+      0xb9,
+    ]);
   });
 
   it("follows each level of the projection", async () => {

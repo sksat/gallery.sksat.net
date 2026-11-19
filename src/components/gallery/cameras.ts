@@ -28,7 +28,8 @@ export const CAMERA_LIST_HREF = "/camera/";
  */
 export const camerasFromMedia = (media: MediaIndex): CameraJSON[] => {
   const bySlug = new Map<string, CameraJSON>();
-  for (const { camera } of media) {
+  // The camera it was taken with, and the one it was digitised with.
+  for (const camera of media.flatMap((m) => [m.camera, m.digitizer ?? null])) {
     if (!camera) continue;
     const slug = cameraSlug(camera);
     if (bySlug.has(slug)) continue;
@@ -47,7 +48,13 @@ export const camerasFromMedia = (media: MediaIndex): CameraJSON[] => {
   return [...bySlug.values()];
 };
 
-const KINDS: readonly CameraKind[] = ["digital", "film", "phone", "virtual"];
+const KINDS: readonly CameraKind[] = [
+  "digital",
+  "film",
+  "phone",
+  "virtual",
+  "scanner",
+];
 
 const str = (v: unknown): string | null =>
   typeof v === "string" && v !== "" ? v : null;
@@ -123,9 +130,16 @@ export const findCamera = (
 export const takenWith = (m: MediaInfo, slug: string): boolean =>
   m.camera !== null && cameraSlug(m.camera) === slug;
 
+/**
+ * The photos digitised with the device `slug` (スキャン機材), newest
+ * first: a camera page lists them apart from the ones taken with it.
+ */
+export const digitizedWith = (media: MediaIndex, slug: string): MediaIndex =>
+  media.filter((m) => m.digitizer && cameraSlug(m.digitizer) === slug);
+
 export type CameraSummary = {
   camera: CameraJSON;
-  /** Photos taken with it. */
+  /** Photos taken or digitised (スキャン) with it. */
   count: number;
   /** Card image: the camera's first picture, else its newest photo. */
   cover: ImageSource | null;
@@ -141,12 +155,18 @@ export const cameraSummaries = (
   cameras: CameraJSON[] | null,
 ): CameraSummary[] => {
   const photos = new Map<string, MediaInfo[]>();
+  // A photo counts for its camera and for its スキャン機材 (a scanner has
+  // only those).
   for (const m of media) {
-    if (!m.camera) continue;
-    const slug = cameraSlug(m.camera);
-    const own = photos.get(slug);
-    if (own) own.push(m);
-    else photos.set(slug, [m]);
+    // Once per device, even when both are the same row.
+    const slugs = new Set(
+      [m.camera, m.digitizer].flatMap((c) => (c ? [cameraSlug(c)] : [])),
+    );
+    for (const slug of slugs) {
+      const own = photos.get(slug);
+      if (own) own.push(m);
+      else photos.set(slug, [m]);
+    }
   }
   const bySlug = new Map(
     [...camerasFromMedia(media), ...(cameras ?? [])].map((c) => [c.slug, c]),
@@ -185,6 +205,7 @@ export const CAMERA_KIND_LABELS: Record<CameraKind, string> = {
   film: "フィルムカメラ",
   phone: "スマートフォン",
   virtual: "バーチャルカメラ",
+  scanner: "スキャナー",
 };
 
 /** Camera slug from a `/camera/{slug}` path (trailing slash allowed). */

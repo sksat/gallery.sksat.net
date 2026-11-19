@@ -2,6 +2,7 @@ import { TAKEN_ON_SQL, takenOnArgs } from "./calendar";
 import { parseOverrides } from "./metadata";
 import { parseSources } from "./metadata-source";
 import { mergeExif, parseExifColumn } from "./photo-data";
+import { normalizeFileExif } from "./photo-meta";
 import {
   CAMERA_KINDS,
   type CameraImageRow,
@@ -38,6 +39,10 @@ type RawRow = {
   world_author_id?: string | null;
   trashed_at?: string | null;
   metadata_source?: string | null;
+  file_exif?: string | null;
+  digitized_at?: string | null;
+  digitized_with?: number | null;
+  embed_exif?: number | null;
   updated_at: string;
 };
 
@@ -102,8 +107,22 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
     world_author_id: raw.world_author_id ?? null,
     trashed_at: raw.trashed_at ?? null,
     metadata_source: parseSources(raw.metadata_source),
+    file_exif: parseFileExifColumn(raw.file_exif),
+    digitized_at: raw.digitized_at ?? null,
+    digitized_with: raw.digitized_with ?? null,
+    embed_exif:
+      raw.embed_exif === 1 ? true : raw.embed_exif === 0 ? false : null,
     updated_at: raw.updated_at,
   };
+};
+
+const parseFileExifColumn = (raw: string | null | undefined) => {
+  if (!raw) return null;
+  try {
+    return normalizeFileExif(JSON.parse(raw));
+  } catch {
+    return null;
+  }
 };
 
 export const rowToCamera = (raw: RawCameraRow): CameraRow => {
@@ -210,7 +229,7 @@ export const updateMedia = async (
 ): Promise<MediaRow | null> => {
   const sets: string[] = [];
   /** Fields edited by hand here (metadata_source → 'manual'). */
-  const manual: ("exif" | "world")[] = [];
+  const manual: ("exif" | "world" | "taken_at" | "digitized_with")[] = [];
   const args: unknown[] = [];
   if (patch.platform !== undefined) {
     sets.push("platform = ?");
@@ -219,6 +238,35 @@ export const updateMedia = async (
   if (patch.camera_id !== undefined) {
     sets.push("camera_id = ?");
     args.push(patch.camera_id);
+  }
+  if (patch.embed_exif !== undefined) {
+    sets.push("embed_exif = ?");
+    args.push(patch.embed_exif === null ? null : patch.embed_exif ? 1 : 0);
+  }
+  // Manual only when it really changes (a PATCH may echo the values).
+  if (patch.timestamp !== undefined) {
+    sets.push("timestamp = ?");
+    args.push(patch.timestamp);
+  }
+  if (patch.digitized_with !== undefined) {
+    sets.push("digitized_with = ?");
+    args.push(patch.digitized_with);
+  }
+  if (patch.timestamp !== undefined || patch.digitized_with !== undefined) {
+    const was = await db
+      .prepare("SELECT timestamp, digitized_with FROM media WHERE id = ?")
+      .bind(id)
+      .first<{ timestamp: string | null; digitized_with: number | null }>();
+    if (!was) return null;
+    if (patch.timestamp !== undefined && patch.timestamp !== was.timestamp) {
+      manual.push("taken_at");
+    }
+    if (
+      patch.digitized_with !== undefined &&
+      patch.digitized_with !== was.digitized_with
+    ) {
+      manual.push("digitized_with");
+    }
   }
   if (patch.tags !== undefined) {
     sets.push("tags = ?");
@@ -300,6 +348,7 @@ export const updateMedia = async (
   // and the photo marked unread, so the reader fills it from the file.
   const reset = new Set(patch.reset_from_file ?? []);
   if (reset.has("exif")) sets.push("exif = NULL");
+  if (reset.has("taken_at")) sets.push("timestamp = NULL");
   if (reset.has("world")) {
     sets.push("world_id = NULL", "world_name = NULL", "world_author_id = NULL");
   }
@@ -309,7 +358,9 @@ export const updateMedia = async (
   // A field entered by hand is never replaced by a reading of the file
   // (metadata-source.ts); a reset one is open to it again.
   const sourceKeys = [
-    ...manual.filter((f) => !reset.has(f)).map((f) => [f, "manual"] as const),
+    ...manual
+      .filter((f) => !(reset as Set<string>).has(f))
+      .map((f) => [f, "manual"] as const),
   ];
   const removed = [...reset].filter((f) => f !== "location");
   if (sourceKeys.length > 0 || removed.length > 0) {
@@ -413,24 +464,36 @@ export const restoreVisibility = async (
   return results.reduce((n, r) => n + (r.meta.changes ?? 0), 0);
 };
 
-export type CameraListItem = CameraRow & { photo_count: number };
+/** A camera with how many photos were shot / digitised (スキャン) with it. */
+export type CameraListItem = CameraRow & {
+  photo_count: number;
+  digitized_count: number;
+};
 
 export const listCameras = async (
   db: D1Database,
 ): Promise<CameraListItem[]> => {
   const res = await db
     .prepare(
-      `SELECT c.*, (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id AND m.status = 'ready' AND m.trashed_at IS NULL) AS photo_count
+      `SELECT c.*,
+         (SELECT COUNT(*) FROM media m WHERE m.camera_id = c.id AND m.status = 'ready' AND m.trashed_at IS NULL) AS photo_count,
+         (SELECT COUNT(*) FROM media m WHERE m.digitized_with = c.id AND m.status = 'ready' AND m.trashed_at IS NULL) AS digitized_count
        FROM camera c ORDER BY c.name COLLATE NOCASE, c.id`,
     )
-    .all<RawCameraRow & { photo_count: number }>();
+    .all<RawCameraRow & { photo_count: number; digitized_count: number }>();
   return (res.results ?? []).map((r) => ({
     ...rowToCamera(r),
     photo_count: r.photo_count,
+    digitized_count: r.digitized_count,
   }));
 };
 
-export type CameraOption = { id: number; name: string; slug: string };
+export type CameraOption = {
+  id: number;
+  name: string;
+  slug: string;
+  kind: string | null;
+};
 
 /** The cameras for a <select>, sorted like listCameras, without counts. */
 export const listCameraOptions = async (
@@ -438,10 +501,90 @@ export const listCameraOptions = async (
 ): Promise<CameraOption[]> => {
   const res = await db
     .prepare(
-      "SELECT id, name, slug FROM camera ORDER BY name COLLATE NOCASE, id",
+      "SELECT id, name, slug, kind FROM camera ORDER BY name COLLATE NOCASE, id",
     )
     .all<CameraOption>();
   return res.results ?? [];
+};
+
+/** The スキャン機材 <select>'s order: scanners first, then the rest. */
+export const digitizerOptions = (cameras: CameraOption[]): CameraOption[] => [
+  ...cameras.filter((c) => c.kind === "scanner"),
+  ...cameras.filter((c) => c.kind !== "scanner"),
+];
+
+/** A slug for a new camera from its model ("QSS-32" → "qss-32"). */
+export const slugFromModel = (model: string): string => {
+  const s = model
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return s === "" ? "camera" : s.slice(0, 60).replace(/-+$/, "");
+};
+
+/**
+ * 機材を登録: a camera row of kind 'scanner' for the scanner a file names,
+ * then every photo whose file names it and that has no スキャン機材 yet
+ * (and none chosen by hand) is linked to it. Returns the new camera and
+ * how many photos were linked; an existing row with the same manufacturer
+ * and model (case aside) is linked instead of a new one.
+ */
+export const registerScanner = async (
+  db: D1Database,
+  scanner: { make: string; model: string },
+  /** The photo it was asked from: linked even if cleared by hand before. */
+  forMedia?: number,
+): Promise<{ camera: CameraOption; created: boolean; linked: number }> => {
+  const existing = await db
+    .prepare(
+      `SELECT id, name, slug, kind FROM camera
+       WHERE lower(manufacturer) = lower(?1) AND lower(model) = lower(?2)
+       ORDER BY id LIMIT 1`,
+    )
+    .bind(scanner.make, scanner.model)
+    .first<CameraOption>();
+  let camera = existing;
+  if (!camera) {
+    const base = slugFromModel(scanner.model);
+    const taken = new Set(
+      (
+        (
+          await db
+            .prepare("SELECT slug FROM camera WHERE slug = ?1 OR slug LIKE ?2")
+            .bind(base, `${base}-%`)
+            .all<{ slug: string }>()
+        ).results ?? []
+      ).map((r) => r.slug),
+    );
+    let slug = base;
+    for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
+    camera = await db
+      .prepare(
+        `INSERT INTO camera (slug, name, manufacturer, model, kind)
+         VALUES (?1, ?2, ?3, ?2, 'scanner')
+         RETURNING id, name, slug, kind`,
+      )
+      .bind(slug, scanner.model, scanner.make)
+      .first<CameraOption>();
+    if (!camera) throw new Error("INSERT INTO camera returned no row");
+  }
+  const res = await db
+    .prepare(
+      `UPDATE media SET digitized_with = ?1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE digitized_with IS NULL AND file_exif IS NOT NULL
+         AND lower(json_extract(file_exif, '$.make')) = lower(?2)
+         AND lower(json_extract(file_exif, '$.model')) = lower(?3)
+         AND (id = ?4 OR COALESCE(json_extract(metadata_source,
+               '$.digitized_with'), '') <> 'manual')`,
+    )
+    .bind(camera.id, scanner.make, scanner.model, forMedia ?? null)
+    .run();
+  return {
+    camera,
+    created: !existing,
+    linked: res.meta.changes ?? 0,
+  };
 };
 
 export const getCamera = async (
