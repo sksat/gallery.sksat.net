@@ -40,7 +40,7 @@ const calendarToFilteredGallery = async (page: Page) => {
   await images.first().dispatchEvent("click");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible();
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\?date=2023-12-04$/);
+  await expect(page).toHaveURL(/\/\?photo=vrcxxxxxxb&date=2023-12-04$/);
   await overlay.click({ position: { x: 5, y: 5 } });
   await expect(overlay).not.toBeVisible();
   await expect(page).toHaveURL(/\/\?date=2023-12-04$/);
@@ -75,9 +75,9 @@ test("calendar: arrows and Back in a date's gallery", async ({ page }) => {
   const images = page.getByTestId("gallery-image");
   await expect(images).toHaveCount(5, { timeout: 10000 });
   await images.first().dispatchEvent("click");
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\?date=2023-12$/);
+  await expect(page).toHaveURL(/\/\?photo=vrcxxxxxxc&date=2023-12$/);
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\?date=2023-12$/);
+  await expect(page).toHaveURL(/\/\?photo=vrcxxxxxxb&date=2023-12$/);
   // Back closes the photo and keeps the date.
   await page.goBack();
   await expect(page.getByTestId("overlay")).not.toBeVisible();
@@ -86,10 +86,22 @@ test("calendar: arrows and Back in a date's gallery", async ({ page }) => {
 
   // A photo that is not on the date (an edited link): the arrows walk
   // the whole gallery instead of doing nothing.
-  await page.goto("/photo/reaxxxxxxa?date=2023-12-04");
+  await page.goto("/?photo=reaxxxxxxa&date=2023-12-04");
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
   await page.keyboard.press("ArrowLeft");
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\?date=2023-12-04$/);
+  await expect(page).toHaveURL(/\/\?photo=vrcxxxxxxa&date=2023-12-04$/);
+
+  // Its own page follows the same list: previous / next within the
+  // date's photos, and back to the date's gallery.
+  await page.goto("/photo/vrcxxxxxxb/?date=2023-12");
+  await expect(page.getByTestId("prev-link")).toHaveAttribute(
+    "href",
+    "/photo/vrcxxxxxxc/?date=2023-12",
+  );
+  await expect(page.getByTestId("back-link")).toHaveAttribute(
+    "href",
+    "/?date=2023-12",
+  );
 });
 
 test("calendar: an empty month leads to the nearest ones", async ({ page }) => {

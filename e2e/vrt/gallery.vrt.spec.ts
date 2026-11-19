@@ -21,7 +21,7 @@ test("home: two tags selected (OR)", async ({ page }) => {
 // The overlay of vrcxxxxxxa (every piece of metadata public), with the
 // full-size image loaded and the info panel settled.
 const openPhoto = async (page: Page) => {
-  await page.goto("/photo/vrcxxxxxxa");
+  await page.goto("/?photo=vrcxxxxxxa");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible({ timeout: 10000 });
   // Wait until the full-size image (stacked over the thumbnail) has loaded.
@@ -47,6 +47,29 @@ const settled = (page: Page) =>
         ?.getAnimations().length === 0,
   );
 
+// vrcxxxxxxa's own page, opened from the VRChat list (so it has a previous
+// photo and no next one), with the full-size image loaded.
+const openDetail = async (page: Page) => {
+  await page.goto("/photo/vrcxxxxxxa/?tag=VRChat");
+  const detail = page.getByTestId("photo-detail");
+  await expect(detail).toBeVisible({ timeout: 10000 });
+  await expect
+    .poll(() =>
+      detail
+        .getByTestId("overlay-image")
+        .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth),
+    )
+    .toBeGreaterThan(0);
+  await expect(detail.getByTestId("overlay-progress")).toHaveClass(
+    /opacity-0/,
+  );
+};
+
+test("photo page", async ({ page }) => {
+  await openDetail(page);
+  await expect(page).toHaveScreenshot("photo-page.png", { fullPage: true });
+});
+
 test("photo overlay: direct navigation (summary)", async ({ page }) => {
   await openPhoto(page);
   await settled(page);
@@ -66,6 +89,13 @@ test("photo overlay: info panel open", async ({ page }) => {
 
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("photo page", async ({ page }) => {
+    await openDetail(page);
+    await expect(page).toHaveScreenshot("photo-page-phone.png", {
+      fullPage: true,
+    });
+  });
 
   test("photo overlay: summary", async ({ page }) => {
     await openPhoto(page);

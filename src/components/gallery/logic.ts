@@ -74,12 +74,29 @@ export const neighborIds = <T>(
   };
 };
 
+const withQuery = (path: string, params: URLSearchParams) => {
+  const query = params.toString();
+  return query === "" ? path : `${path}?${query}`;
+};
+
+/** The list's own query: a calendar date, the tag filter, the sort. */
+const appendList = (
+  params: URLSearchParams,
+  filter: TagFilter,
+  sort: SortOrder,
+  date: string | null,
+) => {
+  if (date !== null) params.set("date", date);
+  for (const [key, value] of new URLSearchParams(serializeTagFilter(filter)))
+    params.append(key, value);
+  for (const [key, value] of serializeSort(sort)) params.append(key, value);
+};
+
 /**
- * URL for a gallery state: `/`, `/camera/{slug}/` or `/photo/{id}`, with the
- * tag filter and the sort order kept in the query so closing or sharing a
- * photo preserves them. A photo opened from a camera page carries
- * `?camera={slug}` so closing it returns to that page. A date from the
- * calendar is kept as `?date=` on either.
+ * URL for a gallery state: the list (`/` or `/camera/{slug}/`) with the
+ * photo open in the overlay as `?photo={id}`, and a date from the calendar,
+ * the tag filter and sort order, so closing, reloading or going Back keeps
+ * them.
  */
 export const galleryUrl = (
   imageId: string | null,
@@ -89,26 +106,31 @@ export const galleryUrl = (
   date: string | null = null,
 ): string => {
   const params = new URLSearchParams();
-  let path: string;
-  if (imageId !== null) {
-    path = `/photo/${imageId}`;
-    if (camera !== null) params.set("camera", camera);
-  } else {
-    path = camera === null ? "/" : cameraHref(camera);
-  }
-  if (date !== null) params.set("date", date);
-  for (const [key, value] of new URLSearchParams(serializeTagFilter(filter)))
-    params.append(key, value);
-  for (const [key, value] of serializeSort(sort)) params.append(key, value);
-  const query = params.toString();
-  return query === "" ? path : `${path}?${query}`;
+  if (imageId !== null) params.set("photo", imageId);
+  appendList(params, filter, sort, date);
+  return withQuery(camera === null ? "/" : cameraHref(camera), params);
 };
 
 /**
- * Public id from a `/photo/{id}` path (trailing slash allowed), else null.
- * Old `/photo/{N}` paths are not ids: their route redirects them.
+ * A photo's own page, `/photo/{id}/` (its canonical URL, the one shared),
+ * carrying the list it was opened from (`?camera=`, date, tags, sort) so
+ * its previous / next and back link follow that list.
  */
-export const photoIdFromPath = (pathname: string): string | null => {
-  const match = /^\/photo\/([^/]+)\/?$/.exec(pathname);
-  return match && PUBLIC_ID_RE.test(match[1]) ? match[1] : null;
+export const photoPageUrl = (
+  imageId: string,
+  filter: TagFilter = { tags: [], mode: "and" },
+  sort: SortOrder = DEFAULT_SORT,
+  camera: string | null = null,
+  date: string | null = null,
+): string => {
+  const params = new URLSearchParams();
+  if (camera !== null) params.set("camera", camera);
+  appendList(params, filter, sort, date);
+  return withQuery(`/photo/${imageId}/`, params);
+};
+
+/** The photo open in the overlay (`?photo=`), if it is a public id. */
+export const photoIdFromQuery = (params: URLSearchParams): string | null => {
+  const id = params.get("photo");
+  return id !== null && PUBLIC_ID_RE.test(id) ? id : null;
 };

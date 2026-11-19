@@ -1,23 +1,20 @@
 import {
   $,
   component$,
-  sync$,
   useComputed$,
   useSignal,
   type QRL,
 } from "@builder.io/qwik";
 
+import { isTextTarget } from "./keys";
 import { hasDetails, infoSummary, photoInfo } from "./photo-info";
+import { PhotoInfoList, type TagLink } from "./photo-info-list";
 import type { MediaInfo } from "./types";
+
+export type { TagLink };
 
 /** How far (px) a swipe has to go to open or close the sheet. */
 const SWIPE_PX = 30;
-
-/** A click meant for a new tab or window. */
-const isModified = (e: MouseEvent) =>
-  e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
-
-export type TagLink = { tag: string; href: string };
 
 interface InfoPanelProps {
   photo: MediaInfo;
@@ -65,14 +62,7 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
       event.ctrlKey
     )
       return;
-    const t = event.target;
-    if (
-      t instanceof HTMLInputElement ||
-      t instanceof HTMLTextAreaElement ||
-      t instanceof HTMLSelectElement ||
-      (t instanceof HTMLElement && t.isContentEditable)
-    )
-      return;
+    if (isTextTarget(event.target)) return;
     setOpen(!open.value);
   });
 
@@ -168,7 +158,7 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
           onTouchStart$={onTouchStart}
           onTouchEnd$={onTouchEnd}
           class={[
-            "absolute bottom-3 left-3 max-w-[calc(100%-7.5rem)] truncate rounded-full bg-black/50 px-3 py-2 text-left text-sm text-white/90 hover:bg-black/70 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white",
+            "absolute bottom-3 left-3 max-w-[calc(100%-10.25rem)] truncate rounded-full bg-black/50 px-3 py-2 text-left text-sm text-white/90 hover:bg-black/70 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white",
             state ? "invisible" : "",
           ]}
         >
@@ -232,121 +222,14 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
             </svg>
           </button>
         </div>
-        {/* Two columns where there is room, so the sheet stays low. */}
-        <dl class="grid min-h-0 gap-y-3 overflow-y-auto px-4 pt-2 pb-16 sm:grid-cols-2 sm:gap-x-6 md:pb-6 [&_dd]:break-words [&_dt]:text-xs [&_dt]:text-white/60">
-          {i.taken && (
-            <div data-testid="info-taken">
-              <dt>撮影日時</dt>
-              <dd>
-                <time dateTime={i.taken.datetime}>{i.taken.text}</time>
-              </dd>
-            </div>
-          )}
-          {(i.camera || i.body || i.lens) && (
-            <div data-testid="info-camera">
-              <dt>カメラ</dt>
-              {i.camera && (
-                <dd>
-                  {i.camera.href ? (
-                    <a
-                      href={i.camera.href}
-                      class="text-white underline decoration-white/40 underline-offset-2 hover:decoration-white"
-                    >
-                      {i.camera.label}
-                    </a>
-                  ) : (
-                    i.camera.label
-                  )}
-                </dd>
-              )}
-              {i.body && <dd class="text-white/80">{i.body}</dd>}
-              {i.lens && (
-                <dd data-testid="info-lens" class="text-white/80">
-                  {i.lens}
-                </dd>
-              )}
-            </div>
-          )}
-          {i.exposure && (
-            <div data-testid="info-exposure">
-              <dt>撮影設定</dt>
-              <dd class="tabular-nums">{i.exposure}</dd>
-            </div>
-          )}
-          {i.world && (
-            <div data-testid="info-world">
-              <dt>ワールド</dt>
-              <dd>
-                {i.world.href ? (
-                  <a
-                    href={i.world.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="text-white underline decoration-white/40 underline-offset-2 hover:decoration-white"
-                  >
-                    {i.world.name}
-                  </a>
-                ) : (
-                  i.world.name
-                )}
-              </dd>
-            </div>
-          )}
-          {i.location && (
-            <div data-testid="info-location">
-              <dt>場所</dt>
-              <dd>
-                <a
-                  href={i.location.href}
-                  class="text-white underline decoration-white/40 underline-offset-2 hover:decoration-white"
-                >
-                  地図
-                </a>
-              </dd>
-            </div>
-          )}
-          {i.tags.length > 0 && (
-            <div data-testid="info-tags">
-              <dt>タグ</dt>
-              <dd class="mt-1 flex flex-wrap gap-1.5">
-                {props.tagLinks.map(({ tag, href }) => (
-                  <a
-                    key={tag}
-                    href={href}
-                    data-testid="info-tag"
-                    // A plain click filters in place; a modified one (new
-                    // tab or window) is left to the browser.
-                    onClick$={[
-                      // sync$ is serialized as source: no outside names.
-                      sync$((e: MouseEvent) => {
-                        if (
-                          e.button === 0 &&
-                          !e.ctrlKey &&
-                          !e.metaKey &&
-                          !e.shiftKey &&
-                          !e.altKey
-                        )
-                          e.preventDefault();
-                      }),
-                      $((event: MouseEvent) => {
-                        if (!isModified(event)) props.onTag$(tag);
-                      }),
-                    ]}
-                    class="rounded-full border border-white/30 px-2.5 py-0.5 text-white hover:border-white/70"
-                  >
-                    {tag}
-                  </a>
-                ))}
-              </dd>
-            </div>
-          )}
-          {i.file && (
-            <div data-testid="info-file">
-              <dt>ファイル名</dt>
-              <dd class="font-mono text-xs text-white/80">{i.file}</dd>
-            </div>
-          )}
-        </dl>
+        <div class="min-h-0 overflow-y-auto px-4 pt-2 pb-16 md:pb-6">
+          <PhotoInfoList
+            info={i}
+            tagLinks={props.tagLinks}
+            onTag$={props.onTag$}
+            columns
+          />
+        </div>
       </section>
     </>
   );

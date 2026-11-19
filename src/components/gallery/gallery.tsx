@@ -2,16 +2,13 @@ import { component$, $, useComputed$, useStore } from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
 
 import { useGalleryIndex } from "~/routes/layout";
-import {
-  transformMediaInfo,
-  type CameraJSON,
-  type MediaInfoJSON,
-} from "./types";
+import { transformMediaInfo, type CameraJSON } from "./types";
 import {
   dateParam,
   galleryUrl,
   neighborIds,
-  photoIdFromPath,
+  photoIdFromQuery,
+  photoPageUrl,
   visibleMedia,
 } from "./logic";
 import { DateHeader } from "./date-header";
@@ -63,12 +60,6 @@ interface GalleryState {
 }
 
 type GalleryProps = {
-  /**
-   * The photo of a /photo/<id> page, from its route. An unlisted photo is
-   * not in the list, so the overlay takes it from here; it never joins the
-   * grid, the tag counts or the arrow-key order.
-   */
-  photo?: MediaInfoJSON;
   /** The camera of a /camera/<slug>/ page, from its route. */
   camera?: CameraJSON;
 };
@@ -90,22 +81,25 @@ const MODE_LABELS: Record<TagMatchMode, string> = {
 };
 
 /**
- * Photo, filter, sort order and camera as encoded in a URL. The camera comes from a `/camera/<slug>/` path, or `?camera=` on a photo
- * opened from one.
+ * Photo (`?photo=`, open in the overlay), filter, sort order and camera (a
+ * `/camera/<slug>/` path) as encoded in a URL.
  */
 const stateFromUrl = (url: URL) => ({
-  selectedImageId: photoIdFromPath(url.pathname),
+  selectedImageId: photoIdFromQuery(url.searchParams),
   filter: parseTagFilter(url.searchParams),
   sort: parseSort(url.searchParams),
-  camera:
-    cameraSlugFromPath(url.pathname) ??
-    (url.searchParams.get("camera") || null),
+  camera: cameraSlugFromPath(url.pathname),
   // The calendar leads to the whole gallery only; a camera page has no date.
   date:
-    cameraSlugFromPath(url.pathname) === null && !url.searchParams.get("camera")
+    cameraSlugFromPath(url.pathname) === null
       ? dateParam(url.searchParams)
       : null,
 });
+
+/** Keys that act on the focused control rather than on the photo. */
+const isControl = (t: EventTarget | null) =>
+  t instanceof HTMLElement &&
+  t.closest("a, button, input, select, textarea, [contenteditable]") !== null;
 
 export default component$<GalleryProps>((props) => {
   const location = useLocation();
@@ -116,16 +110,13 @@ export default component$<GalleryProps>((props) => {
   // What to show for the current URL state.
   const view = useComputed$(() => {
     const media = index.value.media.map(transformMediaInfo);
-    // The open photo: from the list, else (unlisted) from the route.
+    // The open photo; one that is not in the list (unlisted, or gone) is
+    // not opened: its own page shows it.
     const selected =
       state.selectedImageId === null
         ? undefined
-        : (media.find((m) => m.id === state.selectedImageId) ??
-          (props.photo?.id === state.selectedImageId
-            ? transformMediaInfo(props.photo)
-            : undefined));
-    // An unknown `?camera=` on a photo link is ignored (an unknown
-    // /camera/<slug>/ is already a 404 from its route loader).
+        : media.find((m) => m.id === state.selectedImageId);
+    // An unknown /camera/<slug>/ is already a 404 from its route loader.
     const cameraInfo =
       state.camera === null
         ? null
@@ -280,6 +271,26 @@ export default component$<GalleryProps>((props) => {
 
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       step(event.key === "ArrowRight" ? "next" : "prev");
+    } else if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      // Not a held Enter that just opened the photo from a control.
+      !event.repeat &&
+      !event.isComposing &&
+      !isControl(event.target) &&
+      view.value.selected
+    ) {
+      // Enter opens the photo's own page (a focused link or button keeps
+      // its own Enter).
+      window.location.assign(
+        photoPageUrl(
+          current,
+          state.filter,
+          state.sort,
+          view.value.camera,
+          state.date,
+        ),
+      );
     }
   });
 
@@ -458,6 +469,13 @@ export default component$<GalleryProps>((props) => {
                     src={{ id: selected.id, file: selected.file }}
                     onClose$={() => selectImage(null)}
                     info={selected}
+                    detailHref={photoPageUrl(
+                      selected.id,
+                      state.filter,
+                      state.sort,
+                      camera,
+                      state.date,
+                    )}
                     tagLinks={mediaTags(selected).map((tag) => ({
                       tag,
                       href: galleryUrl(null, tagOnly(tag), state.sort, camera),

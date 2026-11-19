@@ -17,7 +17,10 @@ export const RouterHead = component$(() => {
     <>
       <title>{head.title}</title>
 
-      <link rel="canonical" href={loc.url.href} />
+      {/* Without the query: a filter, sort order, open photo (`?photo=`)
+          or the list a photo page was opened from are views of the same
+          page, not pages of their own. */}
+      <link rel="canonical" href={loc.url.origin + loc.url.pathname} />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <meta name="theme-color" content="#151934" />
       <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />

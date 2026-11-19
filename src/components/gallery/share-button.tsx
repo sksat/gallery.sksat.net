@@ -5,13 +5,23 @@ import { shareUrl } from "./share";
 // How long 「リンクをコピーしました」 stays on screen.
 const FEEDBACK_MS = 2000;
 
+interface ShareButtonProps {
+  /** The photo whose page (/photo/<id>/) is shared. */
+  photoId: string;
+  /**
+   * "overlay" (default): in the overlay's bottom-right corner. "inline":
+   * in the flow of the photo page, with the message and field below.
+   */
+  variant?: "overlay" | "inline";
+}
+
 /**
- * Shares the photo page that is open (the URL without the gallery's query):
- * the OS share sheet where `navigator.share` exists (phones), otherwise a
- * copy to the clipboard. Without clipboard access it shows the URL in a
- * selected read-only field to copy by hand.
+ * Shares a photo's own page (without the gallery's query): the OS share
+ * sheet where `navigator.share` exists (phones), otherwise a copy to the
+ * clipboard. Without clipboard access it shows the URL in a selected
+ * read-only field to copy by hand.
  */
-export const ShareButton = component$(() => {
+export const ShareButton = component$<ShareButtonProps>((props) => {
   // Rendered as the copy button on the server; switched once the browser
   // turns out to have a share sheet.
   const canShare = useSignal(false);
@@ -45,7 +55,7 @@ export const ShareButton = component$(() => {
   });
 
   const onClick = $(async () => {
-    const url = shareUrl(window.location.href);
+    const url = shareUrl(window.location.origin, props.photoId);
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({ title: document.title, url });
@@ -79,7 +89,11 @@ export const ShareButton = component$(() => {
       // rest of the corner still closes the overlay.
       // Above the open info sheet (its foot leaves room for it), so the
       // button, the copy message and the URL field stay usable.
-      class="pointer-events-none absolute right-3 bottom-3 z-20 flex flex-col-reverse items-end gap-2"
+      class={
+        props.variant === "inline"
+          ? "relative flex flex-col items-end gap-2"
+          : "pointer-events-none absolute right-3 bottom-3 z-20 flex flex-col-reverse items-end gap-2"
+      }
     >
       <button
         type="button"
@@ -130,6 +144,9 @@ export const ShareButton = component$(() => {
         aria-live="polite"
         class={[
           "rounded bg-black/70 px-2 py-1 text-sm text-white transition-opacity duration-200",
+          // Inline: below the button, over the page rather than pushing it.
+          props.variant === "inline" &&
+            "pointer-events-none absolute top-full right-0 z-10 mt-2 whitespace-nowrap",
           copied.value ? "opacity-100" : "opacity-0",
         ]}
       >
@@ -149,7 +166,10 @@ export const ShareButton = component$(() => {
           aria-label="この写真のリンク"
           value={manualUrl.value}
           stoppropagation:click
-          class="pointer-events-auto w-[min(80vw,24rem)] rounded bg-black/70 px-2 py-1 text-sm text-white"
+          class={[
+            "pointer-events-auto w-[min(80vw,24rem)] rounded bg-black/70 px-2 py-1 text-sm text-white",
+            props.variant === "inline" && "absolute top-full right-0 z-10 mt-2",
+          ]}
         />
       )}
     </div>

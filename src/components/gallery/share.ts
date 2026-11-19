@@ -1,11 +1,8 @@
 /**
- * The URL to share for the photo shown at `href`: the photo page itself,
- * without the gallery's filter/sort query, `?camera=` or a fragment, so the
- * link opens the same photo for anyone. It ends in a slash like og:url, the
- * form Qwik City redirects `/photo/<id>` to.
+ * The URL to share for a photo: its own page, `/photo/<id>/`, without the
+ * gallery's filter/sort query or `?camera=`, so the link opens the same
+ * photo for anyone, wherever it was opened from (the overlay or the photo
+ * page). It ends in a slash like og:url.
  */
-export const shareUrl = (href: string): string => {
-  const url = new URL(href);
-  const path = url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`;
-  return url.origin + path;
-};
+export const shareUrl = (origin: string, photoId: string): string =>
+  `${origin}/photo/${encodeURIComponent(photoId)}/`;
