@@ -106,6 +106,20 @@ export const listFolders = async (db: D1Database): Promise<string[]> => {
   return [...paths].sort();
 };
 
+// INSERT ... SELECT needs a WHERE before ON CONFLICT (SQLite parsing).
+// "Below ?1" is a range on the path indexes (idx_media_path_live, the
+// folder's UNIQUE), not a substr() of every path: the paths starting with
+// "?1/" are those in ["?1/", "?1" + "0"), "0" being the character after
+// "/".
+export const CREATE_FOLDER_SQL = `INSERT INTO folder (path) SELECT ?1
+  WHERE NOT EXISTS (
+    SELECT 1 FROM media WHERE trashed_at IS NULL
+      AND path >= ?1 || '/' AND path < ?1 || '0'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM folder WHERE path >= ?1 || '/' AND path < ?1 || '0'
+  )
+  ON CONFLICT (path) DO NOTHING`;
+
 /**
  * Create the folder `path` (validated by validateFolderPath). False when
  * it already exists: as a `folder` row, or implicitly because a photo
@@ -116,19 +130,6 @@ export const createFolder = async (
   db: D1Database,
   path: string,
 ): Promise<boolean> => {
-  // INSERT ... SELECT needs a WHERE before ON CONFLICT (SQLite parsing).
-  const res = await db
-    .prepare(
-      `INSERT INTO folder (path) SELECT ?1
-       WHERE NOT EXISTS (
-         SELECT 1 FROM media WHERE trashed_at IS NULL
-           AND substr(path, 1, length(?1) + 1) = ?1 || '/'
-       ) AND NOT EXISTS (
-         SELECT 1 FROM folder WHERE substr(path, 1, length(?1) + 1) = ?1 || '/'
-       )
-       ON CONFLICT (path) DO NOTHING`,
-    )
-    .bind(path)
-    .run();
+  const res = await db.prepare(CREATE_FOLDER_SQL).bind(path).run();
   return (res.meta.changes ?? 0) > 0;
 };

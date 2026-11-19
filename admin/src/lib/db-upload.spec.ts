@@ -1,10 +1,13 @@
+import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   completeUpload,
   deleteIncompleteUpload,
+  initLookups,
   initUpload,
   listIncompleteUploads,
   numberedPaths,
+  numberedRange,
   sizeMismatch,
   type ObjectStat,
 } from "./db-upload";
@@ -214,6 +217,148 @@ describe("initUpload", () => {
       message: "/n/a.png と同じ名前が多すぎます",
       retry: false,
     });
+  });
+});
+
+describe("initUpload lookups", () => {
+  // The single query initUpload used before (an OR over sha256, file and
+  // path, the names as json_each lists) and its decision: the new lookups
+  // must decide the same for every case below.
+  const OLD_SQL = `SELECT id, file, path, status, sha256, trashed_at FROM media
+    WHERE sha256 = ?1 OR file IN (SELECT value FROM json_each(?2))
+       OR (trashed_at IS NULL AND path IN (SELECT value FROM json_each(?2)))`;
+  type Row = {
+    id: number;
+    file: string;
+    path: string;
+    status: string;
+    sha256: string | null;
+    trashed_at: string | null;
+  };
+  const oldDecision = (raw: DatabaseSync, file: string, sha256: string) => {
+    const candidates = numberedPaths(file);
+    const found = raw
+      .prepare(OLD_SQL)
+      .all(sha256, JSON.stringify(candidates)) as Row[];
+    const same = found.find((r) => r.sha256 === sha256);
+    if (same) {
+      if (same.trashed_at !== null) return { trashed: same.path };
+      if (same.status === "ready") return { exists: same.id };
+      return { resume: same.id };
+    }
+    const taken = new Set(
+      found.flatMap((r) =>
+        r.trashed_at === null ? [r.file, r.path] : [r.file],
+      ),
+    );
+    return { file: candidates.find((c) => !taken.has(c)) ?? null };
+  };
+  const newDecision = (o: Awaited<ReturnType<typeof initUpload>>) => {
+    if (o.kind === "exists") return { exists: o.id };
+    if (o.kind === "upload") {
+      return o.resumed ? { resume: o.id } : { file: o.file };
+    }
+    const trashed = /ゴミ箱にあります \((.*)\)$/.exec(o.message);
+    return trashed ? { trashed: trashed[1] } : { file: null };
+  };
+
+  // Names around /d/x.png: taken, numbered, look-alikes outside the
+  // numbered range, moved in and out, trashed, still uploading.
+  const sha = (n: number) => n.toString(16).padStart(64, "0");
+  const seed = (): DatabaseSync => {
+    const raw = migratedSqlite();
+    const insert = raw.prepare(
+      `INSERT INTO media (file, path, platform, status, sha256, trashed_at)
+       VALUES (?, ?, 'Real', ?, ?, ?)`,
+    );
+    const rows: [string, string, string, string | null, string | null][] = [
+      ["/d/x.png", "/d/x.png", "ready", sha(1), null],
+      ["/d/x-1.png", "/d/x-1.png", "uploading", sha(2), null],
+      // Its file is still /d/x-2.png; it is shown elsewhere.
+      ["/d/x-2.png", "/e/moved.png", "ready", sha(3), null],
+      // Shown at /d/x-3.png; its file is elsewhere.
+      ["/e/x-3.png", "/d/x-3.png", "ready", null, null],
+      // In the trash: the file is taken, the path is not.
+      ["/d/x-4.png", "/d/x-4.png", "ready", sha(4), "2026-01-01"],
+      ["/t/y.png", "/d/x-5.png", "ready", sha(5), "2026-01-01"],
+      // Never a candidate.
+      ["/d/x-6x.png", "/d/x-6x.png", "ready", null, null],
+      ["/d/x-7.jpg", "/d/x-7.jpg", "ready", null, null],
+      ["/d/x.jpg", "/d/x.jpg", "ready", null, null],
+      ["/d/x-8/a.png", "/d/x-8/a.png", "ready", null, null],
+      ["/d/x.d/x-9.png", "/d/x.d/x-9.png", "ready", null, null],
+      ["/d/xx-10.png", "/d/xx-10.png", "ready", null, null],
+      ["/d/noext", "/d/noext", "ready", null, null],
+      ["/d/noext-1", "/d/noext-1", "ready", null, null],
+    ];
+    for (const r of rows) insert.run(...r);
+    return raw;
+  };
+  const files = [
+    "/d/x.png",
+    "/d/x-1.png",
+    "/d/x.jpg",
+    "/d/x-7.png",
+    "/d/xx.png",
+    "/d/noext",
+    "/e/moved.png",
+    "/e/x.png",
+    "/new/x.png",
+  ];
+  const hashes = [sha(1), sha(2), sha(3), sha(4), sha(5), "e".repeat(64)];
+
+  for (const file of files) {
+    for (const h of hashes) {
+      it(`${file} ${h.slice(-1)}: same outcome as the old query`, async () => {
+        const raw = seed();
+        const expected = oldDecision(raw, file, h);
+        const got = await initUpload(
+          sqliteD1(raw),
+          init({ file, sha256: h }),
+          row,
+        );
+        expect(newDecision(got)).toEqual(expected);
+      });
+    }
+  }
+
+  it("skips every taken numbered name, up to the last one", async () => {
+    const raw = migratedSqlite();
+    const insert = raw.prepare(
+      "INSERT INTO media (file, platform) VALUES (?, 'Real')",
+    );
+    for (const f of numberedPaths("/n/a.png").slice(0, -1)) insert.run(f);
+    expect(
+      await initUpload(sqliteD1(raw), init({ file: "/n/a.png" }), row),
+    ).toMatchObject({ kind: "upload", file: "/n/a-50.png" });
+  });
+
+  it("reads indexes, never all of media", () => {
+    const raw = migratedSqlite();
+    for (const { sql, args } of initLookups(SHA_A, "/d/x.png")) {
+      const plan = (
+        raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...args) as {
+          detail: string;
+        }[]
+      )
+        .map((r) => r.detail)
+        .join("\n");
+      expect(plan).not.toMatch(/SCAN media\b|json_each/);
+      expect(plan).toMatch(/SEARCH media USING (COVERING )?INDEX/);
+    }
+  });
+
+  it("ranges over the numbered names only", () => {
+    expect(numberedRange("/a.b/IMG_1.JPG")).toEqual([
+      "/a.b/IMG_1-0",
+      "/a.b/IMG_1-:",
+    ]);
+    for (const file of ["/a/x.png", "/a.b/noext", "/a/x-.png", "/a/x9.png"]) {
+      const [lo, hi] = numberedRange(file);
+      for (const p of numberedPaths(file).slice(1)) {
+        expect(p >= lo && p < hi, p).toBe(true);
+      }
+    }
   });
 });
 

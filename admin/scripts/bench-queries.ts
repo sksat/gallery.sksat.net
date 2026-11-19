@@ -8,7 +8,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
-import { filesQuery } from "../src/lib/db-files";
+import { CREATE_FOLDER_SQL, filesQuery } from "../src/lib/db-files";
+import { initLookups, numberedPaths } from "../src/lib/db-upload";
 import {
   neighborsStatements,
   type ListQuery,
@@ -180,23 +181,82 @@ const cases: [string, Case][] = [
   ["dashboard storage", same([{ sql: STORAGE_SQL }])],
 ];
 
-const run = async (upTo: string, which: "before" | "after") => {
+// The upload init's duplicate and name check before it was split into
+// ranges (initLookups): one OR over sha256, file and path, the 51 numbered
+// names as json_each lists.
+const oldInitLookup = (sha256: string, file: string): Q => ({
+  sql: `SELECT id, file, path, status, sha256, trashed_at FROM media
+    WHERE sha256 = ?1 OR file IN (SELECT value FROM json_each(?2))
+       OR (trashed_at IS NULL AND path IN (SELECT value FROM json_each(?2)))`,
+  args: [sha256, JSON.stringify(numberedPaths(file))],
+});
+const initCase =
+  (sha256: string, file: (a: NeighborAnchor) => string): Case =>
+  (a) => ({
+    before: [oldInitLookup(sha256, file(a))],
+    after: initLookups(sha256, file(a)),
+  });
+const NEW_SHA = "f".repeat(64);
+// createFolder before its "below the folder" checks were path ranges.
+const OLD_CREATE_FOLDER_SQL = `INSERT INTO folder (path) SELECT ?1
+  WHERE NOT EXISTS (
+    SELECT 1 FROM media WHERE trashed_at IS NULL
+      AND substr(path, 1, length(?1) + 1) = ?1 || '/'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM folder WHERE substr(path, 1, length(?1) + 1) = ?1 || '/'
+  )
+  ON CONFLICT (path) DO NOTHING`;
+const createFolderCase =
+  (folder: string): Case =>
+  () => ({
+    before: [{ sql: OLD_CREATE_FOLDER_SQL, args: [folder] }],
+    after: [{ sql: CREATE_FOLDER_SQL, args: [folder] }],
+  });
+
+// Changes since 0007, both columns on every migration.
+const nowCases: [string, Case][] = [
+  [
+    "upload init: new name in a folder",
+    initCase(NEW_SHA, (a) => `${dirOf(a)}/new.png`),
+  ],
+  ["upload init: name taken (numbered)", initCase(NEW_SHA, (a) => a.path)],
+  ["create folder (empty name check)", createFolderCase("/VRChat/new")],
+];
+
+const run = async (
+  upTo: string,
+  which: "before" | "after",
+  list: [string, Case][],
+) => {
   const { db, rowsRead, dispose } = await setup(upTo);
   const anchor = (await db
     .prepare("SELECT id, path, timestamp FROM media WHERE id = ?")
     .bind(Math.floor(N / 2))
     .first()) as NeighborAnchor;
   const out: number[] = [];
-  for (const [, c] of cases) out.push(await rowsRead(c(anchor)[which]));
+  for (const [, c] of list) out.push(await rowsRead(c(anchor)[which]));
   await dispose();
   return out;
 };
 
-const before = await run("0007", "before");
-const after = await run("9999", "after");
+const table = (list: [string, Case][], before: number[], after: number[]) => {
+  console.log("| query | before | after |");
+  console.log("| --- | ---: | ---: |");
+  list.forEach(([name], i) => {
+    console.log(`| ${name} | ${before[i]} | ${after[i]} |`);
+  });
+};
+
 console.log(`${N} photos: rows read per call (local D1)\n`);
-console.log("| query | before | after |");
-console.log("| --- | ---: | ---: |");
-cases.forEach(([name], i) => {
-  console.log(`| ${name} | ${before[i]} | ${after[i]} |`);
-});
+console.log("Migration 0007 (before: the schema and queries before it):\n");
+table(
+  cases,
+  await run("0007", "before", cases),
+  await run("9999", "after", cases),
+);
+console.log("\nSince 0007 (both on every migration):\n");
+table(
+  nowCases,
+  await run("9999", "before", nowCases),
+  await run("9999", "after", nowCases),
+);
