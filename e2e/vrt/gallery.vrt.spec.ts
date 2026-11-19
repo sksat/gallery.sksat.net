@@ -2,10 +2,24 @@ import { test, expect, type Page } from "@playwright/test";
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
+/**
+ * The header illustration and the tiles have loaded (not lazy images
+ * below the fold, which would never start).
+ */
+const imagesLoaded = (page: Page) =>
+  expect
+    .poll(() =>
+      page.$$eval("header img, [data-testid=gallery-image]", (imgs) =>
+        imgs.every((i) => (i as HTMLImageElement).complete),
+      ),
+    )
+    .toBe(true);
+
 test("home: no tag selected", async ({ page }) => {
   await page.goto("/");
   const images = page.getByTestId("gallery-image");
   await expect(images).toHaveCount(5, { timeout: 10000 });
+  await imagesLoaded(page);
   await expect(page).toHaveScreenshot("home-all.png", { fullPage: true });
 });
 
@@ -15,6 +29,7 @@ test("home: two tags selected (OR)", async ({ page }) => {
   await expect(page.getByTestId("gallery-image")).toHaveCount(3, {
     timeout: 10000,
   });
+  await imagesLoaded(page);
   await expect(page).toHaveScreenshot("home-tags-or.png", { fullPage: true });
 });
 
