@@ -1,5 +1,6 @@
 import { component$, useSignal } from "@builder.io/qwik";
 
+import { SiteNav } from "../layout/site-nav";
 import { CAMERA_KIND_LABELS, CAMERA_LIST_HREF } from "./cameras";
 import { GRID_CANDIDATES, imageUrl, srcSet, type PresetName } from "./images";
 import { PhotoOverlay } from "./photo-overlay";
@@ -32,14 +33,23 @@ export const Manufacturer = component$<{ camera: CameraJSON }>(({ camera }) =>
 
 // Plain <a>s: see the note in components/layout/header.tsx.
 const BackLinks = component$(() => (
-  <nav aria-label="戻る" class="flex gap-4 text-sm">
-    <a href={CAMERA_LIST_HREF} class="opacity-80 hover:opacity-100">
-      ← カメラ一覧
-    </a>
-    <a href="/" class="opacity-80 hover:opacity-100">
-      すべての写真
-    </a>
-  </nav>
+  <div class="flex flex-wrap items-center gap-x-3">
+    <nav aria-label="戻る" class="flex gap-4 text-sm">
+      <a
+        href={CAMERA_LIST_HREF}
+        class="inline-flex min-h-11 items-center opacity-80 hover:opacity-100 sm:min-h-8"
+      >
+        ← カメラ一覧
+      </a>
+      <a
+        href="/"
+        class="inline-flex min-h-11 items-center opacity-80 hover:opacity-100 sm:min-h-8"
+      >
+        すべての写真
+      </a>
+    </nav>
+    <SiteNav />
+  </div>
 ));
 
 const alt = (camera: CameraJSON, img: CameraImageJSON) =>
@@ -76,109 +86,111 @@ export const CameraHeader = component$<{
     <section
       data-testid="camera-header"
       aria-labelledby="camera-name"
-      class="mb-4 flex flex-col gap-4 px-1 md:flex-row md:items-start"
+      class="mb-4 px-1"
     >
-      {main && (
-        <div class="flex shrink-0 flex-col gap-2">
-          <button
-            type="button"
-            data-testid="camera-image"
-            class="block cursor-zoom-in overflow-hidden rounded"
-            onClick$={() => (opened.value = main.file)}
+      <BackLinks />
+      <div class="mt-2 flex flex-col gap-4 md:flex-row md:items-start">
+        {main && (
+          <div class="flex shrink-0 flex-col gap-2">
+            <button
+              type="button"
+              data-testid="camera-image"
+              class="block cursor-zoom-in overflow-hidden rounded"
+              onClick$={() => (opened.value = main.file)}
+            >
+              <img
+                src={imageUrl(S3_BASE, main.file, IMAGE_BASE, "h480")}
+                srcset={srcSet(S3_BASE, main.file, IMAGE_BASE, MAIN_CANDIDATES)}
+                alt={alt(camera, main)}
+                // A fixed box (the picture is letterboxed in it), so the
+                // details beside it do not shift when it loads.
+                width={448}
+                height={320}
+                class="h-56 w-80 max-w-full object-contain object-left sm:h-80 sm:w-[28rem]"
+              />
+            </button>
+            {rest.length > 0 && (
+              <ul class="flex flex-wrap gap-2" aria-label="ほかの画像">
+                {rest.map((img) => (
+                  <li key={img.file}>
+                    <button
+                      type="button"
+                      data-testid="camera-image"
+                      class="block cursor-zoom-in overflow-hidden rounded opacity-90 hover:opacity-100"
+                      onClick$={() => (opened.value = img.file)}
+                    >
+                      <img
+                        src={imageUrl(S3_BASE, img.file, IMAGE_BASE, "h240")}
+                        srcset={srcSet(
+                          S3_BASE,
+                          img.file,
+                          IMAGE_BASE,
+                          GRID_CANDIDATES,
+                        )}
+                        alt={alt(camera, img)}
+                        loading="lazy"
+                        width={96}
+                        height={64}
+                        class="h-16 w-24 object-cover"
+                      />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        <div class="min-w-0">
+          <h1
+            id="camera-name"
+            class="text-2xl font-semibold tracking-tight sm:text-3xl"
           >
-            <img
-              src={imageUrl(S3_BASE, main.file, IMAGE_BASE, "h480")}
-              srcset={srcSet(S3_BASE, main.file, IMAGE_BASE, MAIN_CANDIDATES)}
-              alt={alt(camera, main)}
-              // A fixed box (the picture is letterboxed in it), so the
-              // details beside it do not shift when it loads.
-              width={448}
-              height={320}
-              class="h-56 w-80 max-w-full object-contain object-left sm:h-80 sm:w-[28rem]"
-            />
-          </button>
-          {rest.length > 0 && (
-            <ul class="flex flex-wrap gap-2" aria-label="ほかの画像">
-              {rest.map((img) => (
-                <li key={img.file}>
-                  <button
-                    type="button"
-                    data-testid="camera-image"
-                    class="block cursor-zoom-in overflow-hidden rounded opacity-90 hover:opacity-100"
-                    onClick$={() => (opened.value = img.file)}
-                  >
-                    <img
-                      src={imageUrl(S3_BASE, img.file, IMAGE_BASE, "h240")}
-                      srcset={srcSet(
-                        S3_BASE,
-                        img.file,
-                        IMAGE_BASE,
-                        GRID_CANDIDATES,
-                      )}
-                      alt={alt(camera, img)}
-                      loading="lazy"
-                      width={96}
-                      height={64}
-                      class="h-16 w-24 object-cover"
-                    />
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {camera.name}
+          </h1>
+          <dl class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+            {camera.kind && (
+              <div class="flex gap-2">
+                <dt class="opacity-60">種類</dt>
+                <dd>{CAMERA_KIND_LABELS[camera.kind]}</dd>
+              </div>
+            )}
+            {camera.manufacturer && (
+              <div class="flex gap-2">
+                <dt class="opacity-60">メーカー</dt>
+                <dd>
+                  <Manufacturer camera={camera} />
+                </dd>
+              </div>
+            )}
+            {camera.model && camera.model !== camera.name && (
+              <div class="flex gap-2">
+                <dt class="opacity-60">機種</dt>
+                <dd>{camera.model}</dd>
+              </div>
+            )}
+            <div class="flex gap-2">
+              <dt class="opacity-60">写真</dt>
+              <dd class="tabular-nums">{count} 枚</dd>
+            </div>
+          </dl>
+          {camera.description && (
+            <p class="mt-3 max-w-3xl text-sm leading-relaxed whitespace-pre-line opacity-90">
+              {camera.description}
+            </p>
+          )}
+          {camera.productUrl && (
+            <p class="mt-2 text-sm">
+              <a
+                href={camera.productUrl}
+                rel="noopener noreferrer"
+                target="_blank"
+                class="underline-offset-4 hover:underline"
+              >
+                製品ページ<span aria-hidden="true"> ↗</span>
+              </a>
+            </p>
           )}
         </div>
-      )}
-      <div class="min-w-0">
-        <BackLinks />
-        <h1
-          id="camera-name"
-          class="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl"
-        >
-          {camera.name}
-        </h1>
-        <dl class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-          {camera.kind && (
-            <div class="flex gap-2">
-              <dt class="opacity-60">種類</dt>
-              <dd>{CAMERA_KIND_LABELS[camera.kind]}</dd>
-            </div>
-          )}
-          {camera.manufacturer && (
-            <div class="flex gap-2">
-              <dt class="opacity-60">メーカー</dt>
-              <dd>
-                <Manufacturer camera={camera} />
-              </dd>
-            </div>
-          )}
-          {camera.model && camera.model !== camera.name && (
-            <div class="flex gap-2">
-              <dt class="opacity-60">機種</dt>
-              <dd>{camera.model}</dd>
-            </div>
-          )}
-          <div class="flex gap-2">
-            <dt class="opacity-60">写真</dt>
-            <dd class="tabular-nums">{count} 枚</dd>
-          </div>
-        </dl>
-        {camera.description && (
-          <p class="mt-3 max-w-3xl text-sm leading-relaxed whitespace-pre-line opacity-90">
-            {camera.description}
-          </p>
-        )}
-        {camera.productUrl && (
-          <p class="mt-2 text-sm">
-            <a
-              href={camera.productUrl}
-              rel="noopener noreferrer"
-              target="_blank"
-              class="underline-offset-4 hover:underline"
-            >
-              製品ページ<span aria-hidden="true"> ↗</span>
-            </a>
-          </p>
-        )}
       </div>
       {opened.value && (
         <PhotoOverlay

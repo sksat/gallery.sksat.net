@@ -7,6 +7,7 @@ import {
   type YearView,
 } from "@shared/calendar/calendar";
 
+import { TopLine } from "../layout/site-nav";
 import { calendarHref, dateGalleryHref } from "./calendar";
 import { imageUrl, type ImageSource } from "./images";
 
@@ -22,12 +23,6 @@ const navLink =
 const monthLabel = (to: YearMonth, from: number) =>
   to.year === from ? `${to.month}月` : `${to.year}年${to.month}月`;
 
-const BackToAll = () => (
-  <a href="/" class="text-sm opacity-80 hover:opacity-100">
-    ← すべての写真
-  </a>
-);
-
 /**
  * One month: a Sunday-first grid; a day with photos shows its first
  * photo and the count and opens the gallery of that day.
@@ -37,9 +32,7 @@ export const MonthCalendar = component$<{ view: MonthView<ImageSource> }>(
     const { year, month, prev, next } = view;
     return (
       <div class="mx-auto max-w-3xl px-2 py-3 sm:px-3">
-        <div class="mb-3 px-1">
-          <BackToAll />
-        </div>
+        <TopLine />
         <nav
           aria-label="月を移動"
           class="mb-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2"
@@ -182,9 +175,7 @@ export const YearCalendar = component$<{ view: YearView }>(({ view }) => {
   const { year, prev, next } = view;
   return (
     <div class="mx-auto max-w-5xl px-2 py-3 sm:px-3">
-      <div class="mb-3 px-1">
-        <BackToAll />
-      </div>
+      <TopLine />
       <nav
         aria-label="年を移動"
         class="mb-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2"
@@ -301,9 +292,9 @@ export const YearCalendar = component$<{ view: YearView }>(({ view }) => {
 
 /** No photo has a public date (or there are no photos). */
 export const EmptyCalendar = component$(() => (
-  <div class="mx-auto max-w-3xl px-3 py-3">
-    <BackToAll />
-    <h1 class="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+  <div class="mx-auto max-w-3xl px-2 py-3 sm:px-3">
+    <TopLine />
+    <h1 class="px-1 text-2xl font-semibold tracking-tight sm:text-3xl">
       カレンダー
     </h1>
     <p class="mt-4 opacity-80">撮影日のわかる写真がまだありません。</p>

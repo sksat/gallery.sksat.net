@@ -12,6 +12,7 @@ import {
   visibleMedia,
 } from "./logic";
 import { DateHeader } from "./date-header";
+import { SiteNav } from "../layout/site-nav";
 import {
   cameraHref,
   cameraLabel,
@@ -386,6 +387,9 @@ export default component$<GalleryProps>((props) => {
                     </button>
                   )}
                 </span>
+                {/* The site's other places, at the right of the first
+                    line (on a camera or date page, in its header's). */}
+                {camera === null && state.date === null && <SiteNav compact />}
               </div>
               <div
                 role="group"
