@@ -1,6 +1,7 @@
 // What the photo info panel (info-panel.tsx) shows, as plain values. Every
 // function reads only what the API returned for the photo: a field it left
 // out (null) stays out, and nothing is guessed from another field.
+import { mapHrefFor, placeLabel } from "../map/places";
 import { cameraHref, cameraLabel, cameraSlug } from "./cameras";
 import { mediaTags } from "./tags";
 import { takenAt, type TakenAt } from "./taken";
@@ -53,13 +54,23 @@ export const worldHref = (world: MediaWorld | null | undefined) =>
     : null;
 
 /**
- * Where a location links to. The gallery has no map page yet, so the
- * panel leaves the location out; return its URL here once there is one.
+ * Where a photo was taken, when its location is public: the place as
+ * /map/ writes it (rounded to its level) and a link to the map on it.
  */
-export const mapHref = (
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _location: MediaLocation | null | undefined,
-): string | null => null;
+export const placeOf = (
+  photoId: string,
+  location: MediaLocation | null | undefined,
+): { label: string; href: string } | null =>
+  location
+    ? {
+        label: placeLabel(
+          location.latitude,
+          location.longitude,
+          location.precision,
+        ),
+        href: mapHrefFor(photoId),
+      }
+    : null;
 
 /**
  * The camera row: a link to its page, or the maker as text. Never the
@@ -86,7 +97,7 @@ export type PhotoInfo = {
   lens: string | null;
   exposure: string | null;
   world: { name: string; href: string | null } | null;
-  location: { href: string } | null;
+  location: { label: string; href: string } | null;
   tags: string[];
   /** The display path, else the file name. */
   file: string | null;
@@ -102,7 +113,6 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
           href: worldHref(m.world),
         }
       : null;
-  const map = m.location ? mapHref(m.location) : null;
   return {
     taken: takenAt(m.takenIso ?? null, m.timestamp_precision),
     camera,
@@ -112,7 +122,7 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
     lens: m.exif?.lens ?? null,
     exposure: exposureLine(m.exif),
     world,
-    location: map ? { href: map } : null,
+    location: placeOf(m.id, m.location),
     tags: mediaTags(m),
     file: m.path ?? m.name ?? null,
   };

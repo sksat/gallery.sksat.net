@@ -2,16 +2,17 @@ import { test, expect, type Page } from "@playwright/test";
 
 // Test data: e2e/fixture.sql. The info panel shows what the API returns
 // for each photo's metadata levels, and nothing else:
-//   vrcxxxxxxa everything (second, camera page, world link, all EXIF,
-//              exact location: left out until there is a map page)
+//   vrcxxxxxxa everything (second, camera page, world link, all EXIF; no
+//              place: VRChat photos have none)
 //   vrcxxxxxxb date only, maker only (RICOH), world name only, EXIF hidden
-//   reaxxxxxxb camera hidden, basic EXIF (no lens/body), no file name
-//   reaxxxxxxa time to the minute
+//   reaxxxxxxb camera hidden, basic EXIF (no lens/body), no file name,
+//              its place to the city
+//   reaxxxxxxa time to the minute, its exact place
 
 const panel = (page: Page) => page.getByTestId("info-panel");
 
 const openPhoto = async (page: Page, id: string) => {
-  await page.goto(`/photo/${id}`);
+  await page.goto(`/?photo=${id}`);
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
 };
 
@@ -61,8 +62,9 @@ test.describe("desktop", () => {
       "ファイル名/mock/vrchat1.png",
     );
     await expect(p.getByTestId("info-tag")).toHaveText(["VRChat"]);
-    // No map page yet: the location is left out. The original EXIF time
-    // (more precise than the photo's time level) is never shown or kept.
+    // A VRChat photo has no real-world place: none, though its level is
+    // exact. The original EXIF time (more precise than the photo's time
+    // level) is never shown or kept.
     await expect(p.getByTestId("info-location")).toHaveCount(0);
     await expect(p).not.toContainText("139.76");
     expect(await page.content()).not.toContain("2023-12-02T09:00:00+09:00");
@@ -86,6 +88,12 @@ test.describe("desktop", () => {
 
     await openPhoto(page, "reaxxxxxxb");
     await openInfo(page);
+    // Only to the city: two decimals, said so.
+    await expect(p.getByTestId("info-location")).toContainText("35.66");
+    await expect(p.getByTestId("info-location")).toContainText(
+      "市区町村くらい",
+    );
+    await expect(p.getByTestId("info-location")).not.toContainText("35.658");
     await expect(p.getByTestId("info-camera")).toHaveCount(0);
     await expect(p.getByTestId("info-exposure")).toHaveText(
       "撮影設定f/5.6 · 1/1000 s · ISO 200 · 18.3 mm",
@@ -98,9 +106,14 @@ test.describe("desktop", () => {
     await expect(p).not.toContainText("GR III");
 
     await openPhoto(page, "reaxxxxxxa");
+    await openInfo(page);
     await expect(p.getByTestId("info-taken")).toHaveText(
       "撮影日時2023/12/01 00:00",
     );
+    // Its place, linking to the map on it.
+    const place = p.getByTestId("info-location").getByRole("link");
+    await expect(place).toHaveText(/35\.68/);
+    await expect(place).toHaveAttribute("href", "/map/?photo=reaxxxxxxa");
   });
 
   test("closed at first, the photo as large as without it", async ({
@@ -149,7 +162,7 @@ test.describe("desktop", () => {
     );
     await page.keyboard.press("ArrowRight");
     // Newest first: vrcxxxxxxa is followed by reaxxxxxxa, also closed.
-    await expect(page).toHaveURL(/\/photo\/reaxxxxxxa/);
+    await expect(page).toHaveURL(/\?photo=reaxxxxxxa/);
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
       "false",
@@ -177,7 +190,7 @@ test.describe("desktop", () => {
     );
     // Arrows still browse; a click outside still closes.
     await page.keyboard.press("ArrowLeft");
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa/);
+    await expect(page).toHaveURL(/\?photo=vrcxxxxxxa/);
     await page.getByTestId("overlay").click({ position: { x: 5, y: 400 } });
     await expect(page.getByTestId("overlay")).toHaveCount(0);
   });
@@ -185,7 +198,7 @@ test.describe("desktop", () => {
   test("a tag filters the gallery", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("gallery-image").nth(1).dispatchEvent("click");
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb$/);
+    await expect(page).toHaveURL(/\?photo=vrcxxxxxxb$/);
     await openInfo(page);
     const night = panel(page).getByTestId("info-tag").filter({ hasText: "night" });
     await expect(night).toHaveAttribute("href", "/?tag=night");
@@ -195,12 +208,12 @@ test.describe("desktop", () => {
     await expect(page.getByTestId("gallery-image")).toHaveCount(2);
     // Back returns to the photo.
     await page.goBack();
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb$/);
+    await expect(page).toHaveURL(/\?photo=vrcxxxxxxb$/);
     await expect(page.getByTestId("overlay")).toBeVisible();
   });
 
   test("is in the server-rendered page", async ({ request }) => {
-    const html = await (await request.get("/photo/vrcxxxxxxa/")).text();
+    const html = await (await request.get("/?photo=vrcxxxxxxa")).text();
     expect(html).toContain('data-testid="info-panel"');
     expect(html).toContain("f/2.8 · 1/250 s · ISO 100 · 35 mm");
     expect(html).toContain("Fixture World");

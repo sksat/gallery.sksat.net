@@ -12,7 +12,7 @@ const openFilteredPhoto = async (page: Page) => {
   // Newest first: vrcxxxxxxb, reaxxxxxxb, reaxxxxxxa
   await images.nth(1).dispatchEvent("click");
   await expect(page).toHaveURL(
-    /\/photo\/reaxxxxxxb\?tag=Real&tag=night&mode=or$/,
+    /\/\?photo=reaxxxxxxb&tag=Real&tag=night&mode=or$/,
   );
 };
 
@@ -41,16 +41,27 @@ test.describe("without a share sheet", () => {
     // The click did not close the overlay, and the arrow keys still browse.
     await expect(page.getByTestId("overlay")).toBeVisible();
     await page.keyboard.press("ArrowRight");
-    await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\?/);
+    await expect(page).toHaveURL(/\?photo=reaxxxxxxa&/);
   });
 
-  test("drops ?camera= too", async ({ page }) => {
-    await page.goto("/photo/vrcxxxxxxa?camera=virtuallens2");
+  test("shares the photo page from a camera page and the photo page", async ({
+    page,
+  }) => {
+    await page.goto("/camera/virtuallens2/?photo=vrcxxxxxxa");
     await page.getByRole("button", { name: "リンクをコピー" }).click();
     await expect(page.getByTestId("share-status")).toHaveText(
       "リンクをコピーしました",
     );
     const origin = new URL(page.url()).origin;
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      `${origin}/photo/vrcxxxxxxa/`,
+    );
+
+    await page.goto("/photo/vrcxxxxxxa/?camera=virtuallens2&tag=VRChat");
+    await page.getByRole("button", { name: "リンクをコピー" }).click();
+    await expect(page.getByTestId("share-status")).toHaveText(
+      "リンクをコピーしました",
+    );
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       `${origin}/photo/vrcxxxxxxa/`,
     );
@@ -74,7 +85,7 @@ test.describe("without a share sheet", () => {
     await page.keyboard.press("ArrowRight");
     // The handler is async; give it time to (wrongly) switch photos.
     await page.waitForTimeout(500);
-    await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\?/);
+    await expect(page).toHaveURL(/\?photo=reaxxxxxxb&/);
     await expect(field).toBeVisible();
   });
 });

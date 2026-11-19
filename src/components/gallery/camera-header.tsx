@@ -186,7 +186,6 @@ export const CameraHeader = component$<{
           src={opened.value}
           onClose$={() => (opened.value = null)}
           // The page URL stays /camera/<slug>/; there is no photo to link.
-          share={false}
         />
       )}
     </section>

@@ -5,10 +5,11 @@ import {
   exposureLine,
   hasDetails,
   infoSummary,
-  mapHref,
+  placeOf,
   photoInfo,
   worldHref,
 } from "./photo-info";
+import { placeLabel } from "../map/places";
 import { transformMediaInfo, type MediaInfoJSON } from "./types";
 
 // The time itself: taken.spec.ts.
@@ -64,11 +65,19 @@ describe("worldHref", () => {
   });
 });
 
-describe("mapHref", () => {
-  it("has no map page yet", () => {
+describe("placeOf", () => {
+  it("links a public location to the map on the photo", () => {
     expect(
-      mapHref({ latitude: 35.68, longitude: 139.77, precision: "city" }),
-    ).toBeNull();
+      placeOf("abcdefghjk", {
+        latitude: 35.68,
+        longitude: 139.77,
+        precision: "city",
+      }),
+    ).toEqual({
+      label: placeLabel(35.68, 139.77, "city"),
+      href: "/map/?photo=abcdefghjk",
+    });
+    expect(placeOf("abcdefghjk", null)).toBeNull();
   });
 });
 
@@ -155,8 +164,11 @@ describe("photoInfo", () => {
     });
     expect(i.camera).toEqual({ label: "logilabo", href: null });
     expect(i.world).toEqual({ name: "Home", href: null });
-    // No map page yet: the location is left out.
-    expect(i.location).toBeNull();
+    // The place as rounded to its level, on the map.
+    expect(i.location).toEqual({
+      label: placeLabel(35.7, 139.8, "prefecture"),
+      href: "/map/?photo=abcdefghjk",
+    });
   });
 
   it("takes the time in the photo's own offset", () => {

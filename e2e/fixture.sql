@@ -42,7 +42,8 @@ UPDATE media SET metadata_visibility = '{"file_name":"path","taken_at":"date"}' 
 -- The info panel of the photo overlay (e2e/info-panel.spec.ts) shows
 -- exactly what the API returns; these rows cover each level:
 -- - vrcxxxxxxa: everything (time to the second, camera with its page, the
---   world with its link, every EXIF value, its exact location);
+--   world with its link, every EXIF value; its location level is exact,
+--   but VRChat photos have no real-world place, so the API leaves it out);
 -- - vrcxxxxxxb: the date only, the camera's maker only (RICOH), the world
 --   name without a link, and its EXIF hidden;
 -- - reaxxxxxxb: its camera hidden and the basic EXIF only (no lens, body

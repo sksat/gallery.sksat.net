@@ -77,19 +77,23 @@ test("camera: photos open and close within the camera page", async ({
   await images.first().dispatchEvent("click");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible();
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\?camera=virtuallens2$/);
+  await expect(page).toHaveURL(
+    /\/camera\/virtuallens2\/\?photo=vrcxxxxxxc$/,
+  );
 
   // Arrow keys stay within the camera's photos, skipping the others.
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\?camera=virtuallens2$/);
+  await expect(page).toHaveURL(
+    /\/camera\/virtuallens2\/\?photo=vrcxxxxxxa$/,
+  );
 
   await overlay.click({ position: { x: 5, y: 5 } });
   await expect(overlay).not.toBeVisible();
   await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
   await expect(images).toHaveCount(2);
 
-  // A shared photo link keeps the camera context.
-  await page.goto("/photo/vrcxxxxxxc?camera=virtuallens2");
+  // A reloaded overlay URL keeps the camera page.
+  await page.goto("/camera/virtuallens2/?photo=vrcxxxxxxc");
   await expect(overlay).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId("camera-header")).toContainText(
     "VirtualLens2",
@@ -108,7 +112,7 @@ test("camera: the sort order works on a camera page", async ({ page }) => {
   await expect(images.first()).toHaveAttribute("src", /vrchat1\.png$/);
   await images.first().dispatchEvent("click");
   await expect(page).toHaveURL(
-    /\/photo\/vrcxxxxxxa\?camera=virtuallens2&sort=old$/,
+    /\/camera\/virtuallens2\/\?photo=vrcxxxxxxa&sort=old$/,
   );
 });
 
@@ -201,9 +205,15 @@ test("camera: an unknown ?camera= on a photo link is ignored", async ({
   page,
 }) => {
   await page.goto("/photo/reaxxxxxxb?camera=no-such-camera");
-  await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
-  await expect(page.getByTestId("camera-header")).toHaveCount(0);
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+  await expect(page.getByTestId("photo-detail")).toBeVisible({
+    timeout: 10000,
+  });
+  // Back to every photo, and previous / next through every photo.
+  await expect(page.getByTestId("back-link")).toHaveAttribute("href", "/");
+  await expect(page.getByTestId("next-link")).toHaveAttribute(
+    "href",
+    "/photo/vrcxxxxxxa/",
+  );
 });
 
 test("camera: an unknown slug is a 404", async ({ page }) => {

@@ -62,23 +62,23 @@ test("gallery: view and navigate photos within the filter", async ({ page }) => 
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible();
   await expect(page).toHaveURL(
-    /\/photo\/vrcxxxxxxb\?tag=Real&tag=night&mode=or$/,
+    /\/\?photo=vrcxxxxxxb&tag=Real&tag=night&mode=or$/,
   );
 
   // ArrowRight walks the filtered set in display order
   // (vrcxxxxxxb → reaxxxxxxb → reaxxxxxxa), skipping vrcxxxxxxa
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\?/);
+  await expect(page).toHaveURL(/\?photo=reaxxxxxxb&/);
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\?/);
+  await expect(page).toHaveURL(/\?photo=reaxxxxxxa&/);
 
   // At the boundary → stays on the same photo
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\?/);
+  await expect(page).toHaveURL(/\?photo=reaxxxxxxa&/);
 
   // ArrowLeft → back
   await page.keyboard.press("ArrowLeft");
-  await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\?/);
+  await expect(page).toHaveURL(/\?photo=reaxxxxxxb&/);
 
   // Close overlay by clicking the dark area (top-left corner, outside the image)
   await overlay.click({ position: { x: 5, y: 5 } });
@@ -106,11 +106,11 @@ test("gallery: browser Back closes the photo without reloading", async ({
   await images.first().dispatchEvent("click");
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible();
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\?tag=VRChat$/);
+  await expect(page).toHaveURL(/\/\?photo=vrcxxxxxxc&tag=VRChat$/);
 
   // ArrowRight replaces the entry, so one Back returns to the list.
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\?tag=VRChat$/);
+  await expect(page).toHaveURL(/\/\?photo=vrcxxxxxxb&tag=VRChat$/);
 
   await page.goBack();
   await expect(overlay).not.toBeVisible();
@@ -155,7 +155,7 @@ test("gallery: keys while a photo is open do not touch the filter", async ({
 
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Space");
-  await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\?tag=Real&tag=night$/);
+  await expect(page).toHaveURL(/\/\?photo=reaxxxxxxb&tag=Real&tag=night$/);
   await expect(page.getByLabel("すべて含む")).toBeChecked();
 });
 
@@ -163,13 +163,13 @@ test("gallery: arrows still work on a photo outside the filter", async ({
   page,
 }) => {
   // vrcxxxxxxa is not tagged Real (e.g. a hand-edited or old shared URL).
-  await page.goto("/photo/vrcxxxxxxa?tag=Real");
+  await page.goto("/?photo=vrcxxxxxxa&tag=Real");
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
 
   // Browses all photos in display order (newest first), so the next one is
   // the oldest.
   await page.keyboard.press("ArrowRight");
-  await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\?tag=Real$/);
+  await expect(page).toHaveURL(/\/\?photo=reaxxxxxxa&tag=Real$/);
   await expect(page.getByTestId("overlay")).toBeVisible();
 });
 
@@ -204,7 +204,7 @@ test("gallery: sort order is selectable and kept in the URL", async ({
 
   // Opening a photo keeps the sort in the photo URL too.
   await images.first().dispatchEvent("click");
-  await expect(page).toHaveURL(/\/photo\/[a-z2-9]{10}\?sort=random&seed=\d+$/);
+  await expect(page).toHaveURL(/\/\?photo=[a-z2-9]{10}&sort=random&seed=\d+$/);
 });
 
 test("gallery: direct navigation to /photo/{id}", async ({ page }) => {
@@ -213,11 +213,12 @@ test("gallery: direct navigation to /photo/{id}", async ({ page }) => {
   // A listed photo's page may be indexed.
   await expect(page.locator('head meta[name="robots"]')).toHaveCount(0);
 
-  // Overlay should appear with the image
-  const overlay = page.getByTestId("overlay");
+  // The photo's own page, with the image
+  const overlay = page.getByTestId("photo-detail");
   await expect(overlay).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId("overlay")).toHaveCount(0);
   // The full-size image is fetched (with a progress bar), then stacked over
-  // the thumbnail as a blob: URL — even though this overlay was rendered on
+  // the thumbnail as a blob: URL — even though this page was rendered on
   // the server.
   const full = overlay.getByTestId("overlay-image");
   await expect(full).toHaveAttribute("src", /^blob:/);
@@ -260,16 +261,33 @@ test("visibility: an unlisted photo opens by URL but is in no list", async ({
   page,
 }) => {
   await page.goto("/photo/unxxxxxxxx");
-  const overlay = page.getByTestId("overlay");
-  await expect(overlay).toBeVisible({ timeout: 10000 });
-  await expect(overlay.locator("img").first()).toHaveAttribute(
+  const detail = page.getByTestId("photo-detail");
+  await expect(detail).toBeVisible({ timeout: 10000 });
+  await expect(detail.locator("img").first()).toHaveAttribute(
     "src",
     /\/mock\/unlisted\.png$/,
   );
 
-  // Not in the grid, the count or the tag counts (it is VRChat + night).
+  // Kept out of search; listed photos are not.
+  await expect(page.locator('head meta[name="robots"]')).toHaveAttribute(
+    "content",
+    "noindex",
+  );
+
+  // Nor in the previous / next order: no links, the arrows do nothing.
+  await expect(page.getByTestId("prev-link")).toHaveCount(0);
+  await expect(page.getByTestId("next-link")).toHaveCount(0);
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(300);
+  await expect(page).toHaveURL(/\/photo\/unxxxxxxxx\/?$/);
+
+  // Not in the grid, the count or the tag counts (it is VRChat + night),
+  // and ?photo= does not open it over the list.
+  await page.goto("/?photo=unxxxxxxxx");
   const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(5);
+  await expect(images).toHaveCount(5, { timeout: 10000 });
+  await expect(page.getByTestId("overlay")).toHaveCount(0);
   await expect(page.getByTestId("result-count")).toHaveText("5 枚");
   await expect(chip(page, "VRChat")).toHaveText(/^VRChat3$/);
   await expect(chip(page, "night")).toHaveText(/^night2$/);
@@ -278,17 +296,6 @@ test("visibility: an unlisted photo opens by URL but is in no list", async ({
   )) {
     expect(src).not.toContain("unlisted");
   }
-
-  // Kept out of search; listed photos are not.
-  await expect(page.locator('head meta[name="robots"]')).toHaveAttribute(
-    "content",
-    "noindex",
-  );
-
-  // Nor in the arrow-key order: the arrows do nothing on it.
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowLeft");
-  await expect(page).toHaveURL(/\/photo\/unxxxxxxxx\/?$/);
 });
 
 test("visibility: a private photo is a 404 and in no list", async ({
@@ -356,6 +363,11 @@ test("gallery: a photo whose file name is not public never shows it", async ({
   await expect(page.getByTestId("gallery-image")).toHaveCount(5);
   expect(await page.content()).not.toContain("real2");
   await page.goto("/photo/reaxxxxxxb/");
+  await expect(page.getByTestId("photo-detail")).toBeVisible({
+    timeout: 10000,
+  });
+  expect(await page.content()).not.toContain("real2");
+  await page.goto("/?photo=reaxxxxxxb");
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
   expect(await page.content()).not.toContain("real2");
 });

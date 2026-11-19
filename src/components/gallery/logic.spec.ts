@@ -4,7 +4,8 @@ import {
   galleryUrl,
   navigateImage,
   neighborIds,
-  photoIdFromPath,
+  photoIdFromQuery,
+  photoPageUrl,
   visibleMedia,
 } from "./logic";
 import type { MediaInfo } from "./types";
@@ -71,15 +72,15 @@ describe("galleryUrl", () => {
     expect(galleryUrl(null, none)).toBe("/");
   });
 
-  it("returns /photo/{id} for a selected photo", () => {
-    expect(galleryUrl(id, none)).toBe(`/photo/${id}`);
+  it("opens a photo in the overlay with ?photo=", () => {
+    expect(galleryUrl(id, none)).toBe(`/?photo=${id}`);
   });
 
   it("keeps the tag filter in the query", () => {
     const filter = { tags: ["VRChat", "film"], mode: "or" as const };
     expect(galleryUrl(null, filter)).toBe("/?tag=VRChat&tag=film&mode=or");
     expect(galleryUrl(id, filter)).toBe(
-      `/photo/${id}?tag=VRChat&tag=film&mode=or`,
+      `/?photo=${id}&tag=VRChat&tag=film&mode=or`,
     );
   });
 
@@ -97,17 +98,17 @@ describe("galleryUrl", () => {
         { tags: ["VRChat"], mode: "and" },
         { kind: "random", seed: 7 },
       ),
-    ).toBe(`/photo/${id}?tag=VRChat&sort=random&seed=7`);
+    ).toBe(`/?photo=${id}&tag=VRChat&sort=random&seed=7`);
     expect(galleryUrl(null, none, { kind: "new", seed: 0 })).toBe("/");
   });
 
-  it("returns to the camera page, and remembers it on a photo", () => {
+  it("stays on the camera page with a photo open", () => {
     const newest = { kind: "new" as const, seed: 0 };
     expect(galleryUrl(null, none, newest, "virtuallens2")).toBe(
       "/camera/virtuallens2/",
     );
     expect(galleryUrl(id, none, newest, "virtuallens2")).toBe(
-      `/photo/${id}?camera=virtuallens2`,
+      `/camera/virtuallens2/?photo=${id}`,
     );
     const filter = { tags: ["VRChat"], mode: "and" as const };
     const oldest = { kind: "old" as const, seed: 0 };
@@ -115,8 +116,43 @@ describe("galleryUrl", () => {
       "/camera/virtuallens2/?tag=VRChat&sort=old",
     );
     expect(galleryUrl(id, filter, oldest, "virtuallens2")).toBe(
-      `/photo/${id}?camera=virtuallens2&tag=VRChat&sort=old`,
+      `/camera/virtuallens2/?photo=${id}&tag=VRChat&sort=old`,
     );
+  });
+});
+
+describe("photoPageUrl", () => {
+  const id = "abcdefghjk";
+
+  it("is /photo/{id}/ alone by default", () => {
+    expect(photoPageUrl(id)).toBe(`/photo/${id}/`);
+  });
+
+  it("carries the list it was opened from", () => {
+    expect(
+      photoPageUrl(
+        id,
+        { tags: ["VRChat", "night"], mode: "or" },
+        { kind: "random", seed: 3 },
+        "virtuallens2",
+      ),
+    ).toBe(
+      `/photo/${id}/?camera=virtuallens2&tag=VRChat&tag=night&mode=or&sort=random&seed=3`,
+    );
+  });
+});
+
+describe("photoIdFromQuery", () => {
+  it("reads a public id from ?photo=", () => {
+    expect(photoIdFromQuery(new URLSearchParams("photo=abcdefghjk"))).toBe(
+      "abcdefghjk",
+    );
+  });
+
+  it("ignores anything else", () => {
+    expect(photoIdFromQuery(new URLSearchParams(""))).toBeNull();
+    expect(photoIdFromQuery(new URLSearchParams("photo=3"))).toBeNull();
+    expect(photoIdFromQuery(new URLSearchParams("photo=abcdefghjo"))).toBeNull();
   });
 });
 
@@ -199,7 +235,13 @@ describe("galleryUrl with a date", () => {
         null,
         "2023-12",
       ),
-    ).toBe("/photo/abcdefghjk?date=2023-12&tag=night");
+    ).toBe("/?photo=abcdefghjk&date=2023-12&tag=night");
+  });
+
+  it("keeps it on the photo's page", () => {
+    expect(
+      photoPageUrl("abcdefghjk", none, undefined, null, "2023-12-04"),
+    ).toBe("/photo/abcdefghjk/?date=2023-12-04");
   });
 });
 
@@ -215,17 +257,3 @@ describe("dateParam", () => {
   });
 });
 
-describe("photoIdFromPath", () => {
-  it("reads the public id from /photo/{id} with or without trailing slash", () => {
-    expect(photoIdFromPath("/photo/abcdefghjk")).toBe("abcdefghjk");
-    expect(photoIdFromPath("/photo/abcdefghjk/")).toBe("abcdefghjk");
-  });
-
-  it("returns null elsewhere, for old numeric ids and malformed ids", () => {
-    expect(photoIdFromPath("/")).toBeNull();
-    expect(photoIdFromPath("/photo/")).toBeNull();
-    expect(photoIdFromPath("/photo/3")).toBeNull();
-    expect(photoIdFromPath("/photo/abcdefghjo")).toBeNull();
-    expect(photoIdFromPath("/photo/abcdefghjk/extra")).toBeNull();
-  });
-});
