@@ -36,6 +36,7 @@ import {
   readPhotoMeta,
   type FileDates,
 } from "./photo-meta";
+import { contentChanged } from "./last-good";
 import { pickTakenAt } from "./taken-at";
 /**
  * types.ts LIVE_PHOTO with its columns kept off their indexes (unary +):
@@ -337,4 +338,20 @@ export const backfillBatch = async (
     failed: failed.length,
     more: claimed.length === limit,
   };
+};
+
+/**
+ * A batch, then a new content version (last-good.ts) when it wrote any
+ * photo: its timestamp, metadata, camera or スキャン機材 may now read
+ * differently in the public API. What POST /api/metadata/backfill runs.
+ */
+export const backfillAndPublish = async (
+  db: D1Database,
+  read: ReadBytes,
+  limit: number = BACKFILL_BATCH,
+  nowMs: number = Date.now(),
+): Promise<BackfillResult> => {
+  const result = await backfillBatch(db, read, limit, nowMs);
+  if (result.read > result.failed) await contentChanged(db);
+  return result;
 };

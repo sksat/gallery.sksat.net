@@ -4,10 +4,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  backfillAndPublish,
   backfillBatch,
   PHOTO_META_PARSER_DATE,
   type ReadBytes,
 } from "./backfill";
+import { CONTENT_VERSION_KEY } from "./last-good";
 import { digitizerOptions, listCameras, updateMedia } from "./db";
 import { initUpload } from "./db-upload";
 import { deviceIdSql, deviceOf, ensureDeviceStatement } from "./device";
@@ -108,6 +110,25 @@ describe("the metadata reader links the device, creating its row", () => {
     expect(
       raw.prepare("SELECT timestamp FROM media WHERE id = 2").get(),
     ).toEqual({ timestamp: "2025-04-01T00:00:00+09:00" });
+  });
+
+  it("gives the public API a new content version when it links a device", async () => {
+    const { raw, db } = production();
+    const version = () =>
+      raw
+        .prepare("SELECT value FROM setting WHERE key = ?")
+        .get(CONTENT_VERSION_KEY) as { value: string } | undefined;
+    // Nothing waiting: no write, no new version.
+    raw.exec("UPDATE media SET metadata_read_at = '2999-01-01T00:00:00.000Z'");
+    await backfillAndPublish(db, bucketOf(scans), 12, NOW);
+    expect(version()).toBeUndefined();
+
+    raw.exec(
+      "UPDATE media SET metadata_read_at = '2026-11-20T00:00:00.000Z', visibility = 'public'",
+    );
+    await backfillAndPublish(db, bucketOf(scans), 12, NOW);
+    expect(devices(raw)[0]).toMatchObject({ digitized_with: 1 });
+    expect(version()?.value).toMatch(/^"[0-9a-f]{24}"$/);
   });
 
   it("does not create a row only a photo cleared by hand names", async () => {
