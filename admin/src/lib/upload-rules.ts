@@ -588,6 +588,8 @@ export type ExistingPhoto = {
   id: number;
   platform: MediaPlatform;
   camera_id: number | null;
+  /** Its camera was chosen or cleared by hand (metadata_source.camera). */
+  cameraManual?: boolean;
   tags: string[];
   metadata_visibility: MetadataOverrides;
 };
@@ -606,9 +608,10 @@ export type ExistingChange = {
 /**
  * What the rules would change on a photo that is already uploaded. Only
  * values that cannot have been chosen by hand are filled in, since what
- * was set by hand is not recorded for these fields: the platform only
- * while it is the fallback (Real), the camera only when there is none,
- * tags only added, metadata levels only for fields that follow the site.
+ * was set by hand is not recorded for most of these fields: the platform
+ * only while it is the fallback (Real), the camera only when there is none
+ * and none was cleared by hand (metadata_source.camera), tags only added,
+ * metadata levels only for fields that follow the site.
  * Visibility is never changed here. Null when nothing changes.
  */
 export const existingChange = (
@@ -627,7 +630,7 @@ export const existingChange = (
     change.platform = d.platform.value;
     by(d.platform.ruleId);
   }
-  if (d.cameraId && photo.camera_id === null) {
+  if (d.cameraId && photo.camera_id === null && !photo.cameraManual) {
     change.camera_id = d.cameraId.value;
     by(d.cameraId.ruleId);
   }

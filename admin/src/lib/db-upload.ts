@@ -170,6 +170,9 @@ export const initUpload = async (
       : {}),
     ...(meta.exif ? { exif: "file" as const } : {}),
     ...(meta.world_id || meta.world_name ? { world: "file" as const } : {}),
+    // A camera an upload rule sets is a choice made in advance, as on the
+    // edit page: the metadata reader never replaces it.
+    ...(row.cameraId != null ? { camera: "manual" as const } : {}),
   });
   // The camera (or scanner) the file names: its row, created first when
   // there is none (device.ts), in the same batch. Not the camera when a

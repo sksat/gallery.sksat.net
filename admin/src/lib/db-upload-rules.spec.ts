@@ -84,7 +84,7 @@ describe("decideUpload", () => {
     expect(
       raw
         .prepare(
-          "SELECT platform, camera_id, tags, visibility, metadata_visibility FROM media WHERE file = ?",
+          "SELECT platform, camera_id, tags, visibility, metadata_visibility, metadata_source FROM media WHERE file = ?",
         )
         .get(NAME),
     ).toEqual({
@@ -93,7 +93,52 @@ describe("decideUpload", () => {
       tags: '["vr"]',
       visibility: "unlisted",
       metadata_visibility: '{"location":"hidden"}',
+      // A rule's camera is a choice: the metadata reader keeps it.
+      metadata_source: '{"camera":"manual"}',
     });
+  });
+
+  it("puts a rule's camera before the one the file names", async () => {
+    const { raw, db } = setup();
+    const cameras = () =>
+      (raw.prepare("SELECT COUNT(*) AS n FROM camera").get() as { n: number })
+        .n;
+    const meta = {
+      exif: { make: "Canon", model: "Canon EOS R5" },
+      fileExif: null,
+      digitizedAt: null,
+      location: null,
+      world: null,
+    };
+    const photo = (file: string, sha: string) => ({
+      ...init,
+      file,
+      sha256: sha.repeat(64),
+      meta,
+    });
+    // Without a rule the file's camera gets a row of its own.
+    await initUpload(db, photo("/r/a.jpg", "b"), {
+      publicId: "abcdefghj2",
+      platform: "Real",
+    });
+    expect(cameras()).toBe(3);
+    await setUploadRules(db, [
+      { ...LENS, id: "r", conditions: { folder: "/r" }, actions: { cameraId: 2 } },
+    ]);
+    const decided = await decideUpload(db, photo("/r/b.jpg", "c"));
+    await initUpload(db, photo("/r/b.jpg", "c"), {
+      publicId: "abcdefghj3",
+      ...decided.row,
+    });
+    expect(
+      raw
+        .prepare("SELECT camera_id, metadata_source FROM media WHERE file = ?")
+        .get("/r/b.jpg"),
+    ).toEqual({
+      camera_id: 2,
+      metadata_source: '{"exif":"file","camera":"manual"}',
+    });
+    expect(cameras()).toBe(3);
   });
 
   it("is Real and private when nothing matches; drops a missing camera", async () => {
@@ -172,6 +217,37 @@ describe("applying to existing photos", () => {
     // The new tag got its (private) row.
     expect(raw.prepare("SELECT name, public FROM tag").all()).toEqual([
       { name: "vr", public: 0 },
+    ]);
+    await restoreExisting(db, previous);
+    expect(read()).toEqual(before);
+  });
+
+  it("marks a camera it sets manual, never fills one cleared by hand, and undoes the mark", async () => {
+    const { raw, db } = setup();
+    raw.exec(`
+      UPDATE media SET metadata_source = '{"taken_at":"exif"}' WHERE id = 1;
+      INSERT INTO media (id, file, platform, camera_id, tags, metadata_source)
+        VALUES (5, '/VRChat/d.png', 'VRChat', NULL, '[]', '{"camera":"manual"}');
+    `);
+    const read = () =>
+      raw
+        .prepare(
+          "SELECT id, camera_id, metadata_source AS s FROM media WHERE id IN (1, 5) ORDER BY id",
+        )
+        .all();
+    const before = read();
+    const cameraRule: UploadRule = {
+      ...LENS,
+      id: "cam",
+      conditions: { folder: "/VRChat" },
+      actions: { cameraId: 1 },
+    };
+    const previous = await applyExisting(db, [cameraRule], [1, 5]);
+    expect(previous.map((p) => [p.id, p.camera_source])).toEqual([[1, null]]);
+    expect(read()).toEqual([
+      { id: 1, camera_id: 1, s: '{"taken_at":"exif","camera":"manual"}' },
+      // Cleared by hand: left as it is.
+      { id: 5, camera_id: null, s: '{"camera":"manual"}' },
     ]);
     await restoreExisting(db, previous);
     expect(read()).toEqual(before);

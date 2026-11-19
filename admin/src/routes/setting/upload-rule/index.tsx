@@ -134,6 +134,7 @@ export const useRestoreExisting = routeAction$(
           id: z.number().int().positive(),
           platform: z.enum(["Real", "VRChat"]),
           camera_id: z.number().int().positive().nullable(),
+          camera_source: z.enum(["manual", "file"]).nullable(),
           tags: z.string().max(30000).nullable(),
           metadata_visibility: z.string().max(1000).nullable(),
         }),

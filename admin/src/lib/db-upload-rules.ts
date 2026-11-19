@@ -127,10 +127,12 @@ type Row = {
   world_id: string | null;
   world_name: string | null;
   metadata_read_at: string | null;
+  /** metadata_source.camera ('manual' when chosen or cleared by hand). */
+  camera_source: string | null;
 };
 
 const COLUMNS =
-  "id, path, platform, camera_id, tags, metadata_visibility, exif, latitude, world_id, world_name, metadata_read_at";
+  "id, path, platform, camera_id, tags, metadata_visibility, exif, latitude, world_id, world_name, metadata_read_at, json_extract(metadata_source, '$.camera') AS camera_source";
 
 export const parseTags = (raw: string | null): string[] => {
   try {
@@ -155,6 +157,7 @@ const changeOf = (rules: readonly UploadRule[], r: Row) => {
     id: r.id,
     platform: isPlatform(r.platform) ? r.platform : FALLBACK_PLATFORM,
     camera_id: r.camera_id,
+    cameraManual: r.camera_source === "manual",
     tags: parseTags(r.tags),
     metadata_visibility: parseOverrides(r.metadata_visibility),
   };
@@ -225,6 +228,8 @@ export type ExistingBefore = {
   id: number;
   platform: MediaPlatform;
   camera_id: number | null;
+  /** metadata_source.camera before ('manual' / 'file' / none). */
+  camera_source: "manual" | "file" | null;
   tags: string | null;
   metadata_visibility: string | null;
 };
@@ -259,6 +264,10 @@ export const applyExisting = async (
       id: r.id,
       platform: r.platform,
       camera_id: r.camera_id,
+      camera_source:
+        r.camera_source === "manual" || r.camera_source === "file"
+          ? r.camera_source
+          : null,
       tags: r.tags,
       metadata_visibility: r.metadata_visibility,
     });
@@ -269,8 +278,13 @@ export const applyExisting = async (
     updates.push(
       db
         .prepare(
+          // A camera a rule sets is a choice, as on the edit page: the
+          // metadata reader never replaces it (metadata_source.camera).
           `UPDATE media SET platform = ?2, camera_id = ?3, tags = ?4,
              metadata_visibility = ?5,
+             metadata_source = CASE WHEN ?6 THEN json_set(
+               COALESCE(metadata_source, '{}'), '$.camera', 'manual')
+               ELSE metadata_source END,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
            WHERE id = ?1`,
         )
@@ -282,6 +296,7 @@ export const applyExisting = async (
           c.metadata_visibility
             ? JSON.stringify(c.metadata_visibility)
             : r.metadata_visibility,
+          c.camera_id !== undefined ? 1 : 0,
         ),
     );
   }
@@ -321,8 +336,12 @@ export const restoreExisting = async (
     ...before.map((b) =>
       db
         .prepare(
+          // The camera's source key as it was (a null removes it); the
+          // other keys of metadata_source stay as they are now.
           `UPDATE media SET platform = ?2, camera_id = ?3,
              tags = COALESCE(?4, tags), metadata_visibility = ?5,
+             metadata_source = NULLIF(json_patch(COALESCE(metadata_source, '{}'),
+               json_object('camera', ?6)), '{}'),
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
            WHERE id = ?1`,
         )
@@ -332,6 +351,7 @@ export const restoreExisting = async (
           b.camera_id,
           b.tags === null ? null : JSON.stringify(parseTags(b.tags)),
           storedOverrides(parseOverrides(b.metadata_visibility)),
+          b.camera_source,
         ),
     ),
   ]);
