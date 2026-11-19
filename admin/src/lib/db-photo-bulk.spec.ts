@@ -4,12 +4,66 @@ import {
   listCameraPhotos,
   removeCameraFrom,
   restoreCameras,
+  restoreInfo,
   restorePlatforms,
   setCameras,
+  setInfo,
   setPlatforms,
   UnknownCameraError,
 } from "./db-photo-bulk";
+import { validateInfoRestore } from "./bulk-info";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
+
+describe("setInfo / restoreInfo", () => {
+  it("edits the touched columns, creates new tags private, and undoes per photo", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`
+      INSERT INTO media (id, file, platform, tags, timestamp, exif) VALUES
+        (1, '/a.png', 'Real', '["night"]', '2023-01-01T00:00:00Z', NULL),
+        (2, '/b.png', 'Real', '["roll1"]', NULL, '{"iso":100}');
+      INSERT INTO tag (name, public) VALUES ('night', 1);
+    `);
+    const db = sqliteD1(raw);
+    const read = () =>
+      raw
+        .prepare(
+          "SELECT id, tags, timestamp, exif, metadata_visibility AS mv FROM media ORDER BY id",
+        )
+        .all();
+    const before = read();
+    const { previous, newTags } = await setInfo(db, [1, 2], {
+      tagsAdd: ["roll1"],
+      takenAt: { date: "1999-08-01", time: null, offset: "keep" },
+      exif: { lens: "50mm" },
+    });
+    expect(newTags).toEqual(["roll1"]);
+    expect(
+      raw.prepare("SELECT public FROM tag WHERE name = 'roll1'").get(),
+    ).toEqual({ public: 0 });
+    expect(read()).toEqual([
+      {
+        id: 1,
+        tags: '["night","roll1"]',
+        timestamp: "1999-08-01T00:00:00Z",
+        exif: '{"lens":"50mm"}',
+        mv: '{"taken_at":"date"}',
+      },
+      {
+        id: 2,
+        tags: '["roll1"]',
+        timestamp: "1999-08-01T00:00:00+09:00",
+        exif: '{"lens":"50mm","iso":100}',
+        mv: '{"taken_at":"date"}',
+      },
+    ]);
+    expect(previous.map((p) => p.id)).toEqual([1, 2]);
+    // Through the undo's own check, as the action takes it.
+    const back = validateInfoRestore(JSON.parse(JSON.stringify(previous)), 100);
+    if (!back.ok) throw new Error(back.error);
+    await restoreInfo(db, back.rows);
+    expect(read()).toEqual(before);
+  });
+});
 
 const setup = () => {
   const raw = migratedSqlite();

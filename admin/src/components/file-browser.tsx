@@ -788,6 +788,12 @@ export const FileBrowser = component$<Props>(
         },
         {
           kind: "item",
+          id: "info",
+          label: "タグと撮影データ…",
+          disabled: !photos,
+        },
+        {
+          kind: "item",
           id: "metadata",
           label: "公開する情報…",
           disabled: !photos,
@@ -810,7 +816,8 @@ export const FileBrowser = component$<Props>(
         id === "move" ||
         id === "metadata" ||
         id === "camera" ||
-        id === "platform"
+        id === "platform" ||
+        id === "info"
       ) {
         command.value = { kind: id };
       } else if (id.startsWith("visibility:")) {
