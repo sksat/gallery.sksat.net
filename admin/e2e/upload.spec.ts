@@ -102,6 +102,39 @@ test("upload two photos into a new folder", async ({ page }) => {
   await expect(page.locator('select[name="platform"]')).toHaveValue("VRChat");
 });
 
+test("a slow upload shows its percentage, then the time left", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await newFolder(page, "/mock", "up-slow");
+  // The fake bucket reads a key with "slow" in it at 1 MiB/s: ~24 s, well
+  // beyond what the loopback socket buffers can take at once.
+  await page
+    .getByTestId("upload-input")
+    .setInputFiles([png("slow.png", "s", 24 * 1024)]);
+  const panel = page.getByTestId("upload-panel");
+  const bar = panel.getByRole("progressbar", { name: "全体の進み具合" });
+  const text = panel.getByTestId("upload-progress-text");
+
+  // The percentage first, the time left only once the speed is known.
+  await expect(text).toHaveText(/^\d+%$/);
+  await expect(text).toHaveText(/^\d+%残り/, { timeout: 15_000 });
+  await expect(panel.getByTestId("upload-time-left")).toHaveText(
+    /^残り(約 \d+ 分| 1 分未満)$/,
+  );
+  expect(Number(await bar.getAttribute("aria-valuenow"))).toBeGreaterThan(0);
+  await expect(bar).toHaveAttribute("aria-valuetext", /^\d+%、残り/);
+  await expect(rows(page).getByTestId("upload-row-percent")).toHaveText(
+    /^\d+%$/,
+  );
+
+  await expect(rows(page)).toHaveAttribute("data-status", "done", {
+    timeout: 45_000,
+  });
+  await expect(text).toHaveCount(0);
+  await expect(bar).toHaveAttribute("aria-valuenow", "100");
+});
+
 test("make uploaded photos public from the panel", async ({ page }) => {
   await newFolder(page, "/mock", "up-2");
   await page

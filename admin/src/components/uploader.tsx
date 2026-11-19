@@ -30,6 +30,7 @@ import {
   type UploadQueue,
   type UploadStatus,
 } from "~/lib/upload-queue";
+import { createBatchMeter, type BatchView } from "~/lib/upload-progress";
 import { dirOf } from "~/lib/folders";
 import type { Visibility } from "~/lib/types";
 import { buttonPrimary, buttonSecondary, card, muted, tagChip } from "./ui";
@@ -42,6 +43,8 @@ import { buttonPrimary, buttonSecondary, card, muted, tagChip } from "./ui";
 
 export type Uploader = {
   items: Signal<UploadItem[]>;
+  /** Percentages and time left while a batch is in flight, else null. */
+  view: Signal<BatchView | null>;
   queue: Signal<NoSerialize<UploadQueue<PickedFile>>>;
   /** Queue picked files for `dir`. */
   add: QRL<(dir: string, files: PickedFile[]) => void>;
@@ -50,6 +53,9 @@ export type Uploader = {
   /** Reload the page data. */
   refresh: QRL<() => unknown>;
 };
+
+/** How often the panel's percentages and time left are worked out. */
+const VIEW_INTERVAL_MS = 1000;
 
 /** Phones upload two at a time (each file is hashed in memory first). */
 const concurrencyFor = () =>
@@ -67,6 +73,7 @@ export const useUploader = (refresh: QRL<() => unknown>): Uploader => {
   const busy = useSignal(false);
   /** Done files the page data already includes. */
   const shownDone = useSignal(0);
+  const view = useSignal<BatchView | null>(null);
   const queue = useSignal<NoSerialize<UploadQueue<PickedFile>>>();
 
   const add = $((dir: string, files: PickedFile[]) => {
@@ -126,7 +133,24 @@ export const useUploader = (refresh: QRL<() => unknown>): Uploader => {
     });
   });
 
-  return { items, queue, add, clear, refresh };
+  // While a batch is in flight: its percentage and time left, worked out
+  // once a second (so the text changes no faster), from a fresh meter.
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(({ track, cleanup }) => {
+    if (!track(() => busy.value)) {
+      view.value = null;
+      return;
+    }
+    const meter = createBatchMeter();
+    const tick = () => {
+      view.value = meter.update(performance.now(), items.value);
+    };
+    tick();
+    const timer = setInterval(tick, VIEW_INTERVAL_MS);
+    cleanup(() => clearInterval(timer));
+  });
+
+  return { items, view, queue, add, clear, refresh };
 };
 
 const UploadIcon = () => (
@@ -609,10 +633,13 @@ const Bar = ({
   value,
   label,
   tone,
+  valueText,
 }: {
   value: number;
   label: string;
   tone?: "error";
+  /** Read out instead of the bare number ("42%、残り約 3 分"). */
+  valueText?: string;
 }) => (
   <div
     role="progressbar"
@@ -620,6 +647,7 @@ const Bar = ({
     aria-valuemin={0}
     aria-valuemax={100}
     aria-valuenow={Math.round(value * 100)}
+    aria-valuetext={valueText}
     class="h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
   >
     <div
@@ -648,6 +676,9 @@ export const UploadPanel = component$<PanelProps>(
     const list = uploader.items.value;
     if (list.length === 0) return null;
     const { count, active, progress } = summarize(list);
+    // In flight: the numbers worked out once a second; done: as they are.
+    const view = active > 0 ? uploader.view.value : null;
+    const percent = view ? view.percent : Math.floor(progress * 100);
     // Unique: the same file picked twice resumes one row.
     const uploadedIds = [
       ...new Set(
@@ -693,7 +724,30 @@ export const UploadPanel = component$<PanelProps>(
             )}
           </div>
         </div>
-        <Bar value={progress} label="全体の進み具合" />
+        <div class="space-y-1">
+          <Bar
+            value={percent / 100}
+            label="全体の進み具合"
+            valueText={
+              view
+                ? [`${percent}%`, view.timeLeft].filter(Boolean).join("、")
+                : undefined
+            }
+          />
+          {view && (
+            <p
+              data-testid="upload-progress-text"
+              // The bar's aria-valuetext says the same.
+              aria-hidden="true"
+              class={["flex justify-between text-xs tabular-nums", muted]}
+            >
+              <span>{percent}%</span>
+              {view.timeLeft && (
+                <span data-testid="upload-time-left">{view.timeLeft}</span>
+              )}
+            </p>
+          )}
+        </div>
 
         {active === 0 && uploadedIds.length > 0 && (
           <div class="flex flex-wrap items-center gap-2 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800/50">
@@ -758,6 +812,15 @@ export const UploadPanel = component$<PanelProps>(
                   ]}
                 >
                   {STATUS_LABEL[it.status]}
+                  {it.status === "uploading" &&
+                    view?.files[it.key] !== undefined && (
+                      <span
+                        data-testid="upload-row-percent"
+                        class="ml-1 inline-block w-[4ch] text-right tabular-nums"
+                      >
+                        {view.files[it.key]}%
+                      </span>
+                    )}
                 </span>
                 {it.status === "failed" && (
                   <button
@@ -774,7 +837,14 @@ export const UploadPanel = component$<PanelProps>(
                 it.status === "completing" ||
                 it.status === "failed") && (
                 <Bar
-                  value={it.size ? it.loaded / it.size : 0}
+                  value={
+                    // In step with the percentage beside it.
+                    view?.files[it.key] !== undefined
+                      ? view.files[it.key] / 100
+                      : it.size
+                        ? it.loaded / it.size
+                        : 0
+                  }
                   label={`${it.name} の進み具合`}
                   tone={it.status === "failed" ? "error" : undefined}
                 />

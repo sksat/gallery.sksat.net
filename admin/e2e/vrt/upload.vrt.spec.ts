@@ -33,7 +33,7 @@ const tooWide = (name: string) => {
   };
 };
 
-const uploadBatch =async (page: Page, folder: string, seed: string) => {
+const uploadBatch = async (page: Page, folder: string, seed: string) => {
   await page.route("**/sksat-gallery/**", (route) =>
     route.request().method() === "PUT" && route.request().url().includes("bad")
       ? route.abort("connectionreset")
@@ -74,6 +74,38 @@ test.describe("desktop", () => {
   test("admin: upload panel", async ({ page }) => {
     await uploadBatch(page, "vrt-up", "a");
     await shot(page, "admin-upload.png");
+  });
+
+  test("admin: upload panel while uploading", async ({ page }) => {
+    await page.goto("/media/?view=files&dir=/mock");
+    await page.getByRole("button", { name: "New folder" }).click();
+    await page.getByLabel("Folder name").fill("vrt-up-slow");
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page).toHaveURL(/dir=\/mock\/vrt-up-slow$/);
+    // The fake bucket reads a key with "slow" in it at 1 MiB/s. The test
+    // ends before it is done (the row stays an incomplete upload).
+    await page.getByTestId("upload-input").setInputFiles([
+      {
+        name: "slow.png",
+        mimeType: "image/png",
+        buffer: Buffer.concat([
+          Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+          Buffer.alloc(30 * 1024 * 1024, "v"),
+        ]),
+      },
+    ]);
+    await expect(page.getByTestId("upload-time-left")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page).toHaveScreenshot("admin-upload-progress.png", {
+      fullPage: true,
+      // How far it got and how long is left depend on the machine.
+      mask: [
+        page.getByRole("progressbar"),
+        page.getByTestId("upload-progress-text"),
+        page.getByTestId("upload-row-percent"),
+      ],
+    });
   });
 });
 
