@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { folderWith, tick, tile, tiles } from "./files-helpers";
+import { folderWith, png, tick, tile, tiles } from "./files-helpers";
 
 // The Files view's selection: picking tiles and what the selection bar
 // does with them, the keyboard, the context menu, dragging onto folders
@@ -314,6 +314,63 @@ test("a platform for the selection, and undo", async ({ page }) => {
   await info(page, "プラットフォーム…");
   await expect(choice("そのまま（写真ごと）")).toBeVisible();
   await expect(picker.locator("[aria-pressed=true]")).toHaveCount(0);
+});
+
+test("a reload that lacks a selected item for a while keeps it selected", async ({
+  page,
+  context,
+}) => {
+  await folderWith(page, "sel-reload", ["a.png", "b.png"]);
+  await tick(page, "a.png").click();
+  await tick(page, "b.png").click();
+  await expect(summary(page)).toContainText("2 件選択");
+
+  /** Move b.png (in another tab, as the page would not see it). */
+  const other = await context.newPage();
+  const href = await tile(page, "b.png").getAttribute("data-href");
+  const moveB = async (to: string) => {
+    await other.goto(href ?? "");
+    await other.getByLabel("場所と名前").fill(to);
+    await other.getByRole("button", { name: "移動・名前を変更" }).click();
+    await expect(other.getByText("移動しました。")).toBeVisible();
+  };
+  /** Something that reloads the page's data without touching the selection. */
+  let uploads = 0;
+  const reload = async () => {
+    uploads++;
+    await page
+      .getByTestId("upload-input")
+      .setInputFiles([png(`r${uploads}.png`, `sel-reload/${uploads}`)]);
+    await expect(
+      page.getByTestId("upload-panel").getByRole("heading"),
+    ).toHaveText("1 件アップロードしました");
+    await page.getByRole("button", { name: "閉じる" }).click();
+    await expect(tile(page, `r${uploads}.png`)).toHaveCount(1);
+  };
+
+  await moveB("/mock/sel-reload-away.png");
+  await reload();
+  // b.png is gone: only what is shown counts (and would be acted on).
+  await expect(tile(page, "b.png")).toHaveCount(0);
+  await expect(summary(page)).toContainText("1 件選択");
+
+  await moveB("/mock/sel-reload/b.png");
+  await reload();
+  // Back in the same folder: still selected.
+  await expect(tile(page, "b.png")).toHaveAttribute("aria-selected", "true");
+  await expect(summary(page)).toContainText("2 件選択");
+
+  // While it is away, an action touches only what is shown.
+  await moveB("/mock/sel-reload-away.png");
+  await reload();
+  await expect(summary(page)).toContainText("1 件選択");
+  await tile(page, "a.png").focus();
+  await page.keyboard.press("Delete");
+  await expect(page.getByText("1 件をゴミ箱に入れました。")).toBeVisible();
+  await moveB("/mock/sel-reload/b.png");
+  await reload();
+  await expect(tile(page, "b.png")).toHaveCount(1);
+  await expect(tile(page, "a.png")).toHaveCount(0);
 });
 
 test.describe("keyboard, menu and drag in the Files view", () => {

@@ -49,8 +49,10 @@ export const clickItem = (
   }
   const has = sel.keys.includes(key);
   return {
+    // (Keys not shown, kept through a reload, go with any edit: what the
+    // user changes is what they see.)
     keys: has
-      ? sel.keys.filter((k) => k !== key)
+      ? inOrder(order, sel.keys).filter((k) => k !== key)
       : inOrder(order, [...sel.keys, key]),
     anchor: key,
   };
@@ -60,6 +62,19 @@ export const selectAll = (order: readonly SelKey[]): Selection => ({
   keys: [...order],
   anchor: order[0] ?? null,
 });
+
+/**
+ * The selection after the shown items changed. Within the same view (the
+ * same folder and filter) every key is kept, even one the new data lacks:
+ * a reload can briefly miss an item, and it is selected again once it is
+ * back. Another view starts from what it still shows. What actions and
+ * the count use is `keepShown` of the result: only items really shown.
+ */
+export const reconcileSelection = (
+  order: readonly SelKey[],
+  sel: Selection,
+  sameView: boolean,
+): Selection => (sameView ? sel : keepShown(order, sel));
 
 /** Keep only keys still shown (after a navigation or a reload). */
 export const keepShown = (
