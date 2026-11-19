@@ -20,7 +20,7 @@ export type MediaCamera = {
   model: string | null;
 };
 
-export type CameraKind = "digital" | "film" | "phone" | "virtual";
+export type CameraKind = "digital" | "film" | "phone" | "virtual" | "scanner";
 
 /** One camera from /api/camera. */
 export type CameraJSON = {
@@ -87,6 +87,14 @@ export type MediaInfoJSON = {
   camera: null | MediaCamera;
   /** Only the camera's maker is public (no camera page). */
   maker?: string | null;
+  /**
+   * The device it was digitised with (スキャン機材), with its page, or only
+   * its maker; and when (スキャン日時). Hidden unless the owner shows them.
+   */
+  digitizer?: MediaCamera | null;
+  digitizerMaker?: string | null;
+  digitized_at?: string | null;
+  digitized_at_precision?: TimestampPrecision | null;
   world?: MediaWorld | null;
   exif?: MediaExif | null;
   /**
@@ -202,6 +210,34 @@ const parseExif = (v: unknown): MediaExif | null => {
 };
 
 /**
+ * A camera field of the API (`camera`, `digitizer`): the camera with its
+ * page, or (at the manufacturer level) only its maker.
+ */
+const parseCameraField = (
+  v: unknown,
+): { camera: MediaCamera | null; maker: string | null } => {
+  if (isRecord(v) && typeof v.slug === "string") {
+    return {
+      camera: {
+        slug: v.slug,
+        name: strOrNull(v.name) ?? v.slug,
+        manufacturer: strOrNull(v.manufacturer),
+        model: strOrNull(v.model),
+      },
+      maker: null,
+    };
+  }
+  if (isRecord(v)) {
+    // Only the maker is public: no camera page to link to.
+    return {
+      camera: null,
+      maker: strOrNull(v.manufacturer) ?? strOrNull(v.name),
+    };
+  }
+  return { camera: null, maker: null };
+};
+
+/**
  * One photo from an API response, or null if it is malformed. The id and
  * file end up in URLs, so both are checked for shape.
  */
@@ -219,20 +255,10 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
     return null;
   }
   if (platform !== "Real" && platform !== "VRChat") return null;
-  let cam: MediaCamera | null = null;
-  let maker: string | null = null;
-  if (isRecord(camera) && typeof camera.slug === "string") {
-    cam = {
-      slug: camera.slug,
-      name: strOrNull(camera.name) ?? camera.slug,
-      manufacturer: strOrNull(camera.manufacturer),
-      model: strOrNull(camera.model),
-    };
-  } else if (isRecord(camera)) {
-    // Only the maker is public: no camera page to link to.
-    maker = strOrNull(camera.manufacturer) ?? strOrNull(camera.name);
-  }
+  const { camera: cam, maker } = parseCameraField(camera);
+  const digitizer = parseCameraField(v.digitizer);
   const precision = v.timestamp_precision;
+  const digitizedPrecision = v.digitized_at_precision;
   return {
     id,
     file,
@@ -246,6 +272,20 @@ export const parseMediaItem = (v: unknown): MediaInfoJSON | null => {
         : null,
     camera: cam,
     maker,
+    digitizer: digitizer.camera,
+    digitizerMaker: digitizer.maker,
+    digitized_at:
+      typeof v.digitized_at === "string" &&
+      typeof digitizedPrecision === "string" &&
+      PRECISIONS.includes(digitizedPrecision)
+        ? v.digitized_at
+        : null,
+    digitized_at_precision:
+      typeof v.digitized_at === "string" &&
+      typeof digitizedPrecision === "string" &&
+      PRECISIONS.includes(digitizedPrecision)
+        ? (digitizedPrecision as TimestampPrecision)
+        : null,
     world: parseWorld(v.world),
     exif: parseExif(v.exif),
     // A VRChat photo has no real-world position: never keep one.

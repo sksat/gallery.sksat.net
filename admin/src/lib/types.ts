@@ -1,7 +1,7 @@
 import type { MetadataOverrides } from "./metadata";
 import type { MetadataSource } from "./metadata-source";
 import type { ExifEdit, LocationEdit, WorldEdit } from "./photo-data";
-import type { ExifJSON } from "./photo-meta";
+import type { ExifJSON, FileExifJSON } from "./photo-meta";
 
 // Admin-side shapes of the D1 rows (migrations/). The public site reads the
 // same database through the API Worker (workers/api, its src/types.ts);
@@ -18,7 +18,14 @@ export const PLATFORMS: readonly MediaPlatform[] = ["Real", "VRChat"];
 export const isPlatform = (v: unknown): v is MediaPlatform =>
   v === "Real" || v === "VRChat";
 
-export const CAMERA_KINDS = ["digital", "film", "phone", "virtual"] as const;
+export const CAMERA_KINDS = [
+  "digital",
+  "film",
+  "phone",
+  "virtual",
+  // A device photos are digitised with (0009): media.digitized_with.
+  "scanner",
+] as const;
 export type CameraKind = (typeof CAMERA_KINDS)[number];
 
 /** Every editable camera field; create and edit both send the full set. */
@@ -96,6 +103,14 @@ export type MediaRow = {
   trashed_at: string | null;
   /** Where the taken-at time, exif and world came from (0008). */
   metadata_source: MetadataSource;
+  /** The file's own EXIF as read (0009; admin only, never public). */
+  file_exif: FileExifJSON | null;
+  /** When it was digitised (スキャン日時), from a scanner's EXIF. */
+  digitized_at: string | null;
+  /** The camera row it was digitised with (スキャン機材). */
+  digitized_with: number | null;
+  /** Served images carry its public info as EXIF; null = the site's. */
+  embed_exif: boolean | null;
   updated_at: string;
 };
 
@@ -113,9 +128,15 @@ export type MediaPatch = {
    * Fields to set back to what the original says: emptied, no longer
    * 'manual', and read again from the file.
    */
-  reset_from_file?: ("exif" | "world" | "location")[];
+  reset_from_file?: ("exif" | "world" | "location" | "taken_at")[];
+  /** The taken-at time (ISO 8601 with offset) or null; becomes 'manual'. */
+  timestamp?: string | null;
   platform?: MediaPlatform;
   camera_id?: number | null;
+  /** The device it was digitised with; becomes 'manual' (also cleared). */
+  digitized_with?: number | null;
+  /** True / false, or null to follow the site. */
+  embed_exif?: boolean | null;
   tags?: string[];
   visibility?: Visibility;
   /** Replaces the photo's overrides ({} = all from the site). */

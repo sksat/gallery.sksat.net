@@ -32,6 +32,32 @@ export const setSiteDefaults = async (
     .run();
 };
 
+/**
+ * The `setting` row embed_exif (0009): whether served images carry the
+ * public information as EXIF when a photo does not say. Only an explicit
+ * false turns it off (the API Worker reads it the same way).
+ */
+export const getEmbedDefault = async (db: D1Database): Promise<boolean> => {
+  const row = await db
+    .prepare("SELECT value FROM setting WHERE key = 'embed_exif'")
+    .first<{ value: string }>();
+  return row?.value !== "false";
+};
+
+export const setEmbedDefault = async (
+  db: D1Database,
+  on: boolean,
+): Promise<void> => {
+  await db
+    .prepare(
+      `INSERT INTO setting (key, value) VALUES ('embed_exif', ?1)
+       ON CONFLICT (key) DO UPDATE SET value = ?1,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+    )
+    .bind(on ? "true" : "false")
+    .run();
+};
+
 export type TagRow = {
   name: string;
   public: boolean;

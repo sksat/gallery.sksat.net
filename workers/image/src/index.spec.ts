@@ -391,6 +391,17 @@ describe("public EXIF", () => {
     expect(formats).toEqual(["jpeg"]);
     expect(new Uint8Array(await card.arrayBuffer())).toEqual(webp);
   });
+
+  it("embeds nothing when the photo's embed_exif is off", async () => {
+    stubWebp();
+    const off = await getWith(
+      metaEnv({ ...withMeta, embed_exif: false }),
+      `/img/${ID}?size=w1200`,
+    );
+    // As without metadata: AVIF allowed, the bytes untouched.
+    expect(formats).toEqual(["avif"]);
+    expect(new Uint8Array(await off.arrayBuffer())).toEqual(webp);
+  });
 });
 
 describe("AdminImage", () => {

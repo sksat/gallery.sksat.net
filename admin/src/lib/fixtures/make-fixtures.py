@@ -60,15 +60,15 @@ info = PngImagePlugin.PngInfo()
 info.add_itxt("XML:com.adobe.xmp", xmp2026, zip=False)
 Image.new("RGB", (8, 8), (40, 20, 30)).save(f"{out}/vrchat-2026.png", "PNG", pnginfo=info)
 
-# A film scan from a lab's Fuji Frontier: its EXIF names the scanner, and
-# DateTimeOriginal is when the film was scanned.
+# Digitised from an analog original on a lab's Fuji Frontier: its EXIF
+# names the scanner, and DateTimeOriginal is when it was scanned.
 scan = Image.Exif()
 scan[0x010F] = "FUJI PHOTO FILM CO., LTD."
 scan[0x0110] = "SP-2000"
 scan[0x0132] = "2023:12:12 10:00:00"
 scan.get_ifd(0x8769)[0x9003] = "2023:12:12 10:00:00"
 Image.new("RGB", (8, 8), (90, 90, 60)).save(
-    f"{out}/film-scan.jpg", "JPEG", exif=scan, quality=50
+    f"{out}/lab-scan.jpg", "JPEG", exif=scan, quality=50
 )
 
 # A scanner with a generic name and a clock that was never set (seen on

@@ -20,6 +20,7 @@
 // firstRead). Each request stays well under the Pages Functions
 // subrequest limit (50; each photo takes one or two AdminImage calls).
 
+import { linkDigitizerSql, scannerOf } from "./digitizer";
 import { applyReading, type Reading, type SourcedRow } from "./metadata-source";
 import {
   EMPTY_STORED,
@@ -167,7 +168,8 @@ export const backfillBatch = async (
              AND ${UNREAD}
            RETURNING id, file, timestamp, exif, latitude, longitude,
                      location_source, world_id, world_name, world_author_id,
-                     metadata_source, metadata_read_at, updated_at`,
+                     metadata_source, file_exif, digitized_at,
+                     metadata_read_at, updated_at`,
         )
         .bind(...unreadArgs(nowMs), CLAIM + iso(nowMs), limit)
         .all<ClaimedRow>()
@@ -218,7 +220,8 @@ export const backfillBatch = async (
         `UPDATE media SET timestamp = ?4, exif = ?5, latitude = ?6,
            longitude = ?7, location_source = ?8, world_id = ?9,
            world_name = ?10, world_author_id = ?11, metadata_source = ?12,
-           metadata_read_at = ?13
+           metadata_read_at = ?13, file_exif = ?14, digitized_at = ?15,
+           ${linkDigitizerSql("?16", "?17")}
          WHERE ${GUARD}`,
       )
       .bind(
@@ -235,6 +238,10 @@ export const backfillBatch = async (
         next.world_author_id,
         next.metadata_source,
         readStamp(nowMs),
+        next.file_exif,
+        next.digitized_at,
+        scannerOf(reading.fileExif)?.make ?? null,
+        scannerOf(reading.fileExif)?.model ?? null,
       );
   };
   const written = new Set<number>();

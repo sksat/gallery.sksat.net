@@ -20,6 +20,7 @@ import {
   worldAt,
   truncateTimestamp,
   type MetadataField,
+  type MetadataLevels,
 } from "./metadata";
 import type {
   CameraImageJSON,
@@ -48,10 +49,18 @@ export type MediaJoinRow = {
   /** The VRChat world (wrld_…) and its name. */
   world_id: string | null;
   world_name: string | null;
+  /** 0009: embed the public shooting info in served images (1/0/NULL). */
+  embed_exif?: number | null;
   camera_slug: string | null;
   camera_name: string | null;
   camera_manufacturer: string | null;
   camera_model: string | null;
+  /** 0009: when and with what it was digitised (absent in old tables). */
+  digitized_at?: string | null;
+  digitizer_slug?: string | null;
+  digitizer_name?: string | null;
+  digitizer_manufacturer?: string | null;
+  digitizer_model?: string | null;
 };
 
 export type CameraRow = {
@@ -79,15 +88,24 @@ export type Context = {
   /** The `setting` row metadata_visibility (JSON), or null. */
   site: string | null;
   publicTags: ReadonlySet<string>;
+  /**
+   * The `setting` row embed_exif: whether served images carry the public
+   * shooting information as EXIF when a photo does not say (default on).
+   */
+  embedDefault: boolean;
 };
 
 const MEDIA_SELECT = `
   SELECT m.public_id, m.file, m.path, m.platform, m.timestamp, m.tags,
          m.metadata_visibility, m.latitude, m.longitude,
-         m.exif, m.world_id, m.world_name,
+         m.exif, m.world_id, m.world_name, m.embed_exif,
          c.slug AS camera_slug, c.name AS camera_name,
-         c.manufacturer AS camera_manufacturer, c.model AS camera_model
-  FROM media m LEFT JOIN camera c ON c.id = m.camera_id`;
+         c.manufacturer AS camera_manufacturer, c.model AS camera_model,
+         m.digitized_at,
+         d.slug AS digitizer_slug, d.name AS digitizer_name,
+         d.manufacturer AS digitizer_manufacturer, d.model AS digitizer_model
+  FROM media m LEFT JOIN camera c ON c.id = m.camera_id
+  LEFT JOIN camera d ON d.id = m.digitized_with`;
 
 const SITE_SETTING =
   "(SELECT value FROM setting WHERE key = 'metadata_visibility')";
@@ -117,7 +135,13 @@ const LISTED = `${READY} AND m.visibility = 'public'`;
 /** Photos that may be opened by their URL. */
 const VIEWABLE = `${READY} AND m.visibility IN ('public', 'unlisted')`;
 
-const CAMERA_KINDS: readonly string[] = ["digital", "film", "phone", "virtual"];
+const CAMERA_KINDS: readonly string[] = [
+  "digital",
+  "film",
+  "phone",
+  "virtual",
+  "scanner",
+];
 
 const parseTags = (raw: string): string[] => {
   try {
@@ -132,41 +156,69 @@ const parseTags = (raw: string): string[] => {
 
 /** The statements whose results make a Context (run them in the batch). */
 const contextStatements = (db: D1Database) => [
-  db.prepare(`SELECT value FROM setting WHERE key = 'metadata_visibility'`),
+  db.prepare(
+    `SELECT key, value FROM setting
+     WHERE key IN ('metadata_visibility', 'embed_exif')`,
+  ),
   db.prepare("SELECT name FROM tag WHERE public = 1"),
 ];
 
 const toContext = (
-  site: D1Result<unknown>,
+  settings: D1Result<unknown>,
   tags: D1Result<unknown>,
-): Context => ({
-  site:
-    ((site.results ?? [])[0] as { value?: string } | undefined)?.value ?? null,
-  publicTags: new Set(
-    ((tags.results ?? []) as { name: string }[]).map((t) => t.name),
-  ),
-});
+): Context => {
+  const rows = (settings.results ?? []) as { key: string; value: string }[];
+  const value = (key: string) => rows.find((r) => r.key === key)?.value;
+  return {
+    site: value("metadata_visibility") ?? null,
+    publicTags: new Set(
+      ((tags.results ?? []) as { name: string }[]).map((t) => t.name),
+    ),
+    // Only an explicit false turns it off.
+    embedDefault: value("embed_exif") !== "false",
+  };
+};
 
+type JoinedCamera = {
+  slug: string | null | undefined;
+  name: string | null | undefined;
+  manufacturer: string | null | undefined;
+  model: string | null | undefined;
+};
+
+/** A joined camera row (the shooting camera or the スキャン機材) at a level. */
 const cameraAt = (
-  row: MediaJoinRow,
+  c: JoinedCamera,
   level: "model" | "manufacturer" | "hidden",
 ): MediaCameraJSON | null => {
-  if (row.camera_slug === null || level === "hidden") return null;
+  if (!c.slug || level === "hidden") return null;
   if (level === "manufacturer") {
-    return row.camera_manufacturer === null
-      ? null
-      : {
+    return c.manufacturer
+      ? {
           slug: null,
-          name: row.camera_manufacturer,
-          manufacturer: row.camera_manufacturer,
+          name: c.manufacturer,
+          manufacturer: c.manufacturer,
           model: null,
-        };
+        }
+      : null;
   }
   return {
-    slug: row.camera_slug,
-    name: row.camera_name ?? row.camera_slug,
-    manufacturer: row.camera_manufacturer,
-    model: row.camera_model,
+    slug: c.slug,
+    name: c.name ?? c.slug,
+    manufacturer: c.manufacturer ?? null,
+    model: c.model ?? null,
+  };
+};
+
+/** When it was digitised, cut down like the taken-at time. */
+const digitizedAt = (
+  ts: string | null,
+  level: MetadataLevels["digitized_at"],
+): Pick<MediaItemJSON, "digitized_at" | "digitized_at_precision"> => {
+  const at = truncateTimestamp(ts, level);
+  return {
+    digitized_at: at,
+    digitized_at_precision: at === null || level === "hidden" ? null : level,
   };
 };
 
@@ -199,7 +251,25 @@ export const projectPhoto = (
       timestamp === null || levels.taken_at === "hidden"
         ? null
         : levels.taken_at,
-    camera: cameraAt(row, levels.camera),
+    camera: cameraAt(
+      {
+        slug: row.camera_slug,
+        name: row.camera_name,
+        manufacturer: row.camera_manufacturer,
+        model: row.camera_model,
+      },
+      levels.camera,
+    ),
+    digitizer: cameraAt(
+      {
+        slug: row.digitizer_slug,
+        name: row.digitizer_name,
+        manufacturer: row.digitizer_manufacturer,
+        model: row.digitizer_model,
+      },
+      levels.digitizer,
+    ),
+    ...digitizedAt(row.digitized_at ?? null, levels.digitized_at),
     // A VRChat photo was taken in a world, not at a real-world place: a
     // position on one (a mistake, or the player's own GPS) is never public.
     location:
@@ -208,6 +278,12 @@ export const projectPhoto = (
         : locationAt(row.latitude, row.longitude, levels.location),
     world: worldAt(row.world_id, row.world_name, levels.world),
     exif: exifAt(row.exif, levels.exif, levels),
+    embed_exif:
+      row.embed_exif === 1
+        ? true
+        : row.embed_exif === 0
+          ? false
+          : ctx.embedDefault,
     tags:
       levels.tags === "public"
         ? parseTags(row.tags).filter((t) => ctx.publicTags.has(t))
@@ -338,8 +414,10 @@ export const getPathAccess = async (
  * photos that hide it, were taken with stays hidden.
  */
 const cameraUsed = (visibility: string) =>
-  `EXISTS (SELECT 1 FROM media m WHERE m.camera_id = c.id AND ${visibility}
-             AND ${levelSql("camera")} = 'model')`;
+  `(EXISTS (SELECT 1 FROM media m WHERE m.camera_id = c.id AND ${visibility}
+              AND ${levelSql("camera")} = 'model')
+    OR EXISTS (SELECT 1 FROM media m WHERE m.digitized_with = c.id
+              AND ${visibility} AND ${levelSql("digitizer")} = 'model'))`;
 
 /** Cameras with at least one public photo, by slug. */
 export const listCameras = async (db: D1Database): Promise<CameraJSON[]> => {

@@ -10,7 +10,7 @@
 // 4. EXIF DateTime (when the file was last written).
 //
 // A film scanner's EXIF / XMP dates are the scan's and are never used
-// (photo-meta.ts isFilmScanner). The file's own dates are read by
+// (photo-meta.ts isScanner). The file's own dates are read by
 // photo-meta.ts. The result is an ISO 8601 date-time with an explicit
 // offset, to the millisecond, e.g. "2026-11-18T01:02:03.456+09:00".
 

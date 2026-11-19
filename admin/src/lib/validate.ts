@@ -34,6 +34,9 @@ const PATCH_FIELDS = new Set([
   "platform",
   "metadata_visibility",
   "camera_id",
+  "digitized_with",
+  "embed_exif",
+  "timestamp",
   "tags",
   "visibility",
   "exif",
@@ -43,7 +46,22 @@ const PATCH_FIELDS = new Set([
   "reset_from_file",
 ]);
 
-const RESETTABLE = ["exif", "world", "location"] as const;
+const RESETTABLE = ["exif", "world", "location", "taken_at"] as const;
+
+/**
+ * A full date and time with its offset, as media.timestamp stores it
+ * ("2024-03-08T00:00:00+09:00", milliseconds optional) and a real date.
+ */
+export const isIsoWithOffset = (v: string): boolean => {
+  const m =
+    /^(\d{4})-(\d\d)-(\d\d)T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,3})?(Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/.exec(
+      v,
+    );
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  return date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
+};
 
 export const validatePatch = (input: unknown): ValidatePatchResult => {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -86,6 +104,33 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
       };
     }
     patch.camera_id = v as number | null;
+  }
+  if ("digitized_with" in obj) {
+    const v = obj.digitized_with;
+    if (v !== null && !(Number.isInteger(v) && (v as number) > 0)) {
+      return {
+        ok: false,
+        error: "digitized_with must be a positive integer or null",
+      };
+    }
+    patch.digitized_with = v as number | null;
+  }
+  if ("embed_exif" in obj) {
+    const v = obj.embed_exif;
+    if (v !== null && typeof v !== "boolean") {
+      return { ok: false, error: "embed_exif must be true, false or null" };
+    }
+    patch.embed_exif = v;
+  }
+  if ("timestamp" in obj) {
+    const v = obj.timestamp;
+    if (v !== null && !(typeof v === "string" && isIsoWithOffset(v))) {
+      return {
+        ok: false,
+        error: "timestamp must be ISO 8601 with an offset, or null",
+      };
+    }
+    patch.timestamp = v;
   }
 
   if ("tags" in obj) {
@@ -155,7 +200,8 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     if (
       (fields.includes("exif") && patch.exif) ||
       (fields.includes("world") && patch.world) ||
-      (fields.includes("location") && patch.location !== undefined)
+      (fields.includes("location") && patch.location !== undefined) ||
+      (fields.includes("taken_at") && patch.timestamp !== undefined)
     ) {
       return { ok: false, error: "a field cannot be edited and reset at once" };
     }

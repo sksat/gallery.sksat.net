@@ -55,6 +55,13 @@ export const onPatch: RequestHandler = withErrorHandler(
       json(400, { error: "unknown camera_id" });
       return;
     }
+    if (
+      res.patch.digitized_with != null &&
+      !(await getCamera(db, res.patch.digitized_with))
+    ) {
+      json(400, { error: "unknown digitized_with" });
+      return;
+    }
     const updated = await updateMedia(db, id, res.patch);
     if (!updated) {
       json(404, { error: "not found" });

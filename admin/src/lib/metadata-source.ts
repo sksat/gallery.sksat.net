@@ -5,7 +5,7 @@
 // ('manual') is never replaced. Where it was taken keeps its own
 // media.location_source ('exif' | 'manual').
 
-import type { StoredMeta } from "./photo-meta";
+import { isScanner, type StoredMeta } from "./photo-meta";
 
 export const TAKEN_AT_SOURCES = [
   "manual",
@@ -21,6 +21,8 @@ export type MetadataSource = {
   taken_at?: TakenAtSource;
   exif?: FileSource;
   world?: FileSource;
+  /** 0009: the スキャン機材 chosen (or cleared) by hand; never linked again. */
+  digitized_with?: FileSource;
 };
 
 /** Higher wins. A field with no recorded source ranks lowest (0). */
@@ -51,7 +53,7 @@ export const parseSources = (
   const o = v as Record<string, unknown>;
   const out: MetadataSource = {};
   if (isTakenAtSource(o.taken_at)) out.taken_at = o.taken_at;
-  for (const f of ["exif", "world"] as const) {
+  for (const f of ["exif", "world", "digitized_with"] as const) {
     if (o[f] === "manual" || o[f] === "file") out[f] = o[f];
   }
   return out;
@@ -83,6 +85,9 @@ export type SourcedRow = {
   world_name: string | null;
   world_author_id: string | null;
   metadata_source: string | null;
+  /** 0009: the file's own EXIF (admin only) and when it was digitised. */
+  file_exif: string | null;
+  digitized_at: string | null;
 };
 
 /** What reading the original gave. */
@@ -114,6 +119,15 @@ export const applyReading = (
   if (r.exif && mayReplace(src.exif, "file")) {
     out.exif = JSON.stringify(r.exif);
     src.exif = "file";
+  } else if (
+    isScanner(r.fileExif?.make, r.fileExif?.model) &&
+    src.exif !== "manual" &&
+    row.exif !== null
+  ) {
+    // A scanner's file: an automatic exif came from the scanner (read
+    // before 0009), so it goes. The one exception to "never clears".
+    out.exif = null;
+    delete src.exif;
   }
   if (r.world && mayReplace(src.world, "file")) {
     out.world_id = r.world.id;
@@ -130,6 +144,9 @@ export const applyReading = (
     out.longitude = r.location.longitude;
     out.location_source = "exif";
   }
+  // What the file says is only ever the file's: always the latest reading.
+  if (r.fileExif) out.file_exif = JSON.stringify(r.fileExif);
+  if (r.digitizedAt) out.digitized_at = r.digitizedAt;
   out.metadata_source = serializeSources(src);
   return out;
 };

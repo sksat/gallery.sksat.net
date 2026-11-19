@@ -139,8 +139,36 @@ describe("validateUploadInit", () => {
         ...ok,
         meta: {
           exif: { make: "Sony", iso: 100 },
+          fileExif: null,
+          digitizedAt: null,
           location: { latitude: 35.5, longitude: 139.5 },
           world: { id: "wrld_abc", name: "W", authorId: null },
+        },
+      },
+    });
+    // A scanner's file: its EXIF is the file's only, whatever the client
+    // says, and its date the digitising time.
+    expect(
+      validateUploadInit({
+        ...ok,
+        meta: {
+          exif: { make: "GCMC", model: "Scanner" },
+          fileExif: {
+            make: "GCMC",
+            model: "Scanner",
+            software: "x",
+            date_time: "bad",
+          },
+          digitizedAt: "2021-01-01T00:31:12+09:00",
+        },
+      }),
+    ).toMatchObject({
+      ok: true,
+      init: {
+        meta: {
+          exif: null,
+          fileExif: { make: "GCMC", model: "Scanner", software: "x" },
+          digitizedAt: "2021-01-01T00:31:12+09:00",
         },
       },
     });
@@ -155,7 +183,16 @@ describe("validateUploadInit", () => {
       }),
     ).toEqual({
       ok: true,
-      init: { ...ok, meta: { exif: null, location: null, world: null } },
+      init: {
+        ...ok,
+        meta: {
+          exif: null,
+          fileExif: null,
+          digitizedAt: null,
+          location: null,
+          world: null,
+        },
+      },
     });
   });
 
@@ -238,9 +275,7 @@ describe("checkUploadLimits", () => {
       checkUploadLimits({ size: 1, width: 12_000, height: 8_333 }),
     ).toBeNull();
     // Exactly at the limits.
-    expect(
-      checkUploadLimits({ size: 1, width: 12_000, height: 1 }),
-    ).toBeNull();
+    expect(checkUploadLimits({ size: 1, width: 12_000, height: 1 })).toBeNull();
     expect(
       checkUploadLimits({ size: 1, width: 10_000, height: 10_000 }),
     ).toBeNull();

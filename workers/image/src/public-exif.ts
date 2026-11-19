@@ -20,6 +20,13 @@
  * - ImageDescription: the VRChat world's name (world level).
  * - Never Orientation: Image Transformations has already turned the
  *   pixels upright, so the original's orientation would rotate it again.
+ * - DateTimeDigitized + OffsetTimeDigitized: when an analog original was
+ *   digitised (its own level, hidden by default), and the スキャン機材 as a
+ *   UserComment line "Scanned with: <maker model>" (its level too). Never
+ *   in Make / Model, which stay the shooting camera.
+ * - Nothing at all when the photo's embed_exif is false (the owner's
+ *   choice per photo or for the site), and never what the original file
+ *   itself said (a scanner's EXIF is not even in the API).
  */
 import { TAG, type ExifIfds, type ExifValue } from "./exif-encode";
 
@@ -39,6 +46,16 @@ export type PublicMeta = {
     exposure_time?: string;
     iso?: number;
   } | null;
+  /** False: the photo's served images carry no EXIF at all. */
+  embed_exif?: boolean;
+  /** The スキャン機材 and スキャン日時, as far as their levels allow. */
+  digitizer?: {
+    manufacturer: string | null;
+    model: string | null;
+    name?: string;
+  } | null;
+  digitized_at?: string | null;
+  digitized_at_precision?: string | null;
   location?: {
     latitude: number;
     longitude: number;
@@ -53,6 +70,41 @@ const text = (s: string | null | undefined, max = 200): string | null => {
   // Control characters out (NUL would end the value early).
   const t = (s ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim();
   return t ? t.slice(0, max) : null;
+};
+
+/** "Nikon LS-5000", "GCMC Scanner", or the maker alone at that level. */
+export const digitizerText = (d: PublicMeta["digitizer"]): string | null => {
+  const make = text(d?.manufacturer);
+  const model = text(d?.model);
+  if (make && model) {
+    return model.toLowerCase().startsWith(make.toLowerCase())
+      ? model
+      : `${make} ${model}`;
+  }
+  return model ?? make ?? text(d?.name);
+};
+
+/**
+ * A UserComment value: its 8-byte character code, then the text, ASCII
+ * when it is, else UTF-16 in the TIFF's byte order (big-endian here).
+ */
+export const userComment = (s: string): ExifValue => {
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7f]*$/.test(s)) {
+    const body = new TextEncoder().encode(s);
+    const out = new Uint8Array(8 + body.length);
+    out.set(new TextEncoder().encode("ASCII\0\0\0"));
+    out.set(body, 8);
+    return { type: "undefined", value: out };
+  }
+  const out = new Uint8Array(8 + s.length * 2);
+  out.set(new TextEncoder().encode("UNICODE\0"));
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    out[8 + i * 2] = c >> 8;
+    out[9 + i * 2] = c & 0xff;
+  }
+  return { type: "undefined", value: out };
 };
 
 const TS_RE =
@@ -133,6 +185,19 @@ export const publicExif = (p: PublicMeta): ExifIfds => {
     exif.set(TAG.dateTimeOriginal, ascii(when.dateTime));
     if (when.offset) exif.set(TAG.offsetTimeOriginal, ascii(when.offset));
   }
+
+  // Digitised from an analog original: when, in DateTimeDigitized (EXIF's
+  // own tag for it), and with what as a UserComment line, so that Make /
+  // Model stay the camera it was shot with.
+  const digitized = exifDateTime(p.digitized_at, p.digitized_at_precision);
+  if (digitized) {
+    exif.set(TAG.dateTimeDigitized, ascii(digitized.dateTime));
+    if (digitized.offset) {
+      exif.set(TAG.offsetTimeDigitized, ascii(digitized.offset));
+    }
+  }
+  const device = digitizerText(p.digitizer);
+  if (device) exif.set(TAG.userComment, userComment(`Scanned with: ${device}`));
 
   const e = p.exif;
   if (positive(e?.f_number, 1000)) {

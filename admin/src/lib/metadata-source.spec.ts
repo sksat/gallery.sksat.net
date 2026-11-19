@@ -54,10 +54,14 @@ describe("applyReading", () => {
     world_name: "Mine",
     world_author_id: null,
     metadata_source: '{"taken_at":"filename","world":"manual"}',
+    file_exif: null,
+    digitized_at: null,
   };
   const reading: Reading = {
     takenAt: { at: "2026-11-02T11:31:36.959+09:00", source: "xmp" },
     exif: { make: "X" },
+    fileExif: { make: "X", software: "S" },
+    digitizedAt: null,
     location: { latitude: 1, longitude: 2 },
     world: { id: "wrld_file", name: "File", authorId: "usr_a" },
   };
@@ -99,9 +103,66 @@ describe("applyReading", () => {
     const out = applyReading(row, {
       takenAt: null,
       exif: null,
+      fileExif: null,
+      digitizedAt: null,
       location: null,
       world: null,
     });
     expect(out).toEqual(row);
+  });
+
+  it("takes a scanner's automatic EXIF off the shooting info, never a manual one", () => {
+    const scan: Reading = {
+      takenAt: null,
+      exif: null,
+      fileExif: { make: "GCMC", model: "Scanner" },
+      digitizedAt: null,
+      location: null,
+      world: null,
+    };
+    const old = { ...row, exif: '{"make":"GCMC","model":"Scanner"}' };
+    const auto = applyReading(
+      { ...old, metadata_source: '{"exif":"file"}' },
+      scan,
+    );
+    expect(auto.exif).toBeNull();
+    expect(parseSources(auto.metadata_source)).toEqual({});
+    const manual = applyReading(
+      { ...old, metadata_source: '{"exif":"manual"}' },
+      scan,
+    );
+    expect(manual.exif).toBe(old.exif);
+    // A camera's file read with nothing: nothing cleared.
+    expect(
+      applyReading(
+        { ...old, metadata_source: '{"exif":"file"}' },
+        { ...scan, fileExif: { make: "FUJIFILM", model: "X-T5" } },
+      ).exif,
+    ).toBe(old.exif);
+  });
+
+  it("keeps a scanner's EXIF and time apart, never as shooting info", () => {
+    const out = applyReading(
+      { ...row, metadata_source: null },
+      {
+        takenAt: null,
+        exif: null,
+        fileExif: {
+          make: "GCMC",
+          model: "Scanner",
+          taken_at_original: "2021-01-01T00:31:12",
+        },
+        digitizedAt: "2021-01-01T00:31:12+09:00",
+        location: null,
+        world: null,
+      },
+    );
+    expect(out).toMatchObject({
+      timestamp: row.timestamp,
+      exif: null,
+      file_exif:
+        '{"make":"GCMC","model":"Scanner","taken_at_original":"2021-01-01T00:31:12"}',
+      digitized_at: "2021-01-01T00:31:12+09:00",
+    });
   });
 });

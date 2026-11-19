@@ -12,6 +12,10 @@ export const METADATA_LEVELS = {
   location: ["exact", "city", "prefecture", "country", "hidden"],
   world: ["link", "name", "hidden"],
   exif: ["all", "basic", "hidden"],
+  /** 0009: the device it was digitised with (media.digitized_with). */
+  digitizer: ["model", "manufacturer", "hidden"],
+  /** 0009: when it was digitised (media.digitized_at). */
+  digitized_at: ["second", "minute", "date", "month", "year", "hidden"],
 } as const;
 
 export type MetadataField = keyof typeof METADATA_LEVELS;
@@ -29,6 +33,8 @@ export const BUILTIN_DEFAULTS: MetadataLevels = {
   location: "hidden",
   world: "link",
   exif: "basic",
+  digitizer: "hidden",
+  digitized_at: "hidden",
 };
 
 /** Every field has a control, in this order. */
@@ -36,6 +42,8 @@ export const EDITABLE_FIELDS = [
   "file_name",
   "taken_at",
   "camera",
+  "digitizer",
+  "digitized_at",
   "tags",
   "exif",
   "world",
@@ -57,11 +65,19 @@ export const FIELD_LABELS: Record<EditableField, string> = {
   file_name: "ファイル名",
   taken_at: "撮影日時",
   camera: "カメラ",
+  digitizer: "スキャン機材",
+  digitized_at: "スキャン日時",
   tags: "タグ",
   exif: "撮影設定",
   world: "ワールド",
   location: "撮影場所",
 };
+
+/**
+ * Whether served images carry the public information as EXIF (setting
+ * embed_exif, media.embed_exif; 0009).
+ */
+export const EMBED_LABEL = "画像に EXIF を付ける";
 
 export const LEVEL_LABELS: {
   [F in EditableField]: Record<MetadataLevels[F], string>;
@@ -82,6 +98,19 @@ export const LEVEL_LABELS: {
   camera: {
     model: "機種まで",
     manufacturer: "メーカーだけ",
+    hidden: "出さない",
+  },
+  digitizer: {
+    model: "機種まで",
+    manufacturer: "メーカーだけ",
+    hidden: "出さない",
+  },
+  digitized_at: {
+    second: "秒まで",
+    minute: "分まで",
+    date: "日付まで",
+    month: "年月まで",
+    year: "年だけ",
     hidden: "出さない",
   },
   tags: { public: "公開タグ", hidden: "出さない" },

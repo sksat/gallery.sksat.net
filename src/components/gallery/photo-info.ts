@@ -88,10 +88,24 @@ export const cameraInfo = (m: MediaInfo): CameraInfo | null => {
   return m.maker ? { label: m.maker, href: null } : null;
 };
 
+/** The スキャン機材 row, like the camera's. */
+export const digitizerInfo = (m: MediaInfo): CameraInfo | null => {
+  if (m.digitizer) {
+    return {
+      label: cameraLabel(m.digitizer),
+      href: cameraHref(cameraSlug(m.digitizer)),
+    };
+  }
+  return m.digitizerMaker ? { label: m.digitizerMaker, href: null } : null;
+};
+
 /** Everything the panel shows for a photo; null fields are left out. */
 export type PhotoInfo = {
   taken: TakenAt | null;
   camera: CameraInfo | null;
+  /** Digitised from an analog original: with what, and when. */
+  digitizer: CameraInfo | null;
+  digitized: TakenAt | null;
   /** The EXIF body, when it is not already the camera row. */
   body: string | null;
   lens: string | null;
@@ -116,6 +130,8 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
   return {
     taken: takenAt(m.takenIso ?? null, m.timestamp_precision),
     camera,
+    digitizer: digitizerInfo(m),
+    digitized: takenAt(m.digitized_at ?? null, m.digitized_at_precision),
     // Only next to a camera shown as a model (the API gives the body only
     // then, too).
     body: m.camera && body !== null && body !== camera?.label ? body : null,
@@ -133,6 +149,8 @@ export const hasDetails = (info: PhotoInfo): boolean =>
   Boolean(
     info.taken ||
     info.camera ||
+    info.digitizer ||
+    info.digitized ||
     info.body ||
     info.lens ||
     info.exposure ||

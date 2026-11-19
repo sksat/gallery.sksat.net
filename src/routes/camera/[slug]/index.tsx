@@ -1,8 +1,13 @@
 import { component$ } from "@builder.io/qwik";
 import { routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
 
+import { digitizedWith } from "~/components/gallery/cameras";
+import { DigitizedList } from "~/components/gallery/digitized-list";
 import Gallery from "~/components/gallery/gallery";
-import type { CameraJSON } from "~/components/gallery/types";
+import {
+  transformMediaInfo,
+  type CameraJSON,
+} from "~/components/gallery/types";
 import { cameraOgp, ogpHead, type Ogp } from "~/components/ogp";
 import { loadCamera, UNAVAILABLE } from "~/lib/api";
 import { useGalleryIndex } from "../../layout";
@@ -41,7 +46,17 @@ export const useCameraPage = routeLoader$<CameraPage>(async (event) => {
 
 export default component$(() => {
   const page = useCameraPage();
-  return <Gallery camera={page.value.camera} />;
+  const index = useGalleryIndex();
+  const digitized = digitizedWith(
+    index.value.media.map(transformMediaInfo),
+    page.value.camera.slug,
+  );
+  return (
+    <>
+      <Gallery camera={page.value.camera} />
+      <DigitizedList media={digitized} />
+    </>
+  );
 });
 
 export const head: DocumentHead = ({ resolveValue }) =>

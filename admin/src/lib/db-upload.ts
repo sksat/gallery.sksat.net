@@ -2,6 +2,7 @@
 // mark it ready after, and list / drop the ones that never completed.
 // Covered by db-upload.spec.ts on the real schema.
 
+import { digitizerIdSql, scannerOf } from "./digitizer";
 import { serializeSources } from "./metadata-source";
 import {
   EMPTY_STORED,
@@ -20,6 +21,8 @@ export const metaColumns = (meta: StoredMeta) => ({
   world_id: meta.world?.id ?? null,
   world_name: meta.world?.name ?? null,
   world_author_id: meta.world?.authorId ?? null,
+  file_exif: meta.fileExif ? JSON.stringify(meta.fileExif) : null,
+  digitized_at: meta.digitizedAt,
 });
 
 export type InitOutcome =
@@ -154,10 +157,12 @@ export const initUpload = async (
       .prepare(
         `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256,
            exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at,
-           metadata_source)
+           metadata_source, file_exif, digitized_at, digitized_with)
          VALUES (?1, ?2, ?2, ?3, ?4, '[]', 'private', 'uploading', ?5, ?6,
            ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-           CASE WHEN ?14 THEN MAX(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?16) END, ?15) RETURNING id`,
+           CASE WHEN ?14 THEN MAX(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?16) END, ?15,
+           ?17, ?18,
+           ${digitizerIdSql("?19", "?20")}) RETURNING id`,
       )
       .bind(
         row.publicId,
@@ -180,6 +185,10 @@ export const initUpload = async (
         sources,
         // Read with today's parser (backfill.ts readStamp).
         PHOTO_META_PARSER_DATE,
+        meta.file_exif,
+        meta.digitized_at,
+        scannerOf(init.meta?.fileExif)?.make ?? null,
+        scannerOf(init.meta?.fileExif)?.model ?? null,
       )
       .first<{ id: number }>();
     if (!inserted) throw new Error("INSERT INTO media returned no row");

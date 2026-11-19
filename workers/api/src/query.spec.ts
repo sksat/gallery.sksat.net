@@ -76,12 +76,77 @@ describe("listPublicMedia", () => {
         manufacturer: "logilabo",
         model: "VirtualLens2",
       },
+      digitizer: null,
+      digitized_at: null,
+      digitized_at_precision: null,
       location: null,
       world: null,
       exif: null,
+      embed_exif: true,
       // "secret" is not a public tag.
       tags: ["VRChat"],
     });
+  });
+});
+
+describe("embed_exif", () => {
+  it("follows the photo, else the site, else on", async () => {
+    const { raw, db } = setup();
+    const one = async () =>
+      (await getMedia(db, "aaaaaaaaa3"))?.embed_exif;
+    expect(await one()).toBe(true);
+    raw.exec("UPDATE setting SET value = 'false' WHERE key = 'embed_exif'");
+    expect(await one()).toBe(false);
+    raw.exec("UPDATE media SET embed_exif = 1 WHERE public_id = 'aaaaaaaaa3'");
+    expect(await one()).toBe(true);
+    raw.exec("UPDATE setting SET value = 'true' WHERE key = 'embed_exif'");
+    raw.exec("UPDATE media SET embed_exif = 0 WHERE public_id = 'aaaaaaaaa3'");
+    expect(await one()).toBe(false);
+  });
+
+  it("shows the スキャン機材 and スキャン日時 only at their levels", async () => {
+    const { raw, db } = setup();
+    raw.exec(`INSERT INTO camera (slug, name, manufacturer, model, kind)
+      VALUES ('scanner', 'Scanner', 'GCMC', 'Scanner', 'scanner')`);
+    raw.exec(`UPDATE media SET
+      digitized_with = (SELECT id FROM camera WHERE slug = 'scanner'),
+      digitized_at = '2021-01-01T00:31:12+09:00'
+      WHERE public_id = 'aaaaaaaaa3'`);
+    const one = () => getMedia(db, "aaaaaaaaa3");
+    // Hidden by default: neither the device nor its date, and the scanner
+    // is no public camera.
+    expect(await one()).toMatchObject({
+      digitizer: null,
+      digitized_at: null,
+      digitized_at_precision: null,
+    });
+    expect((await listCameras(db)).map((c) => c.slug)).not.toContain(
+      "scanner",
+    );
+    raw.exec(`UPDATE media SET metadata_visibility =
+      '{"digitizer":"model","digitized_at":"date"}' WHERE public_id = 'aaaaaaaaa3'`);
+    const shown = await one();
+    expect(shown?.digitizer).toEqual({
+      slug: "scanner",
+      name: "Scanner",
+      manufacturer: "GCMC",
+      model: "Scanner",
+    });
+    // The shooting camera stays the shooting camera.
+    expect(shown?.camera?.slug).toBe("virtuallens2");
+    expect(shown).toMatchObject({
+      digitized_at: "2021-01-01T00:00:00+09:00",
+      digitized_at_precision: "date",
+    });
+    expect((await listCameras(db)).map((c) => c.slug)).toContain("scanner");
+  });
+
+  it("never returns the file's own EXIF or the scan time", async () => {
+    const { raw, db } = setup();
+    raw.exec(`UPDATE media SET file_exif = '{"make":"NORITSU KOKI","model":"QSS-32"}',
+      digitized_at = '2023-12-12T10:00:00+09:00' WHERE public_id = 'aaaaaaaaa3'`);
+    const text = JSON.stringify(await getMedia(db, "aaaaaaaaa3"));
+    expect(text).not.toMatch(/NORITSU|QSS|scanned|2023-12-12/);
   });
 });
 
@@ -374,7 +439,7 @@ describe("projectPhoto", () => {
     world_id: null,
     world_name: null,
   };
-  const ctx = { site: null, publicTags: new Set(["x"]) };
+  const ctx = { site: null, publicTags: new Set(["x"]), embedDefault: true };
   const at = (levels: Record<string, string>) =>
     projectPhoto(
       { ...row, metadata_visibility: JSON.stringify(levels) },
