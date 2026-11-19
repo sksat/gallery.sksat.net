@@ -109,6 +109,36 @@ describe("createUploadQueue", () => {
     });
   });
 
+  it("refuses a file over the size limit without reading or sending it", async () => {
+    const h = harness();
+    h.queue.add("/", [src("big.png", 123_400_000), src("ok.png")]);
+    await flush();
+    expect(h.status()).toEqual(["big.png:skipped", "ok.png:uploading"]);
+    expect(h.items()[0].message).toBe(
+      "ファイルが大きすぎます：123.4 MB（117.7 MiB）。上限は 100 MB（95.4 MiB）です。",
+    );
+    expect(h.deps.prepare).toHaveBeenCalledTimes(1);
+    expect(h.puts.map((p) => p.file)).toEqual(["/ok.png"]);
+  });
+
+  it("skips a file that prepare refuses (too many pixels)", async () => {
+    const h = harness({
+      prepare: vi.fn(async () => {
+        throw new UploadError(
+          "画素数が多すぎます：120 MP。上限は 100 MP です。",
+          false,
+        );
+      }),
+    });
+    h.queue.add("/", [src("huge.png")]);
+    await flush();
+    expect(h.status()).toEqual(["huge.png:skipped"]);
+    expect(h.items()[0].message).toBe(
+      "画素数が多すぎます：120 MP。上限は 100 MP です。",
+    );
+    expect(h.deps.init).not.toHaveBeenCalled();
+  });
+
   it("takes the path the server picked (a numbered name)", async () => {
     const h = harness({
       init: vi.fn(async (req) => ({

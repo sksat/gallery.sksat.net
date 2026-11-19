@@ -200,13 +200,13 @@ export const joinFolder = (dir: string, name: string): string =>
  */
 export const validateFolderPath = (raw: unknown): FolderResult => {
   if (typeof raw !== "string" || !raw.startsWith("/") || raw === "/") {
-    return { ok: false, error: "invalid folder path" };
+    return { ok: false, error: "フォルダのパスが正しくありません" };
   }
   const segments = raw.slice(1).split("/");
   for (const s of segments) {
     const v = validateFolderName(s);
     if (!v.ok || v.name !== s) {
-      return { ok: false, error: `invalid folder name: ${s || "(empty)"}` };
+      return { ok: false, error: `使えないフォルダ名です: ${s || "(空)"}` };
     }
   }
   // Camera pictures (cameraImageDir in validate.ts); not photos.

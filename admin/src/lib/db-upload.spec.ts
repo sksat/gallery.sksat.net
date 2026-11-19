@@ -5,8 +5,20 @@ import {
   initUpload,
   listIncompleteUploads,
   numberedPaths,
+  sizeMismatch,
   type ObjectStat,
 } from "./db-upload";
+
+describe("sizeMismatch", () => {
+  it("is in decimal units, or grouped bytes when they would read the same", () => {
+    expect(sizeMismatch(12_300_000, 40_100_000)).toBe(
+      "B2 は 12.3 MB（11.8 MiB）、予定は 40.1 MB（38.3 MiB）",
+    );
+    expect(sizeMismatch(12_300_001, 12_300_050)).toBe(
+      "B2 は 12,300,001 バイト、予定は 12,300,050 バイト",
+    );
+  });
+});
 import { listMedia } from "./db";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
@@ -247,7 +259,10 @@ describe("completeUpload", () => {
         2,
         bucket({ "/up/a.png": { size: 11, sha256: SHA_A } }),
       ),
-    ).toMatchObject({ kind: "mismatch" });
+    ).toEqual({
+      kind: "mismatch",
+      message: "大きさが違います：B2 は 11 バイト、予定は 10 バイトです。",
+    });
     expect(
       await completeUpload(
         db,

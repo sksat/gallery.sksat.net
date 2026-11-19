@@ -24,14 +24,14 @@ export const onPost: RequestHandler = withErrorHandler(
   async ({ platform, request, json }) => {
     const config = getUploadConfig(platform);
     if (!config) {
-      json(503, { error: "upload is not configured" });
+      json(503, { error: "アップロードが設定されていません" });
       return;
     }
     let body: unknown;
     try {
       body = await request.json();
     } catch {
-      json(400, { error: "body must be JSON" });
+      json(400, { error: "リクエストの形式が正しくありません" });
       return;
     }
     const v = validateUploadInit(body);

@@ -10,7 +10,7 @@ import {
   type Signal,
 } from "@builder.io/qwik";
 import { MAX_BULK_IDS } from "~/lib/db";
-import { formatBytes, UPLOAD_ACCEPT } from "~/lib/upload";
+import { formatUploadSize, UPLOAD_ACCEPT } from "~/lib/upload";
 import type { IncompleteUpload } from "~/lib/db-upload";
 import {
   collectDropped,
@@ -486,7 +486,7 @@ export const IncompleteUploads = component$<{
             </span>
             {r.size !== null && (
               <span class={["shrink-0 text-xs tabular-nums", muted]}>
-                {formatBytes(r.size)}
+                {formatUploadSize(r.size)}
               </span>
             )}
             <label
@@ -693,7 +693,7 @@ export const UploadPanel = component$<PanelProps>(
                   {it.name}
                 </span>
                 <span class={["shrink-0 text-xs tabular-nums", muted]}>
-                  {formatBytes(it.size)}
+                  {formatUploadSize(it.size)}
                 </span>
                 <span
                   class={[

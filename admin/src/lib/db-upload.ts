@@ -3,7 +3,7 @@
 // Covered by db-upload.spec.ts on the real schema.
 
 import { EMPTY_STORED, type StoredMeta } from "./photo-meta";
-import type { UploadInit } from "./upload";
+import { formatUploadSize, groupDigits, type UploadInit } from "./upload";
 import type { MediaPlatform } from "./types";
 
 /** media columns (0005) for metadata read from the file itself. */
@@ -158,6 +158,20 @@ export const numberedPaths = (file: string): string[] => {
   ];
 };
 
+/**
+ * "B2 は 12.3 MB（11.8 MiB）、予定は …" (formatUploadSize), or grouped
+ * bytes when the two would read the same.
+ */
+export const sizeMismatch = (actual: number, expected: number): string => {
+  let a = formatUploadSize(actual);
+  let e = formatUploadSize(expected);
+  if (a === e) {
+    a = `${groupDigits(actual)} バイト`;
+    e = `${groupDigits(expected)} バイト`;
+  }
+  return `B2 は ${a}、予定は ${e}`;
+};
+
 /** What the bucket has at a path (HEAD), or null when nothing is there. */
 export type ObjectStat = { size: number; sha256: string | null };
 
@@ -196,7 +210,7 @@ export const completeUpload = async (
   if (row.size !== null && object.size !== row.size) {
     return {
       kind: "mismatch",
-      message: `大きさが違います (B2 は ${object.size} バイト、予定は ${row.size} バイト)`,
+      message: `大きさが違います：${sizeMismatch(object.size, row.size)}です。`,
     };
   }
   if (row.sha256 !== null && object.sha256 !== row.sha256) {
