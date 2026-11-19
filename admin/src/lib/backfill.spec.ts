@@ -5,6 +5,7 @@ import {
   CLAIM_STALE_MS,
   FAILED_RETRY_MS,
   unreadArgs,
+  WAITING_EDITS_SQL,
   WAITING_SQL,
   countUnread,
   PHOTO_META_PARSER_DATE,
@@ -80,6 +81,7 @@ describe("backfillBatch", () => {
       read: 4,
       found: 2,
       failed: 1,
+      photos: 3,
       more: false,
     });
     expect(columns(raw, 1)).toMatchObject({
@@ -347,5 +349,174 @@ describe("backfillBatch", () => {
       { offset: 0, length: 128 * 1024 },
       { suffix: 64 * 1024 },
     ]);
+  });
+});
+
+/** A JPEG with just an XMP packet (APP1) and no image. */
+const xmpJpeg = (xmp: string) => {
+  const ns = new TextEncoder().encode("http://ns.adobe.com/xap/1.0/\0");
+  const body = new TextEncoder().encode(xmp);
+  const len = 2 + ns.length + body.length;
+  return new Uint8Array([
+    0xff,
+    0xd8,
+    0xff,
+    0xe1,
+    len >> 8,
+    len & 0xff,
+    ...ns,
+    ...body,
+    0xff,
+    0xd9,
+  ]);
+};
+
+const LIGHTROOM_XMP = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description xmp:CreatorTool="Adobe Photoshop Lightroom Classic 14.0 (Windows)"
+  xmp:CreateDate="2020-01-01T00:00:00" crs:ProcessVersion="15.4" crs:Exposure2012="+0.35"
+  crs:Clarity2012="+12" crs:HasCrop="True" crs:ToneCurveName2012="Linear">
+<xmpMM:History><rdf:Seq>
+<rdf:li stEvt:action="derived" stEvt:parameters="converted from image/png to image/jpeg"/>
+<rdf:li stEvt:action="saved" stEvt:softwareAgent="Adobe Photoshop Lightroom Classic 14.0 (Windows)" stEvt:when="2024-01-02T03:04:05+09:00"/>
+</rdf:Seq></xmpMM:History></rdf:Description></rdf:RDF></x:xmpmeta>`;
+
+describe("retouched versions", () => {
+  const LR = "/a/exif_lightroom.jpg";
+  const withEdit = () => {
+    const s = setup();
+    // Every photo read already; photo 1 has a Lightroom version.
+    s.raw.exec(`UPDATE media SET metadata_read_at = '2999-01-01T00:00:00.000Z';
+      UPDATE media SET timestamp = '2023-12-11T01:21:32+09:00' WHERE id = 1;
+      INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status)
+        VALUES (100, 1, 'edit', '${LR}', 1, 'ready'),
+               (101, 1, 'edit', '/a/wip.png', 1, 'uploading');`);
+    return s;
+  };
+  const fileRow = (raw: Raw, id: number) =>
+    raw
+      .prepare(
+        "SELECT file_exif, creator_tool, xmp_summary, metadata_read_at FROM media_file WHERE id = ?",
+      )
+      .get(id) as Record<string, string | null>;
+
+  it("fill only their own row, never the photo's shooting information", async () => {
+    const { raw, db } = withEdit();
+    const before = columns(raw, 1);
+    const b = bucket({ [LR]: xmpJpeg(LIGHTROOM_XMP) });
+    expect(await backfillBatch(db, b.read, 12, NOW)).toEqual({
+      read: 1,
+      found: 1,
+      failed: 0,
+      photos: 0,
+      more: false,
+    });
+    const row = fileRow(raw, 100);
+    expect(row.creator_tool).toBe(
+      "Adobe Photoshop Lightroom Classic 14.0 (Windows)",
+    );
+    expect(JSON.parse(String(row.xmp_summary))).toEqual({
+      crs: {
+        ProcessVersion: "15.4",
+        Exposure2012: "+0.35",
+        Clarity2012: "+12",
+        HasCrop: "True",
+      },
+      crs_count: 5,
+      history: [
+        { action: "derived" },
+        {
+          action: "saved",
+          agent: "Adobe Photoshop Lightroom Classic 14.0 (Windows)",
+          when: "2024-01-02T03:04:05+09:00",
+        },
+      ],
+      history_count: 2,
+    });
+    expect(row.metadata_read_at).toMatch(/^\d{4}-/);
+    // The photo is as it was: its XMP CreateDate is not the shot's.
+    expect(columns(raw, 1)).toEqual(before);
+    // An upload still running is not read.
+    expect(fileRow(raw, 101).metadata_read_at).toBeNull();
+    expect(b.calls).toEqual([`${LR} {"offset":0,"length":131072}`]);
+    // Read: nothing more to do.
+    expect(await backfillBatch(db, b.read, 12, NOW)).toMatchObject({
+      read: 0,
+      more: false,
+    });
+  });
+
+  it("are read after the photos, in the same batch", async () => {
+    const { raw, db } = withEdit();
+    raw.exec("UPDATE media SET metadata_read_at = NULL WHERE id = 2");
+    const b = bucket({
+      [LR]: xmpJpeg(LIGHTROOM_XMP),
+      ...{ "/a/world.png": fixture("vrchat-xmp.png") },
+    });
+    expect(await backfillBatch(db, b.read, 1, NOW)).toMatchObject({
+      read: 1,
+      photos: 1,
+      more: true,
+    });
+    expect(fileRow(raw, 100).metadata_read_at).toBeNull();
+    expect(await backfillBatch(db, b.read, 2, NOW)).toMatchObject({
+      read: 1,
+      photos: 0,
+      more: false,
+    });
+    expect(fileRow(raw, 100).creator_tool).toMatch(/Lightroom/);
+  });
+
+  it("are put off when they cannot be read, and missing ones count as read", async () => {
+    const { raw, db } = withEdit();
+    raw.exec(`INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status)
+      VALUES (102, 2, 'edit', '/a/gone.png', 2, 'ready')`);
+    const read: ReadBytes = async (file) => {
+      if (file === LR) throw new Error("502");
+      return null;
+    };
+    expect(await backfillBatch(db, read, 12, NOW)).toMatchObject({
+      read: 2,
+      failed: 1,
+    });
+    expect(fileRow(raw, 100).metadata_read_at).toMatch(/^failed:.*!new$/);
+    expect(fileRow(raw, 102)).toMatchObject({
+      creator_tool: null,
+      metadata_read_at: expect.stringMatching(/^\d{4}-/),
+    });
+  });
+
+  it("are found through their own index", () => {
+    const { raw } = setup();
+    const plan = (
+      raw
+        .prepare(
+          `EXPLAIN QUERY PLAN SELECT id FROM media_file WHERE ${WAITING_EDITS_SQL} LIMIT 12`,
+        )
+        .all(...unreadArgs(NOW)) as { detail: string }[]
+    ).map((p) => p.detail);
+    // Only the partial index, whose entries are the ready edits alone
+    // (SQLite does not split the OR over a partial index, so it walks
+    // them: a handful of rows, never the originals or the table).
+    expect(plan).toEqual([
+      expect.stringMatching(
+        /^SCAN media_file USING (COVERING )?INDEX idx_media_file_edit_read\b/,
+      ),
+    ]);
+  });
+
+  it("keep what wrote an original on its file row", async () => {
+    const { raw, db } = setup();
+    raw.exec("DELETE FROM media WHERE id > 1");
+    const b = bucket({ "/a/exif.jpg": xmpJpeg(LIGHTROOM_XMP) });
+    await backfillBatch(db, b.read, 12, NOW);
+    const row = raw
+      .prepare(
+        "SELECT creator_tool, xmp_summary, metadata_read_at FROM media_file WHERE media_id = 1 AND role = 'original'",
+      )
+      .get() as Record<string, string>;
+    expect(row.creator_tool).toMatch(/Lightroom/);
+    expect(JSON.parse(row.xmp_summary).crs_count).toBe(5);
+    // And the rest follows media.
+    expect(row.metadata_read_at).toBe(columns(raw, 1).metadata_read_at);
   });
 });

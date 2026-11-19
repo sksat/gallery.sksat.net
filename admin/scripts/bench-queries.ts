@@ -8,8 +8,20 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPlatformProxy, unstable_splitSqlQuery } from "wrangler";
+import {
+  CAMERA_IMAGE_SQL,
+  IMAGE_BY_ID_SQL,
+  IMAGE_BY_PATH_SQL,
+  LIST_SQL,
+  MEDIA_BY_ID_SQL,
+} from "../../workers/api/src/query";
 import { CREATE_FOLDER_SQL, filesQuery } from "../src/lib/db-files";
-import { initLookups, numberedPaths } from "../src/lib/db-upload";
+import { IMAGE_SOURCE_SQL } from "../src/lib/media-file";
+import {
+  initLookups,
+  numberedPaths,
+  numberedRange,
+} from "../src/lib/db-upload";
 import {
   neighborsStatements,
   type ListQuery,
@@ -73,6 +85,7 @@ const setup = async (upTo: string) => {
     );
   }
   const rowsRead = async (qs: Q[]): Promise<number> => {
+    if (qs.length === 0) return 0;
     const res = await db.batch(
       qs.map((q) => db.prepare(q.sql).bind(...(q.args ?? []))),
     );
@@ -223,14 +236,102 @@ const nowCases: [string, Case][] = [
   ["create folder (empty name check)", createFolderCase("/VRChat/new")],
 ];
 
+// Migration 0013 (media_file): the API's queries before it (as they were:
+// the photo RPCs read media alone, and the camera picture check looked at
+// media.file) and after it, and the admin's lookups that moved to it.
+const OLD_IMAGE_BY_ID_SQL = MEDIA_BY_ID_SQL;
+const OLD_IMAGE_BY_PATH_SQL = IMAGE_BY_PATH_SQL.replace(
+  /,\s*src\.storage AS source_storage, src\.object_key AS source_key/,
+  "",
+).replace(/\s*LEFT JOIN media_file shown[\s\S]*?shown\.id\)/, "");
+const OLD_CAMERA_IMAGE_SQL = `SELECT 1 AS found FROM camera_image WHERE file = ?1
+  AND NOT EXISTS (SELECT 1 FROM media WHERE file = ?1) LIMIT 1`;
+const OLD_SHA_LOOKUP =
+  "SELECT id, file, path, status, sha256, trashed_at FROM media WHERE sha256 = ?";
+const NEW_SHA_LOOKUP = initLookups(NEW_SHA, "/x.png")[0].sql;
+const publicIdOf = (a: NeighborAnchor & { public_id?: string }) =>
+  a.public_id ?? "";
+const mediaFileCases: [string, Case][] = [
+  [
+    "API list (/api/media)",
+    () => ({ before: [{ sql: LIST_SQL }], after: [{ sql: LIST_SQL }] }),
+  ],
+  [
+    "API photo (/api/media/<id>)",
+    (a) => ({
+      before: [{ sql: MEDIA_BY_ID_SQL, args: [publicIdOf(a)] }],
+      after: [{ sql: MEDIA_BY_ID_SQL, args: [publicIdOf(a)] }],
+    }),
+  ],
+  [
+    "image Worker photo RPC (by id)",
+    (a) => ({
+      before: [{ sql: OLD_IMAGE_BY_ID_SQL, args: [publicIdOf(a)] }],
+      after: [{ sql: IMAGE_BY_ID_SQL, args: [publicIdOf(a)] }],
+    }),
+  ],
+  [
+    "image Worker pathAccess (photo + camera picture)",
+    (a) => ({
+      before: [
+        { sql: OLD_IMAGE_BY_PATH_SQL, args: [a.path] },
+        { sql: OLD_CAMERA_IMAGE_SQL, args: [a.path] },
+      ],
+      after: [
+        { sql: IMAGE_BY_PATH_SQL, args: [a.path] },
+        { sql: CAMERA_IMAGE_SQL, args: [a.path] },
+      ],
+    }),
+  ],
+  [
+    "upload init: hash lookup",
+    () => ({
+      before: [{ sql: OLD_SHA_LOOKUP, args: [NEW_SHA] }],
+      after: [{ sql: NEW_SHA_LOOKUP, args: [NEW_SHA] }],
+    }),
+  ],
+  [
+    "upload init: every lookup, name taken (numbered)",
+    (a) => {
+      const now = initLookups(NEW_SHA, a.path);
+      const [lo, hi] = numberedRange(a.path);
+      return {
+        before: [
+          { sql: OLD_SHA_LOOKUP, args: [NEW_SHA] },
+          {
+            sql: "SELECT id, file, path, status, sha256, trashed_at FROM media WHERE file = ?1 OR (file >= ?2 AND file < ?3)",
+            args: [a.path, lo, hi],
+          },
+          ...now.slice(-2),
+        ],
+        after: now,
+      };
+    },
+  ],
+  [
+    "admin thumbnail: file to resize",
+    (a) => ({
+      before: [],
+      after: [{ sql: IMAGE_SOURCE_SQL, args: [a.path] }],
+    }),
+  ],
+];
+
 const run = async (
   upTo: string,
   which: "before" | "after",
   list: [string, Case][],
 ) => {
   const { db, rowsRead, dispose } = await setup(upTo);
+  // Every photo public with its path public, so the API's queries find it.
+  await db
+    .prepare(
+      `UPDATE media SET visibility = 'public', metadata_visibility = '{"file_name":"path"}' WHERE id = ?`,
+    )
+    .bind(Math.floor(N / 2))
+    .run();
   const anchor = (await db
-    .prepare("SELECT id, path, timestamp FROM media WHERE id = ?")
+    .prepare("SELECT id, path, timestamp, public_id FROM media WHERE id = ?")
     .bind(Math.floor(N / 2))
     .first()) as NeighborAnchor;
   const out: number[] = [];
@@ -259,4 +360,10 @@ table(
   nowCases,
   await run("9999", "before", nowCases),
   await run("9999", "after", nowCases),
+);
+console.log("\nMigration 0013 (before: the schema and queries before it):\n");
+table(
+  mediaFileCases,
+  await run("0013", "before", mediaFileCases),
+  await run("9999", "after", mediaFileCases),
 );

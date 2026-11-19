@@ -5,6 +5,7 @@ import {
   fileExtension,
   imageUrl,
   srcSet,
+  THUMB_EXACT,
 } from "~/lib/images";
 import type { MediaPlatform } from "~/lib/types";
 import { ProgressivePreview } from "./preview";
@@ -17,7 +18,7 @@ import { ProgressivePreview } from "./preview";
 
 type Props = {
   file: string;
-  /** Tints the placeholder; null (camera pictures) = neutral. */
+  /** Tints the placeholder; null = neutral. */
   platform: MediaPlatform | null;
   imageBase: string | null;
   /**
@@ -25,12 +26,17 @@ type Props = {
    * w1200/w1920 by width with a progress bar (see ProgressivePreview).
    */
   variant: "list" | "preview";
+  /**
+   * `file` itself (a camera picture), not the file its photo shows: its
+   * object may also be a photo's original. List variant only.
+   */
+  exact?: boolean;
   /** Box size/rounding; the aspect ratio is fixed here. */
   class?: string;
 };
 
 export const Thumb = component$<Props>(
-  ({ file, platform, imageBase, variant, class: boxClass }) => {
+  ({ file, platform, imageBase, variant, exact, class: boxClass }) => {
     const box = ["relative aspect-video shrink-0 overflow-hidden", boxClass];
     const ext = (
       <span
@@ -73,6 +79,9 @@ export const Thumb = component$<Props>(
         <ProgressivePreview file={file} imageBase={imageBase} class={box} />
       );
     }
+    // A photo's thumbnail is of the file it shows (the route resolves it);
+    // a camera picture's is of its own object.
+    const objectFile = exact ? `${file}?${THUMB_EXACT}` : file;
     return (
       // If the image fails (expired signature, Worker error, offline), it
       // hides itself and the tile shows the file extension instead of a
@@ -87,8 +96,8 @@ export const Thumb = component$<Props>(
           onError$={(_, el) => {
             el.hidden = true;
           }}
-          src={imageUrl(imageBase, file, "h240")}
-          srcset={srcSet(imageBase, file, LIST_CANDIDATES)}
+          src={imageUrl(imageBase, objectFile, "h240")}
+          srcset={srcSet(imageBase, objectFile, LIST_CANDIDATES)}
           {...dimensionsFromFile(file)}
           // Decorative (the file name is right next to it).
           alt=""

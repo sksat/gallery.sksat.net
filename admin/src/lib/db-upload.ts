@@ -56,6 +56,9 @@ type Existing = {
 
 const EXISTING_COLUMNS = "id, file, path, status, sha256, trashed_at";
 
+/** The photo whose file has the upload's hash, and that file's role. */
+type BySha = Existing & { role: string; file_status: string };
+
 /**
  * The bounds [lo, hi) of the numbered names of `file` (numberedPaths
  * after the first): every path that starts with "<stem>-" and a digit,
@@ -68,8 +71,8 @@ export const numberedRange = (file: string): [string, string] => {
 };
 
 /**
- * What initUpload reads (SQL + bind args, run as one D1 batch): the row
- * with this SHA-256 (idx_media_sha256), then the rows whose file (the
+ * What initUpload reads (SQL + bind args, run as one D1 batch): the file
+ * with this SHA-256 and its photo, then the rows whose file (the
  * UNIQUE index on file) and the photos not in the trash whose path
  * (idx_media_path_live) may be one of `file`'s numberedPaths: the name
  * itself or one in numberedRange. Not `IN (SELECT value FROM
@@ -84,10 +87,27 @@ export const initLookups = (
   const [lo, hi] = numberedRange(file);
   const select = `SELECT ${EXISTING_COLUMNS} FROM media WHERE`;
   return [
-    { sql: `${select} sha256 = ?`, args: [sha256] },
+    // Any file of any photo (0013: an original, a retouched version or a
+    // copy) with these bytes (idx_media_file_sha256), and its photo.
     {
-      sql: `${select} file = ?1 OR (file >= ?2 AND file < ?3)`,
-      args: [file, lo, hi],
+      sql: `SELECT m.id, m.file, m.path, m.status, f.sha256, m.trashed_at,
+              f.role, f.status AS file_status
+            FROM media_file f JOIN media m ON m.id = f.media_id
+            WHERE f.sha256 = ?`,
+      args: [sha256],
+    },
+    // Bucket keys of every file (0013; an original's is its media.file),
+    // by the UNIQUE (storage, object_key) index: two statements, as an OR
+    // of the two would make SQLite walk every key in the storage.
+    {
+      sql: `SELECT object_key AS file FROM media_file
+            WHERE storage = 'b2' AND object_key = ?`,
+      args: [file],
+    },
+    {
+      sql: `SELECT object_key AS file FROM media_file
+            WHERE storage = 'b2' AND object_key >= ?1 AND object_key < ?2`,
+      args: [lo, hi],
     },
     // Two statements: SQLite does not split an OR over a partial index.
     { sql: `${select} trashed_at IS NULL AND path = ?`, args: [file] },
@@ -98,8 +118,11 @@ export const initLookups = (
   ];
 };
 
+// The photo's original row (media_file, 0013) is inserted by a trigger in
+// the same statement, so its UNIQUE indexes can refuse it too.
 const isUniqueError = (err: unknown) =>
-  err instanceof Error && /UNIQUE constraint failed: media\./.test(err.message);
+  err instanceof Error &&
+  /UNIQUE constraint failed: media(_file)?\./.test(err.message);
 
 /** What a new row gets besides the file's own data (the upload rules). */
 export type NewRow = {
@@ -131,8 +154,18 @@ export const initUpload = async (
       db.prepare(q.sql).bind(...q.args),
     ),
   );
-  const same = (bySha.results ?? [])[0];
+  const same = (bySha.results ?? [])[0] as BySha | undefined;
   if (same) {
+    if (same.role !== "original") {
+      // A retouched version or a copy of a photo: the photo has it.
+      return same.trashed_at === null && same.file_status === "ready"
+        ? { kind: "exists", id: same.id, file: same.path }
+        : {
+            kind: "conflict",
+            message: `同じファイルが別の写真にあります (${same.path})`,
+            retry: false,
+          };
+    }
     if (same.trashed_at !== null) {
       return {
         kind: "conflict",
@@ -148,11 +181,11 @@ export const initUpload = async (
   // A name is taken by another file in the bucket (any row: keys never
   // change) or by a photo shown there (path, not trashed: moved photos).
   // The lookups may return other names too; only the candidates count.
-  const taken = new Set(
-    byName
-      .flatMap((r) => r.results ?? [])
-      .flatMap((r) => (r.trashed_at === null ? [r.file, r.path] : [r.file])),
-  );
+  const [keyIs, keyIn, ...byPath] = byName;
+  const taken = new Set([
+    ...[keyIs, keyIn].flatMap((r) => r.results ?? []).map((r) => r.file),
+    ...byPath.flatMap((r) => r.results ?? []).map((r) => r.path),
+  ]);
   const file = candidates.find((c) => !taken.has(c));
   if (!file) {
     return {
@@ -229,10 +262,31 @@ export const initUpload = async (
           ? JSON.stringify(row.metadataVisibility)
           : null,
       );
-    const out = await db.batch<{ id: number }>(
-      device?.create ? [ensureDeviceStatement(db, device), insert] : [insert],
-    );
-    const inserted = out[out.length - 1].results?.[0];
+    // What wrote the file, on the original's media_file row (0013; the
+    // trigger created it with the INSERT): what the reader would write.
+    const creatorTool =
+      init.hints?.creatorTool ?? init.meta?.fileExif?.software ?? null;
+    const xmpSummary = init.hints?.xmpSummary ?? null;
+    const tool =
+      creatorTool !== null || xmpSummary !== null
+        ? db
+            .prepare(
+              `UPDATE media_file SET creator_tool = ?2, xmp_summary = ?3
+               WHERE media_id = (SELECT id FROM media WHERE file = ?1)
+                 AND role = 'original'`,
+            )
+            .bind(
+              file,
+              creatorTool,
+              xmpSummary ? JSON.stringify(xmpSummary) : null,
+            )
+        : null;
+    const out = await db.batch<{ id: number }>([
+      ...(device?.create ? [ensureDeviceStatement(db, device)] : []),
+      insert,
+      ...(tool ? [tool] : []),
+    ]);
+    const inserted = out[device?.create ? 1 : 0].results?.[0];
     if (!inserted) throw new Error("INSERT INTO media returned no row");
     return { kind: "upload", id: inserted.id, file, resumed: false };
   } catch (err) {
@@ -312,9 +366,13 @@ export const completeUpload = async (
   id: number,
   stat: (file: string) => Promise<ObjectStat | null>,
 ): Promise<CompleteOutcome> => {
+  // The photo's original (media_file, 0013; the same values as media's
+  // columns, which the trigger keeps in step).
   const row = await db
     .prepare(
-      "SELECT file, status, size, sha256, visibility FROM media WHERE id = ?",
+      `SELECT f.object_key AS file, f.status, f.size, f.sha256, m.visibility
+       FROM media_file f JOIN media m ON m.id = f.media_id
+       WHERE f.media_id = ? AND f.role = 'original' AND f.storage = 'b2'`,
     )
     .bind(id)
     .first<{
@@ -348,6 +406,8 @@ export const completeUpload = async (
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE id = ? AND status = 'uploading'`,
       )
+      // The trigger (0013) marks the original's media_file row ready in
+      // the same statement and clears its multipart upload id.
       .bind(id),
     db.prepare("SELECT status FROM media WHERE id = ?").bind(id),
     // Made public or unlisted by an upload rule: the API shows it once it

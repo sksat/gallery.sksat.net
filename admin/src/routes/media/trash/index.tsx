@@ -91,8 +91,10 @@ export const useRestore = routeAction$(async (data, { platform, fail }) => {
 
 /**
  * Photos deleted per request: each costs a few B2 requests (list, then a
- * DELETE per version), and a Pages request may make only 50 subrequests
- * on the Free plan. The page sends larger selections in turns.
+ * DELETE per version, for each of its files), and a Pages request may make
+ * only 50 subrequests on the Free plan. The page sends larger selections
+ * in turns. (Photos have one file each until retouched versions can be
+ * added; then this counts files, not photos.)
  */
 const PURGE_CHUNK = 10;
 
@@ -107,8 +109,10 @@ export const usePurge = routeAction$(async (data, { platform, fail }) => {
   if (picked.length > PURGE_CHUNK) {
     return fail(400, { message: `一度に ${PURGE_CHUNK} 件までです` });
   }
-  const r = await purgeItems(db, picked, async (file) => {
-    await deleteAllVersions(config, file);
+  // B2 only: a photo with an object in R2 (no binding yet) stays in the
+  // trash, untouched (purgeItems).
+  const r = await purgeItems(db, picked, async (o) => {
+    await deleteAllVersions(config, o.key);
   });
   // A camera picture with a deleted row's file can be served by path again.
   if (r.deleted.length > 0) await contentChanged(db);

@@ -53,7 +53,9 @@ describe("readPhotoMeta", () => {
       expect(meta.location).toBeNull();
       expect(meta.creatorTool).toBe("VRChat");
     }
-    expect((await readPhotoMeta(fixture("exif-gps.jpg"))).creatorTool).toBeNull();
+    expect(
+      (await readPhotoMeta(fixture("exif-gps.jpg"))).creatorTool,
+    ).toBeNull();
   });
 
   it("keeps only well-formed hints from a request", () => {
@@ -370,5 +372,33 @@ describe("formatExposure", () => {
     expect(formatExposure(2)).toBe("2");
     expect(formatExposure(2.5)).toBe("2.5");
     expect(formatExposure(0)).toBeNull();
+  });
+});
+
+describe("normalizeXmpSummary", () => {
+  it("keeps the known parts, in bounds", async () => {
+    const { normalizeXmpSummary, MAX_HISTORY } = await import("./photo-meta");
+    expect(normalizeXmpSummary(null)).toBeNull();
+    expect(
+      normalizeXmpSummary({ crs: { Foo: "x" }, crs_count: -1 }),
+    ).toBeNull();
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      action: `a${i}`,
+      agent: "x".repeat(500),
+      extra: 1,
+    }));
+    const s = normalizeXmpSummary({
+      crs: { ProcessVersion: " 15.4 ", Unknown: "1", Exposure2012: 3 },
+      crs_count: 120,
+      history: [...many, "junk"],
+      history_count: 31,
+      other: "dropped",
+    });
+    expect(s?.crs).toEqual({ ProcessVersion: "15.4" });
+    expect(s?.crs_count).toBe(120);
+    expect(s?.history).toHaveLength(MAX_HISTORY - 1);
+    expect(s?.history?.[0]).toEqual({ action: "a21", agent: "x".repeat(64) });
+    expect(s?.history_count).toBe(31);
+    expect(s).not.toHaveProperty("other");
   });
 });

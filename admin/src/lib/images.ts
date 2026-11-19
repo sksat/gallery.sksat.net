@@ -22,6 +22,13 @@ export const PRESETS = [
 
 export type PresetName = (typeof PRESETS)[number];
 
+/**
+ * The /thumb query parameter that asks for `file` itself, not the file its
+ * photo shows (media-file.ts imageSource): camera pictures (Thumb's
+ * `exact`), whose object may also be a photo's original.
+ */
+export const THUMB_EXACT = "exact";
+
 /** `<base>/<preset><file>`; `file` starts with "/" like media rows do. */
 export const imageUrl = (
   imageBase: string,

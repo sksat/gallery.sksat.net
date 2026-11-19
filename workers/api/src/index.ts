@@ -13,8 +13,12 @@
  * methods below; those are not reachable over HTTP.
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { getPathAccess, getPhotoForImage, type PathAccess } from "./query";
-import type { MediaItemJSON } from "./types";
+import {
+  getPathAccess,
+  getPhotoForImage,
+  type ImagePhoto,
+  type PathAccess,
+} from "./query";
 import { handleGet, rpcAnswer, type Context } from "./last-good";
 import { respond } from "./respond";
 
@@ -60,10 +64,11 @@ export default class extends WorkerEntrypoint<Env> {
 
   /**
    * A public or unlisted photo by public id, bucket path included even when
-   * the file name is not public (the HTTP API leaves it out then): what the
-   * image Worker needs to fetch the original. Null if there is none.
+   * the file name is not public (the HTTP API leaves it out then), and
+   * `source`, the file the image Worker resizes (the file the photo shows,
+   * or its display copy). Null if there is none.
    */
-  async photo(publicId: string): Promise<MediaItemJSON | null> {
+  async photo(publicId: string): Promise<ImagePhoto | null> {
     return rpcAnswer(
       `rpc/photo/${encodeURIComponent(publicId)}`,
       () => getPhotoForImage(this.env.DB, publicId),

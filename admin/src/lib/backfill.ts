@@ -32,10 +32,15 @@ import {
   hasMeta,
   needsTail,
   normalizeExif,
+  normalizeFileExif,
   PHOTO_META_PARSER_DATE,
+  readFileTool,
   readPhotoMeta,
   type FileDates,
+  type FileTool,
 } from "./photo-meta";
+
+const NO_TOOL: FileTool = { creatorTool: null, xmpSummary: null };
 import { contentChanged } from "./last-good";
 import { pickTakenAt } from "./taken-at";
 /**
@@ -82,12 +87,14 @@ export type ReadBytes = (
 ) => Promise<{ bytes: Uint8Array; size: number } | null>;
 
 export type BackfillResult = {
-  /** Photos looked at in this batch. */
+  /** Files looked at in this batch (originals, then retouched versions). */
   read: number;
   /** Of those, the ones something was found in. */
   found: number;
   /** Ones that could not be read or written now (tried again later). */
   failed: number;
+  /** Photos whose (original's) reading was written: the public API may change. */
+  photos: number;
   /** Whether there may be more to read (a full batch was claimed). */
   more: boolean;
 };
@@ -204,6 +211,7 @@ export const backfillBatch = async (
           tail = (await read(row.file, { suffix: TAIL_BYTES }))?.bytes;
         }
         let reading: Reading;
+        let tool: FileTool = NO_TOOL;
         if (!head) {
           // Not in the bucket: nothing to read, but the name may say.
           reading = {
@@ -217,8 +225,9 @@ export const backfillBatch = async (
             ...meta
           } = await readPhotoMeta(head.bytes, tail);
           reading = { ...meta, takenAt: pickTakenAt(dates, row.file) };
+          tool = await readFileTool(head.bytes, tail, meta.fileExif?.software);
         }
-        return { row, reading };
+        return { row, reading, tool };
       } catch (err) {
         console.error(`backfill ${row.file} failed:`, err);
         errors.push(err instanceof Error ? err.message : String(err));
@@ -233,7 +242,22 @@ export const backfillBatch = async (
   const GUARD = "id = ?1 AND metadata_read_at = ?2 AND updated_at IS ?3";
   // The photo's write, after the statement creating the camera row its
   // file names when there is none yet (device.ts): the write links it.
-  const write = ({ row, reading }: (typeof readOk)[number]) => {
+  // Before it, under the same guard, what wrote the original goes to its
+  // media_file row (0013; the rest of that row follows media's columns).
+  const write = ({ row, reading, tool }: (typeof readOk)[number]) => {
+    const fileRow = db
+      .prepare(
+        `UPDATE media_file SET creator_tool = ?4, xmp_summary = ?5
+         WHERE media_id = ?1 AND role = 'original'
+           AND EXISTS (SELECT 1 FROM media WHERE ${GUARD})`,
+      )
+      .bind(
+        row.id,
+        row.metadata_read_at,
+        row.updated_at,
+        tool.creatorTool,
+        tool.xmpSummary ? JSON.stringify(tool.xmpSummary) : null,
+      );
     const next = applyReading(row, reading, row.metadata_read_at.endsWith(NEW));
     // The camera from the shooting EXIF as it will be stored: one
     // corrected by hand names the camera, not the file's.
@@ -270,8 +294,8 @@ export const backfillBatch = async (
         ...deviceIdArgs(device),
       );
     return device?.create
-      ? [ensureDeviceStatement(db, device, row.id), update]
-      : [update];
+      ? [ensureDeviceStatement(db, device, row.id), fileRow, update]
+      : [fileRow, update];
   };
   const written = new Set<number>();
   if (readOk.length > 0) {
@@ -332,11 +356,155 @@ export const backfillBatch = async (
     ({ row, reading }) =>
       written.has(row.id) && (hasMeta(reading) || reading.takenAt !== null),
   ).length;
+  // The rest of the batch for retouched versions.
+  let edits = { read: 0, found: 0, failed: 0 };
+  if (claimed.length < limit) {
+    try {
+      edits = await readEditFiles(db, read, limit - claimed.length, nowMs);
+    } catch (err) {
+      // With photos read in this batch, their writes stand (and get
+      // published); the edits' claims expire.
+      if (claimed.length === 0) throw err;
+      console.error("backfill of retouched versions failed:", err);
+    }
+  }
+  return {
+    read: claimed.length + edits.read,
+    found: found + edits.found,
+    failed: failed.length + edits.failed,
+    photos: written.size,
+    more: claimed.length + edits.read === limit,
+  };
+};
+
+/**
+ * The edits waiting to be read (?1–?3 as UNREAD), by idx_media_file_edit_read
+ * (storage kept off the UNIQUE (storage, object_key) index with a unary +,
+ * as LIVE above; only B2 can be read for now). SQLite walks that partial
+ * index, whose entries are the ready edits only: as many rows as there
+ * are retouched versions, never the originals.
+ */
+export const WAITING_EDITS_SQL = `role = 'edit' AND status = 'ready'
+  AND +storage = 'b2' AND ${UNREAD}`;
+
+type ClaimedFile = {
+  id: number;
+  object_key: string;
+  metadata_read_at: string;
+};
+
+/**
+ * Read up to `limit` retouched versions (media_file role 'edit', 0013)
+ * waiting to be read, like the originals: claimed the same way on their
+ * own metadata_read_at. What is found fills only that file's row
+ * (file_exif, creator_tool, xmp_summary): an edit's EXIF and XMP describe
+ * the program that wrote it as much as the shot, so the photo's shooting
+ * information (media.exif, timestamp, camera, ...) never comes from it.
+ * Nothing public changes.
+ */
+export const readEditFiles = async (
+  db: D1Database,
+  read: ReadBytes,
+  limit: number,
+  nowMs: number = Date.now(),
+): Promise<{ read: number; found: number; failed: number }> => {
+  const claimed =
+    (
+      await db
+        .prepare(
+          `UPDATE media_file SET metadata_read_at = ?4 ||
+             CASE WHEN metadata_read_at IS NULL
+                    OR metadata_read_at LIKE '%${NEW}' THEN '${NEW}' ELSE '' END
+           WHERE id IN (SELECT id FROM media_file
+                        WHERE ${WAITING_EDITS_SQL} LIMIT ?5)
+             AND ${UNREAD}
+           RETURNING id, object_key, metadata_read_at`,
+        )
+        .bind(...unreadArgs(nowMs), CLAIM + iso(nowMs), limit)
+        .all<ClaimedFile>()
+    ).results ?? [];
+  if (claimed.length === 0) return { read: 0, found: 0, failed: 0 };
+
+  const errors: string[] = [];
+  const results = await Promise.all(
+    claimed.map(async (row) => {
+      try {
+        const head = await read(row.object_key, {
+          offset: 0,
+          length: HEAD_BYTES,
+        });
+        if (!head) return { row, fileExif: null, tool: NO_TOOL };
+        let tail: Uint8Array | undefined;
+        if (head.size > head.bytes.length && needsTail(head.bytes)) {
+          tail = (await read(row.object_key, { suffix: TAIL_BYTES }))?.bytes;
+        }
+        const meta = await readPhotoMeta(head.bytes, tail);
+        const fileExif = normalizeFileExif(meta.fileExif);
+        const tool = await readFileTool(head.bytes, tail, fileExif?.software);
+        return { row, fileExif, tool };
+      } catch (err) {
+        console.error(`backfill ${row.object_key} failed:`, err);
+        errors.push(err instanceof Error ? err.message : String(err));
+        return null;
+      }
+    }),
+  );
+  const readOk = results.filter((r) => r !== null);
+  const GUARD = "id = ?1 AND metadata_read_at = ?2";
+  const written = new Set<number>();
+  for (const r of readOk) {
+    try {
+      const res = await db
+        .prepare(
+          `UPDATE media_file SET file_exif = ?3, creator_tool = ?4,
+             xmp_summary = ?5, metadata_read_at = ?6 WHERE ${GUARD}`,
+        )
+        .bind(
+          r.row.id,
+          r.row.metadata_read_at,
+          r.fileExif ? JSON.stringify(r.fileExif) : null,
+          r.tool.creatorTool,
+          r.tool.xmpSummary ? JSON.stringify(r.tool.xmpSummary) : null,
+          readStamp(nowMs),
+        )
+        .run();
+      if ((res.meta.changes ?? 0) > 0) written.add(r.row.id);
+    } catch (err) {
+      console.error(`backfill file ${r.row.id} refused:`, err);
+    }
+  }
+  const failed = claimed.filter((r) => !written.has(r.id));
+  // As for originals: when none of several could be read, the claims just
+  // expire.
+  const outage = readOk.length === 0 && claimed.length > 1;
+  if (failed.length > 0 && !outage) {
+    await db.batch(
+      failed.map((row) =>
+        db
+          .prepare(`UPDATE media_file SET metadata_read_at = ?3 WHERE ${GUARD}`)
+          .bind(
+            row.id,
+            row.metadata_read_at,
+            FAILED +
+              iso(nowMs) +
+              (row.metadata_read_at.endsWith(NEW) ? NEW : ""),
+          ),
+      ),
+    );
+  }
+  if (readOk.length === 0) {
+    throw new Error(`no retouched version could be read: ${errors[0]}`);
+  }
   return {
     read: claimed.length,
-    found,
+    found: readOk.filter(
+      (r) =>
+        written.has(r.row.id) &&
+        (r.fileExif !== null ||
+          r.tool.creatorTool !== null ||
+          r.tool.xmpSummary !== null),
+    ).length,
     failed: failed.length,
-    more: claimed.length === limit,
   };
 };
 
@@ -352,6 +520,7 @@ export const backfillAndPublish = async (
   nowMs: number = Date.now(),
 ): Promise<BackfillResult> => {
   const result = await backfillBatch(db, read, limit, nowMs);
-  if (result.read > result.failed) await contentChanged(db);
+  // A retouched version's reading is admin only: no new version for it.
+  if (result.photos > 0) await contentChanged(db);
   return result;
 };
