@@ -17,7 +17,7 @@ import {
   setPlatforms,
   UnknownCameraError,
 } from "./db-photo-bulk";
-import { KEEP, validateInfoRestore } from "./bulk-info";
+import { KEEP, validateInfoRestore, type InfoRow } from "./bulk-info";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 const fixture = (name: string) =>
@@ -332,7 +332,13 @@ describe("the API's content version", () => {
 
   it("is bumped by every write here", async () => {
     const { db, raw } = setup();
+    let info: InfoRow[] = [];
     const writes: (() => Promise<unknown>)[] = [
+      async () => {
+        info = (await setInfo(db, [1], { exif: { iso: 200 } })).previous;
+        expect(info).toHaveLength(1);
+      },
+      () => restoreInfo(db, info),
       () => setCameras(db, [1, 2], 2),
       () =>
         restoreCameras(db, [{ id: 2, camera_id: null, camera_source: null }]),

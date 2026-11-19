@@ -42,9 +42,9 @@ const writeInfo = async (
   rows: readonly InfoRow[],
 ): Promise<void> => {
   if (rows.length === 0) return;
-  // One batch (a transaction): every photo or none.
-  await db.batch(
-    rows.map((r) =>
+  // One batch (a transaction): every photo or none, and the bump.
+  await db.batch([
+    ...rows.map((r) =>
       db
         .prepare(INFO_RESTORE)
         .bind(
@@ -53,7 +53,8 @@ const writeInfo = async (
           r.id,
         ),
     ),
-  );
+    contentVersionStatement(db),
+  ]);
 };
 
 export class InfoEditError extends Error {}
@@ -90,8 +91,8 @@ export const setInfo = async (
   if (changes.length === 0) return { previous: [], newTags: [] };
   // Each row only if nobody changed it since it was read, so the undo is
   // exactly what was replaced.
-  const results = await db.batch(
-    changes.map(({ before, after }) =>
+  const results = await db.batch([
+    ...changes.map(({ before, after }) =>
       db
         .prepare(INFO_UPDATE_IF)
         .bind(
@@ -100,7 +101,8 @@ export const setInfo = async (
           ...INFO_COLUMNS.map((c) => before[c]),
         ),
     ),
-  );
+    contentVersionStatement(db),
+  ]);
   const previous = changes
     .filter((_, i) => (results[i]?.meta?.changes ?? 0) > 0)
     .map((c) => c.before);
