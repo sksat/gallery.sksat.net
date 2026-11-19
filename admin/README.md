@@ -95,25 +95,18 @@ wrangler login
 
 ```
 admin/
-├── adapters/
-│   └── cloudflare-pages/
-│       └── vite.config.ts        # Cloudflare Pages adapter config
+├── adapters/cloudflare-pages/  # Cloudflare Pages adapter config
+├── e2e/                        # Playwright E2E / VRT, fixture, fake B2 and GraphQL servers
+├── migrations/                 # D1 schema (also read by the API Worker)
 ├── public/
-│   └── manifest.json
-├── src/
-│   ├── routes/
-│   │   ├── index.tsx              # Admin Dashboard page
-│   │   └── layout.tsx             # Root layout
-│   ├── entry.cloudflare-pages.tsx # Cloudflare Pages entry point
-│   ├── entry.dev.tsx              # Development entry point
-│   ├── entry.preview.tsx          # Preview entry point
-│   ├── entry.ssr.tsx              # SSR entry point
-│   └── root.tsx                   # Root component
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-└── README.md
+├── scripts/                    # import-media, check-deployable, bench-queries
+└── src/
+    ├── components/
+    ├── lib/                    # D1 queries, uploads, metadata, pure logic (*.spec.ts)
+    └── routes/                 # dashboard, media, tag, setting, camera, calendar, map, thumb, api
 ```
+
+The routes and features are described in [CLAUDE.md](CLAUDE.md).
 
 ## Environment Variables
 
@@ -164,13 +157,6 @@ Once seeded, the `/media` page lists every row, `/media/[id]` edits `platform`, 
 > **Access JWT check**: `src/routes/plugin@access.ts` rejects any request without a valid Cloudflare Access JWT (`ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` in `wrangler.jsonc`). It is what protects the production `admin-gallery-sksat-net.pages.dev` hostname, which no Access application covers. Local `pnpm serve` needs `ACCESS_DISABLED=1` in `.dev.vars` (see `.dev.vars.example`).
 >
 > **Dev caveat**: `pnpm serve` (and the test server in `e2e/start-test-server.sh`) binds locally with no auth because `ACCESS_DISABLED=1` is set (honoured only on `localhost` / `127.0.0.1`) — Cloudflare Access only fronts production. Do not expose the dev port (5175 / 8788) on a public network interface; the Origin checks are the only thing keeping a malicious page from writing to your local D1.
-
-## Next Steps
-
-- [x] Phase 1: D1 database integration and migration
-- [x] Phase 2: Metadata management UI (view, edit) — delete deferred
-- [ ] Phase 3: R2 storage integration
-- [ ] Phase 4: Image upload functionality
 
 ## Troubleshooting
 
