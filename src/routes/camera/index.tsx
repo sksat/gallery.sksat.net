@@ -7,6 +7,7 @@ import {
   type CameraSummary,
 } from "~/components/gallery/cameras";
 import { transformMediaInfo } from "~/components/gallery/types";
+import { TopLine } from "~/components/layout/site-nav";
 import { cameraListOgp, ogpHead, type Ogp } from "~/components/ogp";
 import { useGalleryIndex } from "../layout";
 
@@ -31,15 +32,10 @@ export default component$(() => {
   const list = useCameraList();
   return (
     <div class="px-2 py-3 sm:px-3">
-      <div class="mb-4 px-1">
-        {/* Plain <a>: see the note in components/layout/header.tsx. */}
-        <a href="/" class="text-sm opacity-80 hover:opacity-100">
-          ← すべての写真
-        </a>
-        <h1 class="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-          カメラ
-        </h1>
-      </div>
+      <TopLine />
+      <h1 class="mb-4 px-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+        カメラ
+      </h1>
       {list.value.cameras.length === 0 ? (
         <p class="px-1 opacity-80">カメラの情報がまだありません。</p>
       ) : (

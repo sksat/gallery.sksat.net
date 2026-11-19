@@ -159,13 +159,19 @@ test("camera: the back link returns to every photo", async ({ page }) => {
   await expect(page.getByTestId("camera-header")).toHaveCount(0);
 });
 
-test("camera list: header link, cards and navigation to a camera", async ({
+test("camera list: site link, cards and navigation to a camera", async ({
   page,
 }) => {
   await page.goto("/");
   await page.getByRole("link", { name: "カメラ", exact: true }).click();
   await expect(page).toHaveURL(/\/camera\/$/);
   await expect(page).toHaveTitle("カメラ | sksat gallery");
+  // The site's links leave out the page's own section.
+  const site = page.getByRole("navigation", { name: "サイト" });
+  await expect(site.getByRole("link")).toHaveText([
+    /カレンダー/,
+    /地図/,
+  ]);
 
   // Most photos first: VirtualLens2 (2 public photos), then PENTAX SP (1).
   const cards = page.getByTestId("camera-card");

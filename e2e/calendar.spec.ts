@@ -124,6 +124,11 @@ test("calendar: a day with no photos in the gallery is empty", async ({
   await page.goto("/?date=2023-12-06");
   await expect(page.getByTestId("date-heading")).toHaveText("2023年12月6日");
   await expect(page.getByTestId("result-count")).toHaveText("0 枚");
+  // A date's page belongs to the calendar: its back link leads there, and
+  // the site's links leave it out.
+  const site = page.getByRole("navigation", { name: "サイト" });
+  await expect(site).toHaveCount(1);
+  await expect(site.getByRole("link")).toHaveText([/地図/, /カメラ/]);
 });
 
 test("calendar: impossible dates are 404", async ({ request }) => {

@@ -3,6 +3,7 @@ import { routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
 
 import { imageUrl } from "~/components/gallery/images";
 import { PUBLIC_ID_RE } from "~/components/gallery/types";
+import { TopLine } from "~/components/layout/site-nav";
 import { PhotoMap } from "~/components/map/photo-map";
 import { placeOf, publicPlaces, type MapPlace } from "~/components/map/places";
 import { mapOgp, ogpHead, type Ogp } from "~/components/ogp";
@@ -45,15 +46,10 @@ export default component$(() => {
   const count = places.reduce((n, p) => n + p.items.length, 0);
   return (
     <div class="px-2 py-3 sm:px-3">
-      <div class="mb-3 px-1">
-        {/* Plain <a>: see the note in components/layout/header.tsx. */}
-        <a href="/" class="text-sm opacity-80 hover:opacity-100">
-          ← すべての写真
-        </a>
-        <h1 class="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-          地図
-        </h1>
-      </div>
+      <TopLine />
+      <h1 class="mb-3 px-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+        地図
+      </h1>
       {places.length === 0 ? (
         <p class="px-1 opacity-80">
           撮影場所を公開している写真はまだありません。

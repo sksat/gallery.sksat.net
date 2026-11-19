@@ -9,6 +9,7 @@ import { photoContext } from "./detail";
 import { dimensionsFromFile, imageUrl } from "./images";
 import { isTextTarget } from "./keys";
 import { galleryUrl } from "./logic";
+import { SiteNav } from "../layout/site-nav";
 import { MiniMap } from "../map/mini-map";
 import { MiniCalendar } from "./mini-calendar";
 import { photoInfo } from "./photo-info";
@@ -144,12 +145,15 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
           <a
             href={ctx.backHref}
             data-testid="back-link"
-            class="truncate text-sm opacity-80 hover:opacity-100"
+            class="min-h-11 truncate text-sm leading-[2.75rem] opacity-80 hover:opacity-100 sm:min-h-8 sm:leading-8"
           >
             <span aria-hidden="true">← </span>
             {backLabel}
           </a>
-          <ShareButton photoId={photo.id} variant="inline" />
+          <span class="ml-auto flex shrink-0 items-center gap-1">
+            <SiteNav compact />
+            <ShareButton photoId={photo.id} variant="inline" />
+          </span>
         </div>
         <div
           ref={area}
