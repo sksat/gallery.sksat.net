@@ -141,6 +141,8 @@ export type PhotoMeta = {
   /** WGS 84 degrees from the GPS IFD. */
   location: { latitude: number; longitude: number } | null;
   world: WorldMeta | null;
+  /** XMP xmp:CreatorTool ("VRChat", "Adobe Lightroom …"). */
+  creatorTool: string | null;
 };
 
 // --- TIFF / EXIF ----------------------------------------------------------
@@ -555,6 +557,10 @@ export const worldFromXmp = (xmp: string): WorldMeta | null => {
   return world.id || world.name ? world : null;
 };
 
+/** The app that wrote the file (xmp:CreatorTool), or null. */
+export const creatorToolFromXmp = (xmp: string): string | null =>
+  xmpValue(xmp, "xmp:CreatorTool");
+
 // --- Containers -----------------------------------------------------------
 
 const XMP_KEYWORD = "XML:com.adobe.xmp";
@@ -727,6 +733,11 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
     xmp: xmpDate,
     exifDateTime: tiffMeta.exifDateTime,
   };
+  let creatorTool: string | null = null;
+  for (const x of xmp) {
+    creatorTool = creatorToolFromXmp(x);
+    if (creatorTool) break;
+  }
   return {
     takenAt: takenAtOf(dates),
     dates,
@@ -735,6 +746,7 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
     digitizedAt: tiffMeta.digitizedAt,
     location: tiffMeta.location,
     world,
+    creatorTool,
   };
 };
 
@@ -803,7 +815,23 @@ export const readPhotoMetaSync = (head: Uint8Array): PhotoMeta => {
 };
 
 /** What is stored from a file (takenAt goes to media.timestamp apart). */
-export type StoredMeta = Omit<PhotoMeta, "takenAt" | "dates">;
+export type StoredMeta = Omit<
+  PhotoMeta,
+  "takenAt" | "dates" | "creatorTool"
+>;
+
+/**
+ * What the upload rules (upload-rules.ts) look at besides the stored
+ * metadata; not stored. (The pixel size is the init's own width / height,
+ * image-size.ts.)
+ */
+export type FileHints = Pick<PhotoMeta, "creatorTool">;
+
+/** Hints from a request, malformed parts left out. */
+export const normalizeHints = (v: unknown): FileHints => {
+  if (typeof v !== "object" || v === null) return { creatorTool: null };
+  return { creatorTool: text((v as Record<string, unknown>).creatorTool) };
+};
 
 export const EMPTY_STORED: StoredMeta = {
   exif: null,

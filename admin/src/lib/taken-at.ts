@@ -21,7 +21,7 @@ import {
   type FileDates,
 } from "./photo-meta";
 import type { TakenAtSource } from "./metadata-source";
-import { VRCHAT_NAME_RE } from "./upload";
+import { VRCHAT_NAME_RE } from "./upload-rules";
 
 export { DEFAULT_OFFSET, exifDateToIso } from "./photo-meta";
 

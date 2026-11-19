@@ -1,21 +1,26 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { getUploadConfig, presignPut, putHeaders } from "~/lib/b2";
+import { ensureTags } from "~/lib/db-meta";
 import { initUpload } from "~/lib/db-upload";
+import { decideUpload } from "~/lib/db-upload-rules";
 import { getDB } from "~/lib/env";
 import { contentChanged, uploadsOverCameraPicture } from "~/lib/last-good";
 import { generatePublicId } from "~/lib/public-id";
-import { guessPlatform, validateUploadInit } from "~/lib/upload";
+import { validateUploadInit } from "~/lib/upload";
 
 /**
  * Start (or resume) an upload: reserve the path as an `uploading` row and
  * return a presigned PUT for the browser to send the file to the bucket.
- * Body: { file, size, contentType, sha256, timestamp, meta? }
- * (validateUploadInit; `meta` is what the browser read from the file).
+ * Body: { file, size, contentType, sha256, timestamp, meta?, hints? }
+ * (validateUploadInit; `meta` is what the browser read from the file,
+ * `hints` its CreatorTool for the upload rules, `width` / `height` its
+ * header's size, checked against the limits and seen by the rules).
  *
- * 200 { status: "upload", id, file, url, headers } — PUT the file to `url`
- *     with exactly `headers`, then POST /api/upload/<id>. `file` is where
- *     it goes: a numbered name when the path was taken ("a-1.jpg").
+ * 200 { status: "upload", id, file, url, headers, applied? } — PUT the
+ *     file to `url` with exactly `headers`, then POST /api/upload/<id>.
+ *     `file` is where it goes: a numbered name when the path was taken
+ *     ("a-1.jpg"). `applied`: what the upload rules set on a new row.
  * 200 { status: "exists", id, file } — the same photo is already uploaded.
  * 409 { error } — no free name; 503 when uploads are not configured or
  *     another upload got the name first (retry).
@@ -42,12 +47,22 @@ export const onPost: RequestHandler = withErrorHandler(
     }
     const { init } = v;
     const db = getDB(platform);
+    // The upload rules decide here, on the server, so they always apply.
+    const decided = await decideUpload(db, init);
+    // A tag first used here gets its (private) row, as on the edit page;
+    // before the row, so a failure here leaves nothing half done (a row
+    // for a photo that turns out to exist is harmless).
+    if (decided.row.tags && decided.row.tags.length > 0) {
+      await ensureTags(db, decided.row.tags);
+    }
     const outcome = await initUpload(db, init, {
       publicId: generatePublicId(),
-      platform: guessPlatform(init.file),
+      ...decided.row,
     });
-    // A new row is private, so the public API is unchanged, unless it has
-    // a camera picture's file: it hides that picture from /img already.
+    // A new row is still uploading (also one a rule makes public: the API
+    // shows ready rows only, and completeUpload bumps for it), so the
+    // public API is unchanged, unless it has a camera picture's file: it
+    // hides that picture from /img already.
     if (
       outcome.kind === "upload" &&
       (await uploadsOverCameraPicture(db, [outcome.id]))
@@ -71,6 +86,8 @@ export const onPost: RequestHandler = withErrorHandler(
       file: outcome.file,
       url,
       headers,
+      // What the rules set on the new row (a resumed row keeps its own).
+      ...(outcome.resumed ? {} : { applied: decided.applied }),
     });
   },
 );

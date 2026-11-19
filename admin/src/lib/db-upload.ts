@@ -8,6 +8,8 @@ import {
   deviceOf,
   ensureDeviceStatement,
 } from "./device";
+import { contentVersionStatement } from "./last-good";
+import type { MetadataOverrides } from "./metadata";
 import { serializeSources } from "./metadata-source";
 import {
   EMPTY_STORED,
@@ -15,7 +17,7 @@ import {
   type StoredMeta,
 } from "./photo-meta";
 import { formatUploadSize, groupDigits, type UploadInit } from "./upload";
-import type { MediaPlatform } from "./types";
+import type { MediaPlatform, Visibility } from "./types";
 
 /** media columns (0005) for metadata read from the file itself. */
 export const metaColumns = (meta: StoredMeta) => ({
@@ -99,9 +101,21 @@ export const initLookups = (
 const isUniqueError = (err: unknown) =>
   err instanceof Error && /UNIQUE constraint failed: media\./.test(err.message);
 
+/** What a new row gets besides the file's own data (the upload rules). */
+export type NewRow = {
+  publicId: string;
+  platform: MediaPlatform;
+  cameraId?: number | null;
+  tags?: readonly string[];
+  /** Private unless a rule says otherwise. */
+  visibility?: Visibility;
+  metadataVisibility?: MetadataOverrides;
+};
+
 /**
- * Reserve a path for an upload of `init.file`. A new row is private,
- * `uploading`, with the given public id and platform; when another photo
+ * Reserve a path for an upload of `init.file`. A new row is `uploading`,
+ * with the given public id, platform, camera, tags, visibility (private
+ * by default) and metadata levels; when another photo
  * already has that path, the first free numbered name is used instead
  * (numberedPaths). An `uploading` row with the same hash is resumed (a
  * retry, or picking the same file again after a failure).
@@ -109,7 +123,7 @@ const isUniqueError = (err: unknown) =>
 export const initUpload = async (
   db: D1Database,
   init: UploadInit,
-  row: { publicId: string; platform: MediaPlatform },
+  row: NewRow,
 ): Promise<InitOutcome> => {
   const candidates = numberedPaths(init.file);
   const [bySha, ...byName] = await db.batch<Existing>(
@@ -156,23 +170,32 @@ export const initUpload = async (
       : {}),
     ...(meta.exif ? { exif: "file" as const } : {}),
     ...(meta.world_id || meta.world_name ? { world: "file" as const } : {}),
+    // A camera an upload rule sets is a choice made in advance, as on the
+    // edit page: the metadata reader never replaces it.
+    ...(row.cameraId != null ? { camera: "manual" as const } : {}),
   });
   // The camera (or scanner) the file names: its row, created first when
-  // there is none (device.ts), in the same batch.
-  const device = deviceOf(init.meta ?? {}, row.platform);
+  // there is none (device.ts), in the same batch. Not the camera when a
+  // rule set one.
+  const named = deviceOf(init.meta ?? {}, row.platform);
+  const device =
+    named && !(named.role === "camera" && row.cameraId != null) ? named : null;
   const deviceId = deviceIdSql("?20", "?21", "?22", "?23");
   try {
     const insert = db
       .prepare(
         `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256,
            exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at,
-           metadata_source, file_exif, digitized_at, camera_id, digitized_with)
-         VALUES (?1, ?2, ?2, ?3, ?4, '[]', 'private', 'uploading', ?5, ?6,
+           metadata_source, file_exif, digitized_at, camera_id, digitized_with,
+           metadata_visibility)
+         VALUES (?1, ?2, ?2, ?3, ?4, ?24, ?25, 'uploading', ?5, ?6,
            ?7, ?8, ?9, ?10, ?11, ?12, ?13,
            CASE WHEN ?14 THEN MAX(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?16) END, ?15,
            ?17, ?18,
-           CASE WHEN ?19 = 'camera' THEN ${deviceId} END,
-           CASE WHEN ?19 = 'digitizer' THEN ${deviceId} END) RETURNING id`,
+           CASE WHEN ?26 IS NOT NULL THEN ?26
+                WHEN ?19 = 'camera' THEN ${deviceId} END,
+           CASE WHEN ?19 = 'digitizer' THEN ${deviceId} END,
+           ?27) RETURNING id`,
       )
       .bind(
         row.publicId,
@@ -199,6 +222,12 @@ export const initUpload = async (
         meta.digitized_at,
         device?.role ?? null,
         ...deviceIdArgs(device),
+        JSON.stringify(row.tags ?? []),
+        row.visibility ?? "private",
+        row.cameraId ?? null,
+        row.metadataVisibility && Object.keys(row.metadataVisibility).length > 0
+          ? JSON.stringify(row.metadataVisibility)
+          : null,
       );
     const out = await db.batch<{ id: number }>(
       device?.create ? [ensureDeviceStatement(db, device), insert] : [insert],
@@ -284,13 +313,16 @@ export const completeUpload = async (
   stat: (file: string) => Promise<ObjectStat | null>,
 ): Promise<CompleteOutcome> => {
   const row = await db
-    .prepare("SELECT file, status, size, sha256 FROM media WHERE id = ?")
+    .prepare(
+      "SELECT file, status, size, sha256, visibility FROM media WHERE id = ?",
+    )
     .bind(id)
     .first<{
       file: string;
       status: string;
       size: number | null;
       sha256: string | null;
+      visibility: string;
     }>();
   if (!row) return { kind: "not-found" };
   if (row.status === "ready") return { kind: "ready" };
@@ -318,6 +350,10 @@ export const completeUpload = async (
       )
       .bind(id),
     db.prepare("SELECT status FROM media WHERE id = ?").bind(id),
+    // Made public or unlisted by an upload rule: the API shows it once it
+    // is ready (with its tags and camera), so the content version moves in
+    // the same batch. A private one changes nothing the API answers.
+    ...(row.visibility !== "private" ? [contentVersionStatement(db)] : []),
   ]);
   const now = (after.results ?? [])[0] as { status: string } | undefined;
   // Deleted meanwhile (incomplete uploads can be deleted).

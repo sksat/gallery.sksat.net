@@ -8,8 +8,12 @@ import {
   validateFolderPath,
 } from "./folders";
 import { isTakenAtSource, type TakenAtSource } from "./metadata-source";
-import { normalizeStoredMeta, type StoredMeta } from "./photo-meta";
-import type { MediaPlatform } from "./types";
+import {
+  normalizeHints,
+  normalizeStoredMeta,
+  type FileHints,
+  type StoredMeta,
+} from "./photo-meta";
 import { MAX_IMAGE_FILE_LEN, validateImageFile } from "./validate";
 
 // What the image Worker can resize: Cloudflare Image Transformations
@@ -213,23 +217,6 @@ export const uploadTarget = (
   return { ok: true, file, dir: targetDir };
 };
 
-/** VRChat's own screenshots: VRChat_2026-11-18_01-02-03.456_3840x2160.png */
-// Current VRChat names put the resolution last
-// (VRChat_2026-11-18_01-02-03.456_3840x2160.png); before late 2022 it came
-// first (VRChat_3840x2160_2022-08-22_02-03-18.591.png).
-export const VRCHAT_NAME_RE =
-  /^VRChat_(?:\d+x\d+_)?(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)\.(\d{3})(?:_\d+x\d+)?\.png$/;
-
-/**
- * Platform of a new photo: VRChat for anything under the top-level /VRChat/
- * folder or with VRChat's file names, else Real.
- */
-export const guessPlatform = (file: string): MediaPlatform =>
-  file.startsWith("/VRChat/") ||
-  VRCHAT_NAME_RE.test(file.slice(file.lastIndexOf("/") + 1))
-    ? "VRChat"
-    : "Real";
-
 export type UploadInit = {
   file: string;
   size: number;
@@ -246,6 +233,14 @@ export type UploadInit = {
    * browser did not read the file (the backfill reads it later).
    */
   meta?: StoredMeta;
+  /** XMP CreatorTool, for the upload rules only. */
+  hints?: FileHints;
+  /**
+   * The pixel size from the file's header (`width` / `height` of the
+   * request, image-size.ts), when both were read: checked against the
+   * limits and looked at by the upload rules, not stored.
+   */
+  dimensions?: { width: number; height: number };
 };
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -335,6 +330,10 @@ export const validateUploadInit = (
         : {}),
       // Present (even empty) when the browser read the file.
       ...(o.meta !== undefined ? { meta } : {}),
+      ...(o.hints !== undefined ? { hints: normalizeHints(o.hints) } : {}),
+      ...(dims[0] != null && dims[1] != null
+        ? { dimensions: { width: dims[0], height: dims[1] } }
+        : {}),
     },
   };
 };

@@ -11,8 +11,9 @@
 // a new URL (so an expired URL is not a dead end).
 
 import type { TakenAtSource } from "./metadata-source";
-import type { StoredMeta } from "./photo-meta";
+import type { FileHints, StoredMeta } from "./photo-meta";
 import { checkUploadLimits, uploadTarget } from "./upload";
+import type { AppliedChip } from "./upload-rules";
 
 export type UploadStatus =
   | "queued"
@@ -40,6 +41,8 @@ export type UploadItem = {
   mediaId: number | null;
   /** PUT/complete attempts so far (resets on retry()). */
   attempts: number;
+  /** What the upload rules set on its row ("VRChat ← /VRChat/ フォルダ"). */
+  applied: AppliedChip[];
 };
 
 /** A picked file (File, or a stand-in in tests). */
@@ -64,6 +67,8 @@ export type Prepared = {
   /** From the header (image-size.ts); null when it could not be read. */
   width?: number | null;
   height?: number | null;
+  /** What the upload rules look at besides `meta`. */
+  hints?: FileHints;
 };
 
 export type InitResult =
@@ -74,6 +79,8 @@ export type InitResult =
       file: string;
       url: string;
       headers: Record<string, string>;
+      /** What the upload rules set (new rows only). */
+      applied?: AppliedChip[];
     }
   /** The same photo (by SHA-256) is already uploaded, at `file`. */
   | { status: "exists"; id: number; file: string };
@@ -241,7 +248,13 @@ export const createUploadQueue = <S extends UploadSource>(
       }
       entry.note =
         init.file === requested ? null : `${init.file} として登録します`;
-      set(item, { mediaId: init.id, file: init.file, message: entry.note });
+      set(item, {
+        mediaId: init.id,
+        file: init.file,
+        message: entry.note,
+        // A resumed row keeps what its first init reported.
+        ...(init.applied ? { applied: init.applied } : {}),
+      });
       await deps.put(init, source, (loaded) =>
         set(item, { loaded: Math.min(loaded, item.size) }),
       );
@@ -288,6 +301,7 @@ export const createUploadQueue = <S extends UploadSource>(
           message: refused,
           mediaId: null,
           attempts: 0,
+          applied: [],
         };
         entries.push({
           item,

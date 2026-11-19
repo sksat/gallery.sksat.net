@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatExposure,
   isScanner,
+  normalizeHints,
   readPhotoMeta,
   readPhotoMetaSync,
   worldFromXmp,
@@ -50,7 +51,17 @@ describe("readPhotoMeta", () => {
       expect(meta.world).toEqual(WORLD);
       expect(meta.exif).toBeNull();
       expect(meta.location).toBeNull();
+      expect(meta.creatorTool).toBe("VRChat");
     }
+    expect((await readPhotoMeta(fixture("exif-gps.jpg"))).creatorTool).toBeNull();
+  });
+
+  it("keeps only well-formed hints from a request", () => {
+    expect(normalizeHints({ creatorTool: " VRChat " })).toEqual({
+      creatorTool: "VRChat",
+    });
+    expect(normalizeHints({ creatorTool: 1 })).toEqual({ creatorTool: null });
+    expect(normalizeHints(null)).toEqual({ creatorTool: null });
   });
 
   it("finds XMP after the image data in the file's last bytes", async () => {
@@ -95,6 +106,7 @@ describe("readPhotoMeta", () => {
       digitizedAt: null,
       location: null,
       world: null,
+      creatorTool: null,
     });
     expect(readPhotoMetaSync(new Uint8Array(0)).exif).toBeNull();
     // Every prefix parses without throwing.

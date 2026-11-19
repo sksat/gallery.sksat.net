@@ -459,6 +459,33 @@ describe("completeUpload", () => {
       raw.prepare("SELECT status FROM media WHERE id = 2").get()?.status,
     ).toBe("uploading");
   });
+
+  it("bumps the API's content version for a photo a rule made visible", async () => {
+    const { raw, db } = setup();
+    const version = () =>
+      (
+        raw
+          .prepare("SELECT value FROM setting WHERE key = 'content_version'")
+          .get() as { value: string } | undefined
+      )?.value;
+    // Private: the API answers the same.
+    await initUpload(db, init(), row);
+    await completeUpload(db, 2, UPLOADED);
+    expect(version()).toBeUndefined();
+    // Unlisted by a rule: it opens by URL once ready.
+    await initUpload(
+      db,
+      init({ file: "/up/b.png", sha256: SHA_B }),
+      { ...id(1), visibility: "unlisted" },
+    );
+    expect(version()).toBeUndefined();
+    await completeUpload(
+      db,
+      3,
+      bucket({ "/up/b.png": { size: 10, sha256: SHA_B } }),
+    );
+    expect(version()).toBeDefined();
+  });
 });
 
 describe("incomplete uploads", () => {

@@ -32,7 +32,7 @@ import {
 } from "~/lib/upload-queue";
 import { dirOf } from "~/lib/folders";
 import type { Visibility } from "~/lib/types";
-import { buttonPrimary, buttonSecondary, card, muted } from "./ui";
+import { buttonPrimary, buttonSecondary, card, muted, tagChip } from "./ui";
 
 // Uploading photos into the open folder of the Files view: a button that
 // opens the file picker (the page puts it in the toolbar) and a panel with
@@ -658,7 +658,13 @@ export const UploadPanel = component$<PanelProps>(
         {active === 0 && uploadedIds.length > 0 && (
           <div class="flex flex-wrap items-center gap-2 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800/50">
             <p class="mr-auto">
-              {uploadedIds.length} 枚は非公開で追加されました。
+              {list.some(
+                (i) =>
+                  i.status === "done" &&
+                  i.applied.some((a) => a.field === "visibility"),
+              )
+                ? `${uploadedIds.length} 枚を追加しました。`
+                : `${uploadedIds.length} 枚は非公開で追加されました。`}
               {uploadedIds.length > MAX_BULK_IDS &&
                 ` 公開範囲は一覧から ${MAX_BULK_IDS} 枚ずつ変更してください。`}
             </p>
@@ -738,6 +744,26 @@ export const UploadPanel = component$<PanelProps>(
                 >
                   {it.message}
                 </p>
+              )}
+              {it.applied.length > 0 && it.status !== "skipped" && (
+                <ul
+                  aria-label={`${it.name} にルールで付いたもの`}
+                  data-testid="upload-applied"
+                  class="flex flex-wrap gap-1"
+                >
+                  {it.applied.map((a) => (
+                    <li
+                      key={`${a.field}:${a.value}`}
+                      data-field={a.field}
+                      class={[tagChip, "max-w-full"]}
+                    >
+                      <span class="truncate">
+                        <span class="font-medium">{a.value}</span>
+                        <span class={muted}> ← {a.rule}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               )}
             </li>
           ))}
