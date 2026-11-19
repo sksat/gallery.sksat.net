@@ -272,9 +272,11 @@ export const UploadFolderButton = component$<{
 
 /**
  * Drop files or folders anywhere on the wrapped area to upload them into
- * `dir`. Native listeners (attached once visible) because the drop's
- * DataTransfer is only readable during the event, before any lazily
- * loaded handler could run.
+ * `dir`, or onto a folder in it (a `[data-drop]` element: a folder tile,
+ * a tree folder, a breadcrumb) to upload them into that folder, which is
+ * then marked like a move's target (`data-drop-over`). Native listeners
+ * (attached once visible) because the drop's DataTransfer is only
+ * readable during the event, before any lazily loaded handler could run.
  */
 export const DropZone = component$<{
   uploader: Uploader;
@@ -286,6 +288,8 @@ export const DropZone = component$<{
 }>(({ uploader, dir, enabled, onProblem$ }) => {
   const ref = useSignal<HTMLElement>();
   const over = useSignal(false);
+  /** The folder the drag is over, or null for the open folder. */
+  const folder = useSignal<string | null>(null);
   // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ cleanup }) => {
     const el = ref.value;
@@ -303,26 +307,60 @@ export const DropZone = component$<{
     const swallow = (e: DragEvent) => {
       if (hasFiles(e) && !el.contains(e.target as Node)) e.preventDefault();
     };
+    // The folder under the pointer, if any, marked like a move's target.
+    let marked: HTMLElement | null = null;
+    const mark = (t: HTMLElement | null) => {
+      if (t === marked) return;
+      marked?.removeAttribute("data-drop-over");
+      t?.setAttribute("data-drop-over", "");
+      marked = t;
+      folder.value = t?.dataset.drop ?? null;
+    };
+    // A folder stays marked for a moment after the pointer leaves it, so
+    // crossing the gap between two tiles does not flash the overlay; a
+    // drop goes where the mark is.
+    let lastHit = 0;
+    const folderAt = (e: DragEvent) => {
+      const t = (e.target as Element | null)?.closest?.<HTMLElement>(
+        "[data-drop]",
+      );
+      if (t && el.contains(t)) {
+        lastHit = e.timeStamp;
+        return t;
+      }
+      return e.timeStamp - lastHit < 200 ? marked : null;
+    };
+    const reset = () => {
+      depth = 0;
+      over.value = false;
+      mark(null);
+    };
     const enter = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
+      // No move is under way: forget one whose dragend never came, so the
+      // folders' move handlers (file-browser.tsx) leave this drop alone.
+      delete document.body.dataset.dragItems;
+      delete document.body.dataset.dragFrom;
       depth++;
       over.value = true;
+      mark(folderAt(e));
     };
     const leave = () => {
       depth = Math.max(0, depth - 1);
-      if (depth === 0) over.value = false;
+      if (depth === 0) reset();
     };
     const dragOver = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      mark(folderAt(e));
     };
     const drop = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
-      depth = 0;
-      over.value = false;
+      const target = folderAt(e)?.dataset.drop || el.dataset.dir || "/";
+      reset();
       // Read everything now: the DataTransfer is emptied after the event.
       const entries: EntryLike[] = [];
       const loose: File[] = [];
@@ -335,7 +373,6 @@ export const DropZone = component$<{
           if (f) loose.push(f);
         }
       }
-      const target = el.dataset.dir ?? "/";
       void collectDropped(entries).then(
         ({ files: dropped, failed, truncated }) => {
           const files = [
@@ -370,6 +407,7 @@ export const DropZone = component$<{
     window.addEventListener("dragover", swallow);
     window.addEventListener("drop", swallow);
     cleanup(() => {
+      mark(null);
       el.removeEventListener("dragenter", enter);
       el.removeEventListener("dragleave", leave);
       el.removeEventListener("dragover", dragOver);
@@ -383,7 +421,9 @@ export const DropZone = component$<{
   return (
     <div ref={ref} data-dir={dir} data-testid="drop-zone" class="relative">
       <Slot />
-      {over.value && (
+      {/* Over a folder, that folder is marked instead (the overlay would
+          cover it). */}
+      {over.value && folder.value === null && (
         <div
           aria-hidden="true"
           class="pointer-events-none absolute inset-0 z-20 rounded-xl border-2 border-dashed border-sky-500 bg-sky-50/80 text-base font-semibold text-sky-800 dark:bg-sky-950/70 dark:text-sky-200"
@@ -692,11 +732,17 @@ export const UploadPanel = component$<PanelProps>(
               class="space-y-1.5 py-2"
             >
               <div class="flex items-center gap-3">
-                <span
-                  class="min-w-0 flex-1 truncate font-medium"
-                  title={it.file || it.name}
-                >
-                  {it.name}
+                <span class="min-w-0 flex-1" title={it.file || it.name}>
+                  <span class="block truncate font-medium">{it.name}</span>
+                  {/* Where it goes (a drop on a folder picks another one). */}
+                  {it.file && (
+                    <span
+                      data-testid="upload-dest"
+                      class={["block truncate text-xs", muted]}
+                    >
+                      {dirOf(it.file)} へ
+                    </span>
+                  )}
                 </span>
                 <span class={["shrink-0 text-xs tabular-nums", muted]}>
                   {formatUploadSize(it.size)}
