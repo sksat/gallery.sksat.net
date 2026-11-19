@@ -28,6 +28,56 @@ test("a photo's own level, over the site default", async ({ page }) => {
   }
 });
 
+test("each field's level sits beside the field", async ({ page }) => {
+  await page.goto("/media/1/");
+  const group = (name: string) =>
+    page.getByRole("group", { name, exact: true });
+  await expect(group("Camera").getByTestId("metadata-camera")).toBeVisible();
+  await expect(group("Tags").getByTestId("metadata-tags")).toBeVisible();
+  await expect(group("日時").getByTestId("metadata-taken_at")).toBeVisible();
+  // No scan here: no スキャン日時 to set.
+  await expect(page.getByTestId("metadata-digitized_at")).toHaveCount(0);
+
+  // ファイル名 by 場所と名前, apart from the form, but saved with it.
+  const place = page.getByRole("region", { name: "場所とゴミ箱" });
+  const fileName = place.getByTestId("metadata-file_name");
+  await expect(fileName.locator("option").first()).toHaveText(
+    "既定（出さない）",
+  );
+  await expect(place.getByTestId("public-file_name")).toHaveAttribute(
+    "data-public",
+    "false",
+  );
+  try {
+    await fileName.selectOption("name");
+    await expect(page.getByTestId("dirty")).toBeVisible();
+    await save(page);
+    await page.reload();
+    await expect(fileName).toHaveValue("name");
+    await expect(place.getByTestId("public-file_name")).toHaveAttribute(
+      "data-public",
+      "true",
+    );
+
+    // In the trash there is no 場所と名前, and a save keeps the level.
+    await place.getByRole("button", { name: "ゴミ箱へ" }).click();
+    await expect(page.getByText("ゴミ箱に入れました。")).toBeVisible();
+    await expect(fileName).toHaveCount(0);
+    await save(page);
+    await place.getByRole("button", { name: "元に戻す" }).click();
+    await expect(fileName).toHaveValue("name");
+  } finally {
+    await page.goto("/media/1/");
+    await expect(page.getByRole("heading", { name: "Edit #1" })).toBeVisible();
+    if (await page.getByText(/ゴミ箱にあります/).isVisible()) {
+      await page.getByRole("button", { name: "元に戻す" }).click();
+      await expect(fileName).toBeVisible();
+    }
+    await fileName.selectOption("");
+    await save(page);
+  }
+});
+
 test("site defaults on /setting/", async ({ page }) => {
   await page.goto("/setting/");
   const camera = page.getByLabel("カメラ");

@@ -518,12 +518,17 @@ test("a scanner's file: スキャン日時, 機材を登録, the taken-at by han
   // The taken-at from the folder, and no EXIF in its served images.
   await page.locator("#edit-taken-at").fill("2024-02-01T00:00");
   await page.locator("#edit-embed-exif").selectOption("off");
+  // The scan's levels beside the scan's fields.
+  await page.getByTestId("metadata-digitized_at").selectOption("month");
+  await page.getByTestId("metadata-digitizer").selectOption("model");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText(/^Saved at /)).toBeVisible();
   await page.reload();
   await expect(page.locator("#edit-taken-at")).toHaveValue("2024-02-01T00:00");
   await expect(page.locator("#media-meta")).toContainText("2024/02/01");
   await expect(page.locator("#edit-embed-exif")).toHaveValue("off");
+  await expect(page.getByTestId("metadata-digitized_at")).toHaveValue("month");
+  await expect(page.getByTestId("metadata-digitizer")).toHaveValue("model");
 
   // The device is a camera row of its own, counted apart.
   await page.goto("/camera/");

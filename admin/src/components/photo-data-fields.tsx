@@ -1,10 +1,5 @@
 import type { QRL } from "@builder.io/qwik";
-import {
-  FIELD_LABELS,
-  LEVEL_LABELS,
-  METADATA_LEVELS,
-  type MetadataLevels,
-} from "~/lib/metadata";
+import { FIELD_LABELS, type MetadataLevels } from "~/lib/metadata";
 import {
   EXIF_EDIT_KEYS,
   EXIF_LABELS,
@@ -16,9 +11,9 @@ import {
   worldUrl,
 } from "~/lib/photo-data";
 import type { MediaRow } from "~/lib/types";
+import { LevelSelect } from "./level-select";
 import { LocationPicker } from "./location-picker";
 import { field, label, link, muted } from "./ui";
-import { VISIBILITY_STYLE, VisibilityIcon } from "./visibility-style";
 
 // 撮影データ on the edit page: what was read from the file (camera
 // settings, VRChat world, where it was taken), each with how much of it
@@ -27,70 +22,6 @@ import { VISIBILITY_STYLE, VisibilityIcon } from "./visibility-style";
 // the row only, never the original file.
 
 type Field = "exif" | "world" | "location";
-
-/**
- * The level <select> of one field, with an icon for its level as saved: a
- * globe when the level lets it out, a lock when hidden. The globe is in
- * the public colour only when the public site really shows something
- * (the photo is not private and the field has a value), muted otherwise.
- */
-const LevelSelect = ({
-  field: f,
-  value,
-  siteDefault,
-  live,
-}: {
-  field: Field;
-  /** The photo's own level; "" = the site's. */
-  value: string;
-  siteDefault: string;
-  /** Whether the photo is visible and the field has a value. */
-  live: boolean;
-}) => {
-  const labels = LEVEL_LABELS[f] as Record<string, string>;
-  const effective = value || siteDefault;
-  const allowed = effective !== "hidden";
-  const shown = allowed && live;
-  const id = `mv-mv_${f}`;
-  return (
-    <div class="flex items-center gap-2">
-      <span
-        class={["inline-flex", shown ? VISIBILITY_STYLE.public.accent : muted]}
-        data-testid={`public-${f}`}
-        data-public={allowed ? "true" : "false"}
-        data-shown={shown ? "true" : "false"}
-        title={
-          shown
-            ? "公開サイトに出ます"
-            : allowed
-              ? "公開する設定です (今は出ていません)"
-              : "公開サイトには出しません"
-        }
-      >
-        <VisibilityIcon visibility={allowed ? "public" : "private"} />
-        <span class="sr-only">{allowed ? "公開" : "非公開"}</span>
-      </span>
-      <label for={id} class="sr-only">
-        {`${FIELD_LABELS[f]}の公開`}
-      </label>
-      <select
-        id={id}
-        name={`mv_${f}`}
-        data-testid={`metadata-${f}`}
-        class={[field, "w-auto min-w-0 sm:w-48"]}
-      >
-        <option value="" selected={value === ""}>
-          {`既定（${labels[siteDefault]}）`}
-        </option>
-        {(METADATA_LEVELS[f] as readonly string[]).map((level) => (
-          <option key={level} value={level} selected={value === level}>
-            {labels[level]}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-};
 
 const Edit = ({ children, testId }: { children: unknown; testId: string }) => (
   <details class="group mt-2" data-testid={testId}>

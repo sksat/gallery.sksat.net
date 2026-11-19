@@ -51,16 +51,6 @@ export const EDITABLE_FIELDS = [
 ] as const satisfies readonly MetadataField[];
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
 
-/**
- * The fields read from the file: on the edit page their level sits next
- * to their value (撮影データ), the others under 公開する情報.
- */
-export const FILE_DATA_FIELDS = [
-  "exif",
-  "world",
-  "location",
-] as const satisfies readonly EditableField[];
-
 export const FIELD_LABELS: Record<EditableField, string> = {
   file_name: "ファイル名",
   taken_at: "撮影日時",
