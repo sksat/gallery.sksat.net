@@ -52,20 +52,18 @@ export const Thumb = component$<Props>(
     );
     // Read during every render, so the list always reaches the browser.
     const platforms = usePlatformList().value;
+    const kind =
+      platform === null ? null : platformOf(platforms, platform).kind;
+    const tint =
+      kind === "virtual"
+        ? "bg-violet-100 text-violet-500 dark:bg-violet-950 dark:text-violet-300"
+        : kind === "real"
+          ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
+          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400";
     if (!imageBase) {
-      const kind =
-        platform === null ? null : platformOf(platforms, platform).kind;
       return (
         <div
-          class={[
-            box,
-            "grid place-items-center",
-            kind === "virtual"
-              ? "bg-violet-100 text-violet-500 dark:bg-violet-950 dark:text-violet-300"
-              : kind === "real"
-                ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300"
-                : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
-          ]}
+          class={[box, "grid place-items-center", tint]}
           data-testid="thumb-placeholder"
           aria-hidden="true"
         >
@@ -82,22 +80,23 @@ export const Thumb = component$<Props>(
     }
     if (variant === "preview") {
       return (
-        <ProgressivePreview file={file} imageBase={imageBase} class={box} />
+        <ProgressivePreview
+          file={file}
+          imageBase={imageBase}
+          class={[box, tint]}
+          placeholder={fileExtension(file) || "IMG"}
+        />
       );
     }
     // A photo's thumbnail is of the file it shows (the route resolves it);
     // a camera picture's is of its own object.
     const objectFile = exact ? `${file}?${THUMB_EXACT}` : file;
     return (
-      // If the image fails (expired signature, Worker error, offline), it
-      // hides itself and the tile shows the file extension instead of a
-      // broken-image icon.
-      <div
-        class={[
-          box,
-          "grid place-items-center bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
-        ]}
-      >
+      // If the image fails (resizing refused, e.g. the monthly
+      // transformations used up; Worker error, offline), it hides itself
+      // and the tile is the placeholder above (tint and file extension)
+      // instead of a broken-image icon.
+      <div class={[box, "grid place-items-center", tint]}>
         <img
           onError$={(_, el) => {
             el.hidden = true;
@@ -111,7 +110,11 @@ export const Thumb = component$<Props>(
           decoding="async"
           class="peer absolute inset-0 h-full w-full object-cover"
         />
-        <span aria-hidden="true" class="hidden peer-[[hidden]]:inline">
+        <span
+          aria-hidden="true"
+          data-testid="thumb-failed"
+          class="hidden peer-[[hidden]]:inline"
+        >
           {ext}
         </span>
       </div>

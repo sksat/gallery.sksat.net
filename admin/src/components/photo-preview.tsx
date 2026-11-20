@@ -13,6 +13,7 @@ import { splitPath } from "~/lib/format";
 import { LIST_CANDIDATES, imageUrl, srcSet } from "~/lib/images";
 import type { Neighbors } from "~/lib/neighbors";
 import { OVERLAY_BOX_WIDTH_RATIO, pickOverlayPreset } from "~/lib/progress";
+import { FALLBACK_HEADER } from "~/lib/thumb-response";
 import {
   VISIBILITY_KEYS,
   canStartSwipe,
@@ -349,8 +350,13 @@ export const PhotoPreview = component$<Props>((props) => {
       thumb.src = imageUrl(base, file, "h240");
       // ...and the larger one as FullscreenImage fetches it (/thumb
       // varies on Accept, so the same kind of request hits the cache).
+      // Not when it is the photo's file itself (resizing failed): that
+      // may be tens of MB per neighbour, so it loads when stepped onto.
       fetch(imageUrl(base, file, preset))
-        .then((r) => r.blob())
+        .then(async (r) => {
+          if (r.headers.has(FALLBACK_HEADER)) await r.body?.cancel();
+          else await r.blob();
+        })
         .catch(() => {});
     }
   });

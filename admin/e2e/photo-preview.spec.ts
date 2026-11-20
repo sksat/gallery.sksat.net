@@ -121,6 +121,70 @@ test("closing before the larger image arrives cancels its download", async ({
   release();
 });
 
+test("shows the photo itself when resizing fails", async ({ page }) => {
+  // The month's transformations used up: every thumbnail is a 502, and
+  // the large presets come back as the file itself (the image Worker's
+  // fallback, marked with X-Image-Fallback).
+  const large: string[] = [];
+  await page.route("**/e2e-thumb/**", async (route) => {
+    const url = route.request().url();
+    if (/\/e2e-thumb\/h(240|480)\//.test(url)) {
+      return route.fulfill({ status: 502, body: "Image unavailable" });
+    }
+    large.push(url);
+    return route.fulfill({
+      contentType: "image/png",
+      headers: {
+        "Content-Length": String(PNG_2.length),
+        "Cache-Control": "private, max-age=300",
+        "X-Image-Fallback": "original",
+      },
+      body: PNG_2,
+    });
+  });
+  await page.goto("/e2e/preview/");
+  const open = page.getByRole("button", { name: "写真を全画面で表示" });
+  // The edit page's photo: the file, not a broken image.
+  const inline = open.getByTestId("preview-image");
+  await expect(inline).toHaveAttribute("src", /^blob:/);
+  await expect
+    .poll(() => inline.evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBe(2);
+  await expect(open.getByTestId("preview-placeholder")).toHaveCount(0);
+
+  await open.click();
+  await expect(fullscreen(page)).toBeVisible();
+  const full = page.getByTestId("fullscreen-image");
+  await expect(full).toHaveAttribute("src", /^blob:/);
+  await expect
+    .poll(() => full.evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBe(2);
+  await expect(page.getByTestId("fullscreen-progress")).toHaveAttribute(
+    "aria-hidden",
+    "true",
+  );
+  // The failed thumbnail hid itself rather than show a broken image.
+  await expect(page.getByTestId("fullscreen-thumb")).toBeHidden();
+  expect(large.some((u) => u.includes("/w1920/"))).toBe(true);
+});
+
+test("a failed thumbnail and preview leave the placeholder", async ({
+  page,
+}) => {
+  await page.route("**/e2e-thumb/**", (route) =>
+    route.fulfill({ status: 502, body: "Image unavailable" }),
+  );
+  await page.goto("/e2e/preview/");
+  const open = page.getByRole("button", { name: "写真を全画面で表示" });
+  await expect(open.getByTestId("preview-placeholder")).toBeVisible();
+  await expect(open.getByTestId("preview-placeholder")).toHaveText("PNG");
+  await expect(open.getByTestId("preview-image")).toHaveCount(0);
+  await expect(open.getByTestId("preview-progress")).toHaveAttribute(
+    "aria-hidden",
+    "true",
+  );
+});
+
 test.describe("on a phone", () => {
   test.use({
     viewport: { width: 390, height: 844 },

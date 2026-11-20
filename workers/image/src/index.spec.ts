@@ -487,3 +487,118 @@ describe("AdminImage", () => {
     expect(transforms).toHaveLength(1);
   });
 });
+
+describe("when resizing fails (e.g. the monthly transformations are used up)", () => {
+  /** Plain GETs (no `cf.image`): what the bucket was asked for as-is. */
+  let plainGets: string[];
+  const failWith = (
+    transform: () => Response,
+    bucket: () => Response = () =>
+      new Response("ORIGINAL", {
+        headers: {
+          "Content-Type": "image/png",
+          "Content-Length": "8",
+          "x-amz-meta-sha256": "ab",
+        },
+      }),
+  ) => {
+    plainGets = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit & { cf?: unknown }) => {
+        if (init?.cf) {
+          transforms.push(url);
+          return transform();
+        }
+        plainGets.push(url);
+        return bucket();
+      }),
+    );
+  };
+  const quota = () => new Response("ERROR 9422", { status: 429 });
+  // Some failures answer 2xx with the untransformed original.
+  const errOk = () =>
+    new Response("ORIGINAL", {
+      headers: { "Content-Type": "image/png", "Cf-Resized": "err=9422" },
+    });
+
+  it("the public handler answers an error, never the original", async () => {
+    for (const transform of [quota, errOk]) {
+      failWith(transform);
+      for (const path of [
+        `/img/${ID}?size=w1920`,
+        `/img${FILE}?size=w3840`,
+        `/img/${ID}?size=h240`,
+      ]) {
+        const res = await get(path);
+        expect(res.status, path).toBe(502);
+        expect(await res.text()).not.toContain("ORIGINAL");
+        expect(res.headers.get("X-Image-Fallback")).toBeNull();
+      }
+      await Promise.all(pending);
+      expect(plainGets).toEqual([]);
+      expect(cacheDefault.put).not.toHaveBeenCalled();
+    }
+  });
+
+  it("AdminImage streams the file for the large presets, privately and marked", async () => {
+    for (const transform of [quota, errOk]) {
+      failWith(transform);
+      const admin = new AdminImage(ctx as never, env as never);
+      const res = await admin.image("jwt", FILE, "w1920", AVIF);
+      await Promise.all(pending);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("ORIGINAL");
+      expect(res.headers.get("X-Image-Fallback")).toBe("original");
+      expect(res.headers.get("Cache-Control")).toBe("private, max-age=300");
+      expect(res.headers.get("Content-Type")).toBe("image/png");
+      expect(res.headers.get("Content-Length")).toBe("8");
+      // Only the type and length come from the bucket.
+      expect(res.headers.get("x-amz-meta-sha256")).toBeNull();
+      // The presigned URL the resize used, fetched as-is.
+      expect(plainGets).toHaveLength(1);
+      expect(plainGets[0]).toBe(transforms.at(-1));
+      expect(plainGets[0]).toMatch(/X-Amz-Signature/);
+      expect(cacheDefault.match).not.toHaveBeenCalled();
+      expect(cacheDefault.put).not.toHaveBeenCalled();
+    }
+  });
+
+  it("AdminImage keeps failing for thumbnails and missing files", async () => {
+    const admin = new AdminImage(ctx as never, env as never);
+    for (const transform of [quota, errOk]) {
+      failWith(transform);
+      for (const preset of ["h240", "h480"]) {
+        const res = await admin.image("jwt", FILE, preset, AVIF);
+        expect(res.status, preset).toBe(502);
+        expect(await res.text()).not.toContain("ORIGINAL");
+      }
+      expect(plainGets).toEqual([]);
+    }
+    failWith(() => new Response("missing", { status: 404 }));
+    expect((await admin.image("jwt", FILE, "w1920", AVIF)).status).toBe(404);
+    expect(plainGets).toEqual([]);
+
+    // The resize failed and so does the file itself.
+    failWith(quota, () => new Response("<Error/>", { status: 404 }));
+    const gone = await admin.image("jwt", FILE, "w1920", AVIF);
+    expect(gone.status).toBe(404);
+    failWith(quota, () => new Response("<Error/>", { status: 500 }));
+    const broken = await admin.image("jwt", FILE, "w1920", AVIF);
+    expect(broken.status).toBe(502);
+    expect(await broken.text()).not.toContain("Error");
+    failWith(quota, () => {
+      throw new TypeError("network");
+    });
+    expect((await admin.image("jwt", FILE, "w1920", AVIF)).status).toBe(502);
+  });
+
+  it("a public HEAD answers an error too", async () => {
+    for (const transform of [quota, errOk]) {
+      failWith(transform);
+      const res = await get(`/img/${ID}?size=w1920`, "HEAD");
+      expect(res.status).toBe(502);
+      expect(plainGets).toEqual([]);
+    }
+  });
+});
