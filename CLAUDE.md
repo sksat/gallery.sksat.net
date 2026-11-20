@@ -8,7 +8,7 @@ This is a photo/image gallery web application built with **Qwik** and **QwikCity
 
 ## Essential Commands
 
-This project uses **pnpm** 12 as the package manager (pinned via `packageManager` in `package.json`; `admin/` pins the same version). If your `pnpm` is a different major, run it as `npx -y pnpm@<that version>`. pnpm settings live in `pnpm-workspace.yaml` (root and `admin/` each have one), not in `package.json`. pnpm refuses packages published less than a day ago (`minimumReleaseAge`, the pnpm 12 default); if an install fails on a just-released version, wait rather than lowering it.
+This project uses **pnpm** 12 as the package manager (pinned via `packageManager` in `package.json`; `admin/` pins the same version). If your `pnpm` is a different major, run it as `npx -y pnpm@<that version>`. pnpm settings live in `pnpm-workspace.yaml` (root and `admin/` each have one), not in `package.json`. pnpm refuses packages published less than 3 days ago (`minimumReleaseAge: 4320` in both workspace files, equal to `minimumReleaseAge` in `renovate.json`; keep the three in sync); if an install fails on a just-released version, wait rather than lowering it.
 
 ### Development
 
