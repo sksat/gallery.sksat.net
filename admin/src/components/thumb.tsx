@@ -33,12 +33,18 @@ type Props = {
    * object may also be a photo's original. List variant only.
    */
   exact?: boolean;
+  /**
+   * The w1200 preset instead of h240/h480 (list variant): when the resize
+   * fails, it comes back as the file itself (the camera page's few
+   * pictures, still shown while transformations are used up).
+   */
+  large?: boolean;
   /** Box size/rounding; the aspect ratio is fixed here. */
   class?: string;
 };
 
 export const Thumb = component$<Props>(
-  ({ file, platform, imageBase, variant, exact, class: boxClass }) => {
+  ({ file, platform, imageBase, variant, exact, large, class: boxClass }) => {
     const box = ["relative aspect-video shrink-0 overflow-hidden", boxClass];
     const ext = (
       <span
@@ -101,8 +107,10 @@ export const Thumb = component$<Props>(
           onError$={(_, el) => {
             el.hidden = true;
           }}
-          src={imageUrl(imageBase, objectFile, "h240")}
-          srcset={srcSet(imageBase, objectFile, LIST_CANDIDATES)}
+          src={imageUrl(imageBase, objectFile, large ? "w1200" : "h240")}
+          srcset={
+            large ? undefined : srcSet(imageBase, objectFile, LIST_CANDIDATES)
+          }
           {...dimensionsFromFile(file)}
           // Decorative (the file name is right next to it).
           alt=""

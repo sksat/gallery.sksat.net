@@ -15,7 +15,7 @@ import { VISIBILITY_STYLE, VisibilityIcon } from "./visibility-style";
 
 // The fields of the photo's tags on its edit page (migration 0010): one
 // group per tag that has fields, each field an input with its public
-// level beside it (既定 follows the field), like 撮影データ. Part of the
+// level beside it (デフォルト follows the field), like 撮影データ. Part of the
 // page's form: only the fields edited since the page loaded are saved
 // (tag_fields_loaded, lib/tag-field-form.ts).
 
@@ -118,12 +118,14 @@ export const TagFieldInputs = ({
                           </span>
                         </span>
                       </div>
-                      <div class="flex gap-2">
+                      {/* The level wraps under the value when both do
+                          not fit side by side. */}
+                      <div class="flex flex-wrap gap-2">
                         {f.type === "select" ? (
                           <select
                             id={id}
                             name={`tf.${key}`}
-                            class={[fieldClass, "min-w-0 flex-1"]}
+                            class={[fieldClass, "min-w-28 flex-1 basis-28"]}
                           >
                             <option value="" selected={value === ""}>
                               —
@@ -154,7 +156,7 @@ export const TagFieldInputs = ({
                             autoCapitalize="off"
                             autoCorrect="off"
                             spellcheck={false}
-                            class={[fieldClass, "min-w-0 flex-1"]}
+                            class={[fieldClass, "min-w-28 flex-1 basis-28"]}
                           />
                         )}
                         <label for={`${id}-level`} class="sr-only">
@@ -163,10 +165,10 @@ export const TagFieldInputs = ({
                         <select
                           id={`${id}-level`}
                           name={`tfv.${key}`}
-                          class={[fieldClass, "w-36! shrink-0"]}
+                          class={[fieldClass, "w-auto! shrink-0"]}
                         >
                           <option value="" selected={own === ""}>
-                            {`既定（${TAG_FIELD_LEVEL_LABELS[f.visibility]}）`}
+                            {`デフォルト（${TAG_FIELD_LEVEL_LABELS[f.visibility]}）`}
                           </option>
                           {TAG_FIELD_LEVELS.map((level) => (
                             <option

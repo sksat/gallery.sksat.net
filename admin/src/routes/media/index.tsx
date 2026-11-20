@@ -174,7 +174,7 @@ type FilesData = {
   uploadEnabled: boolean;
   /** Uploads into `dir` that never completed. */
   incomplete: IncompleteUpload[];
-  /** The site's metadata levels (what 既定 means in a bulk change). */
+  /** The site's metadata levels (what デフォルト means in a bulk change). */
   siteDefaults: MetadataLevels;
   /** Cameras to pick in a bulk change. */
   cameras: CameraChoice[];

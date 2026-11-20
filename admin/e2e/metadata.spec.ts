@@ -14,7 +14,9 @@ test("a photo's own level, over the site default", async ({ page }) => {
   const taken = page.getByTestId("metadata-taken_at");
   // The first option follows the site, and says what it is.
   await expect(taken).toHaveValue("");
-  await expect(taken.locator("option").first()).toHaveText("既定（秒まで）");
+  await expect(taken.locator("option").first()).toHaveText(
+    "デフォルト（秒まで）",
+  );
   await expect(page.getByTestId("metadata-file_name")).toHaveValue("");
   try {
     await taken.selectOption("date");
@@ -42,7 +44,7 @@ test("each field's level sits beside the field", async ({ page }) => {
   const place = page.getByRole("region", { name: "場所とゴミ箱" });
   const fileName = place.getByTestId("metadata-file_name");
   await expect(fileName.locator("option").first()).toHaveText(
-    "既定（出さない）",
+    "デフォルト（出さない）",
   );
   await expect(place.getByTestId("public-file_name")).toHaveAttribute(
     "data-public",
@@ -87,11 +89,11 @@ test("site defaults on /setting/", async ({ page }) => {
     await camera.selectOption("manufacturer");
     await page.getByRole("button", { name: "保存" }).click();
     await expect(page.getByText("保存しました。")).toBeVisible();
-    // A photo's 既定 says the new default.
+    // A photo's デフォルト says the new default.
     await page.goto("/media/1/");
     await expect(
       page.getByTestId("metadata-camera").locator("option").first(),
-    ).toHaveText("既定（メーカーだけ）");
+    ).toHaveText("デフォルト（メーカーだけ）");
   } finally {
     await page.goto("/setting/");
     await camera.selectOption("model");

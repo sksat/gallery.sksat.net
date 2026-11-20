@@ -83,8 +83,14 @@ test("save: busy button, then a toast in view", async ({ page }) => {
 test("an error toast stays until dismissed", async ({ page }) => {
   await page.goto("/camera/1/");
   // Already one of this camera's images: the action refuses.
-  await page.getByLabel("Image path").fill("/camera/virtuallens2/front.png");
-  await page.getByRole("button", { name: "Add image" }).tap();
+  const details = page.getByTestId("add-by-path");
+  if ((await details.getAttribute("open")) === null) {
+    await details.getByText("パスで追加").tap();
+  }
+  await page
+    .getByLabel("パス", { exact: true })
+    .fill("/camera/virtuallens2/front.png");
+  await page.getByRole("button", { name: "追加", exact: true }).tap();
   const alert = page.getByRole("alert");
   await expect(alert).toContainText("already added");
   await expect(alert).toBeInViewport();

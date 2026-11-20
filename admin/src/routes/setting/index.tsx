@@ -117,7 +117,9 @@ export default component$(() => {
       </Link>
       <Form action={save} class={[card, "space-y-4 p-4 sm:p-6"]}>
         <fieldset class="space-y-3">
-          <legend class="text-sm font-semibold">公開する情報の既定</legend>
+          <legend class="text-sm font-semibold">
+            公開する情報のデフォルト
+          </legend>
           <div class="grid gap-3 sm:grid-cols-2">
             {EDITABLE_FIELDS.map((f) => (
               <MetadataSelect key={f} field={f} name={f} value={defaults[f]} />

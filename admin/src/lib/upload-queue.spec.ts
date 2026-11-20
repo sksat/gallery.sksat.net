@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { cameraPictureTarget } from "./camera-image";
 import {
   createUploadQueue,
   summarize,
@@ -68,22 +69,33 @@ const harness = (over: Partial<QueueDeps<UploadSource>> = {}) => {
 };
 
 describe("createUploadQueue", () => {
+  it("asks the injected target for the path (camera pictures)", async () => {
+    const h = harness({ target: cameraPictureTarget });
+    h.queue.add("/camera/x100v/", [src("Front view.png"), src("a.gif")]);
+    await flush();
+    expect(h.items().map((i) => [i.file, i.status])).toEqual([
+      ["/camera/x100v/Front_view.png", "uploading"],
+      ["", "skipped"],
+    ]);
+    // The photos' own target refuses the camera folder.
+    const photos = harness();
+    photos.queue.add("/camera/x100v", [src("a.png")]);
+    expect(photos.items()[0].status).toBe("skipped");
+  });
   it("keeps what the upload rules set, also over a resumed init", async () => {
     const chip = { field: "platform", value: "VRChat", rule: "r" };
     let calls = 0;
     const h = harness({
       maxAttempts: 2,
-      init: vi.fn(
-        async (req): Promise<InitResult> => ({
-          status: "upload",
-          id: 1,
-          file: req.file,
-          url: `https://b2.example/${req.file}`,
-          headers: {},
-          // A retry resumes the row: no `applied` then.
-          ...(calls++ === 0 ? { applied: [chip] } : {}),
-        }),
-      ),
+      init: vi.fn(async (req): Promise<InitResult> => ({
+        status: "upload",
+        id: 1,
+        file: req.file,
+        url: `https://b2.example/${req.file}`,
+        headers: {},
+        // A retry resumes the row: no `applied` then.
+        ...(calls++ === 0 ? { applied: [chip] } : {}),
+      })),
     });
     h.queue.add("/", [src("a.png")]);
     await flush();

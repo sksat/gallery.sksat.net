@@ -4,7 +4,6 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   listMedia,
-  reorderedIds,
   restoreCameraImageStatements,
   rowToCamera,
   rowToMedia,
@@ -233,19 +232,6 @@ describe("restoreCameraImageStatements", () => {
     const db = setup([0, 1]);
     expect(() => restore(db, "/b.png", 0)).toThrow(/UNIQUE/);
     expect(order(db)).toEqual(["/a.png", "/b.png"]);
-  });
-});
-
-describe("reorderedIds", () => {
-  it("swaps with the neighbour", () => {
-    expect(reorderedIds([1, 2, 3], 2, "up")).toEqual([2, 1, 3]);
-    expect(reorderedIds([1, 2, 3], 2, "down")).toEqual([1, 3, 2]);
-  });
-
-  it("returns null at either end or for an unknown id", () => {
-    expect(reorderedIds([1, 2, 3], 1, "up")).toBeNull();
-    expect(reorderedIds([1, 2, 3], 3, "down")).toBeNull();
-    expect(reorderedIds([1, 2, 3], 9, "up")).toBeNull();
   });
 });
 

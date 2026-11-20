@@ -123,7 +123,7 @@ type Props = {
   q: string;
   /** Taken in this year, month or day (the calendar), or null. */
   date?: string | null;
-  /** The site's metadata levels (what 既定 is in a bulk change). */
+  /** The site's metadata levels (what デフォルト is in a bulk change). */
   siteDefaults: MetadataLevels;
   /** Registered cameras (the camera picker). */
   cameras: CameraChoice[];
