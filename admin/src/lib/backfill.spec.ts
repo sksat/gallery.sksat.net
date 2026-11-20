@@ -55,7 +55,8 @@ const columns = (raw: Raw, id: number) =>
   raw
     .prepare(
       `SELECT exif, latitude, longitude, location_source, world_id, world_name,
-              world_author_id, timestamp, metadata_source, metadata_read_at
+              photographer_id, photographer_name, vrcx, timestamp,
+              metadata_source, metadata_read_at
        FROM media WHERE id = ?`,
     )
     .get(id) as Record<string, unknown>;
@@ -95,7 +96,7 @@ describe("backfillBatch", () => {
     });
     expect(columns(raw, 2)).toMatchObject({
       world_id: "wrld_4cf554b4-430c-4f8f-b53e-1f294eed230b",
-      world_author_id: "usr_00000000-1111-2222-3333-444444444444",
+      photographer_id: "usr_00000000-1111-2222-3333-444444444444",
       // Nothing in the file says when: kept.
       timestamp: "2026-01-01T00:00:00+09:00",
     });
@@ -172,7 +173,8 @@ describe("backfillBatch", () => {
     expect(columns(raw, 2)).toMatchObject({
       world_id: "wrld_mine",
       world_name: null,
-      world_author_id: null,
+      // Who took it is not the world's: read even over a manual world.
+      photographer_id: "usr_00000000-1111-2222-3333-444444444444",
     });
   });
 
@@ -228,6 +230,30 @@ describe("backfillBatch", () => {
       taken_at: "manual",
     });
     expect(calls.some((c) => c.startsWith("/v/c.png"))).toBe(false);
+  });
+
+  it("reads VRCX's world, photographer and players", async () => {
+    const raw = migratedSqlite();
+    const db = sqliteD1(raw);
+    raw.exec(
+      `INSERT INTO media (file, platform, timestamp)
+       VALUES ('/v/old.png', 'VRChat', NULL)`,
+    );
+    const { read } = bucket({ "/v/old.png": fixture("vrcx-only.png") });
+    await backfillBatch(db, read, 10, NOW);
+    expect(columns(raw, 1)).toMatchObject({
+      world_id: "wrld_00000000-aaaa-bbbb-cccc-000000000001",
+      world_name: "桜の川 （Sakura）",
+      photographer_id: "usr_00000000-1111-2222-3333-555555555555",
+      photographer_name: "Someone",
+    });
+    expect(JSON.parse(String(columns(raw, 1).vrcx))).toMatchObject({
+      instance_id: expect.stringMatching(/~friends\(usr_.*\)~region\(jp\)$/),
+      players: [
+        { id: "usr_00000000-1111-2222-3333-555555555555", name: "Someone" },
+        { id: "usr_00000000-1111-2222-3333-666666666666", name: "ねこ" },
+      ],
+    });
   });
 
   it("gives two tabs different photos", async () => {

@@ -121,7 +121,8 @@ describe("validateUploadInit", () => {
     const meta = {
       exif: { make: " Sony ", iso: 100, f_number: "2.8", serial: "123" },
       location: { latitude: 35.5, longitude: 139.5 },
-      world: { id: "wrld_abc", name: "W", authorId: "not an id" },
+      world: { id: "wrld_abc", name: "W" },
+      photographer: { id: "not an id", name: "P" },
     };
     expect(validateUploadInit({ ...ok, meta })).toEqual({
       ok: true,
@@ -132,7 +133,9 @@ describe("validateUploadInit", () => {
           fileExif: null,
           digitizedAt: null,
           location: { latitude: 35.5, longitude: 139.5 },
-          world: { id: "wrld_abc", name: "W", authorId: null },
+          world: { id: "wrld_abc", name: "W" },
+          photographer: { id: null, name: "P" },
+          vrcx: null,
         },
       },
     });
@@ -181,6 +184,8 @@ describe("validateUploadInit", () => {
           digitizedAt: null,
           location: null,
           world: null,
+          photographer: null,
+          vrcx: null,
         },
       },
     });

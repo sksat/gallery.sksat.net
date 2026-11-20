@@ -2,7 +2,12 @@ import type { TagFieldLevel, TagFieldValue } from "@shared/tag-field/tag-field";
 import type { MetadataOverrides } from "./metadata";
 import type { MetadataSource } from "./metadata-source";
 import type { ExifEdit, LocationEdit, WorldEdit } from "./photo-data";
-import type { ExifJSON, FileExifJSON } from "./photo-meta";
+import type {
+  ExifJSON,
+  FileExifJSON,
+  PersonMeta,
+  VrcxMeta,
+} from "./photo-meta";
 
 // Admin-side shapes of the D1 rows (migrations/). The public site reads the
 // same database through the API Worker (workers/api, its src/types.ts);
@@ -92,10 +97,13 @@ export type MediaRow = {
   latitude: number | null;
   longitude: number | null;
   location_source: "exif" | "manual" | null;
-  /** The VRChat world; the author is admin only. */
+  /** The VRChat world. */
   world_id: string | null;
   world_name: string | null;
-  world_author_id: string | null;
+  /** Who took it (0015; admin only, never public). */
+  photographer: PersonMeta | null;
+  /** VRCX's instance and players (0015; admin only, never public). */
+  vrcx: VrcxMeta | null;
   /** When it went to the trash; null when it is not there. */
   trashed_at: string | null;
   /** Where the taken-at time, exif and world came from (0008). */

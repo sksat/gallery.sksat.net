@@ -193,8 +193,8 @@ export const backfillBatch = async (
                         WHERE ${WAITING_SQL} LIMIT ?5)
              AND ${UNREAD}
            RETURNING id, file, platform, timestamp, exif, latitude, longitude,
-                     location_source, world_id, world_name, world_author_id,
-                     metadata_source, file_exif, digitized_at,
+                     location_source, world_id, world_name, photographer_id,
+                     photographer_name, vrcx, metadata_source, file_exif, digitized_at,
                      metadata_read_at, updated_at`,
         )
         .bind(...unreadArgs(nowMs), CLAIM + iso(nowMs), limit)
@@ -288,9 +288,10 @@ export const backfillBatch = async (
       .prepare(
         `UPDATE media SET timestamp = ?4, exif = ?5, latitude = ?6,
            longitude = ?7, location_source = ?8, world_id = ?9,
-           world_name = ?10, world_author_id = ?11, metadata_source = ?12,
+           world_name = ?10, photographer_id = ?11, metadata_source = ?12,
            metadata_read_at = ?13, file_exif = ?14, digitized_at = ?15,
            width = COALESCE(?21, width), height = COALESCE(?22, height),
+           photographer_name = ?23, vrcx = ?24,
            ${linkDeviceSql("?16", "?17", "?18", "?19", "?20")}
          WHERE ${GUARD}`,
       )
@@ -305,7 +306,7 @@ export const backfillBatch = async (
         next.location_source,
         next.world_id,
         next.world_name,
-        next.world_author_id,
+        next.photographer_id,
         next.metadata_source,
         readStamp(nowMs),
         next.file_exif,
@@ -314,6 +315,8 @@ export const backfillBatch = async (
         ...deviceIdArgs(device),
         size?.width ?? null,
         size?.height ?? null,
+        next.photographer_name,
+        next.vrcx,
       );
     return device?.create
       ? [ensureDeviceStatement(db, device, row.id), fileRow, update]

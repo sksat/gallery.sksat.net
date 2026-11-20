@@ -3,7 +3,7 @@ import { TAKEN_ON_SQL, takenOnArgs } from "./calendar";
 import { parseOverrides } from "./metadata";
 import { parseSources } from "./metadata-source";
 import { mergeExif, parseExifColumn } from "./photo-data";
-import { normalizeFileExif } from "./photo-meta";
+import { normalizeFileExif, parseVrcxColumn } from "./photo-meta";
 import {
   CAMERA_KINDS,
   type CameraImageRow,
@@ -36,7 +36,9 @@ type RawRow = {
   location_source?: string | null;
   world_id?: string | null;
   world_name?: string | null;
-  world_author_id?: string | null;
+  photographer_id?: string | null;
+  photographer_name?: string | null;
+  vrcx?: string | null;
   trashed_at?: string | null;
   metadata_source?: string | null;
   file_exif?: string | null;
@@ -104,7 +106,14 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
         : null,
     world_id: raw.world_id ?? null,
     world_name: raw.world_name ?? null,
-    world_author_id: raw.world_author_id ?? null,
+    photographer:
+      raw.photographer_id || raw.photographer_name
+        ? {
+            id: raw.photographer_id ?? null,
+            name: raw.photographer_name ?? null,
+          }
+        : null,
+    vrcx: parseVrcxColumn(raw.vrcx),
     trashed_at: raw.trashed_at ?? null,
     metadata_source: parseSources(raw.metadata_source),
     file_exif: parseFileExifColumn(raw.file_exif),
@@ -206,7 +215,7 @@ export const listMedia = async (
   const rowsStmt = db
     .prepare(
       `SELECT m.*, c.name AS camera_name
-       FROM (SELECT * FROM media ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?) AS m
+       FROM (SELECT ${LIST_COLUMNS} FROM media ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?) AS m
        LEFT JOIN camera AS c ON c.id = m.camera_id
        ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`,
     )
@@ -228,6 +237,41 @@ export const listMedia = async (
     total: countRes?.c ?? 0,
   };
 };
+
+/**
+ * What a list reads of each photo: every column rowToMedia uses except
+ * media.vrcx, whose players are for the edit page only (up to a hundred
+ * names per photo, for nothing, on every list page).
+ */
+const LIST_COLUMNS = [
+  "id",
+  "public_id",
+  "file",
+  "path",
+  "platform",
+  "timestamp",
+  "camera_id",
+  "tags",
+  "visibility",
+  "metadata_visibility",
+  "exif",
+  "latitude",
+  "longitude",
+  "location_source",
+  "world_id",
+  "world_name",
+  "photographer_id",
+  "photographer_name",
+  "trashed_at",
+  "metadata_source",
+  "file_exif",
+  "digitized_at",
+  "digitized_with",
+  "embed_exif",
+  "tag_values",
+  "tag_value_visibility",
+  "updated_at",
+].join(", ");
 
 export const getMedia = async (
   db: D1Database,
@@ -356,13 +400,10 @@ export const updateMedia = async (
     args.push(lat, lon, lat, lon, lat, lat, lon, lon);
   }
   if (patch.world !== undefined) {
+    // The photographer (0015) is not the world's: it stays.
     if (patch.world.id !== undefined) {
-      // The author read from the file belongs to that world only.
-      sets.push(
-        "world_author_id = CASE WHEN world_id IS ? THEN world_author_id END",
-        "world_id = ?",
-      );
-      args.push(patch.world.id, patch.world.id);
+      sets.push("world_id = ?");
+      args.push(patch.world.id);
     }
     if (patch.world.name !== undefined) {
       sets.push("world_name = ?");
@@ -384,7 +425,7 @@ export const updateMedia = async (
   if (reset.has("exif")) sets.push("exif = NULL");
   if (reset.has("taken_at")) sets.push("timestamp = NULL");
   if (reset.has("world")) {
-    sets.push("world_id = NULL", "world_name = NULL", "world_author_id = NULL");
+    sets.push("world_id = NULL", "world_name = NULL");
   }
   if (reset.has("location")) {
     sets.push("latitude = NULL", "longitude = NULL", "location_source = NULL");

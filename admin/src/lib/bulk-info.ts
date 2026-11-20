@@ -58,7 +58,6 @@ export type InfoRow = {
   metadata_visibility: string | null;
   world_id: string | null;
   world_name: string | null;
-  world_author_id: string | null;
   latitude: number | null;
   longitude: number | null;
   location_source: string | null;
@@ -88,7 +87,6 @@ const OFFSET_RE = /^(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/;
 const STORED_RE =
   /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
 const DEFAULT_OFFSET = "+09:00";
-const AUTHOR_RE = /^usr_[0-9A-Za-z-]{1,100}$/;
 
 const validDate = (s: string) => {
   const m = DATE_RE.exec(s);
@@ -328,11 +326,7 @@ export const applyInfo = (row: InfoRow, edit: InfoEdit): InfoRow => {
     }
   }
   if (edit.world) {
-    if (edit.world.id !== undefined) {
-      // The author read from the file belongs to that world only.
-      if (edit.world.id !== row.world_id) out.world_author_id = null;
-      out.world_id = edit.world.id;
-    }
+    if (edit.world.id !== undefined) out.world_id = edit.world.id;
     if (edit.world.name !== undefined) out.world_name = edit.world.name;
   }
   if (edit.location !== undefined) {
@@ -366,7 +360,6 @@ export const INFO_COLUMNS = [
   "metadata_visibility",
   "world_id",
   "world_name",
-  "world_author_id",
   "latitude",
   "longitude",
   "location_source",
@@ -436,7 +429,6 @@ export const validateInfoRestore = (
     const tags = validatePatch({ tags: parseTags(String(o.tags ?? "")) });
     const timestamp = optText(o.timestamp, 40);
     const world = validateWorldEdit({ id: o.world_id, name: o.world_name });
-    const author = optText(o.world_author_id, 110);
     const lat = optNumber(o.latitude, 90);
     const lon = optNumber(o.longitude, 180);
     const source = o.location_source;
@@ -457,8 +449,6 @@ export const validateInfoRestore = (
       (timestamp !== null && !timeParts(timestamp)) ||
       !world.ok ||
       !("world_id" in o && "world_name" in o) ||
-      author === undefined ||
-      (author !== null && !AUTHOR_RE.test(author)) ||
       lat === undefined ||
       lon === undefined ||
       (lat === null) !== (lon === null) ||
@@ -480,7 +470,6 @@ export const validateInfoRestore = (
       metadata_visibility: storedOverrides(parseOverrides(mv)),
       world_id: world.value.id ?? null,
       world_name: world.value.name ?? null,
-      world_author_id: author,
       latitude: lat,
       longitude: lon,
       location_source: source as string | null,

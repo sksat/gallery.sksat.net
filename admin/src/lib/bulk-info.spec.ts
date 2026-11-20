@@ -25,7 +25,6 @@ const row = (over: Partial<InfoRow> = {}): InfoRow => ({
   metadata_visibility: null,
   world_id: "wrld_a",
   world_name: "A",
-  world_author_id: "usr_x",
   latitude: 35,
   longitude: 139,
   location_source: "exif",
@@ -128,7 +127,6 @@ describe("validateInfoRestore", () => {
       { latitude: null },
       { location_source: "guess" },
       { timestamp: "yesterday" },
-      { world_author_id: "x" },
       { id: 0 },
       { metadata_source: "not json" },
       { metadata_source: "[]" },
@@ -219,7 +217,7 @@ describe("applyInfo", () => {
     });
   });
 
-  it("a new world drops the file's author; a moved position becomes manual", () => {
+  it("sets a new world; a moved position becomes manual", () => {
     const after = applyInfo(row(), {
       world: { id: "wrld_b" },
       location: { latitude: 1, longitude: 2 },
@@ -227,7 +225,6 @@ describe("applyInfo", () => {
     expect(after).toMatchObject({
       world_id: "wrld_b",
       world_name: "A",
-      world_author_id: null,
       latitude: 1,
       longitude: 2,
       location_source: "manual",

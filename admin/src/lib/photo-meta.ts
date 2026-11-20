@@ -10,7 +10,14 @@
 //   and the GPS position.
 // - XMP: a PNG's iTXt chunk "XML:com.adobe.xmp" or a JPEG's APP1 XMP
 //   segment. VRChat writes the world it was taken in there (vrc:WorldID,
-//   vrc:WorldDisplayName) and the photographer (vrc:AuthorID).
+//   vrc:WorldDisplayName) and who took it: since 2025-08 vrc:AuthorID
+//   (usr_…) with the display name in xmp:Author; before that xmp:Author
+//   held the user id. (The author is the photographer, not the world's.)
+// - VRCX (github.com/vrcx-team/VRCX): a PNG text chunk "Description"
+//   holding JSON (application "VRCX", author, world with its instance id,
+//   players). VRCX only writes it into PNGs, as an uncompressed iTXt
+//   before the image data; tEXt, zTXt and compressed iTXt are read too.
+//   It gives the world for screenshots older than VRChat's XMP.
 //
 // Everything is read leniently: a value that is missing, malformed or out
 // of range is left out, and a truncated or corrupt file yields whatever
@@ -25,9 +32,10 @@
  * camera or scanner the file names, creating its camera row, device.ts;
  * 2026-11-22: what wrote the file, creator_tool / xmp_summary of its
  * media_file row, readFileTool; 2026-11-23: the pixel size as displayed,
- * media.width / height, 0016.)
+ * media.width / height, 0016; 2026-11-24: the photographer from
+ * xmp:Author, and VRCX's Description, 0015.)
  */
-export const PHOTO_META_PARSER_DATE = "2026-11-23T00:00:00.000Z";
+export const PHOTO_META_PARSER_DATE = "2026-11-24T00:00:00.000Z";
 
 /** Offset assumed when a date in the file has none (cameras on JST). */
 export const DEFAULT_OFFSET = "+09:00";
@@ -110,8 +118,25 @@ export type WorldMeta = {
   /** wrld_… */
   id: string | null;
   name: string | null;
-  /** usr_…, admin only. */
-  authorId: string | null;
+};
+
+/** A VRChat user: the photographer, or someone in the instance. */
+export type PersonMeta = {
+  /** usr_… */
+  id: string | null;
+  /** Display name. */
+  name: string | null;
+};
+
+/**
+ * What VRCX recorded beyond the world and the photographer (media.vrcx,
+ * migration 0015; admin only, never public).
+ */
+export type VrcxMeta = {
+  /** The instance, as VRChat writes a location: "wrld_…:12345~friends(usr_…)~region(jp)". */
+  instance_id: string | null;
+  /** Who was in the instance. */
+  players: PersonMeta[];
 };
 
 /**
@@ -146,6 +171,9 @@ export type PhotoMeta = {
   world: WorldMeta | null;
   /** XMP xmp:CreatorTool ("VRChat", "Adobe Lightroom …"). */
   creatorTool: string | null;
+  /** Who took it (VRChat's XMP, else VRCX; admin only). */
+  photographer: PersonMeta | null;
+  vrcx: VrcxMeta | null;
 };
 
 // --- TIFF / EXIF ----------------------------------------------------------
@@ -551,11 +579,9 @@ const USER_ID_RE = /^usr_[0-9A-Za-z-]+$/;
 export const worldFromXmp = (xmp: string): WorldMeta | null => {
   const id = xmpValue(xmp, "vrc:WorldID");
   const name = xmpValue(xmp, "vrc:WorldDisplayName");
-  const author = xmpValue(xmp, "vrc:AuthorID");
   const world = {
     id: id && WORLD_ID_RE.test(id) ? id : null,
     name,
-    authorId: author && USER_ID_RE.test(author) ? author : null,
   };
   return world.id || world.name ? world : null;
 };
@@ -563,6 +589,128 @@ export const worldFromXmp = (xmp: string): WorldMeta | null => {
 /** The app that wrote the file (xmp:CreatorTool), or null. */
 export const creatorToolFromXmp = (xmp: string): string | null =>
   xmpValue(xmp, "xmp:CreatorTool");
+
+/**
+ * Who took a VRChat screenshot, by its XMP: vrc:AuthorID with the display
+ * name in xmp:Author (VRChat since 2025-08), or the user id alone in
+ * xmp:Author (before). Null when neither is there.
+ */
+export const photographerFromXmp = (xmp: string): PersonMeta | null => {
+  const id = xmpValue(xmp, "vrc:AuthorID");
+  // xmp:Author only from VRChat: another tool's (a camera's, an editor's)
+  // is not a VRChat user.
+  const vrchat =
+    id !== null ||
+    xmpValue(xmp, "xmp:CreatorTool") === "VRChat" ||
+    xmp.includes("http://ns.vrchat.com/");
+  if (!vrchat) return null;
+  const author = xmpValue(xmp, "xmp:Author");
+  if (id !== null) {
+    if (!USER_ID_RE.test(id)) return null;
+    return { id, name: author && !USER_ID_RE.test(author) ? author : null };
+  }
+  if (author === null) return null;
+  return USER_ID_RE.test(author)
+    ? { id: author, name: null }
+    : { id: null, name: author };
+};
+
+/** Longest instance id kept (VRChat's are well under 200 characters). */
+const MAX_INSTANCE_ID = 300;
+/** Most players kept from one screenshot (an instance holds at most 80). */
+export const MAX_PLAYERS = 100;
+const INSTANCE_ID_RE = /^wrld_[0-9A-Za-z-]+:[\x21-\x7e]+$/;
+
+const person = (v: unknown): PersonMeta | null => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const id = typeof o.id === "string" && USER_ID_RE.test(o.id) ? o.id : null;
+  // VRCX writes displayName; the stored form (VrcxMeta) has name.
+  const name = text(o.displayName) ?? text(o.name);
+  return id || name ? { id, name } : null;
+};
+
+/** A stored or written instance id, if it has VRChat's shape. */
+const instanceId = (v: unknown): string | null =>
+  typeof v === "string" &&
+  v.length <= MAX_INSTANCE_ID &&
+  INSTANCE_ID_RE.test(v)
+    ? v
+    : null;
+
+/** The players list: people only, each user once, at most MAX_PLAYERS. */
+const players = (v: unknown): PersonMeta[] => {
+  if (!Array.isArray(v)) return [];
+  const out: PersonMeta[] = [];
+  const seen = new Set<string>();
+  for (const p of v.slice(0, MAX_PLAYERS)) {
+    const one = person(p);
+    if (!one || (one.id !== null && seen.has(one.id))) continue;
+    if (one.id !== null) seen.add(one.id);
+    out.push(one);
+  }
+  return out;
+};
+
+/** VRCX's JSON, normalised. */
+export type VrcxReading = {
+  world: WorldMeta | null;
+  author: PersonMeta | null;
+  vrcx: VrcxMeta | null;
+};
+
+/**
+ * VRCX's "Description" JSON ({"application":"VRCX","version":1,"author":
+ * {id, displayName},"world":{name, id, instanceId},"players":[{id,
+ * displayName}]}), leniently: malformed JSON or another application's
+ * text is null; each part that is missing or of the wrong shape is left
+ * out.
+ */
+export const readVrcxJson = (raw: string): VrcxReading | null => {
+  const s = raw.trim();
+  if (!s.startsWith("{")) return null;
+  let v: unknown;
+  try {
+    v = JSON.parse(s);
+  } catch {
+    return null;
+  }
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (o.application !== "VRCX") return null;
+  const w =
+    typeof o.world === "object" && o.world !== null
+      ? (o.world as Record<string, unknown>)
+      : {};
+  const worldId =
+    typeof w.id === "string" && WORLD_ID_RE.test(w.id) ? w.id : null;
+  const worldName = text(w.name);
+  const instance = instanceId(w.instanceId);
+  const list = players(o.players);
+  return {
+    world: worldId || worldName ? { id: worldId, name: worldName } : null,
+    author: person(o.author),
+    vrcx:
+      instance || list.length > 0
+        ? { instance_id: instance, players: list }
+        : null,
+  };
+};
+
+/**
+ * The photographer from both sources: VRChat's XMP first, VRCX's author
+ * for what it lacks (a name only when the ids agree or one is missing).
+ */
+const mergePerson = (
+  xmp: PersonMeta | null,
+  vrcx: PersonMeta | null,
+): PersonMeta | null => {
+  if (!xmp) return vrcx;
+  if (!vrcx) return xmp;
+  const sameUser = !xmp.id || !vrcx.id || xmp.id === vrcx.id;
+  if (!sameUser) return xmp;
+  return { id: xmp.id ?? vrcx.id, name: xmp.name ?? vrcx.name };
+};
 
 // --- Containers -----------------------------------------------------------
 
@@ -586,20 +734,62 @@ type Found = {
   xmp: string[];
   /** zlib-compressed XMP (a PNG iTXt with its compression flag). */
   compressedXmp: Uint8Array[];
+  /** PNG "Description" text (VRCX's JSON), and zlib-compressed ones. */
+  description: string[];
+  compressedDescription: Uint8Array[];
 };
 
-/** A PNG iTXt chunk's text if it is XMP. */
+const emptyFound = (): Found => ({
+  tiff: [],
+  xmp: [],
+  compressedXmp: [],
+  description: [],
+  compressedDescription: [],
+});
+
+/** VRCX's keyword (and LFS's, which wrote something else under it). */
+const DESCRIPTION_KEYWORD = "Description";
+
+/**
+ * Text that should be UTF-8 but may be Latin-1 (a tEXt chunk is Latin-1
+ * by the spec; some writers put UTF-8 there anyway).
+ */
+const utf8OrLatin1 = (b: Uint8Array) => {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(b);
+  } catch {
+    return latin1(b);
+  }
+};
+
+/** A PNG iTXt chunk's text if it is XMP or a Description. */
 const pngItxt = (data: Uint8Array, found: Found) => {
   const kwEnd = data.indexOf(0);
-  if (kwEnd < 0 || latin1(data.subarray(0, kwEnd)) !== XMP_KEYWORD) return;
+  if (kwEnd < 0) return;
+  const keyword = latin1(data.subarray(0, kwEnd));
+  if (keyword !== XMP_KEYWORD && keyword !== DESCRIPTION_KEYWORD) return;
   const compressed = data[kwEnd + 1] === 1;
   // Language tag and translated keyword, each NUL-terminated.
   const langEnd = data.indexOf(0, kwEnd + 3);
   const transEnd = langEnd < 0 ? -1 : data.indexOf(0, langEnd + 1);
   if (transEnd < 0) return;
   const text = data.subarray(transEnd + 1);
-  if (compressed) found.compressedXmp.push(text);
-  else found.xmp.push(utf8(text));
+  if (keyword === XMP_KEYWORD) {
+    if (compressed) found.compressedXmp.push(text);
+    else found.xmp.push(utf8(text));
+  } else if (compressed) found.compressedDescription.push(text);
+  else found.description.push(utf8(text));
+};
+
+/** A PNG tEXt (or, `compressed`, zTXt) chunk's text if it is a Description. */
+const pngText = (data: Uint8Array, found: Found, compressed: boolean) => {
+  const kwEnd = data.indexOf(0);
+  if (kwEnd < 0 || latin1(data.subarray(0, kwEnd)) !== DESCRIPTION_KEYWORD) {
+    return;
+  }
+  // zTXt: a compression method byte (0, zlib) before the data.
+  if (compressed) found.compressedDescription.push(data.subarray(kwEnd + 2));
+  else found.description.push(utf8OrLatin1(data.subarray(kwEnd + 1)));
 };
 
 const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -629,6 +819,9 @@ const scanPng = (b: Uint8Array, found: Found): { complete: boolean } => {
       const prefixed = latin1(b.subarray(data, data + 6)) === "Exif\0\0";
       found.tiff.push(prefixed ? data + 6 : data);
     } else if (type === "iTXt") pngItxt(b.subarray(data, data + len), found);
+    else if (type === "tEXt" || type === "zTXt") {
+      pngText(b.subarray(data, data + len), found, type === "zTXt");
+    }
     p = data + len + 4;
   }
   return { complete: false };
@@ -661,24 +854,34 @@ const scanJpeg = (b: Uint8Array, found: Found) => {
 };
 
 /**
- * iTXt XMP chunks anywhere in `b` (the last bytes of a PNG, where chunk
- * boundaries are unknown): found by their type and keyword, then read by
- * the length before them.
+ * XMP and Description text chunks anywhere in `b` (the last bytes of a
+ * PNG, where chunk boundaries are unknown): found by their type and
+ * keyword, then read by the length before them.
  */
 const scanPngTail = (b: Uint8Array, found: Found) => {
-  const needle = `iTXt${XMP_KEYWORD}\0`;
-  const text = latin1(b);
+  const all = latin1(b);
   const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) {
-    // A hit without its length field before it (cut off) is skipped.
-    if (i < 4) continue;
-    const len = view.getUint32(i - 4, false);
-    if (i + 4 + len <= b.length) pngItxt(b.subarray(i + 4, i + 4 + len), found);
+  for (const [type, keyword] of [
+    ["iTXt", XMP_KEYWORD],
+    ["iTXt", DESCRIPTION_KEYWORD],
+    ["tEXt", DESCRIPTION_KEYWORD],
+    ["zTXt", DESCRIPTION_KEYWORD],
+  ]) {
+    const needle = `${type}${keyword}\0`;
+    for (let i = all.indexOf(needle); i >= 0; i = all.indexOf(needle, i + 1)) {
+      // A hit without its length field before it (cut off) is skipped.
+      if (i < 4) continue;
+      const len = view.getUint32(i - 4, false);
+      if (i + 4 + len > b.length) continue;
+      const data = b.subarray(i + 4, i + 4 + len);
+      if (type === "iTXt") pngItxt(data, found);
+      else pngText(data, found, type === "zTXt");
+    }
   }
 };
 
 const find = (head: Uint8Array, tail?: Uint8Array): Found => {
-  const found: Found = { tiff: [], xmp: [], compressedXmp: [] };
+  const found = emptyFound();
   try {
     if (isPng(head)) {
       const { complete } = scanPng(head, found);
@@ -695,11 +898,12 @@ const find = (head: Uint8Array, tail?: Uint8Array): Found => {
 /**
  * Whether the last bytes of a file are worth reading too: a PNG whose
  * first bytes end before IEND with no XMP found in them (writers that put
- * text chunks after the image data).
+ * text chunks after the image data). A Description in the head does not
+ * count: the XMP (and its CreateDate) may still be at the end.
  */
 export const needsTail = (head: Uint8Array): boolean => {
   if (!isPng(head)) return false;
-  const found: Found = { tiff: [], xmp: [], compressedXmp: [] };
+  const found = emptyFound();
   try {
     const { complete } = scanPng(head, found);
     return !complete && found.xmp.length + found.compressedXmp.length === 0;
@@ -708,7 +912,12 @@ export const needsTail = (head: Uint8Array): boolean => {
   }
 };
 
-const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
+const decode = (
+  head: Uint8Array,
+  found: Found,
+  xmp: string[],
+  descriptions: string[],
+): PhotoMeta => {
   const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
   let tiffMeta: TiffMeta = NO_TIFF;
   for (const at of found.tiff) {
@@ -723,6 +932,16 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
   for (const x of xmp) {
     world = worldFromXmp(x);
     if (world) break;
+  }
+  let xmpPhotographer: PersonMeta | null = null;
+  for (const x of xmp) {
+    xmpPhotographer = photographerFromXmp(x);
+    if (xmpPhotographer) break;
+  }
+  let vrcx: VrcxReading | null = null;
+  for (const d of descriptions) {
+    vrcx = readVrcxJson(d);
+    if (vrcx) break;
   }
   // A scanner's XMP dates are the scan's too.
   const scanner = isScanner(tiffMeta.fileExif?.make, tiffMeta.fileExif?.model);
@@ -748,8 +967,12 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
     fileExif: tiffMeta.fileExif,
     digitizedAt: tiffMeta.digitizedAt,
     location: tiffMeta.location,
-    world,
+    // VRChat's XMP first; VRCX's for screenshots from before VRChat wrote
+    // the world there.
+    world: world ?? vrcx?.world ?? null,
     creatorTool,
+    photographer: mergePerson(xmpPhotographer, vrcx?.author ?? null),
+    vrcx: vrcx?.vrcx ?? null,
   };
 };
 
@@ -757,19 +980,27 @@ const decode = (head: Uint8Array, found: Found, xmp: string[]): PhotoMeta => {
  * The metadata in a file, from its first bytes (`head`: at least up to the
  * image data; the whole file in the uploader) and, for a PNG whose head
  * does not reach its end, its last bytes (`tail`), where some writers put
- * their text chunks. Compressed XMP is inflated with DecompressionStream.
+ * their text chunks. Compressed text is inflated with DecompressionStream.
  */
 export const readPhotoMeta = async (
   head: Uint8Array,
   tail?: Uint8Array,
 ): Promise<PhotoMeta> => {
   const found = find(head, tail);
-  const xmp = [...found.xmp];
-  for (const z of found.compressedXmp) {
-    const text = await inflateCapped(z, MAX_XMP_BYTES);
-    if (text !== null) xmp.push(text);
-  }
-  return decode(head, found, xmp);
+  const inflateAll = async (plain: string[], zs: Uint8Array[]) => {
+    const out = [...plain];
+    for (const z of zs) {
+      const text = await inflateCapped(z, MAX_XMP_BYTES);
+      if (text !== null) out.push(text);
+    }
+    return out;
+  };
+  return decode(
+    head,
+    found,
+    await inflateAll(found.xmp, found.compressedXmp),
+    await inflateAll(found.description, found.compressedDescription),
+  );
 };
 
 /** Largest XMP packet inflated (real ones are a few KB). */
@@ -934,10 +1165,10 @@ const inflateCapped = async (
   return utf8(all);
 };
 
-/** readPhotoMeta without compressed XMP (synchronous). */
+/** readPhotoMeta without compressed text (synchronous). */
 export const readPhotoMetaSync = (head: Uint8Array): PhotoMeta => {
   const found = find(head);
-  return decode(head, found, found.xmp);
+  return decode(head, found, found.xmp, found.description);
 };
 
 /** What is stored from a file (takenAt goes to media.timestamp apart). */
@@ -1019,6 +1250,8 @@ export const EMPTY_STORED: StoredMeta = {
   digitizedAt: null,
   location: null,
   world: null,
+  photographer: null,
+  vrcx: null,
 };
 
 const EXIF_TYPES = {
@@ -1088,12 +1321,32 @@ export const normalizeWorld = (v: unknown): WorldMeta | null => {
   if (typeof v !== "object" || v === null) return null;
   const o = v as Record<string, unknown>;
   const id = typeof o.id === "string" && WORLD_ID_RE.test(o.id) ? o.id : null;
-  const authorId =
-    typeof o.authorId === "string" && USER_ID_RE.test(o.authorId)
-      ? o.authorId
-      : null;
   const name = text(o.name);
-  return id || name ? { id, name, authorId } : null;
+  return id || name ? { id, name } : null;
+};
+
+/** A photographer (or player) from a request or a stored row. */
+export const normalizePerson = (v: unknown): PersonMeta | null => person(v);
+
+/** VRCX's extras from a request or media.vrcx; null when empty. */
+export const normalizeVrcx = (v: unknown): VrcxMeta | null => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const instance = instanceId(o.instance_id);
+  const list = players(o.players);
+  return instance || list.length > 0
+    ? { instance_id: instance, players: list }
+    : null;
+};
+
+/** media.vrcx read leniently. */
+export const parseVrcxColumn = (raw: string | null | undefined) => {
+  if (!raw) return null;
+  try {
+    return normalizeVrcx(JSON.parse(raw));
+  } catch {
+    return null;
+  }
 };
 
 /** A file's own EXIF from a request: normalizeExif plus its extras. */
@@ -1130,6 +1383,8 @@ export const normalizeStoredMeta = (v: unknown): StoredMeta => {
         : null,
     location: normalizeLocation(o.location),
     world: normalizeWorld(o.world),
+    photographer: normalizePerson(o.photographer),
+    vrcx: normalizeVrcx(o.vrcx),
   };
 };
 
@@ -1138,4 +1393,6 @@ export const hasMeta = (m: StoredMeta) =>
   m.exif !== null ||
   m.fileExif !== null ||
   m.location !== null ||
-  m.world !== null;
+  m.world !== null ||
+  m.photographer !== null ||
+  m.vrcx !== null;

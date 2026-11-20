@@ -275,23 +275,39 @@ describe("site-wide defaults", () => {
 });
 
 describe("world and exif", () => {
-  it("go out at their levels; the world's author never does", async () => {
+  it("go out at their levels; the photographer and VRCX's extras never do", async () => {
     const { raw, db } = setup();
     run(
       raw,
-      `UPDATE media SET world_id = 'wrld_abc', world_name = 'Cat', world_author_id = 'usr_secret',
+      `UPDATE media SET world_id = 'wrld_abc', world_name = 'Cat',
+         photographer_id = 'usr_secret', photographer_name = 'secret-name',
+         vrcx = '{"instance_id":"wrld_abc:1~secret-instance","players":[{"id":"usr_p","name":"secret-player"}]}',
          exif = '{"iso":200,"lens":"secret-lens"}', metadata_visibility = '{"world":"link","exif":"basic"}'`,
+    );
+    // Not even at the most open levels a photo can set.
+    run(
+      raw,
+      `UPDATE media SET metadata_visibility = '{"world":"link","exif":"basic","file_name":"path","taken_at":"second","camera":"model","location":"exact"}' WHERE id = 2`,
     );
     const p = await getMedia(db, "aaaaaaaaa3");
     expect(p?.world).toEqual({ id: "wrld_abc", name: "Cat" });
     expect(p?.exif).toEqual({ iso: 200 });
     const all = JSON.stringify([
+      await getMedia(db, "aaaaaaaaa2"),
       await listPublicMedia(db),
       await getPhotoForImage(db, "aaaaaaaaa3"),
       await getPathAccess(db, "/p2.png"),
     ]);
-    expect(all).not.toContain("usr_secret");
-    expect(all).not.toContain("secret-lens");
+    for (const secret of [
+      "usr_secret",
+      "secret-name",
+      "secret-instance",
+      "usr_p",
+      "secret-player",
+      "secret-lens",
+    ]) {
+      expect(all).not.toContain(secret);
+    }
   });
 });
 

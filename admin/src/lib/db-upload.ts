@@ -28,7 +28,9 @@ export const metaColumns = (meta: StoredMeta) => ({
   location_source: meta.location ? ("exif" as const) : null,
   world_id: meta.world?.id ?? null,
   world_name: meta.world?.name ?? null,
-  world_author_id: meta.world?.authorId ?? null,
+  photographer_id: meta.photographer?.id ?? null,
+  photographer_name: meta.photographer?.name ?? null,
+  vrcx: meta.vrcx ? JSON.stringify(meta.vrcx) : null,
   file_exif: meta.fileExif ? JSON.stringify(meta.fileExif) : null,
   digitized_at: meta.digitizedAt,
 });
@@ -233,9 +235,9 @@ export const initUpload = async (
     const insert = db
       .prepare(
         `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256,
-           exif, latitude, longitude, location_source, world_id, world_name, world_author_id, metadata_read_at,
+           exif, latitude, longitude, location_source, world_id, world_name, photographer_id, metadata_read_at,
            metadata_source, file_exif, digitized_at, camera_id, digitized_with,
-           metadata_visibility, width, height)
+           metadata_visibility, width, height, photographer_name, vrcx)
          VALUES (?1, ?2, ?2, ?3, ?4, ?24, ?25, 'uploading', ?5, ?6,
            ?7, ?8, ?9, ?10, ?11, ?12, ?13,
            CASE WHEN ?14 THEN MAX(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?16) END, ?15,
@@ -243,7 +245,7 @@ export const initUpload = async (
            CASE WHEN ?26 IS NOT NULL THEN ?26
                 WHEN ?19 = 'camera' THEN ${deviceId} END,
            CASE WHEN ?19 = 'digitizer' THEN ${deviceId} END,
-           ?27, ?28, ?29) RETURNING id`,
+           ?27, ?28, ?29, ?30, ?31) RETURNING id`,
       )
       .bind(
         row.publicId,
@@ -258,7 +260,7 @@ export const initUpload = async (
         meta.location_source,
         meta.world_id,
         meta.world_name,
-        meta.world_author_id,
+        meta.photographer_id,
         // Read in the browser: the backfill can skip it.
         // Read in the browser with this parser: nothing left to read. (A tab
         // still running an older one leaves it to the reader.)
@@ -278,6 +280,8 @@ export const initUpload = async (
           : null,
         size?.width ?? null,
         size?.height ?? null,
+        meta.photographer_name,
+        meta.vrcx,
       );
     // What wrote the file, on the original's media_file row (0013; the
     // trigger created it with the INSERT): what the reader would write.
