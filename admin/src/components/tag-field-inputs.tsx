@@ -118,12 +118,14 @@ export const TagFieldInputs = ({
                           </span>
                         </span>
                       </div>
-                      <div class="flex gap-2">
+                      {/* The level wraps under the value when both do
+                          not fit side by side. */}
+                      <div class="flex flex-wrap gap-2">
                         {f.type === "select" ? (
                           <select
                             id={id}
                             name={`tf.${key}`}
-                            class={[fieldClass, "min-w-0 flex-1"]}
+                            class={[fieldClass, "min-w-28 flex-1 basis-28"]}
                           >
                             <option value="" selected={value === ""}>
                               —
@@ -154,7 +156,7 @@ export const TagFieldInputs = ({
                             autoCapitalize="off"
                             autoCorrect="off"
                             spellcheck={false}
-                            class={[fieldClass, "min-w-0 flex-1"]}
+                            class={[fieldClass, "min-w-28 flex-1 basis-28"]}
                           />
                         )}
                         <label for={`${id}-level`} class="sr-only">
@@ -163,7 +165,7 @@ export const TagFieldInputs = ({
                         <select
                           id={`${id}-level`}
                           name={`tfv.${key}`}
-                          class={[fieldClass, "w-36! shrink-0"]}
+                          class={[fieldClass, "w-auto! shrink-0"]}
                         >
                           <option value="" selected={own === ""}>
                             {`デフォルト（${TAG_FIELD_LEVEL_LABELS[f.visibility]}）`}

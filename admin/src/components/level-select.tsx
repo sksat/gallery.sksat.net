@@ -80,7 +80,7 @@ export const LevelSelect = ({
         form={form}
         onChange$={onChange$}
         data-testid={`metadata-${f}`}
-        class={[field, "w-auto min-w-0 sm:w-48"]}
+        class={[field, "w-auto min-w-0 sm:w-60"]}
       >
         <option value="" selected={value === ""}>
           {`デフォルト（${labels[siteDefault]}）`}
