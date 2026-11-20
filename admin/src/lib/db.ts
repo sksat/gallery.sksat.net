@@ -1,11 +1,13 @@
 import { parseLevelMap, parseValueMap } from "@shared/tag-field/tag-field";
 import { TAKEN_ON_SQL, takenOnArgs } from "./calendar";
+import { contentVersionStatement } from "./last-good";
 import { parseOverrides } from "./metadata";
 import { parseSources } from "./metadata-source";
 import { mergeExif, parseExifColumn } from "./photo-data";
 import { normalizeFileExif, parseVrcxColumn } from "./photo-meta";
 import {
   CAMERA_KINDS,
+  type CameraImageItem,
   type CameraImageRow,
   type CameraInput,
   type CameraKind,
@@ -674,18 +676,42 @@ export const updateCamera = async (
   }
 };
 
-/** A camera's pictures in display order. */
+/** A camera's pictures in display order, a photo's with its photo. */
 export const listCameraImages = async (
   db: D1Database,
   cameraId: number,
-): Promise<CameraImageRow[]> => {
+): Promise<CameraImageItem[]> => {
   const res = await db
     .prepare(
-      "SELECT * FROM camera_image WHERE camera_id = ? ORDER BY position, id",
+      `SELECT i.*, m.file AS photo_file, m.path AS photo_path,
+         m.visibility AS photo_visibility,
+         (m.status = 'ready' AND m.trashed_at IS NULL) AS photo_live
+       FROM camera_image i LEFT JOIN media m ON m.id = i.media_id
+       WHERE i.camera_id = ? ORDER BY i.position, i.id`,
     )
     .bind(cameraId)
-    .all<CameraImageRow>();
-  return res.results ?? [];
+    .all<
+      CameraImageRow & {
+        photo_file: string | null;
+        photo_path: string | null;
+        photo_visibility: Visibility | null;
+        photo_live: number | null;
+      }
+    >();
+  return (res.results ?? []).map(
+    ({ photo_file, photo_path, photo_visibility, photo_live, ...row }) => ({
+      ...row,
+      photo:
+        row.media_id !== null && photo_file !== null
+          ? {
+              file: photo_file,
+              path: photo_path ?? photo_file,
+              visibility: photo_visibility ?? "private",
+              live: photo_live === 1,
+            }
+          : null,
+    }),
+  );
 };
 
 /** Thrown by addCameraImage when the camera already has that file. */
@@ -737,8 +763,139 @@ export const addCameraImage = async (
     ) {
       throw new DuplicateImageError(image.file);
     }
-    throw err;
+    throw photoFileError(err, image.file);
   }
+};
+
+/**
+ * Thrown when a path given as a picture's own file is a photo's file
+ * (0019's trigger): that photo is chosen as a photo instead, so that its
+ * visibility decides whether the public site shows it.
+ */
+export class PhotoFileError extends Error {
+  constructor(file: string) {
+    super(`a photo's file: ${file}`);
+    this.name = "PhotoFileError";
+  }
+}
+
+const photoFileError = (err: unknown, file: string | null): unknown =>
+  file !== null &&
+  err instanceof Error &&
+  /camera_image\.file is a photo's file/.test(err.message)
+    ? new PhotoFileError(file)
+    : err;
+
+/**
+ * A photo that may be a camera picture (0019): one the public site may
+ * show (public or unlisted, ready, not in the trash), as the API Worker's
+ * PHOTO_PICTURE_SQL checks again when serving it. `param` binds its id.
+ */
+const pickablePhotoSql = (param: string) => `SELECT 1 FROM media
+  WHERE id = ${param} AND visibility IN ('public', 'unlisted') AND ${LIVE_PHOTO}`;
+
+/** At most this many photos are added as pictures in one request. */
+export const MAX_PICTURE_PHOTOS = 50;
+
+/**
+ * Add photos `mediaIds` as pictures after the camera's last one, in that
+ * order, with the content version (one batch). A photo that is private (or
+ * in the trash, or not uploaded yet) or already a picture of the camera is
+ * left out. Returns the new pictures' ids.
+ */
+export const addPhotoPictures = async (
+  db: D1Database,
+  cameraId: number,
+  mediaIds: readonly number[],
+): Promise<number[]> => {
+  if (mediaIds.length === 0) return [];
+  const results = await db.batch<{ id: number }>([
+    ...mediaIds.map((mediaId) =>
+      db
+        .prepare(
+          `INSERT INTO camera_image (camera_id, media_id, caption, position)
+           SELECT ?1, ?2, NULL,
+             (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_image WHERE camera_id = ?1)
+           WHERE EXISTS (${pickablePhotoSql("?2")})
+           ON CONFLICT (camera_id, media_id) DO NOTHING
+           RETURNING id`,
+        )
+        .bind(cameraId, mediaId),
+    ),
+    contentVersionStatement(db),
+  ]);
+  return results
+    .slice(0, mediaIds.length)
+    .flatMap((r) => (r.results ?? []).map((x) => x.id));
+};
+
+/**
+ * Undo of addPhotoPictures: those pictures off the camera again, with the
+ * content version (one batch). Only photos' pictures.
+ */
+export const removePhotoPictures = async (
+  db: D1Database,
+  cameraId: number,
+  imageIds: readonly number[],
+): Promise<void> => {
+  if (imageIds.length === 0) return;
+  await db.batch([
+    db
+      .prepare(
+        `DELETE FROM camera_image WHERE camera_id = ?1 AND media_id IS NOT NULL
+           AND id IN (SELECT value FROM json_each(?2))`,
+      )
+      .bind(cameraId, JSON.stringify(imageIds)),
+    contentVersionStatement(db),
+  ]);
+};
+
+/** A photo the picker offers (photo-picker.tsx). */
+export type PickerPhoto = {
+  id: number;
+  file: string;
+  path: string;
+  platform: MediaPlatform;
+  /** As stored (a Visibility). */
+  visibility: string;
+  timestamp: string | null;
+};
+
+/** The picker's page size. */
+export const PICKER_PAGE = 40;
+
+/**
+ * One page of the listed photos under folder `dir` ("/" for all), by
+ * path, after `after` (the last path of the page before, or ""): a range
+ * of idx_media_path_live, so a page reads about PICKER_PAGE rows whatever
+ * the library's size. One more row tells whether there is a next page.
+ */
+export const PICKER_PHOTOS_SQL = `SELECT id, file, path, platform, visibility, timestamp
+  FROM media INDEXED BY idx_media_path_live
+  WHERE trashed_at IS NULL AND path >= ?1 AND path < ?2 AND path > ?3
+    AND +status = 'ready'
+  ORDER BY path LIMIT ?4`;
+
+export const listPickerPhotos = async (
+  db: D1Database,
+  dir: string,
+  after: string,
+): Promise<{ photos: PickerPhoto[]; more: boolean }> => {
+  const prefix = dir.endsWith("/") ? dir : `${dir}/`;
+  // Everything starting with the prefix: up to the prefix with its last
+  // character's successor ("/" + 1 = "0").
+  const end = prefix.slice(0, -1) + "0";
+  const rows =
+    (
+      await db
+        .prepare(PICKER_PHOTOS_SQL)
+        .bind(prefix, end, after, PICKER_PAGE + 1)
+        .all<PickerPhoto>()
+    ).results ?? [];
+  return {
+    photos: rows.slice(0, PICKER_PAGE),
+    more: rows.length > PICKER_PAGE,
+  };
 };
 
 /**
@@ -765,15 +922,22 @@ export const updateCameraImageCaption = async (
   return (res.meta.changes ?? 0) > 0;
 };
 
+/** A picture as its undo puts it back: its own file, or a photo (0019). */
+export type PictureRef = {
+  file: string | null;
+  media_id: number | null;
+  caption: string | null;
+};
+
 /**
- * Remove a picture. Returns what undo needs (its file, caption and index
- * in the order), or null when this camera has no such picture.
+ * Remove a picture. Returns what undo needs (its file or photo, caption
+ * and index in the order), or null when this camera has no such picture.
  */
 export const removeCameraImage = async (
   db: D1Database,
   cameraId: number,
   imageId: number,
-): Promise<{ file: string; caption: string | null; index: number } | null> => {
+): Promise<(PictureRef & { index: number }) | null> => {
   const images = await listCameraImages(db, cameraId);
   const index = images.findIndex((img) => img.id === imageId);
   if (index === -1) return null;
@@ -782,8 +946,8 @@ export const removeCameraImage = async (
     .bind(imageId, cameraId)
     .run();
   if ((res.meta.changes ?? 0) === 0) return null;
-  const { file, caption } = images[index];
-  return { file, caption, index };
+  const { file, media_id, caption } = images[index];
+  return { file, media_id, caption, index };
 };
 
 /**
@@ -797,40 +961,71 @@ export const removeCameraImage = async (
  */
 export const restoreCameraImageStatements = (
   cameraId: number,
-  image: { file: string; caption: string | null },
+  image: PictureRef,
   index: number,
-): { sql: string; args: unknown[] }[] => [
-  {
-    sql: `INSERT INTO camera_image (camera_id, file, caption, position)
-     SELECT ?1, ?2, ?3, COALESCE(
+): { sql: string; args: unknown[] }[] => {
+  // The picture is the one row of the camera with this file and photo
+  // (IS: one of them is NULL).
+  const self = "file IS ?2 AND media_id IS ?5";
+  return [
+    {
+      // A file only while no upload or 削除 holds its path; a photo only
+      // while it may be a picture (made private meanwhile: not again).
+      sql: `INSERT INTO camera_image (camera_id, file, media_id, caption, position)
+     SELECT ?1, ?2, ?5, ?3, COALESCE(
        (SELECT position FROM camera_image WHERE camera_id = ?1
         ORDER BY position, id LIMIT 1 OFFSET ?4),
        (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_image
         WHERE camera_id = ?1))
-     WHERE ${PATH_FREE_SQL}`,
-    args: [cameraId, image.file, image.caption, Math.max(0, index)],
-  },
-  {
-    // The rows from `index` on (by position, then id, so ties keep their
-    // order), the inserted one aside.
-    sql: `UPDATE camera_image SET position = position + 1
-     WHERE camera_id = ?1 AND file <> ?2 AND (position, id) >=
-       (SELECT position, id FROM camera_image WHERE camera_id = ?1 AND file <> ?2
+     WHERE (?2 IS NULL OR ${PATH_FREE_SQL})
+       AND (?5 IS NULL OR EXISTS (${pickablePhotoSql("?5")}))`,
+      args: [
+        cameraId,
+        image.file,
+        image.caption,
+        Math.max(0, index),
+        image.media_id,
+      ],
+    },
+    {
+      // The rows from `index` on (by position, then id, so ties keep their
+      // order), the inserted one aside; only when it was inserted.
+      sql: `UPDATE camera_image SET position = position + 1
+     WHERE camera_id = ?1 AND NOT (${self}) AND (position, id) >=
+       (SELECT position, id FROM camera_image WHERE camera_id = ?1 AND NOT (${self})
         ORDER BY position, id LIMIT 1 OFFSET ?3)
-       AND ${PATH_FREE_SQL}`,
-    args: [cameraId, image.file, Math.max(0, index)],
-  },
-];
+       AND EXISTS (SELECT 1 FROM camera_image WHERE camera_id = ?1 AND ${self})`,
+      args: [
+        cameraId,
+        image.file,
+        Math.max(0, index),
+        null,
+        image.media_id,
+      ],
+    },
+  ];
+};
+
+/**
+ * Thrown by restoreCameraImage when the photo of a removed picture may no
+ * longer be one (made private, or in the trash, meanwhile).
+ */
+export class PhotoNotPickableError extends Error {
+  constructor() {
+    super("the photo is private or gone");
+    this.name = "PhotoNotPickableError";
+  }
+}
 
 /**
  * Undo of a removal: add the picture back at `index` (0-based) of the
- * current order, in one batch. Throws DuplicateImageError if the file was
- * added again meanwhile (and then changes nothing).
+ * current order, in one batch. Throws DuplicateImageError if the file or
+ * photo was added again meanwhile (and then changes nothing).
  */
 export const restoreCameraImage = async (
   db: D1Database,
   cameraId: number,
-  image: { file: string; caption: string | null },
+  image: PictureRef,
   index: number,
 ): Promise<void> => {
   let inserted!: D1Result;
@@ -845,10 +1040,15 @@ export const restoreCameraImage = async (
       err instanceof Error &&
       /UNIQUE constraint failed: camera_image\./.test(err.message)
     ) {
-      throw new DuplicateImageError(image.file);
+      throw new DuplicateImageError(image.file ?? "the photo");
     }
-    throw err;
+    throw photoFileError(err, image.file);
   }
-  // Held by an upload or a 削除: nothing was inserted (nor moved).
-  if ((inserted.meta.changes ?? 0) === 0) throw new PathBusyError(image.file);
+  // Nothing was inserted (nor moved): the file is held by an upload or a
+  // 削除, or the photo may no longer be a picture.
+  if ((inserted.meta.changes ?? 0) === 0) {
+    throw image.file === null
+      ? new PhotoNotPickableError()
+      : new PathBusyError(image.file);
+  }
 };

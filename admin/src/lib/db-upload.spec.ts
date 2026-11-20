@@ -457,6 +457,16 @@ describe("initUpload lookups", () => {
     ).toMatchObject({ kind: "upload", file: "/n/a-50.png" });
   });
 
+  it("never takes a camera picture's object (0019)", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`INSERT INTO camera (id, slug, name) VALUES (1, 'c', 'C');
+      INSERT INTO camera_image (camera_id, file) VALUES
+        (1, '/n/a.png'), (1, '/n/a-1.png');`);
+    expect(
+      await initUpload(sqliteD1(raw), init({ file: "/n/a.png" }), row),
+    ).toMatchObject({ kind: "upload", file: "/n/a-2.png" });
+  });
+
   it("reads indexes, never all of media", () => {
     const raw = migratedSqlite();
     for (const { sql, args } of initLookups(SHA_A, "/d/x.png")) {
@@ -469,7 +479,7 @@ describe("initUpload lookups", () => {
         .join("\n");
       expect(plan).not.toMatch(/\bSCAN\b|json_each/);
       expect(plan).toMatch(
-        /SEARCH (media|f|media_file) USING (COVERING )?INDEX/,
+        /SEARCH (media|f|media_file|camera_image) USING (COVERING )?INDEX/,
       );
     }
   });

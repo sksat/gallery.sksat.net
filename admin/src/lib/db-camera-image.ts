@@ -223,12 +223,15 @@ export const addUploadedPicture = async (
   return (inserted.results ?? [])[0]?.id ?? null;
 };
 
-/** One picture of the camera, with whether its object is shared. */
+/**
+ * One picture of the camera, with whether its object is shared; `file` is
+ * null for a photo (0019), whose objects are the photo's.
+ */
 export const getCameraImage = async (
   db: D1Database,
   cameraId: number,
   imageId: number,
-): Promise<{ file: string; shared: boolean } | null> => {
+): Promise<{ file: string | null; shared: boolean } | null> => {
   const row = await db
     .prepare(
       `SELECT i.file, (EXISTS (SELECT 1 FROM media_file f
@@ -238,7 +241,7 @@ export const getCameraImage = async (
        FROM camera_image i WHERE i.id = ? AND i.camera_id = ?`,
     )
     .bind(imageId, cameraId)
-    .first<{ file: string; shared: number }>();
+    .first<{ file: string | null; shared: number }>();
   return row ? { file: row.file, shared: row.shared !== 0 } : null;
 };
 

@@ -1459,9 +1459,9 @@ describe("0014_platform.sql", () => {
       db.exec("UPDATE media SET public_id = 'zzzzzzzzzz' WHERE id = 1"),
     ).toThrow(/cannot be changed/);
     // In use: not deleted.
-    expect(() =>
-      db.exec("DELETE FROM platform WHERE key = 'Neos-VR'"),
-    ).toThrow(/FOREIGN KEY/);
+    expect(() => db.exec("DELETE FROM platform WHERE key = 'Neos-VR'")).toThrow(
+      /FOREIGN KEY/,
+    );
   });
 
   it("refuses malformed keys, names and kinds", () => {
@@ -1581,5 +1581,139 @@ describe("0015_photographer_vrcx.sql", () => {
         /CHECK/,
       );
     }
+  });
+});
+
+describe("0019_camera_image_media.sql", () => {
+  const dir = resolve(__dirname, "../../migrations");
+  /** Every migration before 0019, then `rows`, then the rest. */
+  const migrate19 = (rows: string) => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    const names = readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    for (const f of names.filter((f) => f < "0019")) db.exec(migration(f));
+    db.exec(rows);
+    for (const f of names.filter((f) => f >= "0019")) db.exec(migration(f));
+    return db;
+  };
+  const ROWS = `
+    INSERT INTO camera (id, slug, name) VALUES (1, 'a', 'A'), (2, 'b', 'B');
+    INSERT INTO media (id, file, platform, visibility) VALUES
+      (1, '/r/p.png', 'Real', 'public'), (2, '/r/q.png', 'Real', 'private');
+    INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status)
+      SELECT 100, 1, 'edit', '/r/p_edit.jpg', id, 'ready' FROM media_file
+      WHERE media_id = 1 AND role = 'original';
+    INSERT INTO camera_image (id, camera_id, file, position, caption) VALUES
+      (1, 1, '/camera/a/front.png', 0, 'Front'),
+      (2, 1, '/r/p.png', 1, 'Photo'),
+      -- Another file of the same photo: one picture per camera and photo.
+      (3, 1, '/r/p_edit.jpg', 2, NULL),
+      (4, 2, '/r/q.png', 0, NULL),
+      (5, 2, '/camera/a/front.png', 1, NULL);`;
+
+  it("turns pictures that are a photo's file into references to the photo", () => {
+    const db = migrate19(ROWS);
+    expect(
+      db
+        .prepare(
+          "SELECT id, camera_id, file, media_id, position, caption FROM camera_image ORDER BY id",
+        )
+        .all(),
+    ).toEqual([
+      {
+        id: 1,
+        camera_id: 1,
+        file: "/camera/a/front.png",
+        media_id: null,
+        position: 0,
+        caption: "Front",
+      },
+      {
+        id: 2,
+        camera_id: 1,
+        file: null,
+        media_id: 1,
+        position: 1,
+        caption: "Photo",
+      },
+      {
+        id: 4,
+        camera_id: 2,
+        file: null,
+        media_id: 2,
+        position: 0,
+        caption: null,
+      },
+      {
+        id: 5,
+        camera_id: 2,
+        file: "/camera/a/front.png",
+        media_id: null,
+        position: 1,
+        caption: null,
+      },
+    ]);
+    // Their API answers changed: a new content version, and only then.
+    const version = (d: DatabaseSync) =>
+      d
+        .prepare("SELECT value FROM setting WHERE key = 'content_version'")
+        .get();
+    expect(version(db)).toEqual({
+      value: expect.stringMatching(/^"[0-9a-f]{24}"$/),
+    });
+    expect(
+      version(
+        migrate19(
+          "INSERT INTO camera (id, slug, name) VALUES (1, 'a', 'A'); INSERT INTO camera_image (camera_id, file) VALUES (1, '/camera/a/x.png');",
+        ),
+      ),
+    ).toBeUndefined();
+    // New rows continue after the old ids.
+    db.exec(
+      "INSERT INTO camera_image (camera_id, file) VALUES (1, '/camera/a/n.png')",
+    );
+    expect(db.prepare("SELECT MAX(id) AS id FROM camera_image").get()).toEqual({
+      id: 6,
+    });
+  });
+
+  it("keeps a picture's file and a photo's files apart from now on", () => {
+    const db = migrate19(ROWS);
+    const raises = (sql: string, msg: RegExp) =>
+      expect(() => db.exec(sql), sql).toThrow(msg);
+    // Exactly one of file and media_id.
+    raises(
+      "INSERT INTO camera_image (camera_id, file, media_id) VALUES (1, '/camera/a/x.png', 2)",
+      /CHECK/,
+    );
+    raises("INSERT INTO camera_image (camera_id) VALUES (1)", /CHECK/);
+    raises(
+      "INSERT INTO camera_image (camera_id, media_id) VALUES (1, 1)",
+      /UNIQUE/,
+    );
+    // A photo's file is no picture's own, and the other way round.
+    raises(
+      "INSERT INTO camera_image (camera_id, file) VALUES (2, '/r/p_edit.jpg')",
+      /photo's file/,
+    );
+    raises(
+      "UPDATE camera_image SET file = '/r/p.png' WHERE id = 1",
+      /photo's file/,
+    );
+    raises(
+      "INSERT INTO media (file, platform) VALUES ('/camera/a/front.png', 'Real')",
+      /camera picture's file/,
+    );
+    raises(
+      "UPDATE media_file SET object_key = '/camera/a/front.png' WHERE id = 100",
+      /camera picture's file/,
+    );
+    // Deleting a photo for good takes its pictures with it.
+    db.exec("DELETE FROM media WHERE id = 2");
+    expect(
+      db.prepare("SELECT id FROM camera_image WHERE camera_id = 2").all(),
+    ).toEqual([{ id: 5 }]);
   });
 });

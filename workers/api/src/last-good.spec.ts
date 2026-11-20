@@ -32,8 +32,7 @@ const FIXTURE = `
     (3, 'cam-c', 'C', NULL, NULL);
   INSERT INTO camera_image (camera_id, file, caption, position) VALUES
     (1, '/camera/cam-a/front.png', 'front', 0),
-    (1, '/camera/cam-a/back.png', NULL, 1),
-    (3, '/V/p.png', NULL, 0);
+    (1, '/camera/cam-a/back.png', NULL, 1);
   INSERT INTO tag (name, public) VALUES ('pub', 1), ('secret', 0);
   INSERT INTO media (id, public_id, file, path, platform, timestamp, tags, visibility, metadata_visibility, camera_id) VALUES
     (1, 'aaaaaaaaa2', '/p1.png', '/p1.png', 'Real', '2023-12-01T00:00:00Z', '["pub","secret"]', 'public', '{"file_name":"path"}', 1),
@@ -45,6 +44,9 @@ const FIXTURE = `
     (6, 'aaaaaaaaa7', '/t.png', 'Real', 'public', '2023-12-05T00:00:00Z');
   INSERT INTO media (id, public_id, file, platform, visibility, status) VALUES
     (7, 'aaaaaaaaa8', '/up.png', 'Real', 'public', 'uploading');
+  -- Pictures that are photos: a private one (never shown) and a public one.
+  INSERT INTO camera_image (id, camera_id, media_id, position) VALUES
+    (10, 3, 3, 0), (11, 1, 1, 2);
 `;
 
 /** A D1 that can be switched to failing every query, counting queries. */
@@ -207,6 +209,8 @@ const IMG_PATHS = [
   "/t.png",
   "/camera/cam-a/front.png",
   "/camera/cam-a/back.png",
+  "/camera/cam-c/10.photo.jpg",
+  "/camera/cam-a/11.photo.jpg",
   "/nothing.png",
 ];
 

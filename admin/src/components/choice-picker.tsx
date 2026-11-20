@@ -145,8 +145,9 @@ export const ChoicePicker = component$<Props>(
                       file={c.image}
                       platform={null}
                       imageBase={imageBase}
+                      // A picture's own object is no photo's file (0019),
+                      // and a photo's picture is resized as it is shown.
                       variant="list"
-                      exact
                       class="size-10 shrink-0 rounded-md object-cover"
                     />
                   ) : (

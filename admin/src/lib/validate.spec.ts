@@ -450,4 +450,18 @@ describe("validateCameraImage", () => {
       validateCameraImage({ file: "/a.png", caption: "a".repeat(201) }).ok,
     ).toBe(false);
   });
+
+  it("keeps the public path of a photo's picture free (0019)", () => {
+    expect(
+      validateCameraImage({ file: "/camera/vl2/12.photo.jpg", caption: "" })
+        .ok,
+    ).toBe(false);
+    for (const file of [
+      "/camera/vl2/photo-12.jpg",
+      "/camera/vl2/photo.jpg",
+      "/x/12.photo.jpg",
+    ]) {
+      expect(validateCameraImage({ file, caption: "" }).ok, file).toBe(true);
+    }
+  });
 });

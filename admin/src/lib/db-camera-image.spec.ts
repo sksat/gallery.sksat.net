@@ -11,7 +11,20 @@ import {
   sharedCameraImages,
   takenPictureNames,
 } from "./db-camera-image";
-import { addCameraImage, PathBusyError, restoreCameraImage } from "./db";
+import {
+  addCameraImage,
+  addPhotoPictures,
+  listCameraImages,
+  listPickerPhotos,
+  PathBusyError,
+  PhotoFileError,
+  PhotoNotPickableError,
+  PICKER_PAGE,
+  PICKER_PHOTOS_SQL,
+  removeCameraImage,
+  removePhotoPictures,
+  restoreCameraImage,
+} from "./db";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 // The camera pictures' queries on the real schema (node:sqlite).
@@ -19,14 +32,14 @@ const setup = () => {
   const raw = migratedSqlite();
   raw.exec(`
     INSERT INTO camera (id, slug, name) VALUES (1, 'a', 'A'), (2, 'b', 'B');
-    INSERT INTO camera_image (id, camera_id, file, position) VALUES
-      (10, 1, '/camera/a/front.png', 0),
-      (11, 1, '/camera/a/back.png', 1),
-      (12, 1, '/camera/a/side.png', 2),
-      (13, 1, '/VRChat/photo.png', 3),
-      (20, 2, '/camera/a/back.png', 0),
-      (21, 2, '/camera/a/front-1.png', 1);
     INSERT INTO media (id, file, platform) VALUES (1, '/VRChat/photo.png', 'VRChat');
+    INSERT INTO camera_image (id, camera_id, file, media_id, position) VALUES
+      (10, 1, '/camera/a/front.png', NULL, 0),
+      (11, 1, '/camera/a/back.png', NULL, 1),
+      (12, 1, '/camera/a/side.png', NULL, 2),
+      (13, 1, NULL, 1, 3),
+      (20, 2, '/camera/a/back.png', NULL, 0),
+      (21, 2, '/camera/a/front-1.png', NULL, 1);
   `);
   return { raw, db: sqliteD1(raw) };
 };
@@ -91,9 +104,14 @@ describe("setCameraImageOrder against a picture added meanwhile", () => {
 });
 
 describe("shared objects", () => {
-  it("marks pictures whose object a photo or another camera uses", async () => {
+  it("marks pictures whose object another camera uses", async () => {
     const { db } = setup();
-    expect([...(await sharedCameraImages(db, 1))].sort()).toEqual([11, 13]);
+    // 13 is a photo (0019): no object of its own.
+    expect([...(await sharedCameraImages(db, 1))].sort()).toEqual([11]);
+    expect(await getCameraImage(db, 1, 13)).toEqual({
+      file: null,
+      shared: false,
+    });
     expect(await getCameraImage(db, 1, 10)).toEqual({
       file: "/camera/a/front.png",
       shared: false,
@@ -199,7 +217,7 @@ describe("deleteCameraImageRow", () => {
       restoreCameraImage(
         db,
         2,
-        { file: "/camera/a/back.png", caption: null },
+        { file: "/camera/a/back.png", media_id: null, caption: null },
         0,
       ),
     ).rejects.toBeInstanceOf(PathBusyError);
@@ -209,7 +227,7 @@ describe("deleteCameraImageRow", () => {
     await restoreCameraImage(
       db,
       2,
-      { file: "/camera/a/other.png", caption: null },
+      { file: "/camera/a/other.png", media_id: null, caption: null },
       0,
     );
     expect(order(raw, 2)).toHaveLength(2);
@@ -234,5 +252,142 @@ describe("deleteCameraImageRow", () => {
     expect((await addCameraImage(db, 2, { file, caption: null })).file).toBe(
       file,
     );
+  });
+});
+
+describe("photos as pictures (0019)", () => {
+  /** setup() plus photos 2 (public), 3 (unlisted), 4 (private), 5 (trashed). */
+  const photos = () => {
+    const t = setup();
+    t.raw.exec(`
+      UPDATE media SET visibility = 'public' WHERE id = 1;
+      INSERT INTO media (id, file, path, platform, visibility, trashed_at) VALUES
+        (2, '/r/b.png', '/r/b.png', 'Real', 'public', NULL),
+        (3, '/r/c.png', '/r/c.png', 'Real', 'unlisted', NULL),
+        (4, '/r/d.png', '/r/d.png', 'Real', 'private', NULL),
+        (5, '/r/e.png', '/r/e.png', 'Real', 'public', '2026-11-01T00:00:00Z');
+      INSERT INTO media (id, file, path, platform, visibility, status) VALUES
+        (6, '/r/f.png', '/r/f.png', 'Real', 'public', 'uploading');`);
+    return t;
+  };
+
+  it("adds public and unlisted photos at the end, with the content version", async () => {
+    const { raw, db } = photos();
+    // 1 is a picture of camera 1 already; 4-6 cannot be pictures.
+    const added = await addPhotoPictures(db, 1, [3, 4, 1, 5, 6, 2]);
+    expect(added).toHaveLength(2);
+    expect(
+      raw
+        .prepare(
+          "SELECT media_id FROM camera_image WHERE camera_id = 1 ORDER BY position, id",
+        )
+        .all()
+        .map((r) => r.media_id),
+    ).toEqual([null, null, null, 1, 3, 2]);
+    expect(version(raw)).toBeDefined();
+    // Undo: those pictures only.
+    await removePhotoPictures(db, 1, added);
+    expect(order(raw, 1)).toEqual([10, 11, 12, 13]);
+  });
+
+  it("lists a photo's picture with its photo", async () => {
+    const { raw, db } = photos();
+    raw.exec("UPDATE media SET path = '/moved/photo.png' WHERE id = 1");
+    const images = await listCameraImages(db, 1);
+    expect(images.at(-1)).toMatchObject({
+      id: 13,
+      file: null,
+      media_id: 1,
+      photo: {
+        file: "/VRChat/photo.png",
+        path: "/moved/photo.png",
+        visibility: "public",
+        live: true,
+      },
+    });
+    expect(images[0].photo).toBeNull();
+  });
+
+  it("puts a removed photo back only while it may be a picture", async () => {
+    const { raw, db } = photos();
+    const [id] = await addPhotoPictures(db, 2, [2]);
+    const removed = await removeCameraImage(db, 2, id);
+    expect(removed).toEqual({
+      file: null,
+      media_id: 2,
+      caption: null,
+      index: 2,
+    });
+    raw.exec("UPDATE media SET visibility = 'private' WHERE id = 2");
+    await expect(
+      restoreCameraImage(db, 2, removed!, removed!.index),
+    ).rejects.toBeInstanceOf(PhotoNotPickableError);
+    expect(order(raw, 2)).toEqual([20, 21]);
+    raw.exec("UPDATE media SET visibility = 'unlisted' WHERE id = 2");
+    await restoreCameraImage(db, 2, removed!, 0);
+    expect(
+      raw
+        .prepare(
+          "SELECT media_id FROM camera_image WHERE camera_id = 2 ORDER BY position, id",
+        )
+        .all()
+        .map((r) => r.media_id),
+    ).toEqual([2, null, null]);
+  });
+
+  it("refuses a photo's file as a picture's own file", async () => {
+    const { db } = photos();
+    await expect(
+      addCameraImage(db, 2, { file: "/r/d.png", caption: null }),
+    ).rejects.toBeInstanceOf(PhotoFileError);
+  });
+});
+
+describe("listPickerPhotos", () => {
+  const library = () => {
+    const raw = migratedSqlite();
+    const insert = raw.prepare(
+      "INSERT INTO media (file, platform, visibility) VALUES (?, 'Real', 'public')",
+    );
+    for (let i = 0; i < PICKER_PAGE + 5; i++) {
+      insert.run(`/a/${String(i).padStart(3, "0")}.png`);
+    }
+    insert.run("/b/x.png");
+    insert.run("/a-other/y.png");
+    raw.exec(`INSERT INTO media (file, platform, status) VALUES ('/a/zz.png', 'Real', 'uploading');
+      UPDATE media SET trashed_at = '2026-11-01T00:00:00Z' WHERE file = '/a/000.png';`);
+    return { raw, db: sqliteD1(raw) };
+  };
+
+  it("pages through a folder by path, live photos only", async () => {
+    const { db } = library();
+    const first = await listPickerPhotos(db, "/a", "");
+    expect(first.photos).toHaveLength(PICKER_PAGE);
+    expect(first.photos[0].path).toBe("/a/001.png");
+    expect(first.more).toBe(true);
+    const next = await listPickerPhotos(db, "/a/", first.photos.at(-1)!.path);
+    expect(next.photos.map((p) => p.path)).toEqual([
+      "/a/041.png",
+      "/a/042.png",
+      "/a/043.png",
+      "/a/044.png",
+    ]);
+    expect(next.more).toBe(false);
+    expect((await listPickerPhotos(db, "/", "")).photos[0].path).toBe(
+      "/a-other/y.png",
+    );
+  });
+
+  it("reads a range of the path index", () => {
+    const { raw } = library();
+    const plan = (
+      raw
+        .prepare(`EXPLAIN QUERY PLAN ${PICKER_PHOTOS_SQL}`)
+        .all("/a/", "/a0", "", 41) as { detail: string }[]
+    )
+      .map((r) => r.detail)
+      .join("\n");
+    expect(plan).toMatch(/SEARCH media USING INDEX idx_media_path_live/);
+    expect(plan).not.toMatch(/SCAN|TEMP B-TREE/);
   });
 });

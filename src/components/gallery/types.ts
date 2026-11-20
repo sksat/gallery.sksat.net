@@ -42,7 +42,11 @@ export type CameraJSON = {
   description: string | null;
   /** The camera's product page (http/https). */
   productUrl: string | null;
-  /** Pictures of the camera itself, in display order (bucket paths). */
+  /**
+   * Pictures of the camera itself, in display order: bucket paths, or
+   * `/camera/<slug>/<n>.photo.jpg` for a photo chosen as one (served only
+   * by the image Worker).
+   */
   images: CameraImageJSON[];
 };
 
