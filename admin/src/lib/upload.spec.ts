@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   checkUploadLimits,
+  displayKey,
+  displaySize,
   formatUploadSize,
   formatMegapixelsUp,
   groupDigits,
+  MAX_ORIGINAL_BYTES,
   MAX_UPLOAD_BYTES,
+  needsDisplayCopy,
+  resizeLimitsProblem,
   safeSegment,
   uploadContentType,
   uploadTarget,
@@ -96,6 +101,13 @@ describe("validateUploadInit", () => {
     contentType: "image/png",
     sha256: "0".repeat(64),
     timestamp: "2026-11-18T01:02:03.456+09:00",
+  };
+  /** A display copy within the limits (of a 13,000 × 200 original). */
+  const display = {
+    size: 4321,
+    width: 8192,
+    height: 126,
+    sha256: "d".repeat(64),
   };
 
   it("accepts a well-formed request", () => {
@@ -201,6 +213,7 @@ describe("validateUploadInit", () => {
       { ...ok, file: "/a b/c.png" },
       { ...ok, size: 0 },
       { ...ok, size: MAX_UPLOAD_BYTES + 1 },
+      { ...ok, size: MAX_ORIGINAL_BYTES + 1, display },
       { ...ok, size: 1.5 },
       { ...ok, contentType: "image/jpeg" },
       { ...ok, sha256: "A".repeat(64) },
@@ -244,6 +257,49 @@ describe("validateUploadInit", () => {
     });
   });
 
+  it("accepts an original over the limits with a display copy within them", () => {
+    const wide = { ...ok, width: 13_000, height: 200, display };
+    expect(validateUploadInit(wide)).toEqual({
+      ok: true,
+      init: { ...ok, dimensions: { width: 13_000, height: 200 }, display },
+    });
+    // Over by size only, dimensions unknown.
+    expect(
+      validateUploadInit({ ...ok, size: 123_400_000, display }),
+    ).toMatchObject({ ok: true, init: { size: 123_400_000, display } });
+  });
+
+  it("refuses a display copy that is off, over the limits or not needed", () => {
+    const wide = { ...ok, width: 13_000, height: 200 };
+    expect(validateUploadInit({ ...ok, display })).toEqual({
+      ok: false,
+      error: "この画像には縮小版は要りません",
+    });
+    expect(
+      validateUploadInit({
+        ...wide,
+        display: { ...display, width: 12_001 },
+      }),
+    ).toEqual({
+      ok: false,
+      error:
+        "縮小版の画像が大きすぎます：12,001 × 126 px。1 辺 12,000 px までです。",
+    });
+    for (const bad of [
+      [],
+      "x",
+      { ...display, sha256: "x" },
+      { ...display, size: 0 },
+      { ...display, width: 1.5 },
+      { ...display, height: undefined },
+    ]) {
+      expect(
+        validateUploadInit({ ...wide, display: bad }),
+        JSON.stringify(bad),
+      ).toEqual({ ok: false, error: "縮小版の値が正しくありません" });
+    }
+  });
+
   it("answers in Japanese, without raw byte counts", () => {
     for (const bad of [
       null,
@@ -260,50 +316,106 @@ describe("validateUploadInit", () => {
   });
 });
 
-describe("checkUploadLimits", () => {
+describe("resizeLimitsProblem / needsDisplayCopy", () => {
   it("lets through what Cloudflare can resize", () => {
-    expect(checkUploadLimits({ size: MAX_UPLOAD_BYTES })).toBeNull();
-    expect(
-      checkUploadLimits({ size: 40_000_000, width: 7680, height: 4320 }),
-    ).toBeNull();
-    expect(
-      checkUploadLimits({ size: 1, width: 12_000, height: 8_333 }),
-    ).toBeNull();
-    // Exactly at the limits.
-    expect(checkUploadLimits({ size: 1, width: 12_000, height: 1 })).toBeNull();
-    expect(
-      checkUploadLimits({ size: 1, width: 10_000, height: 10_000 }),
-    ).toBeNull();
-    expect(
-      checkUploadLimits({ size: 1, width: 12_001, height: 1 }),
-    ).not.toBeNull();
-    // Unknown dimensions: only the size counts.
-    expect(
-      checkUploadLimits({ size: 1, width: null, height: null }),
-    ).toBeNull();
+    for (const f of [
+      { size: MAX_UPLOAD_BYTES },
+      { size: 40_000_000, width: 7680, height: 4320 },
+      { size: 1, width: 12_000, height: 8_333 },
+      // Exactly at the limits.
+      { size: 1, width: 12_000, height: 1 },
+      { size: 1, width: 10_000, height: 10_000 },
+      // Unknown dimensions: only the size counts.
+      { size: 1, width: null, height: null },
+    ]) {
+      expect(resizeLimitsProblem(f), JSON.stringify(f)).toBeNull();
+      expect(needsDisplayCopy(f), JSON.stringify(f)).toBe(false);
+    }
+    expect(needsDisplayCopy({ size: 0 })).toBe(false);
   });
 
-  it("says why in readable units", () => {
-    expect(checkUploadLimits({ size: 123_400_000 })).toBe(
-      "ファイルが大きすぎます：123.4 MB（117.7 MiB）。上限は 100 MB（95.4 MiB）です。",
-    );
-    // Just over the limit never reads as the limit.
-    expect(checkUploadLimits({ size: MAX_UPLOAD_BYTES + 1 })).toBe(
-      "ファイルが大きすぎます：100.1 MB（95.4 MiB）。上限は 100 MB（95.4 MiB）です。",
-    );
+  it("says why in readable units, and wants a display copy then", () => {
+    const cases: [Parameters<typeof resizeLimitsProblem>[0], string][] = [
+      [
+        { size: 123_400_000 },
+        "ファイルが大きすぎます：123.4 MB（117.7 MiB）。上限は 100 MB（95.4 MiB）です。",
+      ],
+      // Just over the limit never reads as the limit.
+      [
+        { size: MAX_UPLOAD_BYTES + 1 },
+        "ファイルが大きすぎます：100.1 MB（95.4 MiB）。上限は 100 MB（95.4 MiB）です。",
+      ],
+      [
+        { size: 1, width: 13_000, height: 9_000 },
+        "画像が大きすぎます：13,000 × 9,000 px。1 辺 12,000 px までです。",
+      ],
+      [
+        { size: 1, width: 5_000, height: 12_001 },
+        "画像が大きすぎます：5,000 × 12,001 px。1 辺 12,000 px までです。",
+      ],
+      [
+        { size: 1, width: 12_000, height: 10_000 },
+        "画素数が多すぎます：120 MP。上限は 100 MP です。",
+      ],
+      [
+        { size: 1, width: 10_001, height: 10_000 },
+        "画素数が多すぎます：100.1 MP。上限は 100 MP です。",
+      ],
+    ];
+    for (const [f, words] of cases) {
+      expect(resizeLimitsProblem(f)).toBe(words);
+      expect(needsDisplayCopy(f)).toBe(true);
+    }
+  });
+});
+
+describe("checkUploadLimits", () => {
+  it("refuses only an empty file or one over a single PUT", () => {
     expect(checkUploadLimits({ size: 0 })).toBe("空のファイルです");
-    expect(checkUploadLimits({ size: 1, width: 13_000, height: 9_000 })).toBe(
-      "画像が大きすぎます：13,000 × 9,000 px。1 辺 12,000 px までです。",
+    expect(checkUploadLimits({ size: 123_400_000 })).toBeNull();
+    expect(checkUploadLimits({ size: MAX_ORIGINAL_BYTES })).toBeNull();
+    expect(checkUploadLimits({ size: MAX_ORIGINAL_BYTES + 1 })).not.toBeNull();
+    expect(checkUploadLimits({ size: 5_100_000_000 })).toBe(
+      "ファイルが大きすぎます：5.1 GB（4.8 GiB）。上限は 5 GB（4.7 GiB）です。",
     );
-    expect(checkUploadLimits({ size: 1, width: 5_000, height: 12_001 })).toBe(
-      "画像が大きすぎます：5,000 × 12,001 px。1 辺 12,000 px までです。",
+  });
+});
+
+describe("displaySize", () => {
+  it("scales the long side down to the maximum, keeping the aspect", () => {
+    expect(displaySize(13_000, 200, 8192)).toEqual({
+      width: 8192,
+      height: 126,
+    });
+    expect(displaySize(9_000, 16_000, 8192)).toEqual({
+      width: 4608,
+      height: 8192,
+    });
+    expect(displaySize(12_000, 10_000, 4096)).toEqual({
+      width: 4096,
+      height: 3413,
+    });
+  });
+
+  it("never scales up, and keeps every side at least 1 px", () => {
+    expect(displaySize(8000, 6000, 8192)).toEqual({
+      width: 8000,
+      height: 6000,
+    });
+    expect(displaySize(100_000, 1, 8192)).toEqual({ width: 8192, height: 1 });
+  });
+});
+
+describe("displayKey", () => {
+  it("puts the copy where no upload or folder can be named", () => {
+    expect(displayKey("abcdefghjk", "0123456789abcdef".repeat(4))).toBe(
+      "/.derived/abcdefghjk-0123456789abcdef.jpg",
     );
-    expect(checkUploadLimits({ size: 1, width: 12_000, height: 10_000 })).toBe(
-      "画素数が多すぎます：120 MP。上限は 100 MP です。",
-    );
-    expect(checkUploadLimits({ size: 1, width: 10_001, height: 10_000 })).toBe(
-      "画素数が多すぎます：100.1 MP。上限は 100 MP です。",
-    );
+    // Upload names never start with "." (safeSegment).
+    expect(uploadTarget("/", ".derived/abcdefghjk.jpg")).toMatchObject({
+      ok: true,
+      file: "/_derived/abcdefghjk.jpg",
+    });
   });
 });
 

@@ -6,6 +6,7 @@ import {
   initLookups,
   initUpload,
   listIncompleteUploads,
+  NOT_COMPLETE,
   numberedPaths,
   numberedRange,
   sizeMismatch,
@@ -24,10 +25,20 @@ describe("sizeMismatch", () => {
 });
 import { listMedia } from "./db";
 import { EMPTY_STORED, PHOTO_META_PARSER_DATE } from "./photo-meta";
+import { displayKey } from "./upload";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
+/** A display copy as the init announces it (of a 13,000 px original). */
+const DISPLAY = {
+  size: 4321,
+  width: 8192,
+  height: 126,
+  sha256: "d".repeat(64),
+};
+/** Where row's display copy goes. */
+const COPY = "/.derived/abcdefghjk-dddddddddddddddd.jpg";
 
 const init = (over: Partial<Parameters<typeof initUpload>[1]> = {}) => ({
   file: "/up/a.png",
@@ -625,8 +636,191 @@ describe("incomplete uploads", () => {
     expect(list.map((u) => [u.id, u.file, u.size])).toEqual([
       [2, "/up/a.png", 10],
     ]);
-    expect(await deleteIncompleteUpload(db, 1)).toBe(false);
-    expect(await deleteIncompleteUpload(db, 2)).toBe(true);
+    const removed: string[] = [];
+    const remove = async (key: string) => void removed.push(key);
+    expect(await deleteIncompleteUpload(db, 1, remove)).toBe(false);
+    expect(await deleteIncompleteUpload(db, 2, remove)).toBe(true);
     expect(await listIncompleteUploads(db)).toEqual([]);
+    // No display copy: nothing to remove from the bucket.
+    expect(removed).toEqual([]);
+  });
+
+  it("take their display copy's object with them, once the row is gone", async () => {
+    const { raw, db } = setup();
+    await initUpload(db, init({ display: DISPLAY }), row);
+    const removed: string[] = [];
+    const remove = async (key: string) => {
+      // The row is already gone: a completion now finds nothing.
+      expect(await listIncompleteUploads(db)).toEqual([]);
+      removed.push(key);
+    };
+    expect(await deleteIncompleteUpload(db, 2, remove)).toBe(true);
+    expect(removed).toEqual([COPY]);
+    expect(
+      raw
+        .prepare("SELECT COUNT(*) AS n FROM media_file WHERE media_id = 2")
+        .get(),
+    ).toEqual({ n: 0 });
+    // A failed deletion is reported (the object is left over).
+    await initUpload(
+      db,
+      init({ file: "/up/b.png", sha256: SHA_B, display: DISPLAY }),
+      id(1),
+    );
+    await expect(
+      deleteIncompleteUpload(db, 3, async () => {
+        throw new Error("削除の権限がありません");
+      }),
+    ).rejects.toThrow("削除の権限がありません");
+  });
+
+  it("keep the photo uploading when the copy changes during the check", async () => {
+    const { raw, db } = setup();
+    await initUpload(db, init({ display: DISPLAY }), row);
+    const again = { ...DISPLAY, size: 5555, sha256: "e".repeat(64) };
+    const stat = async (file: string): Promise<ObjectStat | null> => {
+      if (file !== COPY) return { size: 10, sha256: SHA_A };
+      // A resume announces another encoding after this check read it.
+      await initUpload(db, init({ display: again }), id(1));
+      return { size: DISPLAY.size, sha256: DISPLAY.sha256 };
+    };
+    expect(await completeUpload(db, 2, stat)).toEqual({
+      kind: "mismatch",
+      message: NOT_COMPLETE,
+    });
+    expect(
+      raw.prepare("SELECT status FROM media WHERE id = 2").get()?.status,
+    ).toBe("uploading");
+    expect(
+      raw.prepare("SELECT status FROM media_file WHERE role = 'display'").get()
+        ?.status,
+    ).toBe("uploading");
+  });
+
+  it("are never deleted once ready, nor their copy", async () => {
+    const { db } = setup();
+    await initUpload(db, init({ display: DISPLAY }), row);
+    await completeUpload(
+      db,
+      2,
+      bucket({
+        "/up/a.png": { size: 10, sha256: SHA_A },
+        [COPY]: { size: DISPLAY.size, sha256: DISPLAY.sha256 },
+      }),
+    );
+    const removed: string[] = [];
+    expect(
+      await deleteIncompleteUpload(db, 2, async (k) => void removed.push(k)),
+    ).toBe(false);
+    expect(removed).toEqual([]);
+  });
+});
+
+describe("display copies (media_file role display)", () => {
+  const copyRows = (raw: DatabaseSync) =>
+    raw
+      .prepare(
+        `SELECT f.media_id, f.object_key, f.status, f.size, f.sha256, f.mime_type,
+           s.role AS source_role
+         FROM media_file f JOIN media_file s ON s.id = f.source_file_id
+         WHERE f.role = 'display' ORDER BY f.id`,
+      )
+      .all();
+
+  it("get a row made from the original only when the init has one", async () => {
+    const { raw, db } = setup();
+    expect(await initUpload(db, init({ display: DISPLAY }), row)).toEqual({
+      kind: "upload",
+      id: 2,
+      file: "/up/a.png",
+      resumed: false,
+      display: COPY,
+    });
+    expect(
+      await initUpload(db, init({ file: "/up/b.png", sha256: SHA_B }), id(1)),
+    ).toEqual({ kind: "upload", id: 3, file: "/up/b.png", resumed: false });
+    expect(copyRows(raw)).toEqual([
+      {
+        media_id: 2,
+        object_key: COPY,
+        status: "uploading",
+        size: DISPLAY.size,
+        sha256: DISPLAY.sha256,
+        mime_type: "image/jpeg",
+        source_role: "original",
+      },
+    ]);
+    expect(COPY).toBe(displayKey(row.publicId, DISPLAY.sha256));
+  });
+
+  it("are written again on a resume, as that attempt announces them", async () => {
+    const { raw, db } = setup();
+    await initUpload(db, init({ display: DISPLAY }), row);
+    const again = { ...DISPLAY, size: 5555, sha256: "e".repeat(64) };
+    // Another encoding: a key of its own, in place of the earlier row (so
+    // a late PUT of either never replaces the one that is checked).
+    const againKey = "/.derived/abcdefghjk-eeeeeeeeeeeeeeee.jpg";
+    expect(await initUpload(db, init({ display: again }), id(1))).toEqual({
+      kind: "upload",
+      id: 2,
+      file: "/up/a.png",
+      resumed: true,
+      display: againKey,
+    });
+    expect(copyRows(raw)).toMatchObject([
+      { object_key: againKey, size: 5555, sha256: again.sha256 },
+    ]);
+    // The same encoding again: the same row.
+    expect(await initUpload(db, init({ display: again }), id(1))).toMatchObject(
+      { display: againKey },
+    );
+    expect(copyRows(raw)).toHaveLength(1);
+    // An earlier attempt without one gets one.
+    await initUpload(db, init({ file: "/up/b.png", sha256: SHA_B }), id(2));
+    expect(
+      await initUpload(
+        db,
+        init({ file: "/up/b.png", sha256: SHA_B, display: DISPLAY }),
+        id(3),
+      ),
+    ).toMatchObject({
+      id: 3,
+      resumed: true,
+      display: "/.derived/ccccccccc3-dddddddddddddddd.jpg",
+    });
+  });
+
+  it("are checked by the completion and made ready with the photo", async () => {
+    const { raw, db } = setup();
+    await initUpload(db, init({ display: DISPLAY }), row);
+    const original = { "/up/a.png": { size: 10, sha256: SHA_A } };
+    expect(await completeUpload(db, 2, bucket(original))).toEqual({
+      kind: "mismatch",
+      message: NOT_COMPLETE,
+    });
+    expect(
+      await completeUpload(
+        db,
+        2,
+        bucket({ ...original, [COPY]: { size: 4321, sha256: null } }),
+      ),
+    ).toEqual({
+      kind: "mismatch",
+      message: NOT_COMPLETE,
+    });
+    expect(copyRows(raw)).toMatchObject([{ status: "uploading" }]);
+    expect(
+      await completeUpload(
+        db,
+        2,
+        bucket({ ...original, [COPY]: { size: 4321, sha256: DISPLAY.sha256 } }),
+      ),
+    ).toEqual({ kind: "ready" });
+    expect(copyRows(raw)).toMatchObject([{ status: "ready" }]);
+    expect(
+      raw
+        .prepare("SELECT uploaded_at FROM media_file WHERE role = 'display'")
+        .get()?.uploaded_at,
+    ).toMatch(/^\d{4}-/);
   });
 });

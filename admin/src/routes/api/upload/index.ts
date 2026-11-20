@@ -7,7 +7,7 @@ import { decideUpload } from "~/lib/db-upload-rules";
 import { getDB } from "~/lib/env";
 import { contentChanged, uploadsOverCameraPicture } from "~/lib/last-good";
 import { generatePublicId } from "~/lib/public-id";
-import { validateUploadInit } from "~/lib/upload";
+import { DISPLAY_CONTENT_TYPE, validateUploadInit } from "~/lib/upload";
 
 /**
  * Start (or resume) an upload: reserve the path as an `uploading` row and
@@ -17,10 +17,13 @@ import { validateUploadInit } from "~/lib/upload";
  * `hints` its CreatorTool for the upload rules, `width` / `height` its
  * header's size, checked against the limits and seen by the rules).
  *
- * 200 { status: "upload", id, file, url, headers, applied? } — PUT the
- *     file to `url` with exactly `headers`, then POST /api/upload/<id>.
- *     `file` is where it goes: a numbered name when the path was taken
- *     ("a-1.jpg"). `applied`: what the upload rules set on a new row.
+ * 200 { status: "upload", id, file, url, headers, applied?, display? } —
+ *     PUT the file to `url` with exactly `headers`, then POST
+ *     /api/upload/<id>. `file` is where it goes: a numbered name when the
+ *     path was taken ("a-1.jpg"). `applied`: what the upload rules set on
+ *     a new row. With `display` in the body (an original over the resize
+ *     limits), `display: { file, url, headers }` is the display copy's
+ *     PUT (a media_file row, role display), made before the complete.
  * 200 { status: "exists", id, file } — the same photo is already uploaded.
  * 409 { error } — no free name; 503 when uploads are not configured or
  *     another upload got the name first (retry).
@@ -78,8 +81,21 @@ export const onPost: RequestHandler = withErrorHandler(
       json(200, { status: "exists", id: outcome.id, file: outcome.file });
       return;
     }
+    const now = new Date();
     const headers = putHeaders(init.contentType, init.sha256);
-    const url = await presignPut(config, outcome.file, headers, new Date());
+    const url = await presignPut(config, outcome.file, headers, now);
+    // An original over the resize limits: its display copy's PUT too.
+    let display:
+      | { file: string; url: string; headers: Record<string, string> }
+      | undefined;
+    if (outcome.display && init.display) {
+      const h = putHeaders(DISPLAY_CONTENT_TYPE, init.display.sha256);
+      display = {
+        file: outcome.display,
+        url: await presignPut(config, outcome.display, h, now),
+        headers: h,
+      };
+    }
     json(200, {
       status: "upload",
       id: outcome.id,
@@ -88,6 +104,7 @@ export const onPost: RequestHandler = withErrorHandler(
       headers,
       // What the rules set on the new row (a resumed row keeps its own).
       ...(outcome.resumed ? {} : { applied: decided.applied }),
+      ...(display ? { display } : {}),
     });
   },
 );

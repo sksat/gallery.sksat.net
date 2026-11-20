@@ -18,14 +18,16 @@ import { MAX_IMAGE_FILE_LEN, validateImageFile } from "./validate";
 
 // What the image Worker can resize: Cloudflare Image Transformations
 // refuses larger sources
-// (https://developers.cloudflare.com/images/get-started/limits/), so a
-// bigger photo could be stored but never shown. The uploader checks these
-// before uploading (checkUploadLimits) and POST /api/upload again.
+// (https://developers.cloudflare.com/images/get-started/limits/). An
+// original over these (rare) is still uploaded as it is, together with a
+// display copy the browser makes within them (display-copy.ts), and every
+// resize uses that copy (a media_file row with role display, migration
+// 0013). The copy is
+// checked against these limits in the browser and by POST /api/upload.
 
 /**
- * Largest original accepted, in bytes: Cloudflare's 100 MB (decimal, as
- * the dashboard counts). Originals are up to ~40 MB (8K PNGs); one S3 PUT
- * may be 5 GB, so a single PUT per file is enough.
+ * Largest image Cloudflare resizes, in bytes: 100 MB (decimal, as the
+ * dashboard counts). Originals are mostly up to ~40 MB (8K PNGs).
  */
 export const MAX_UPLOAD_BYTES = 100_000_000;
 
@@ -34,6 +36,12 @@ export const MAX_IMAGE_SIDE = 12_000;
 
 /** Most pixels (width × height): Cloudflare's 100 megapixels. */
 export const MAX_IMAGE_PIXELS = 100_000_000;
+
+/**
+ * Largest original accepted, in bytes: B2's 5 GB for one PUT (each
+ * original goes up in a single presigned PUT).
+ */
+export const MAX_ORIGINAL_BYTES = 5_000_000_000;
 
 /** 13000 → "13,000" (by hand: no dependence on the runtime's ICU). */
 export const groupDigits = (n: number): string =>
@@ -87,16 +95,15 @@ export const formatMegapixelsUp = (pixels: number): string =>
   `${tenthsUp(pixels / 1_000_000)} MP`;
 
 /**
- * Why a file cannot be uploaded, in words for the upload panel, or null
- * when it is within the limits. `width` / `height` are null when unknown
- * (the header could not be read); then only the size is checked.
+ * Why Cloudflare cannot resize an image this large, in words for the
+ * upload panel, or null when it can. `width` / `height` are null when
+ * unknown (the header could not be read); then only the size is checked.
  */
-export const checkUploadLimits = (f: {
+export const resizeLimitsProblem = (f: {
   size: number;
   width?: number | null;
   height?: number | null;
 }): string | null => {
-  if (f.size <= 0) return "空のファイルです";
   if (f.size > MAX_UPLOAD_BYTES) {
     return `ファイルが大きすぎます：${formatUploadSize(f.size)}。上限は ${formatUploadSize(MAX_UPLOAD_BYTES)}です。`;
   }
@@ -110,6 +117,76 @@ export const checkUploadLimits = (f: {
   }
   return null;
 };
+
+type ImageFacts = {
+  size: number;
+  width?: number | null;
+  height?: number | null;
+};
+
+/**
+ * Whether an original needs a display copy: Cloudflare cannot resize it
+ * (resizeLimitsProblem). False for nearly every photo.
+ */
+export const needsDisplayCopy = (f: ImageFacts): boolean =>
+  f.size > 0 && resizeLimitsProblem(f) !== null;
+
+/**
+ * Why a file cannot be uploaded at all, in words for the upload panel, or
+ * null: only an empty file or one over B2's single PUT. An original over
+ * Cloudflare's limits goes up with a display copy (needsDisplayCopy).
+ */
+export const checkUploadLimits = (f: { size: number }): string | null => {
+  if (f.size <= 0) return "空のファイルです";
+  if (f.size > MAX_ORIGINAL_BYTES) {
+    return `ファイルが大きすぎます：${formatUploadSize(f.size)}。上限は ${formatUploadSize(MAX_ORIGINAL_BYTES)}です。`;
+  }
+  return null;
+};
+
+/** Longest side of a display copy (display-copy.ts), in pixels. */
+export const DISPLAY_MAX_SIDE = 8_192;
+
+/**
+ * The longest side tried next where a canvas that large cannot be made
+ * (iOS Safari keeps a canvas to about 16.7 MP).
+ */
+export const DISPLAY_SMALL_SIDE = 4_096;
+
+/** JPEG quality of a display copy (canvas toBlob). */
+export const DISPLAY_QUALITY = 0.9;
+
+export const DISPLAY_CONTENT_TYPE = "image/jpeg";
+
+/**
+ * The size of a display copy of a `width` × `height` image whose longest
+ * side is at most `maxSide`: scaled down keeping its aspect, never up,
+ * each side at least 1 px.
+ */
+export const displaySize = (
+  width: number,
+  height: number,
+  maxSide: number,
+): { width: number; height: number } => {
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  return {
+    width: Math.min(maxSide, Math.max(1, Math.round(width * scale))),
+    height: Math.min(maxSide, Math.max(1, Math.round(height * scale))),
+  };
+};
+
+/** Where display copies go: a folder no upload or new folder can be. */
+export const DISPLAY_DIR = "/.derived/";
+
+/**
+ * Bucket key of a photo's display copy (its media_file row's object_key):
+ * under DISPLAY_DIR (names never start with "."), by its public id, which
+ * never changes, and the start of the copy's SHA-256. Each encoding has a
+ * key of its own, so a late PUT of another one (another tab's browser may
+ * encode differently) never replaces the copy the completion checked.
+ */
+export const displayKey = (publicId: string, sha256: string): string =>
+  `${DISPLAY_DIR}${publicId}-${sha256.slice(0, 16)}.jpg`;
 
 /** How long a presigned PUT stays valid (seconds). */
 export const UPLOAD_URL_EXPIRES = 600;
@@ -242,6 +319,20 @@ export type UploadInit = {
    * file's EXIF orientation) as media.width / height.
    */
   dimensions?: { width: number; height: number };
+  /**
+   * The display copy the browser made (only for an original over the
+   * resize limits, which then requires one): a JPEG within them, PUT
+   * beside the original.
+   */
+  display?: DisplayInit;
+};
+
+/** A display copy as the init announces it. */
+export type DisplayInit = {
+  size: number;
+  width: number;
+  height: number;
+  sha256: string;
 };
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -270,11 +361,7 @@ export const validateUploadInit = (
     const v = validateFolderPath(dir);
     if (!v.ok) return v;
   }
-  if (
-    typeof o.size !== "number" ||
-    !Number.isInteger(o.size) ||
-    o.size < 0
-  ) {
+  if (typeof o.size !== "number" || !Number.isInteger(o.size) || o.size < 0) {
     return { ok: false, error: "ファイルの大きさが正しくありません" };
   }
   // Width and height: what the browser read from the header, if anything.
@@ -285,12 +372,22 @@ export const validateUploadInit = (
       dims.push(v);
     } else return { ok: false, error: "画像の縦横の値が正しくありません" };
   }
-  const tooLarge = checkUploadLimits({
-    size: o.size,
-    width: dims[0],
-    height: dims[1],
-  });
-  if (tooLarge) return { ok: false, error: tooLarge };
+  const refused = checkUploadLimits({ size: o.size });
+  if (refused) return { ok: false, error: refused };
+  // Over the resize limits only with a display copy that is within them.
+  const original = { size: o.size, width: dims[0], height: dims[1] };
+  let display: DisplayInit | undefined;
+  if (o.display != null) {
+    const d = validateDisplayInit(o.display);
+    if (!d.ok) return d;
+    if (!needsDisplayCopy(original)) {
+      return { ok: false, error: "この画像には縮小版は要りません" };
+    }
+    display = d.display;
+  } else {
+    const tooLarge = resizeLimitsProblem(original);
+    if (tooLarge) return { ok: false, error: tooLarge };
+  }
   const contentType =
     typeof o.contentType === "string"
       ? uploadContentType(file.file, o.contentType)
@@ -335,6 +432,40 @@ export const validateUploadInit = (
       ...(dims[0] != null && dims[1] != null
         ? { dimensions: { width: dims[0], height: dims[1] } }
         : {}),
+      ...(display ? { display } : {}),
+    },
+  };
+};
+
+/** The init's `display`: a JPEG within the resize limits. */
+const validateDisplayInit = (
+  input: unknown,
+): { ok: true; display: DisplayInit } | { ok: false; error: string } => {
+  const bad = {
+    ok: false as const,
+    error: "縮小版の値が正しくありません",
+  };
+  if (!input || typeof input !== "object" || Array.isArray(input)) return bad;
+  const o = input as Record<string, unknown>;
+  const positive = (v: unknown): v is number =>
+    typeof v === "number" && Number.isInteger(v) && v > 0;
+  if (!positive(o.size) || !positive(o.width) || !positive(o.height)) {
+    return bad;
+  }
+  if (typeof o.sha256 !== "string" || !SHA256_RE.test(o.sha256)) return bad;
+  const problem = resizeLimitsProblem({
+    size: o.size,
+    width: o.width,
+    height: o.height,
+  });
+  if (problem) return { ok: false, error: `縮小版の${problem}` };
+  return {
+    ok: true,
+    display: {
+      size: o.size,
+      width: o.width,
+      height: o.height,
+      sha256: o.sha256,
     },
   };
 };

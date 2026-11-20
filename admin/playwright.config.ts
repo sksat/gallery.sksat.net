@@ -40,12 +40,14 @@ export default defineConfig({
       use: { browserName: "chromium" },
     },
     {
-      // The drops from the OS once more in Firefox, whose drags differ
-      // (upload.spec.ts). After the rest, as its uploads add rows.
+      // The drops from the OS once more in Firefox, whose drags differ,
+      // and the images over the resize limits, whose smaller copy its own
+      // decoder and canvas make (upload.spec.ts). After the rest, as its
+      // uploads add rows.
       name: "firefox",
       testDir: "./e2e",
       testMatch: "upload.spec.ts",
-      grep: /\bdrop /,
+      grep: /\bdrop |over-limit|over the resize limits/,
       dependencies: ["e2e"],
       use: { browserName: "firefox" },
     },

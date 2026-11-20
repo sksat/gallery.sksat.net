@@ -2,8 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 // The Files view's upload panel after a batch with one photo uploaded and
 // one failed (PUTs to the fake bucket of "bad.png" are reset), and one
-// refused as too wide before uploading. Named to run last: the uploads
-// stay in the shared D1.
+// refused before uploading (too wide, and its display copy cannot be
+// made: only a header). Named to run last: the uploads stay in the shared
+// D1.
 
 const png = (name: string, seed: string) => ({
   name,
@@ -14,7 +15,10 @@ const png = (name: string, seed: string) => ({
   ]),
 });
 
-/** A PNG header (signature + IHDR) too wide for the image Worker. */
+/**
+ * A PNG header (signature + IHDR) too wide for the image Worker, with
+ * nothing to decode a display copy from.
+ */
 const tooWide = (name: string) => {
   const ihdr = Buffer.alloc(25);
   ihdr.writeUInt32BE(13, 0);

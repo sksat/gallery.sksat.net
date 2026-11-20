@@ -10,11 +10,18 @@ import {
   readPhotoMeta,
 } from "./photo-meta";
 import { pickTakenAt } from "./taken-at";
-import { checkUploadLimits, uploadContentType } from "./upload";
+import { COPY_READ_FAILED, makeDisplayCopy } from "./display-copy";
+import {
+  checkUploadLimits,
+  MAX_UPLOAD_BYTES,
+  needsDisplayCopy,
+  uploadContentType,
+} from "./upload";
 import {
   UploadError,
   type InitResult,
   type Prepared,
+  type PutTarget,
   type QueueDeps,
   type UploadItem,
   type UploadSource,
@@ -39,19 +46,32 @@ const hex = (buf: ArrayBuffer) =>
 export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
   const contentType = uploadContentType(f.name, f.type);
   if (!contentType) throw new UploadError("PNG / JPEG ではありません", false);
-  const bytes = await f.blob.arrayBuffer();
-  // Larger than the image Worker can resize: refused before hashing.
-  const size = imageSize(new Uint8Array(bytes));
-  const refused = checkUploadLimits({ size: f.size, ...size });
+  const refused = checkUploadLimits({ size: f.size });
   if (refused) throw new UploadError(refused, false);
-  const [digest, meta, tool] = await Promise.all([
-    crypto.subtle.digest("SHA-256", bytes),
-    readPhotoMeta(new Uint8Array(bytes)),
-    readFileTool(new Uint8Array(bytes)),
-  ]);
+  let original: Awaited<ReturnType<typeof readOriginal>>;
+  try {
+    original = await readOriginal(f.blob);
+  } catch (err) {
+    // A file over the resize limits' 100 MB may be more than the tab can
+    // hold (up to 5 GB are accepted): say so. Anything else as before.
+    if (f.size <= MAX_UPLOAD_BYTES) throw err;
+    console.error(`reading ${f.name} failed:`, err);
+    throw new UploadError(COPY_READ_FAILED, false);
+  }
+  const { size, digest, meta, tool } = original;
   const { takenAt: _, dates, creatorTool, ...stored } = meta;
   // EXIF, then XMP, then the VRChat name (taken-at.ts).
   const taken = pickTakenAt(dates, f.name);
+  // Larger than the image Worker can resize (rare): a display copy within
+  // the limits goes up beside the original. Made once the original's bytes
+  // are no longer held.
+  const display = needsDisplayCopy({ size: f.size, ...size })
+    ? await makeDisplayCopy(f.blob, {
+        stored: size,
+        orientation: stored.exif?.orientation,
+        sha256: hex(digest),
+      })
+    : undefined;
   return {
     sha256: hex(digest),
     contentType,
@@ -63,7 +83,23 @@ export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
     meta: stored,
     parserDate: PHOTO_META_PARSER_DATE,
     hints: { creatorTool, xmpSummary: tool.xmpSummary },
+    ...(display ? { display } : {}),
   };
+};
+
+/**
+ * The original's header size, SHA-256, metadata and writing tool, from its
+ * bytes (held only here).
+ */
+const readOriginal = async (blob: Blob) => {
+  const bytes = await blob.arrayBuffer();
+  const size = imageSize(new Uint8Array(bytes));
+  const [digest, meta, tool] = await Promise.all([
+    crypto.subtle.digest("SHA-256", bytes),
+    readPhotoMeta(new Uint8Array(bytes)),
+    readFileTool(new Uint8Array(bytes)),
+  ]);
+  return { size, digest, meta, tool };
 };
 
 /** Statuses worth trying again (server trouble, expired URL, throttling). */
@@ -117,8 +153,22 @@ const api = async (
 
 export const initUploadRequest = (
   req: Parameters<QueueDeps<PickedFile>["init"]>[0],
-): Promise<InitResult> =>
-  api("POST", "/api/upload", req) as Promise<InitResult>;
+): Promise<InitResult> => {
+  // The display copy's facts, not its bytes.
+  const { display, ...rest } = req;
+  const body = display
+    ? {
+        ...rest,
+        display: {
+          size: display.size,
+          width: display.width,
+          height: display.height,
+          sha256: display.sha256,
+        },
+      }
+    : rest;
+  return api("POST", "/api/upload", body) as Promise<InitResult>;
+};
 
 export const completeUploadRequest = async (id: number): Promise<void> => {
   await api("POST", `/api/upload/${id}`);
@@ -131,11 +181,18 @@ export const putFile = (
   init: Extract<InitResult, { status: "upload" }>,
   f: PickedFile,
   onProgress: (loaded: number) => void,
+): Promise<void> => putBlob(init, f.blob, onProgress);
+
+/** PUT `blob` to a presigned URL, reporting bytes sent. */
+const putBlob = (
+  target: PutTarget,
+  blob: Blob,
+  onProgress: (loaded: number) => void,
 ): Promise<void> =>
   new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", init.url);
-    for (const [k, v] of Object.entries(init.headers)) {
+    xhr.open("PUT", target.url);
+    for (const [k, v] of Object.entries(target.headers)) {
       xhr.setRequestHeader(k, v);
     }
     xhr.upload.onprogress = (e) => onProgress(e.loaded);
@@ -152,7 +209,7 @@ export const putFile = (
     };
     xhr.onerror = () => reject(new UploadError("ネットワークエラー", true));
     xhr.ontimeout = () => reject(new UploadError("タイムアウト", true));
-    xhr.send(f.blob);
+    xhr.send(blob);
   });
 
 /** Everything the queue needs in a browser, except onChange. */
@@ -163,6 +220,7 @@ export const browserDeps = (
   prepare: prepareFile,
   init: initUploadRequest,
   put: putFile,
+  putDisplay: (target, blob) => putBlob(target, blob, () => {}),
   complete: completeUploadRequest,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   onChange,

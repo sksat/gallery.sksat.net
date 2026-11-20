@@ -70,19 +70,39 @@ export type Prepared = {
   height?: number | null;
   /** What the upload rules look at besides `meta`. */
   hints?: FileHints;
+  /**
+   * The display copy made for an original over the resize limits
+   * (display-copy.ts); absent for every other file.
+   */
+  display?: DisplayCopy;
+};
+
+/** A display copy: a JPEG within the resize limits, and its facts. */
+export type DisplayCopy = {
+  blob: Blob;
+  size: number;
+  width: number;
+  height: number;
+  sha256: string;
+};
+
+/** A presigned PUT. */
+export type PutTarget = {
+  url: string;
+  headers: Record<string, string>;
 };
 
 export type InitResult =
-  | {
+  | ({
       status: "upload";
       id: number;
       /** Where it goes (a numbered name if the path was taken). */
       file: string;
-      url: string;
-      headers: Record<string, string>;
       /** What the upload rules set (new rows only). */
       applied?: AppliedChip[];
-    }
+      /** The display copy's PUT, when the init announced one. */
+      display?: PutTarget & { file: string };
+    } & PutTarget)
   /** The same photo (by SHA-256) is already uploaded, at `file`. */
   | { status: "exists"; id: number; file: string };
 
@@ -106,6 +126,8 @@ export type QueueDeps<S extends UploadSource> = {
     source: S,
     onProgress: (loaded: number) => void,
   ): Promise<void>;
+  /** PUT a display copy (after the original's PUT). */
+  putDisplay(target: PutTarget, blob: Blob): Promise<void>;
   complete(id: number): Promise<void>;
   sleep(ms: number): Promise<void>;
   /** Called with a fresh snapshot after every change. */
@@ -259,6 +281,16 @@ export const createUploadQueue = <S extends UploadSource>(
       await deps.put(init, source, (loaded) =>
         set(item, { loaded: Math.min(loaded, item.size) }),
       );
+      if (prepared.display) {
+        // Without its display copy the photo could not be shown.
+        if (!init.display) {
+          throw new UploadError(
+            "アップロードが完了していません。もう一度試してください。",
+            true,
+          );
+        }
+        await deps.putDisplay(init.display, prepared.display.blob);
+      }
       return init.id;
     });
     if (id === null) return;
