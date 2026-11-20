@@ -22,6 +22,7 @@ import {
 } from "~/lib/drop-entries";
 import {
   browserDeps,
+  cameraPictureDeps,
   completeUploadRequest,
   type PickedFile,
 } from "~/lib/upload-client";
@@ -70,7 +71,11 @@ const concurrencyFor = () =>
  * does that; navigating to the same URL with forceReload reuses Qwik
  * City's cached page data.)
  */
-export const useUploader = (refresh: QRL<() => unknown>): Uploader => {
+export const useUploader = (
+  refresh: QRL<() => unknown>,
+  /** Upload pictures of this camera instead of photos. */
+  cameraId?: number,
+): Uploader => {
   const items = useSignal<UploadItem[]>([]);
   /** Anything queued or in flight (changes only at a batch's ends). */
   const busy = useSignal(false);
@@ -81,12 +86,15 @@ export const useUploader = (refresh: QRL<() => unknown>): Uploader => {
 
   const add = $((dir: string, files: PickedFile[]) => {
     if (!queue.value) {
+      const onChange = (next: UploadItem[]) => {
+        items.value = next;
+        busy.value = summarize(next).active > 0;
+      };
       queue.value = noSerialize(
         createUploadQueue(
-          browserDeps((next) => {
-            items.value = next;
-            busy.value = summarize(next).active > 0;
-          }, concurrencyFor()),
+          cameraId === undefined
+            ? browserDeps(onChange, concurrencyFor())
+            : cameraPictureDeps(cameraId, onChange),
         ),
       );
     }
@@ -168,39 +176,44 @@ const UploadIcon = () => (
 );
 
 /** "Upload" button: a label around a hidden file input. */
-export const UploadButton = component$<{ uploader: Uploader; dir: string }>(
-  ({ uploader, dir }) => (
-    <label
-      class={[
-        buttonPrimary,
-        "min-w-fit cursor-pointer whitespace-nowrap has-focus-visible:outline-2 has-focus-visible:outline-sky-500 max-sm:flex-1",
-      ]}
-    >
-      <UploadIcon />
-      Upload
-      <input
-        type="file"
-        multiple
-        accept={UPLOAD_ACCEPT}
-        aria-label="Upload photos"
-        data-testid="upload-input"
-        class="sr-only"
-        onChange$={(_, el) => {
-          const files = Array.from(el.files ?? []).map((f): PickedFile => ({
-            name: f.name,
-            relativePath: f.name,
-            size: f.size,
-            type: f.type,
-            blob: f,
-          }));
-          // Picking the same files again must fire change again.
-          el.value = "";
-          if (files.length > 0) void uploader.add(dir, files);
-        }}
-      />
-    </label>
-  ),
-);
+export const UploadButton = component$<{
+  uploader: Uploader;
+  dir: string;
+  /** The button's text (default "Upload"). */
+  label?: string;
+  class?: string;
+}>(({ uploader, dir, label, class: extra }) => (
+  <label
+    class={[
+      buttonPrimary,
+      "min-w-fit cursor-pointer whitespace-nowrap has-focus-visible:outline-2 has-focus-visible:outline-sky-500",
+      extra ?? "max-sm:flex-1",
+    ]}
+  >
+    <UploadIcon />
+    {label ?? "Upload"}
+    <input
+      type="file"
+      multiple
+      accept={UPLOAD_ACCEPT}
+      aria-label={label ?? "Upload photos"}
+      data-testid="upload-input"
+      class="sr-only"
+      onChange$={(_, el) => {
+        const files = Array.from(el.files ?? []).map((f): PickedFile => ({
+          name: f.name,
+          relativePath: f.name,
+          size: f.size,
+          type: f.type,
+          blob: f,
+        }));
+        // Picking the same files again must fire change again.
+        el.value = "";
+        if (files.length > 0) void uploader.add(dir, files);
+      }}
+    />
+  </label>
+));
 
 /** What an incomplete row's failed completion means, in plain words. */
 const completionProblem = (err: unknown): string =>
@@ -312,7 +325,9 @@ export const DropZone = component$<{
   enabled: boolean;
   /** Something dropped could not be taken (unreadable, too many). */
   onProblem$: QRL<(message: string) => void>;
-}>(({ uploader, dir, enabled, onProblem$ }) => {
+  /** The overlay's words (default: "ここにドロップして <dir> にアップロード"). */
+  label?: string;
+}>(({ uploader, dir, enabled, onProblem$, label }) => {
   const ref = useSignal<HTMLElement>();
   const over = useSignal(false);
   /** The folder the drag is over, or null for the open folder. */
@@ -510,7 +525,7 @@ export const DropZone = component$<{
         >
           {/* Sticky: stays in view over a long folder. */}
           <p class="sticky top-1/2 py-24 text-center">
-            ここにドロップして {dir} にアップロード
+            {label ?? `ここにドロップして ${dir} にアップロード`}
           </p>
         </div>
       )}
@@ -723,8 +738,11 @@ const VISIBILITY_CHOICES: { v: Visibility; label: string }[] = [
 
 type PanelProps = {
   uploader: Uploader;
-  /** Change the visibility of uploaded photos (the page's bulk action). */
-  onSetVisibility$: QRL<(ids: number[], visibility: Visibility) => void>;
+  /**
+   * Change the visibility of uploaded photos (the page's bulk action).
+   * Without it (camera pictures) the panel offers none.
+   */
+  onSetVisibility$?: QRL<(ids: number[], visibility: Visibility) => void>;
 };
 
 export const UploadPanel = component$<PanelProps>(
@@ -805,7 +823,7 @@ export const UploadPanel = component$<PanelProps>(
           )}
         </div>
 
-        {active === 0 && uploadedIds.length > 0 && (
+        {onSetVisibility$ && active === 0 && uploadedIds.length > 0 && (
           <div class="flex flex-wrap items-center gap-2 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800/50">
             <p class="mr-auto">
               {list.some(
@@ -824,7 +842,7 @@ export const UploadPanel = component$<PanelProps>(
                 <button
                   key={v}
                   type="button"
-                  onClick$={() => onSetVisibility$(uploadedIds, v)}
+                  onClick$={() => onSetVisibility$?.(uploadedIds, v)}
                   class={buttonSecondary}
                 >
                   {label}

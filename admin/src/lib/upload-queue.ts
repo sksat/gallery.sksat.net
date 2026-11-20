@@ -12,7 +12,7 @@
 
 import type { TakenAtSource } from "./metadata-source";
 import type { FileHints, StoredMeta } from "./photo-meta";
-import { checkUploadLimits, uploadTarget } from "./upload";
+import { checkUploadLimits, uploadTarget, type TargetResult } from "./upload";
 import { batchBytes } from "./upload-progress";
 import type { AppliedChip } from "./upload-rules";
 
@@ -118,6 +118,8 @@ export class UploadError extends Error {
 }
 
 export type QueueDeps<S extends UploadSource> = {
+  /** The bucket path asked for a file added for `dir` (uploadTarget). */
+  target?(dir: string, relativePath: string): TargetResult;
   /** Hash and inspect the file; may reject it (UploadError). */
   prepare(source: S): Promise<Prepared>;
   init(req: Prepared & { file: string; size: number }): Promise<InitResult>;
@@ -319,7 +321,10 @@ export const createUploadQueue = <S extends UploadSource>(
   return {
     add(dir, sources) {
       for (const source of sources) {
-        const target = uploadTarget(dir, source.relativePath || source.name);
+        const target = (deps.target ?? uploadTarget)(
+          dir,
+          source.relativePath || source.name,
+        );
         // Too large to upload: refused before anything is read or sent.
         const refused = target.ok
           ? checkUploadLimits({ size: source.size })

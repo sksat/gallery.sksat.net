@@ -2,6 +2,7 @@
 // the admin API, and the PUT to the bucket with XMLHttpRequest (fetch has
 // no upload progress). Thin wrappers; the logic is in upload-queue.ts.
 
+import { cameraPictureTarget } from "./camera-image";
 import { imageSize } from "./image-size";
 import { markUnread } from "./read-state";
 import {
@@ -211,6 +212,81 @@ const putBlob = (
     xhr.ontimeout = () => reject(new UploadError("タイムアウト", true));
     xhr.send(blob);
   });
+
+/**
+ * A camera picture's checks before it is sent: a PNG / JPEG within the
+ * resize limits, and its SHA-256 (no photo metadata: it is not a photo).
+ */
+export const prepareCameraPicture = async (
+  f: PickedFile,
+): Promise<Prepared> => {
+  const contentType = uploadContentType(f.name, f.type);
+  if (!contentType) throw new UploadError("PNG / JPEG ではありません", false);
+  const bytes = await f.blob.arrayBuffer();
+  const size = imageSize(new Uint8Array(bytes));
+  const refused = checkUploadLimits({ size: f.size, ...size });
+  if (refused) throw new UploadError(refused, false);
+  return {
+    sha256: hex(await crypto.subtle.digest("SHA-256", bytes)),
+    contentType,
+    width: size?.width ?? null,
+    height: size?.height ?? null,
+    timestamp: null,
+  };
+};
+
+/**
+ * The queue's dependencies for pictures of camera `cameraId`, uploaded
+ * into its folder (`/camera/<slug>/`, cameraPictureTarget) through POST
+ * /api/camera/<id>/image. One at a time, so two files with the same name
+ * get numbered names rather than the same one.
+ */
+export const cameraPictureDeps = (
+  cameraId: number,
+  onChange: (items: UploadItem[]) => void,
+): QueueDeps<PickedFile> => {
+  const path = `/api/camera/${cameraId}/image`;
+  /** What each init announced, by the id handed to the queue. */
+  const pending = new Map<number, Record<string, unknown>>();
+  let next = 1;
+  return {
+    target: cameraPictureTarget,
+    prepare: prepareCameraPicture,
+    init: async (req) => {
+      const body = {
+        file: req.file,
+        size: req.size,
+        contentType: req.contentType,
+        sha256: req.sha256,
+        width: req.width ?? null,
+        height: req.height ?? null,
+      };
+      const r = (await api("POST", path, { step: "init", ...body })) as {
+        file: string;
+        url: string;
+        headers: Record<string, string>;
+      };
+      const id = next++;
+      pending.set(id, { ...body, file: r.file });
+      return {
+        status: "upload",
+        id,
+        file: r.file,
+        url: r.url,
+        headers: r.headers,
+      };
+    },
+    put: putFile,
+    complete: async (id) => {
+      const body = pending.get(id);
+      if (!body) throw new UploadError("アップロードし直してください", false);
+      await api("POST", path, { step: "complete", ...body });
+    },
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    onChange,
+    concurrency: 1,
+  };
+};
 
 /** Everything the queue needs in a browser, except onChange. */
 export const browserDeps = (

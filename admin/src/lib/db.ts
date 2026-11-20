@@ -696,7 +696,22 @@ export class DuplicateImageError extends Error {
   }
 }
 
-/** Append a picture after the camera's last one. */
+/**
+ * Thrown by addCameraImage while an upload or a 削除 holds the path
+ * (db-camera-image.ts reservePictureName).
+ */
+export class PathBusyError extends Error {
+  constructor(file: string) {
+    super(`path in use by an upload or a deletion: ${file}`);
+    this.name = "PathBusyError";
+  }
+}
+
+/**
+ * Append a picture after the camera's last one. Refused (PathBusyError),
+ * in the same statement, while an upload or a 削除 holds the path, so a
+ * picture never points at an object being deleted.
+ */
 export const addCameraImage = async (
   db: D1Database,
   cameraId: number,
@@ -706,13 +721,14 @@ export const addCameraImage = async (
     const row = await db
       .prepare(
         `INSERT INTO camera_image (camera_id, file, caption, position)
-         VALUES (?1, ?2, ?3,
-           (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_image WHERE camera_id = ?1))
+         SELECT ?1, ?2, ?3,
+           (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_image WHERE camera_id = ?1)
+         WHERE ${PATH_FREE_SQL}
          RETURNING *`,
       )
       .bind(cameraId, image.file, image.caption)
       .first<CameraImageRow>();
-    if (!row) throw new Error("INSERT INTO camera_image returned no row");
+    if (!row) throw new PathBusyError(image.file);
     return row;
   } catch (err) {
     if (
@@ -724,6 +740,15 @@ export const addCameraImage = async (
     throw err;
   }
 };
+
+/**
+ * SQL (binding ?2 to the file) that holds while no upload or 削除 holds
+ * the path (db-camera-image.ts reservePictureName; also just after a
+ * 削除, so an undo of an earlier 外す cannot bring back a deleted file).
+ */
+const PATH_FREE_SQL = `NOT EXISTS (SELECT 1 FROM setting
+  WHERE key = 'camera_upload:' || ?2
+    AND json_extract(value, '$.until') >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
 export const updateCameraImageCaption = async (
   db: D1Database,
@@ -762,58 +787,6 @@ export const removeCameraImage = async (
 };
 
 /**
- * New order after moving `imageId` one step up or down; null when it is
- * not in the list or already at that end.
- */
-export const reorderedIds = (
-  ids: readonly number[],
-  imageId: number,
-  direction: "up" | "down",
-): number[] | null => {
-  const i = ids.indexOf(imageId);
-  const j = direction === "up" ? i - 1 : i + 1;
-  if (i === -1 || j < 0 || j >= ids.length) return null;
-  const next = [...ids];
-  [next[i], next[j]] = [next[j], next[i]];
-  return next;
-};
-
-/**
- * Move a picture one step; renumbers positions 0..n-1 in one batch. False
- * when this camera has no such picture (already at the end is a no-op).
- */
-export const moveCameraImage = async (
-  db: D1Database,
-  cameraId: number,
-  imageId: number,
-  direction: "up" | "down",
-): Promise<boolean> => {
-  const ids = (await listCameraImages(db, cameraId)).map((img) => img.id);
-  if (!ids.includes(imageId)) return false;
-  const order = reorderedIds(ids, imageId, direction);
-  if (!order) return true;
-  await setImageOrder(db, cameraId, order);
-  return true;
-};
-
-/** Positions 0..n-1 in `order`, in one batch. */
-const setImageOrder = async (
-  db: D1Database,
-  cameraId: number,
-  order: readonly number[],
-): Promise<void> => {
-  await db.batch(
-    order.map((id, position) =>
-      db
-        .prepare(
-          "UPDATE camera_image SET position = ? WHERE id = ? AND camera_id = ?",
-        )
-        .bind(position, id, cameraId),
-    ),
-  );
-};
-
-/**
  * The statements of restoreCameraImage, run as one batch (a D1 batch is a
  * transaction, so a failure leaves nothing half done):
  * 1. insert the picture at the position of the one now at `index` in the
@@ -829,11 +802,12 @@ export const restoreCameraImageStatements = (
 ): { sql: string; args: unknown[] }[] => [
   {
     sql: `INSERT INTO camera_image (camera_id, file, caption, position)
-     VALUES (?1, ?2, ?3, COALESCE(
+     SELECT ?1, ?2, ?3, COALESCE(
        (SELECT position FROM camera_image WHERE camera_id = ?1
         ORDER BY position, id LIMIT 1 OFFSET ?4),
        (SELECT COALESCE(MAX(position), -1) + 1 FROM camera_image
-        WHERE camera_id = ?1)))`,
+        WHERE camera_id = ?1))
+     WHERE ${PATH_FREE_SQL}`,
     args: [cameraId, image.file, image.caption, Math.max(0, index)],
   },
   {
@@ -842,7 +816,8 @@ export const restoreCameraImageStatements = (
     sql: `UPDATE camera_image SET position = position + 1
      WHERE camera_id = ?1 AND file <> ?2 AND (position, id) >=
        (SELECT position, id FROM camera_image WHERE camera_id = ?1 AND file <> ?2
-        ORDER BY position, id LIMIT 1 OFFSET ?3)`,
+        ORDER BY position, id LIMIT 1 OFFSET ?3)
+       AND ${PATH_FREE_SQL}`,
     args: [cameraId, image.file, Math.max(0, index)],
   },
 ];
@@ -858,8 +833,9 @@ export const restoreCameraImage = async (
   image: { file: string; caption: string | null },
   index: number,
 ): Promise<void> => {
+  let inserted!: D1Result;
   try {
-    await db.batch(
+    [inserted] = await db.batch(
       restoreCameraImageStatements(cameraId, image, index).map(
         ({ sql, args }) => db.prepare(sql).bind(...args),
       ),
@@ -873,4 +849,6 @@ export const restoreCameraImage = async (
     }
     throw err;
   }
+  // Held by an upload or a 削除: nothing was inserted (nor moved).
+  if ((inserted.meta.changes ?? 0) === 0) throw new PathBusyError(image.file);
 };

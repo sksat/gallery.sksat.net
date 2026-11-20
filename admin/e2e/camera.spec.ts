@@ -65,7 +65,18 @@ test("cameras: create, then edit the new camera", async ({ page }) => {
 });
 
 const caption = (page: import("@playwright/test").Page, n: number) =>
-  page.getByRole("textbox", { name: `Caption of image ${n}`, exact: true });
+  page.getByRole("textbox", {
+    name: `画像 ${n} のキャプション`,
+    exact: true,
+  });
+
+/** The path form, folded away while uploads are set up. */
+const openAddByPath = async (page: import("@playwright/test").Page) => {
+  const details = page.getByTestId("add-by-path");
+  if ((await details.getAttribute("open")) === null) {
+    await details.getByText("パスで追加").click();
+  }
+};
 
 test("cameras: the fixture camera lists its images in order", async ({
   page,
@@ -112,24 +123,26 @@ test("cameras: add, reorder, caption and remove images", async ({ page }) => {
   await expect(page.getByText("Camera created.")).toBeVisible();
 
   const images = page.getByTestId("camera-image");
+  const path = page.getByLabel("パス", { exact: true });
   const add = async (file: string, caption = "") => {
-    await page.getByLabel("Image path").fill(file);
-    await page.getByLabel("Caption", { exact: true }).fill(caption);
-    await page.getByRole("button", { name: "Add image" }).click();
+    await openAddByPath(page);
+    await path.fill(file);
+    await page.getByLabel("キャプション", { exact: true }).fill(caption);
+    await page.getByRole("button", { name: "追加", exact: true }).click();
   };
 
   await add("/camera/e2e/a.png", "A");
   await expect(images).toHaveCount(1);
   // Cleared after a successful add.
-  await expect(page.getByLabel("Image path")).toHaveValue("");
+  await expect(path).toHaveValue("");
   await add("/camera/e2e/b.jpg");
   await expect(images).toHaveCount(2);
   await expect(images.nth(1)).toContainText("/camera/e2e/b.jpg");
 
-  await page.getByRole("button", { name: "Move image 2 up" }).click();
+  await page.getByRole("button", { name: "画像 2 を上へ" }).click();
   await expect(images.nth(0)).toContainText("/camera/e2e/b.jpg");
   await expect(
-    page.getByRole("button", { name: "Move image 1 up" }),
+    page.getByRole("button", { name: "画像 1 を上へ" }),
   ).toBeDisabled();
 
   await caption(page, 1).fill("B side");
@@ -154,11 +167,9 @@ test("cameras: add, reorder, caption and remove images", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("file must be a path");
   await expect(images).toHaveCount(2);
   // A rejected path stays in the field to be fixed.
-  await expect(page.getByLabel("Image path")).toHaveValue(
-    "/camera/../secret.png",
-  );
+  await expect(path).toHaveValue("/camera/../secret.png");
 
-  await page.getByRole("button", { name: "Remove image 2" }).click();
+  await page.getByRole("button", { name: "画像 2 を外す" }).click();
   await expect(images).toHaveCount(1);
   await expect(images.nth(0)).toContainText("/camera/e2e/b.jpg");
   // The earlier add error does not linger after a later action.
@@ -176,17 +187,19 @@ test("cameras: a too long image path is caught before submitting", async ({
   });
   // 490 chars fits on its own, but not with /camera/virtuallens2/ in front.
   const name = "a".repeat(486) + ".png";
-  await page.getByLabel("Image path").fill(name);
+  await openAddByPath(page);
+  const path = page.getByLabel("パス", { exact: true });
+  await path.fill(name);
   await expect(page.getByTestId("image-path-error")).toHaveText(
     "With /camera/virtuallens2/ in front, the path is 511 characters; at most 500.",
   );
-  await page.getByRole("button", { name: "Add image" }).click();
+  await page.getByRole("button", { name: "追加", exact: true }).click();
   await page.waitForTimeout(300);
   expect(posts).toBe(0);
   await expect(page.getByTestId("camera-image")).toHaveCount(2);
 
   // Shortened: the message goes away.
-  await page.getByLabel("Image path").fill("front2.png");
+  await path.fill("front2.png");
   await expect(page.getByTestId("image-path-error")).toHaveText("");
 });
 

@@ -91,8 +91,12 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
 
   const images = page.getByTestId("camera-image");
   const add = async (file: string) => {
-    await page.getByLabel("Image path").fill(file);
-    await page.getByRole("button", { name: "Add image" }).tap();
+    const details = page.getByTestId("add-by-path");
+    if ((await details.getAttribute("open")) === null) {
+      await details.getByText("パスで追加").tap();
+    }
+    await page.getByLabel("パス", { exact: true }).fill(file);
+    await page.getByRole("button", { name: "追加", exact: true }).tap();
   };
   // A bare file name goes in the camera's folder.
   await add("a.png");
@@ -104,7 +108,7 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
   await expect(images).toHaveCount(3);
 
   // Captions save when the field is left.
-  const caption = page.getByRole("textbox", { name: "Caption of image 2" });
+  const caption = page.getByRole("textbox", { name: "画像 2 のキャプション" });
   await caption.fill("Bee");
   await Promise.all([
     page.waitForResponse(
@@ -113,7 +117,9 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
     ),
     caption.blur(),
   ]);
-  await expect(page.getByRole("status")).toHaveText("Caption saved.");
+  await expect(page.getByRole("status")).toHaveText(
+    "キャプションを保存しました。",
+  );
   // Enter saves too, once.
   let posts = 0;
   page.on("request", (r) => {
@@ -139,7 +145,7 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
   ]);
 
   // ↑ / ↓ only in the reorder mode.
-  const up = page.getByRole("button", { name: "Move image 3 up" });
+  const up = page.getByRole("button", { name: "画像 3 を上へ" });
   await expect(up).toBeHidden();
   await page.getByRole("button", { name: "並べ替え" }).tap();
   await up.tap();
@@ -148,7 +154,7 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
   await expect(up).toBeHidden();
 
   // Remove the middle one (c.png), then undo: back in the middle.
-  await page.getByRole("button", { name: "Remove image 2" }).tap();
+  await page.getByRole("button", { name: "画像 2 を外す" }).tap();
   await expect(images).toHaveCount(2);
   await page.getByRole("button", { name: "元に戻す" }).tap();
   await expect(page.getByRole("status")).toHaveText("元に戻しました。");
@@ -157,6 +163,6 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
   await expect(images.nth(2)).toContainText("b.png");
   await page.reload();
   await expect(
-    page.getByRole("textbox", { name: "Caption of image 3" }),
+    page.getByRole("textbox", { name: "画像 3 のキャプション" }),
   ).toHaveValue("Bee");
 });
