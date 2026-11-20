@@ -18,7 +18,7 @@ import type { FileTile } from "./file-browser";
 import { buttonPrimary, buttonSecondary, card, field, label } from "./ui";
 
 // The public metadata levels of the selected photos, every field at once:
-// each select starts at what the photos share (既定 when they follow the
+// each select starts at what the photos share (デフォルト when they follow the
 // site), or そのまま when they differ, which leaves each photo's own level.
 // Only the fields changed here are applied. A sheet along the bottom on
 // phones, a centred dialog from sm up.
@@ -118,7 +118,7 @@ export const BulkMetadataDialog = component$<Props>(
                       </option>
                     )}
                     <option value="" selected={shared === ""}>
-                      {`既定（${labels[siteDefaults[f]]}）`}
+                      {`デフォルト（${labels[siteDefaults[f]]}）`}
                     </option>
                     {(METADATA_LEVELS[f] as readonly string[]).map((level) => (
                       <option

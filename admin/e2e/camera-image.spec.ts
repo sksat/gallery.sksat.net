@@ -67,12 +67,12 @@ test("upload pictures, make one the default, reorder, take off and delete", asyn
   // The first one is the default.
   await expect(images(page).nth(0)).toHaveAttribute("data-default", "");
   await expect(images(page).nth(0).getByTestId("default-mark")).toHaveText(
-    "既定",
+    "デフォルト",
   );
   await expect(
     images(page)
       .nth(0)
-      .getByRole("button", { name: /既定にする/ }),
+      .getByRole("button", { name: /デフォルトにする/ }),
   ).toHaveCount(0);
 
   // The same name again: numbered, not overwritten.
@@ -84,9 +84,11 @@ test("upload pictures, make one the default, reorder, take off and delete", asyn
   await expect(images(page)).toHaveCount(3);
   await expect(images(page).nth(2)).toContainText(`${dir}/back-1.jpg`);
 
-  // 既定にする, then undo.
-  await page.getByRole("button", { name: "画像 3 を既定にする" }).click();
-  await expect(page.getByRole("status")).toContainText("既定にしました。");
+  // デフォルトにする, then undo.
+  await page.getByRole("button", { name: "画像 3 をデフォルトにする" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "デフォルトにしました。",
+  );
   await expect(images(page).nth(0)).toContainText("back-1.jpg");
   await expect(images(page).nth(0)).toHaveAttribute("data-default", "");
   await page.getByRole("button", { name: "元に戻す" }).click();

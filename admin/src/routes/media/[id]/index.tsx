@@ -117,7 +117,7 @@ type MediaLoaderResult =
       /** Options for the camera <select>, sorted by name. */
       cameras: CameraOption[];
       imageBase: string | null;
-      /** The site's metadata visibility defaults (the selects' 既定). */
+      /** The site's metadata visibility defaults (the selects' デフォルト). */
       defaults: MetadataLevels;
       /** Which of the photo's tags are public. */
       publicTags: string[];
@@ -915,7 +915,7 @@ const MediaFields = component$<{
             </label>
             <select id="edit-embed-exif" name="embed_exif" class={field}>
               <option value="" selected={row.embed_exif === null}>
-                既定
+                デフォルト
               </option>
               <option value="on" selected={row.embed_exif === true}>
                 する

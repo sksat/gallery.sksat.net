@@ -25,7 +25,7 @@ export const WithLevel = ({
 /**
  * How much of one field the public site shows, beside the field on the
  * edit page: its level <select> (the first option follows the site,
- * 既定（…）), with an icon for its level as saved: a globe when the level
+ * デフォルト（…）), with an icon for its level as saved: a globe when the level
  * lets it out, a lock when hidden. The globe is in the public colour only
  * when the public site really shows something (the photo is not private
  * and the field has a value), muted otherwise.
@@ -83,7 +83,7 @@ export const LevelSelect = ({
         class={[field, "w-auto min-w-0 sm:w-48"]}
       >
         <option value="" selected={value === ""}>
-          {`既定（${labels[siteDefault]}）`}
+          {`デフォルト（${labels[siteDefault]}）`}
         </option>
         {(METADATA_LEVELS[f] as readonly string[]).map((level) => (
           <option key={level} value={level} selected={value === level}>

@@ -313,7 +313,7 @@ export const useAddCameraImage = routeAction$(
 );
 
 /**
- * The pictures in a new order (↑ / ↓, 既定にする, a drag, or 元に戻す):
+ * The pictures in a new order (↑ / ↓, デフォルトにする, a drag, or 元に戻す):
  * every picture's id, the default first. Returns the order before.
  */
 export const useCameraImageOrder = routeAction$(
@@ -1167,7 +1167,7 @@ export default component$(() => {
                         >
                           <path d="M10.87 2.6a.97.97 0 0 0-1.74 0L7.3 6.42l-4.2.6a.97.97 0 0 0-.54 1.66l3.04 2.97-.72 4.18a.97.97 0 0 0 1.41 1.02L10 14.88l3.76 1.97a.97.97 0 0 0 1.41-1.02l-.72-4.18 3.04-2.97a.97.97 0 0 0-.54-1.66l-4.2-.6-1.88-3.82Z" />
                         </svg>
-                        既定
+                        デフォルト
                       </span>
                     )}
                   </div>
@@ -1220,14 +1220,15 @@ export default component$(() => {
                       <button
                         type="button"
                         disabled={orderBusy}
-                        aria-label={`画像 ${i + 1} を既定にする`}
+                        aria-label={`画像 ${i + 1} をデフォルトにする`}
                         onClick$={() => {
                           const order = orderAfter(imageIds, img.id, "default");
-                          if (order) void reorder(order, "既定にしました。");
+                          if (order)
+                            void reorder(order, "デフォルトにしました。");
                         }}
                         class={[buttonSecondary, "px-3"]}
                       >
-                        既定にする
+                        デフォルトにする
                       </button>
                     )}
                     {(

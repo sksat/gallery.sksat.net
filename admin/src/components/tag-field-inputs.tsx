@@ -15,7 +15,7 @@ import { VISIBILITY_STYLE, VisibilityIcon } from "./visibility-style";
 
 // The fields of the photo's tags on its edit page (migration 0010): one
 // group per tag that has fields, each field an input with its public
-// level beside it (既定 follows the field), like 撮影データ. Part of the
+// level beside it (デフォルト follows the field), like 撮影データ. Part of the
 // page's form: only the fields edited since the page loaded are saved
 // (tag_fields_loaded, lib/tag-field-form.ts).
 
@@ -166,7 +166,7 @@ export const TagFieldInputs = ({
                           class={[fieldClass, "w-36! shrink-0"]}
                         >
                           <option value="" selected={own === ""}>
-                            {`既定（${TAG_FIELD_LEVEL_LABELS[f.visibility]}）`}
+                            {`デフォルト（${TAG_FIELD_LEVEL_LABELS[f.visibility]}）`}
                           </option>
                           {TAG_FIELD_LEVELS.map((level) => (
                             <option

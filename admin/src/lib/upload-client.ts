@@ -2,7 +2,7 @@
 // the admin API, and the PUT to the bucket with XMLHttpRequest (fetch has
 // no upload progress). Thin wrappers; the logic is in upload-queue.ts.
 
-import { cameraPictureTarget } from "./camera-image";
+import { cameraPictureProblem, cameraPictureTarget } from "./camera-image";
 import { imageSize } from "./image-size";
 import { markUnread } from "./read-state";
 import {
@@ -224,7 +224,7 @@ export const prepareCameraPicture = async (
   if (!contentType) throw new UploadError("PNG / JPEG ではありません", false);
   const bytes = await f.blob.arrayBuffer();
   const size = imageSize(new Uint8Array(bytes));
-  const refused = checkUploadLimits({ size: f.size, ...size });
+  const refused = cameraPictureProblem({ size: f.size, ...size });
   if (refused) throw new UploadError(refused, false);
   return {
     sha256: hex(await crypto.subtle.digest("SHA-256", bytes)),
@@ -277,6 +277,8 @@ export const cameraPictureDeps = (
       };
     },
     put: putFile,
+    // A camera picture has no display copy (prepare never makes one).
+    putDisplay: (target, blob) => putBlob(target, blob, () => {}),
     complete: async (id) => {
       const body = pending.get(id);
       if (!body) throw new UploadError("アップロードし直してください", false);

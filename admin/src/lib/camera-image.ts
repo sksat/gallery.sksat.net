@@ -4,6 +4,7 @@
 
 import {
   checkUploadLimits,
+  resizeLimitsProblem,
   MAX_FILE_NAME_LEN,
   safeSegment,
   uploadContentType,
@@ -67,6 +68,17 @@ export type CameraUploadInit = {
   sha256: string;
 };
 
+/**
+ * Why a file cannot be a camera picture, or null: it must be within what
+ * Image Transformations can resize, as a camera picture has no display
+ * copy (its object is resized as it is).
+ */
+export const cameraPictureProblem = (f: {
+  size: number;
+  width?: number | null;
+  height?: number | null;
+}): string | null => checkUploadLimits(f) ?? resizeLimitsProblem(f);
+
 /** Whether `file` is directly in some camera's folder (/camera/<slug>/x). */
 const inAnyCameraDir = (file: string): boolean => {
   const parts = file.split("/");
@@ -106,7 +118,7 @@ export const validateCameraUpload = (
       dims.push(v);
     } else return { ok: false, error: "画像の縦横の値が正しくありません" };
   }
-  const refused = checkUploadLimits({
+  const refused = cameraPictureProblem({
     size: o.size,
     width: dims[0],
     height: dims[1],
@@ -170,7 +182,7 @@ export const moveToIndex = (
 export type OrderOp = "up" | "down" | "default";
 
 /**
- * The order after ↑ / ↓ or 既定にする (the first picture is the default:
+ * The order after ↑ / ↓ or デフォルトにする (the first picture is the default:
  * the one the public camera list, its page's card and og use).
  */
 export const orderAfter = (

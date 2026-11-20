@@ -152,7 +152,7 @@ describe("order", () => {
     expect(moveToIndex([1, 2, 3], 9, 0)).toBeNull();
   });
 
-  it("↑ / ↓ swap with the neighbour, 既定にする puts it first", () => {
+  it("↑ / ↓ swap with the neighbour, デフォルトにする puts it first", () => {
     expect(orderAfter([1, 2, 3], 2, "up")).toEqual([2, 1, 3]);
     expect(orderAfter([1, 2, 3], 2, "down")).toEqual([1, 3, 2]);
     expect(orderAfter([1, 2, 3], 3, "default")).toEqual([3, 1, 2]);
