@@ -77,6 +77,7 @@ test("upload pictures, make one the default, reorder, take off and delete", asyn
 
   // The same name again: numbered, not overwritten.
   await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(rows).toHaveCount(0);
   await page.getByTestId("upload-input").setInputFiles([jpeg("back.jpg", "c")]);
   await expect(rows).toHaveAttribute("data-status", "done");
   await expect(rows).toContainText(`${dir}/back-1.jpg として登録します`);
