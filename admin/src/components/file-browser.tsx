@@ -269,7 +269,10 @@ const DirArrow = ({ dir }: { dir: "asc" | "desc" }) => (
 
 /** dragstart on a tile: drag the selection, or just this tile. */
 const dragStart = sync$((e: DragEvent) => {
-  const el = (e.target as HTMLElement).closest<HTMLElement>("[data-sel-key]");
+  const n = e.target as Node;
+  const el = (n instanceof Element ? n : n.parentElement)?.closest<HTMLElement>(
+    "[data-sel-key]",
+  );
   const list = el?.closest<HTMLElement>("[data-file-browser]");
   if (!el || !list || !e.dataTransfer) return;
   const keys = el.matches("[aria-selected=true]")
@@ -290,8 +293,21 @@ const dragStart = sync$((e: DragEvent) => {
  */
 const dragOver = sync$((e: DragEvent) => {
   const raw = document.body.dataset.dragItems;
-  if (!raw) return;
-  const t = (e.target as HTMLElement).closest<HTMLElement>("[data-drop]");
+  // Only this page's moves (a drag from outside is the uploader's, even if
+  // a move's dragend never came and left its keys on <body>).
+  if (
+    !raw ||
+    !Array.from(e.dataTransfer?.types ?? []).includes(
+      "application/x-gallery-items",
+    )
+  ) {
+    return;
+  }
+  // Firefox may aim a drag event at a text node.
+  const n = e.target as Node;
+  const t = (n instanceof Element ? n : n.parentElement)?.closest<HTMLElement>(
+    "[data-drop]",
+  );
   for (const x of document.querySelectorAll("[data-drop-over]")) {
     if (x !== t) x.removeAttribute("data-drop-over");
   }

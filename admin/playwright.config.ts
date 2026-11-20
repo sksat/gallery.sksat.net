@@ -40,6 +40,16 @@ export default defineConfig({
       use: { browserName: "chromium" },
     },
     {
+      // The drops from the OS once more in Firefox, whose drags differ
+      // (upload.spec.ts). After the rest, as its uploads add rows.
+      name: "firefox",
+      testDir: "./e2e",
+      testMatch: "upload.spec.ts",
+      grep: /\bdrop /,
+      dependencies: ["e2e"],
+      use: { browserName: "firefox" },
+    },
+    {
       name: "vrt",
       testDir: "./e2e/vrt",
       use: { browserName: "chromium" },

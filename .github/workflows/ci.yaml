@@ -176,6 +176,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm run test.e2e
+        # Firefox (the `firefox` project) refuses to start as root with a
+        # $HOME owned by another user, as the container's is.
+        env:
+          HOME: /root
 
       - run: pnpm run test.vrt
 

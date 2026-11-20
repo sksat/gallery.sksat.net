@@ -14,7 +14,10 @@ import { formatUploadSize, UPLOAD_ACCEPT } from "~/lib/upload";
 import type { IncompleteUpload } from "~/lib/db-upload";
 import {
   collectDropped,
+  INTERNAL_DRAG_TYPE,
+  isUploadDrag,
   MAX_DROPPED_FILES,
+  uploadDropEffect,
   type EntryLike,
 } from "~/lib/drop-entries";
 import {
@@ -319,17 +322,51 @@ export const DropZone = component$<{
     const el = ref.value;
     if (!el || !enabled) return;
     let depth = 0;
-    // A drag that started in this page (e.g. a thumbnail) is not an upload,
-    // even though Chromium lists "Files" for a dragged image.
-    let internal = false;
-    const hasFiles = (e: DragEvent) =>
-      !internal && Array.from(e.dataTransfer?.types ?? []).includes("Files");
-    const dragStart = () => (internal = true);
-    const dragEnd = () => (internal = false);
+    // Firefox may aim a drag event at a text node.
+    const elementOf = (e: DragEvent) => {
+      const t = e.target as Node | null;
+      return t instanceof Element ? t : (t?.parentElement ?? null);
+    };
+    const typesOf = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []);
+    // A text field keeps drops that are not known to be files (text).
+    const textField = (e: DragEvent) =>
+      !typesOf(e).some(
+        (t) => t === "Files" || t === "application/x-moz-file",
+      ) &&
+      !!elementOf(e)?.closest(
+        'textarea, input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="file"]), [contenteditable]:not([contenteditable="false"])',
+      );
+    // Any other drag from outside the page is taken (isUploadDrag): Firefox
+    // does not always list "Files" before the drop.
+    const isUpload = (e: DragEvent) =>
+      !!e.dataTransfer && isUploadDrag(typesOf(e)) && !textField(e);
+    // A drag that started in this page (a tile, a thumbnail, a link) is
+    // not an upload, even though Chromium lists "Files" for a dragged
+    // image: mark it on the drag itself.
+    const dragStart = (e: DragEvent) => {
+      try {
+        e.dataTransfer?.setData(INTERNAL_DRAG_TYPE, "1");
+      } catch {
+        // Not writable: the drag is not this page's.
+      }
+    };
     // Files dropped next to the zone would make the browser open them and
-    // leave the admin.
+    // leave the admin: refused there (the not-allowed cursor), and a drop
+    // with files on a text field that took it is cancelled too.
     const swallow = (e: DragEvent) => {
-      if (hasFiles(e) && !el.contains(e.target as Node)) e.preventDefault();
+      if (isUpload(e)) {
+        if (el.contains(e.target as Node)) return;
+        e.preventDefault();
+        if (e.type === "dragover" && e.dataTransfer) {
+          e.dataTransfer.dropEffect = "none";
+        }
+      } else if (
+        e.type === "drop" &&
+        isUploadDrag(typesOf(e)) &&
+        (e.dataTransfer?.files.length ?? 0) > 0
+      ) {
+        e.preventDefault();
+      }
     };
     // The folder under the pointer, if any, marked like a move's target.
     let marked: HTMLElement | null = null;
@@ -345,9 +382,7 @@ export const DropZone = component$<{
     // drop goes where the mark is.
     let lastHit = 0;
     const folderAt = (e: DragEvent) => {
-      const t = (e.target as Element | null)?.closest?.<HTMLElement>(
-        "[data-drop]",
-      );
+      const t = elementOf(e)?.closest<HTMLElement>("[data-drop]");
       if (t && el.contains(t)) {
         lastHit = e.timeStamp;
         return t;
@@ -359,9 +394,17 @@ export const DropZone = component$<{
       over.value = false;
       mark(null);
     };
-    const enter = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
+    const accept = (e: DragEvent) => {
       e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = uploadDropEffect(
+          e.dataTransfer.effectAllowed,
+        );
+      }
+    };
+    const enter = (e: DragEvent) => {
+      if (!isUpload(e)) return;
+      accept(e);
       // No move is under way: forget one whose dragend never came, so the
       // folders' move handlers (file-browser.tsx) leave this drop alone.
       delete document.body.dataset.dragItems;
@@ -370,18 +413,19 @@ export const DropZone = component$<{
       over.value = true;
       mark(folderAt(e));
     };
-    const leave = () => {
+    // Paired with enter: the same elements count.
+    const leave = (e: DragEvent) => {
+      if (!isUpload(e)) return;
       depth = Math.max(0, depth - 1);
       if (depth === 0) reset();
     };
     const dragOver = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      if (!isUpload(e)) return;
+      accept(e);
       mark(folderAt(e));
     };
     const drop = (e: DragEvent) => {
-      if (!hasFiles(e)) return;
+      if (!isUpload(e)) return;
       e.preventDefault();
       const target = folderAt(e)?.dataset.drop || el.dataset.dir || "/";
       reset();
@@ -396,6 +440,14 @@ export const DropZone = component$<{
           const f = item.getAsFile();
           if (f) loose.push(f);
         }
+      }
+      // No items with files (an older engine): the plain file list.
+      if (entries.length === 0 && loose.length === 0) {
+        loose.push(...Array.from(e.dataTransfer?.files ?? []));
+      }
+      if (entries.length === 0 && loose.length === 0) {
+        void onProblem$("ドロップされたものにファイルがありませんでした");
+        return;
       }
       void collectDropped(entries).then(
         ({ files: dropped, failed, truncated }) => {
@@ -426,8 +478,7 @@ export const DropZone = component$<{
     el.addEventListener("dragleave", leave);
     el.addEventListener("dragover", dragOver);
     el.addEventListener("drop", drop);
-    document.addEventListener("dragstart", dragStart);
-    document.addEventListener("dragend", dragEnd);
+    document.addEventListener("dragstart", dragStart, true);
     window.addEventListener("dragover", swallow);
     window.addEventListener("drop", swallow);
     cleanup(() => {
@@ -436,8 +487,7 @@ export const DropZone = component$<{
       el.removeEventListener("dragleave", leave);
       el.removeEventListener("dragover", dragOver);
       el.removeEventListener("drop", drop);
-      document.removeEventListener("dragstart", dragStart);
-      document.removeEventListener("dragend", dragEnd);
+      document.removeEventListener("dragstart", dragStart, true);
       window.removeEventListener("dragover", swallow);
       window.removeEventListener("drop", swallow);
     });
