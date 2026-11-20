@@ -2,9 +2,11 @@
 // own /thumb route (src/routes/thumb), which asks the image Worker's
 // AdminImage entrypoint (../../../workers/image) for the resized image.
 //
-// Unlike the public gallery there is deliberately no fallback to the
-// originals (up to ~37MB PNGs in B2): without a thumbnail base the UI shows
-// a placeholder tile instead.
+// Without a thumbnail base the UI shows a placeholder tile, and so does a
+// thumbnail (h240/h480) whose resize fails. Only the large presets
+// (w1200…w3840, the edit page's photo and the full-screen viewer) come back
+// as the photo's file itself when its resize fails (the Worker's
+// X-Image-Fallback, e.g. once the monthly transformations are used up).
 
 /**
  * Must match `PRESETS` in workers/image/src/request.ts exactly. The Worker

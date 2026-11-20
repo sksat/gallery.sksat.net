@@ -26,7 +26,9 @@
  *   `stat` reports an object's size and hash metadata (upload checks), and
  *   `bytes` returns an original's first or last bytes (metadata backfill).
  *
- * The originals are never served as-is. With B2 credentials the Worker
+ * The public handler never serves a file as-is (they carry their full
+ * EXIF/XMP). Only `AdminImage` does, for the large presets when the resize
+ * fails, so the admin still shows the photo (fallback.ts). With B2 credentials the Worker
  * fetches them through presigned URLs (origin.ts), so the bucket can be
  * private.
  *
@@ -39,6 +41,7 @@ import { parseRange, readObjectBytes, type ObjectBytes } from "./bytes";
 import { edgeCacheKey, withEdgeCache } from "./cache";
 import { captionFor, type Caption, type CaptionSource } from "./caption";
 import { embedExif } from "./exif-embed";
+import { fallsBackToSource, sourceResponse } from "./fallback";
 import { encodeTiff } from "./exif-encode";
 import { publicExif, type PublicMeta } from "./public-exif";
 import { originFor, type OriginEnv } from "./origin";
@@ -168,15 +171,20 @@ const render = async (
   return { upstream, degraded };
 };
 
+const transformError = (status: number) =>
+  plain(status === 404 ? 404 : 502, "Image unavailable");
+
 const respond = (
   upstream: Response,
   preset: PresetName,
   cacheControl: string,
 ): Response => {
-  if (!upstream.ok) {
-    // Don't pass the origin's error body (e.g. B2's XML) through.
+  if (transformFailed(upstream.status, upstream.headers.get("Cf-Resized"))) {
+    // Don't pass the origin's error body (e.g. B2's XML) through, nor a
+    // 2xx that reports `err=`: its body may be the untransformed original.
     console.error(`transform failed: ${upstream.status}`);
-    return plain(upstream.status === 404 ? 404 : 502, "Image unavailable");
+    void upstream.body?.cancel().catch(() => {});
+    return transformError(upstream.status);
   }
   const headers = new Headers(upstream.headers);
   if (variesByAccept(preset)) headers.set("Vary", "Accept");
@@ -225,6 +233,29 @@ const exifKey = async (tiff: Uint8Array): Promise<string> => {
   return Array.from(digest.subarray(0, 8), (b) =>
     b.toString(16).padStart(2, "0"),
   ).join("");
+};
+
+/**
+ * The source file at `file` as it is (AdminImage only, never the public
+ * handler; fallback.ts), or the resize's error when it cannot be served.
+ */
+const sourceFallback = async (
+  env: Env,
+  file: string,
+  transformStatus: number,
+): Promise<Response> => {
+  let res: Response;
+  try {
+    res = await fetch(await originFor(env, file));
+  } catch (err) {
+    console.error(`fallback GET ${file} failed:`, err);
+    return transformError(transformStatus);
+  }
+  const response = sourceResponse(res, file);
+  if (response) return response;
+  console.error(`fallback GET ${file}: ${res.status}`);
+  void res.body?.cancel().catch(() => {});
+  return transformError(res.status === 404 ? 404 : transformStatus);
 };
 
 /** The public route: public (and, by id, unlisted) photos only. */
@@ -385,7 +416,18 @@ export class AdminImage extends WorkerEntrypoint<Env> {
       accept,
       "",
     );
-    return respond(upstream, parsed.preset, "private, max-age=3600");
+    if (
+      !transformFailed(upstream.status, upstream.headers.get("Cf-Resized")) ||
+      !fallsBackToSource(parsed.preset, upstream.status)
+    ) {
+      return respond(upstream, parsed.preset, "private, max-age=3600");
+    }
+    // The large presets show the file itself when the resize fails (e.g.
+    // the monthly transformations are used up), for the admin only
+    // (fallback.ts).
+    console.error(`transform failed: ${upstream.status}`);
+    void upstream.body?.cancel().catch(() => {});
+    return sourceFallback(this.env, parsed.file, upstream.status);
   }
 
   /**

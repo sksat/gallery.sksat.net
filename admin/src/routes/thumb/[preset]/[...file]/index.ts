@@ -2,6 +2,7 @@ import type { RequestHandler } from "@builder.io/qwik-city";
 import { getAdminImages, getDB, getImageBase } from "~/lib/env";
 import { THUMB_EXACT } from "~/lib/images";
 import { imageSource, type FileObject } from "~/lib/media-file";
+import { thumbHeaders } from "~/lib/thumb-response";
 
 // GET /thumb/<preset>/<file…>: a resized thumbnail of any photo or camera
 // picture, private ones included, for the admin's own pages.
@@ -47,16 +48,12 @@ export const onGet: RequestHandler = async ({
     send(new Response("Service unavailable", { status: 503 }));
     return;
   }
-  const headers = new Headers({
-    "Cache-Control": upstream.ok ? "private, max-age=3600" : "no-store",
-    Vary: "Accept",
-  });
-  const type = upstream.headers.get("content-type");
-  if (upstream.ok && type) headers.set("Content-Type", type);
+  // A large preset whose resize failed may come back as the photo's file
+  // itself (X-Image-Fallback), which is shown as it is.
   send(
     new Response(upstream.ok ? upstream.body : null, {
       status: upstream.status,
-      headers,
+      headers: thumbHeaders(upstream),
     }),
   );
 };

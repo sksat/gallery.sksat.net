@@ -15,8 +15,13 @@ import { pickPreviewPreset, readWithProgress } from "~/lib/progress";
 type Props = {
   file: string;
   imageBase: string;
-  /** Box size/rounding; the aspect ratio is fixed by the caller (Thumb). */
+  /**
+   * Box size/rounding and background; the aspect ratio is fixed by the
+   * caller (Thumb).
+   */
   class?: ClassList;
+  /** Shown while no image is (e.g. the thumbnail failed): "PNG". */
+  placeholder: string;
 };
 
 /**
@@ -116,19 +121,31 @@ export const ProgressivePreview = component$<Props>((props) => {
   const done = progress.value === undefined;
 
   return (
-    <div ref={box} class={[boxClass, "bg-zinc-100 dark:bg-zinc-800"]}>
+    <div ref={box} class={boxClass}>
       <img
         src={imageUrl(imageBase, file, "h240")}
         srcset={srcSet(imageBase, file, LIST_CANDIDATES)}
         {...dimensionsFromFile(file)}
         alt={fullSrc.value ? "" : `Preview of ${file}`}
         decoding="async"
-        // No broken-image icon: the empty box stays instead.
+        // No broken-image icon: the placeholder below shows instead.
         onError$={(_, el) => {
           el.hidden = true;
         }}
-        class="absolute inset-0 h-full w-full object-contain"
+        class="peer absolute inset-0 h-full w-full object-contain"
       />
+      {/* While there is no image at all: the thumbnail failed (e.g.
+          resizing refused) and the larger one (which may then be the file
+          itself) has not arrived. */}
+      {!fullSrc.value && (
+        <span
+          aria-hidden="true"
+          data-testid="preview-placeholder"
+          class="absolute inset-0 hidden place-items-center text-sm font-semibold tracking-wider peer-[[hidden]]:grid"
+        >
+          {props.placeholder}
+        </span>
+      )}
       {fullSrc.value && (
         <img
           data-testid="preview-image"
