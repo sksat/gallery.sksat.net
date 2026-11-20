@@ -17,8 +17,8 @@ import {
   INTERNAL_DRAG_TYPE,
   isUploadDrag,
   MAX_DROPPED_FILES,
+  readDrop,
   uploadDropEffect,
-  type EntryLike,
 } from "~/lib/drop-entries";
 import {
   browserDeps,
@@ -430,23 +430,15 @@ export const DropZone = component$<{
       const target = folderAt(e)?.dataset.drop || el.dataset.dir || "/";
       reset();
       // Read everything now: the DataTransfer is emptied after the event.
-      const entries: EntryLike[] = [];
-      const loose: File[] = [];
-      for (const item of Array.from(e.dataTransfer?.items ?? [])) {
-        if (item.kind !== "file") continue;
-        const entry = item.webkitGetAsEntry?.() as EntryLike | null;
-        if (entry) entries.push(entry);
-        else {
-          const f = item.getAsFile();
-          if (f) loose.push(f);
-        }
-      }
-      // No items with files (an older engine): the plain file list.
-      if (entries.length === 0 && loose.length === 0) {
-        loose.push(...Array.from(e.dataTransfer?.files ?? []));
+      const { entries, loose, unread, types, items } = readDrop(e.dataTransfer);
+      if (unread > 0 || (entries.length === 0 && loose.length === 0)) {
+        // What the browser handed over, to tell why from the console.
+        console.warn("drop: files that could not be read", { types, items });
       }
       if (entries.length === 0 && loose.length === 0) {
-        void onProblem$("ドロップされたものにファイルがありませんでした");
+        void onProblem$(
+          "ファイルを読み込めませんでした。「Upload」から選んでください",
+        );
         return;
       }
       void collectDropped(entries).then(
@@ -462,15 +454,29 @@ export const DropZone = component$<{
             blob: file,
           }));
           if (files.length > 0) void uploader.add(target, files);
-          if (failed.length > 0) {
-            void onProblem$(
+          // Everything that went wrong, in one toast.
+          const problems: string[] = [];
+          if (files.length === 0 && (unread > 0 || failed.length > 0)) {
+            problems.push(
+              "ファイルを読み込めませんでした。「Upload」から選んでください",
+            );
+          } else if (unread > 0 && failed.length > 0) {
+            problems.push(
+              `${unread + failed.length} 件は読み込めませんでした: ${failed.slice(0, 3).join(", ")} ほか`,
+            );
+          } else if (unread > 0) {
+            problems.push(`${unread} 件は読み込めませんでした`);
+          } else if (failed.length > 0) {
+            problems.push(
               `読み込めなかったものを飛ばしました: ${failed.slice(0, 3).join(", ")}${failed.length > 3 ? ` ほか ${failed.length - 3} 件` : ""}`,
             );
-          } else if (truncated) {
-            void onProblem$(
+          }
+          if (truncated) {
+            problems.push(
               `一度に ${MAX_DROPPED_FILES} 件までです。残りはもう一度ドロップしてください`,
             );
           }
+          if (problems.length > 0) void onProblem$(problems.join("。"));
         },
       );
     };

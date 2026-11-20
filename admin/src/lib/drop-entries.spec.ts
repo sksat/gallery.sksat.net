@@ -3,7 +3,9 @@ import {
   collectDropped,
   INTERNAL_DRAG_TYPE,
   isUploadDrag,
+  readDrop,
   uploadDropEffect,
+  type DropItemLike,
   type DirectoryEntryLike,
   type EntryLike,
   type FileEntryLike,
@@ -125,5 +127,93 @@ describe("uploadDropEffect", () => {
     expect(uploadDropEffect("move")).toBe("move");
     expect(uploadDropEffect("linkMove")).toBe("move");
     expect(uploadDropEffect("link")).toBe("link");
+  });
+});
+
+describe("readDrop", () => {
+  const f = (name: string) => new File(["x"], name);
+  const item = (
+    kind: string,
+    type: string,
+    got: { file?: File; entry?: EntryLike } = {},
+  ): DropItemLike => ({
+    kind,
+    type,
+    getAsFile: () => got.file ?? null,
+    webkitGetAsEntry: () => got.entry ?? null,
+  });
+
+  it("takes entries, and files that have none", () => {
+    const a = file("a.png");
+    const b = f("b.png");
+    const got = readDrop({
+      types: ["Files"],
+      items: [
+        item("file", "image/png", { entry: a }),
+        item("file", "image/png", { file: b }),
+        item("string", "text/uri-list"),
+      ],
+      files: [f("a.png"), b],
+    });
+    expect(got.entries).toEqual([a]);
+    expect(got.loose).toEqual([b]);
+    expect(got.unread).toBe(0);
+    expect(got.items).toEqual([
+      "file:image/png",
+      "file:image/png",
+      "string:text/uri-list",
+    ]);
+  });
+
+  it("counts file items that give no file", () => {
+    const a = file("a.png");
+    const got = readDrop({
+      types: ["Files"],
+      items: [item("file", "image/png", { entry: a }), item("file", "")],
+      files: [],
+    });
+    expect(got.entries).toEqual([a]);
+    expect(got.unread).toBe(1);
+  });
+
+  it("takes the file list when it has more than the items gave", () => {
+    const list = [f("a.png"), f("b.png")];
+    const got = readDrop({
+      types: ["Files"],
+      items: [item("file", "image/png"), item("file", "image/png")],
+      files: list,
+    });
+    expect(got.entries).toEqual([]);
+    expect(got.loose).toEqual(list);
+    expect(got.unread).toBe(0);
+    // An older engine: no items at all.
+    expect(readDrop({ types: ["Files"], files: list }).loose).toEqual(list);
+  });
+
+  it("keeps a dropped folder's entry over the file list", () => {
+    const d = dir("Trip", [file("a.png")]);
+    const got = readDrop({
+      types: ["Files"],
+      items: [item("file", "", { entry: d })],
+      files: [f("Trip"), f("x.png")],
+    });
+    expect(got.entries).toEqual([d]);
+    expect(got.loose).toEqual([]);
+  });
+
+  it("finds nothing in a drag of text or links", () => {
+    const got = readDrop({
+      types: ["text/uri-list", "text/x-moz-url"],
+      items: [
+        item("string", "text/uri-list"),
+        item("string", "text/x-moz-url"),
+      ],
+      files: [],
+    });
+    expect(got.entries).toEqual([]);
+    expect(got.loose).toEqual([]);
+    expect(got.unread).toBe(0);
+    expect(got.types).toEqual(["text/uri-list", "text/x-moz-url"]);
+    expect(readDrop(null).loose).toEqual([]);
   });
 });

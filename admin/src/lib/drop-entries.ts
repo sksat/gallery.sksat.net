@@ -129,3 +129,70 @@ export const uploadDropEffect = (
   if (a.includes("link")) return "link";
   return "copy";
 };
+
+/** What `readDrop` needs of a DataTransfer (tests pass fakes). */
+export type DropItemLike = {
+  kind: string;
+  type: string;
+  getAsFile(): File | null;
+  webkitGetAsEntry?: () => unknown;
+};
+export type DropDataLike = {
+  types: readonly string[];
+  items?: ArrayLike<DropItemLike> | null;
+  files?: ArrayLike<File> | null;
+};
+
+export type DropRead = {
+  /** Dropped files and folders, to walk (collectDropped). */
+  entries: EntryLike[];
+  /** Files with no entry: taken as they are. */
+  loose: File[];
+  /** File items of the drop that gave no file. */
+  unread: number;
+  /** For the console: the drag's types and its items as "kind:type". */
+  types: string[];
+  items: string[];
+};
+
+/**
+ * Everything a drop hands over, read at once. Call it in the drop event
+ * itself, synchronously: the browser empties the DataTransfer when the
+ * event ends, so an await or a lazily loaded handler sees nothing. The
+ * items give entries (folders included); a file item that gives neither
+ * an entry nor a file is counted in `unread` (what the OS offers as a
+ * file without one on disk, e.g. a phone's photos in Windows Explorer,
+ * may arrive like that or not at all). When `files` has more files than
+ * the items gave and none of them is a folder, the list is taken instead.
+ */
+export const readDrop = (dt: DropDataLike | null | undefined): DropRead => {
+  const entries: EntryLike[] = [];
+  const loose: File[] = [];
+  const items = Array.from(dt?.items ?? []);
+  const files = Array.from(dt?.files ?? []);
+  let fileItems = 0;
+  for (const item of items) {
+    if (item.kind !== "file") continue;
+    fileItems++;
+    const entry = item.webkitGetAsEntry?.() as EntryLike | null | undefined;
+    if (entry) entries.push(entry);
+    else {
+      const f = item.getAsFile();
+      if (f) loose.push(f);
+    }
+  }
+  let read = entries.length + loose.length;
+  if (files.length > read && !entries.some((e) => e.isDirectory)) {
+    entries.length = 0;
+    loose.length = 0;
+    loose.push(...files);
+    read = files.length;
+  }
+  return {
+    entries,
+    loose,
+    unread: Math.max(0, fileItems - read),
+    types: Array.from(dt?.types ?? []),
+    items: items.map((i) => `${i.kind}:${i.type}`),
+  };
+};
