@@ -149,3 +149,90 @@ export const splitSelection = (
   photos: keys.filter((k) => k.startsWith("p:")).map((k) => Number(k.slice(2))),
   folders: keys.filter((k) => k.startsWith("f:")).map((k) => k.slice(2)),
 });
+
+// Selecting by dragging a rectangle (a marquee) over the items, with a
+// mouse or a pen, from empty space in the view. The item boxes are read
+// once when the drag starts, in page coordinates (they do not move when
+// the page scrolls); everything below works on those numbers.
+
+export type Point = { x: number; y: number };
+export type Rect = { left: number; top: number; right: number; bottom: number };
+
+/** The rectangle between two corners, whichever way it was dragged. */
+export const normalizeRect = (a: Point, b: Point): Rect => ({
+  left: Math.min(a.x, b.x),
+  top: Math.min(a.y, b.y),
+  right: Math.max(a.x, b.x),
+  bottom: Math.max(a.y, b.y),
+});
+
+/** Whether two rectangles overlap (touching edges do not count). */
+export const intersects = (a: Rect, b: Rect): boolean =>
+  a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+/** The keys of the items whose box the rectangle overlaps, in order. */
+export const keysInRect = (
+  items: readonly { key: SelKey; rect: Rect }[],
+  r: Rect,
+): SelKey[] => items.filter((i) => intersects(i.rect, r)).map((i) => i.key);
+
+/**
+ * How a rectangle combines with the selection it started from: a plain
+ * drag replaces it, Ctrl/Cmd flips the items it covers, Shift adds them.
+ */
+export type MarqueeMode = "replace" | "toggle" | "add";
+
+export const marqueeMode = (mods: {
+  shift: boolean;
+  toggle: boolean;
+}): MarqueeMode => (mods.toggle ? "toggle" : mods.shift ? "add" : "replace");
+
+/**
+ * The selection while the rectangle covers `hit`, from `base` (the
+ * selection when the drag started). `anchor` is the item touched last
+ * (the next Shift range starts there); with none, the base's stays.
+ */
+export const marqueeSelection = (
+  order: readonly SelKey[],
+  base: Selection,
+  hit: readonly SelKey[],
+  mode: MarqueeMode,
+  anchor: SelKey | null,
+): Selection => {
+  const covered = new Set(hit);
+  const before = new Set(base.keys);
+  const keys =
+    mode === "replace"
+      ? inOrder(order, covered)
+      : mode === "add"
+        ? inOrder(order, [...base.keys, ...covered])
+        : inOrder(order, [
+            ...base.keys.filter((k) => !covered.has(k)),
+            ...hit.filter((k) => !before.has(k)),
+          ]);
+  return { keys, anchor: anchor ?? base.anchor };
+};
+
+/**
+ * How far to scroll (px per frame) with the pointer at `pos` in a view
+ * from `start` to `end`: nothing away from the edges, faster the closer
+ * it gets to (or the further past) an edge within `edge` px, at most
+ * `max`.
+ */
+export const autoScrollStep = (
+  pos: number,
+  start: number,
+  end: number,
+  edge = 48,
+  max = 24,
+): number => {
+  const speed = (depth: number) =>
+    Math.max(1, Math.round(Math.min(1, depth / edge) * max));
+  if (pos < start + edge) return -speed(start + edge - pos);
+  if (pos > end - edge) return speed(pos - (end - edge));
+  return 0;
+};
+
+/** Whether two key lists are the same, in the same order. */
+export const sameKeys = (a: readonly SelKey[], b: readonly SelKey[]) =>
+  a.length === b.length && a.every((k, i) => k === b[i]);

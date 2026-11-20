@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  autoScrollStep,
   clickItem,
   EMPTY_SELECTION,
+  intersects,
   keepShown,
+  keysInRect,
   inChunks,
+  marqueeMode,
+  marqueeSelection,
+  normalizeRect,
+  sameKeys,
   reconcileSelection,
   selectAll,
   sharedCamera,
@@ -172,5 +179,115 @@ describe("selectAll / keepShown / splitSelection", () => {
       photos: [12, 3],
       folders: ["/a/b"],
     });
+  });
+});
+
+describe("the rectangle (marquee)", () => {
+  it("normalises corners dragged any way", () => {
+    const r = { left: 10, top: 20, right: 30, bottom: 50 };
+    expect(normalizeRect({ x: 10, y: 20 }, { x: 30, y: 50 })).toEqual(r);
+    expect(normalizeRect({ x: 30, y: 50 }, { x: 10, y: 20 })).toEqual(r);
+    expect(normalizeRect({ x: 30, y: 20 }, { x: 10, y: 50 })).toEqual(r);
+  });
+
+  it("overlaps boxes it covers in part, not ones it only touches", () => {
+    const box = { left: 0, top: 0, right: 100, bottom: 100 };
+    const r = (left: number, top: number, right: number, bottom: number) => ({
+      left,
+      top,
+      right,
+      bottom,
+    });
+    expect(intersects(r(90, 90, 200, 200), box)).toBe(true);
+    expect(intersects(r(10, 10, 20, 20), box)).toBe(true);
+    expect(intersects(r(-50, -50, 300, 300), box)).toBe(true);
+    expect(intersects(r(100, 0, 200, 100), box)).toBe(false);
+    expect(intersects(r(0, 101, 100, 200), box)).toBe(false);
+    expect(intersects(r(50, 50, 50, 50), box)).toBe(true);
+  });
+
+  it("lists the keys of the boxes it covers, in order", () => {
+    // Two rows of two.
+    const items = [
+      {
+        key: "f:/a" as SelKey,
+        rect: { left: 0, top: 0, right: 90, bottom: 90 },
+      },
+      {
+        key: "p:1" as SelKey,
+        rect: { left: 100, top: 0, right: 190, bottom: 90 },
+      },
+      {
+        key: "p:2" as SelKey,
+        rect: { left: 0, top: 100, right: 90, bottom: 190 },
+      },
+      {
+        key: "p:3" as SelKey,
+        rect: { left: 100, top: 100, right: 190, bottom: 190 },
+      },
+    ];
+    expect(
+      keysInRect(items, normalizeRect({ x: 150, y: 150 }, { x: 95, y: 50 })),
+    ).toEqual(["p:1", "p:3"]);
+    expect(
+      keysInRect(items, normalizeRect({ x: 95, y: 95 }, { x: 96, y: 96 })),
+    ).toEqual([]);
+  });
+
+  it("picks the mode from the keys held", () => {
+    expect(marqueeMode({ shift: false, toggle: false })).toBe("replace");
+    expect(marqueeMode({ shift: true, toggle: false })).toBe("add");
+    expect(marqueeMode({ shift: false, toggle: true })).toBe("toggle");
+    expect(marqueeMode({ shift: true, toggle: true })).toBe("toggle");
+  });
+
+  const base = { keys: ["f:/a", "p:2"] as SelKey[], anchor: "p:2" as SelKey };
+  it("replaces, adds to or flips the selection it started from", () => {
+    const hit: SelKey[] = ["p:3", "p:2", "p:1"];
+    expect(marqueeSelection(order, base, hit, "replace", "p:3")).toEqual({
+      keys: ["p:1", "p:2", "p:3"],
+      anchor: "p:3",
+    });
+    expect(marqueeSelection(order, base, hit, "add", "p:3").keys).toEqual([
+      "f:/a",
+      "p:1",
+      "p:2",
+      "p:3",
+    ]);
+    expect(marqueeSelection(order, base, hit, "toggle", "p:3").keys).toEqual([
+      "f:/a",
+      "p:1",
+      "p:3",
+    ]);
+  });
+
+  it("covering nothing: replace empties, the others keep the start", () => {
+    expect(marqueeSelection(order, base, [], "replace", null)).toEqual({
+      keys: [],
+      anchor: "p:2",
+    });
+    expect(marqueeSelection(order, base, [], "add", null)).toEqual(base);
+    expect(marqueeSelection(order, base, [], "toggle", null)).toEqual(base);
+  });
+
+  it("scrolls near an edge, faster the closer, not in the middle", () => {
+    expect(autoScrollStep(400, 0, 800)).toBe(0);
+    expect(autoScrollStep(48, 0, 800)).toBe(0);
+    expect(autoScrollStep(40, 0, 800)).toBeLessThan(0);
+    expect(autoScrollStep(0, 0, 800)).toBe(-24);
+    expect(autoScrollStep(-100, 0, 800)).toBe(-24);
+    expect(autoScrollStep(790, 0, 800)).toBeGreaterThan(0);
+    expect(autoScrollStep(790, 0, 800)).toBeLessThan(
+      autoScrollStep(799, 0, 800),
+    );
+    expect(autoScrollStep(900, 0, 800)).toBe(24);
+    // The slowest step still moves.
+    expect(autoScrollStep(47, 0, 800)).toBe(-1);
+  });
+
+  it("compares key lists", () => {
+    expect(sameKeys(["p:1", "p:2"], ["p:1", "p:2"])).toBe(true);
+    expect(sameKeys(["p:1", "p:2"], ["p:2", "p:1"])).toBe(false);
+    expect(sameKeys([], ["p:1"])).toBe(false);
   });
 });

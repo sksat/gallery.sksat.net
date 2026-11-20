@@ -34,14 +34,23 @@ import { formatJst, mediaEditHref, mediaListHref } from "~/lib/format";
 import type { CameraChoice } from "~/lib/db-photo-bulk";
 import type { MetadataLevels, MetadataOverrides } from "~/lib/metadata";
 import {
+  autoScrollStep,
   clickItem,
   EMPTY_SELECTION,
   folderKey,
   keepShown,
+  keysInRect,
+  marqueeMode,
+  marqueeSelection,
+  normalizeRect,
   reconcileSelection,
   photoKey,
+  sameKeys,
   selectAll,
   splitSelection,
+  type MarqueeMode,
+  type Point,
+  type Rect,
   type Selection,
   type SelKey,
 } from "~/lib/selection";
@@ -76,7 +85,9 @@ import {
 // arrow keys move the focus (one tab stop), Space picks, Enter opens, F2
 // renames, Delete trashes, the menu key / Shift+F10 / a right click opens
 // a context menu, and selected tiles can be dragged onto a folder (tile
-// or tree) to move them. On touch screens a long press starts selecting.
+// or tree) to move them. With a mouse or a pen, a rectangle dragged from
+// empty space selects what it covers. On touch screens a long press starts
+// selecting.
 
 /** A photo tile: `path` places and names it, `file` is its thumbnail. */
 export type FileTile = {
@@ -655,6 +666,307 @@ export const FileBrowser = component$<Props>(
       }),
     );
 
+    // A rectangle dragged from empty space (mouse or pen) selects what it
+    // covers, live: plain replaces the selection, Ctrl/Cmd flips, Shift
+    // adds; Esc puts back the selection it started from, and near the top
+    // or bottom of the window the page scrolls. A click there without
+    // moving clears the selection. Plain listeners (not Qwik handlers), so
+    // a pointer move costs no lazy-loaded handler, and the item boxes are
+    // read once, in page coordinates, when the drag starts.
+    // eslint-disable-next-line qwik/no-use-visible-task
+    useVisibleTask$(
+      ({ cleanup }) => {
+        type Drag = {
+          id: number;
+          /** Where it started and where the pointer is (page / window). */
+          start: Point;
+          client: Point;
+          mods: { shift: boolean; toggle: boolean };
+          /** Set once it has moved far enough to be a drag. */
+          live: {
+            list: HTMLElement;
+            /** The list's top (page) when the boxes were read. */
+            listTop: number;
+            items: { key: SelKey; rect: Rect }[];
+            order: SelKey[];
+            base: Selection;
+            mode: MarqueeMode;
+            box: HTMLElement;
+            hit: Set<SelKey>;
+            /** The item that came under the rectangle last. */
+            last: SelKey | null;
+          } | null;
+          frame: number;
+        };
+        let drag: Drag | null = null;
+        const root = document.documentElement;
+        const onPage = (c: Point): Point => ({
+          x: c.x + window.scrollX,
+          y: c.y + window.scrollY,
+        });
+        /**
+         * Empty space: a box that holds the items (the listbox, the view,
+         * the page around it, so the space between and below them) or one
+         * marked as such; not an item, a control or text.
+         */
+        const isEmptySpace = (t: EventTarget | null, list: Element) =>
+          t instanceof Element &&
+          (t.contains(list) ||
+            (!!t.closest("[data-marquee-area]") &&
+              !t.closest("a, button, input, select, textarea, label")));
+
+        /** The items' boxes, in page coordinates. */
+        const readItems = (list: HTMLElement) => {
+          const x = window.scrollX;
+          const y = window.scrollY;
+          return Array.from(
+            list.querySelectorAll<HTMLElement>("[data-sel-key]"),
+            (el) => {
+              const b = el.getBoundingClientRect();
+              return {
+                key: el.dataset.selKey as SelKey,
+                rect: {
+                  left: b.left + x,
+                  top: b.top + y,
+                  right: b.right + x,
+                  bottom: b.bottom + y,
+                },
+              };
+            },
+          );
+        };
+        const topOf = (el: HTMLElement) =>
+          el.getBoundingClientRect().top + window.scrollY;
+
+        const update = () => {
+          const d = drag;
+          if (!d?.live) return;
+          d.frame = 0;
+          const l = d.live;
+          // Scroll only towards the edge the pointer went to (a press just
+          // above the bottom edge must not scroll at once).
+          let step = autoScrollStep(d.client.y, 0, window.innerHeight);
+          const here = onPage(d.client);
+          if (
+            (step > 0 && here.y <= d.start.y) ||
+            (step < 0 && here.y >= d.start.y)
+          ) {
+            step = 0;
+          }
+          if (step) {
+            const was = window.scrollY;
+            window.scrollBy(0, step);
+            // At the end of the page: no more frames until the pointer
+            // moves again.
+            if (window.scrollY === was) step = 0;
+          }
+          // Something above the list changed its height (an upload's
+          // panel, say): read the boxes again.
+          const top = topOf(l.list);
+          if (Math.abs(top - l.listTop) > 0.5) {
+            l.listTop = top;
+            l.items = readItems(l.list);
+            l.order = l.items.map((i) => i.key);
+          }
+          const r = normalizeRect(d.start, onPage(d.client));
+          Object.assign(l.box.style, {
+            left: `${r.left - window.scrollX}px`,
+            top: `${r.top - window.scrollY}px`,
+            width: `${r.right - r.left}px`,
+            height: `${r.bottom - r.top}px`,
+          });
+          const hit = keysInRect(l.items, r);
+          for (const k of hit) if (!l.hit.has(k)) l.last = k;
+          // The rectangle shrank off it: the last one still covered.
+          if (l.last && !hit.includes(l.last)) l.last = hit.at(-1) ?? null;
+          l.hit = new Set(hit);
+          const next = marqueeSelection(l.order, l.base, hit, l.mode, l.last);
+          if (
+            !sameKeys(next.keys, sel.value.keys) ||
+            next.anchor !== sel.value.anchor
+          ) {
+            sel.value = next;
+          }
+          // Keep scrolling while the pointer rests by the edge.
+          if (step) d.frame = requestAnimationFrame(update);
+        };
+        const schedule = () => {
+          if (drag?.live && !drag.frame) {
+            drag.frame = requestAnimationFrame(update);
+          }
+        };
+        const begin = (d: Drag) => {
+          const list = document.querySelector<HTMLElement>(
+            "[data-file-browser][data-selectable]",
+          );
+          if (!list) return false;
+          const items = readItems(list);
+          const box = document.createElement("div");
+          box.dataset.testid = "marquee";
+          box.setAttribute("aria-hidden", "true");
+          box.className =
+            "pointer-events-none fixed z-50 rounded-sm border border-sky-500 bg-sky-500/15 dark:border-sky-400 dark:bg-sky-400/20";
+          document.body.appendChild(box);
+          d.live = {
+            list,
+            listTop: topOf(list),
+            items,
+            order: items.map((i) => i.key),
+            base: sel.value,
+            mode: marqueeMode(d.mods),
+            box,
+            hit: new Set(),
+            last: null,
+          };
+          try {
+            root.setPointerCapture(d.id);
+          } catch {
+            // Not capturable: the window's listeners still see the moves.
+          }
+          // No text selection while the rectangle is drawn.
+          window.getSelection()?.removeAllRanges();
+          root.style.userSelect = "none";
+          window.addEventListener("scroll", schedule, { passive: true });
+          return true;
+        };
+        const end = () => {
+          const d = drag;
+          drag = null;
+          if (!d) return;
+          if (d.frame) cancelAnimationFrame(d.frame);
+          if (!d.live) return;
+          d.live.box.remove();
+          root.style.userSelect = "";
+          window.removeEventListener("scroll", schedule);
+          try {
+            root.releasePointerCapture(d.id);
+          } catch {
+            // Already released.
+          }
+        };
+
+        const down = (e: PointerEvent) => {
+          const list = document.querySelector(
+            "[data-file-browser][data-selectable]",
+          );
+          if (
+            drag ||
+            !list ||
+            e.button !== 0 ||
+            (e.pointerType !== "mouse" && e.pointerType !== "pen") ||
+            !isEmptySpace(e.target, list) ||
+            // The window's scroll bars.
+            e.clientX >= root.clientWidth ||
+            e.clientY >= root.clientHeight ||
+            // A menu closes on this press; a modal dialog has the page.
+            document.querySelector("[role=menu], dialog[open]")
+          ) {
+            return;
+          }
+          drag = {
+            id: e.pointerId,
+            start: onPage({ x: e.clientX, y: e.clientY }),
+            client: { x: e.clientX, y: e.clientY },
+            mods: { shift: e.shiftKey, toggle: e.ctrlKey || e.metaKey },
+            live: null,
+            frame: 0,
+          };
+        };
+        /** Stop drawing and put back the selection it started from. */
+        const cancel = () => {
+          const live = drag?.live;
+          end();
+          if (live) sel.value = live.base;
+          return !!live;
+        };
+        const move = (e: PointerEvent) => {
+          const d = drag;
+          if (!d || e.pointerId !== d.id) return;
+          // The button went up where we did not hear it (another window).
+          if (e.buttons === 0) {
+            cancel();
+            return;
+          }
+          d.client = { x: e.clientX, y: e.clientY };
+          if (!d.live) {
+            const p = onPage(d.client);
+            if (Math.hypot(p.x - d.start.x, p.y - d.start.y) < 5) return;
+            if (!begin(d)) {
+              drag = null;
+              return;
+            }
+          }
+          schedule();
+        };
+        const up = (e: PointerEvent) => {
+          const d = drag;
+          if (!d || e.pointerId !== d.id) return;
+          if (!d.live) {
+            // A click on empty space clears the selection (not with a
+            // modifier: that would rather be a slip while extending it).
+            if (
+              !d.mods.shift &&
+              !d.mods.toggle &&
+              e.type === "pointerup" &&
+              sel.value.keys.length > 0
+            ) {
+              sel.value = EMPTY_SELECTION;
+            }
+            end();
+            return;
+          }
+          if (e.type === "pointercancel") {
+            // The browser took the pointer (a pen panning the page).
+            cancel();
+            return;
+          }
+          d.client = { x: e.clientX, y: e.clientY };
+          if (d.frame) cancelAnimationFrame(d.frame);
+          update();
+          if (d.frame) cancelAnimationFrame(d.frame);
+          const last = d.live.last;
+          end();
+          // The focus goes to the item touched last (roving tabindex).
+          if (last) {
+            focusKey.value = last;
+            document
+              .getElementById(optionId(last))
+              ?.focus({ preventScroll: true });
+          }
+        };
+        const key = (e: KeyboardEvent) => {
+          if (e.key !== "Escape" || !drag) return;
+          if (cancel()) {
+            // Before the page's own Esc (which clears the selection).
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        };
+        const noTextSelection = (e: Event) => {
+          if (drag) e.preventDefault();
+        };
+
+        document.addEventListener("pointerdown", down);
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+        window.addEventListener("pointercancel", up);
+        window.addEventListener("keydown", key, true);
+        window.addEventListener("blur", cancel);
+        document.addEventListener("selectstart", noTextSelection);
+        cleanup(() => {
+          end();
+          window.removeEventListener("blur", cancel);
+          document.removeEventListener("pointerdown", down);
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          window.removeEventListener("pointercancel", up);
+          window.removeEventListener("keydown", key, true);
+          document.removeEventListener("selectstart", noTextSelection);
+        });
+      },
+      { strategy: "document-ready" },
+    );
+
     const listClick = $((e: MouseEvent) => {
       const el = itemOf(e.target);
       if (!el) return;
@@ -1153,8 +1465,11 @@ export const FileBrowser = component$<Props>(
           ) : (
             <div class={listLayout ? [card, "overflow-hidden"] : undefined}>
               {listLayout && (
-                // Column headers; the sortable ones sort on a click.
+                // Column headers; the sortable ones sort on a click. Its
+                // empty space starts a selection rectangle, like the
+                // space around the items (useVisibleTask$ above).
                 <div
+                  data-marquee-area
                   class={[
                     listCols,
                     "border-b border-zinc-200 px-2 py-2 text-xs dark:border-zinc-800",

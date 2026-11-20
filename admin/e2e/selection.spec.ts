@@ -633,6 +633,173 @@ test.describe("keyboard, menu and drag in the Files view", () => {
   });
 });
 
+test.describe("a rectangle dragged over the items", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  const center = async (page: Page, name: string) => {
+    const b = (await tile(page, name).boundingBox())!;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const selectedNames = (page: Page) =>
+    page
+      .locator("[role=option][aria-selected=true]")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+  const marquee = (page: Page) => page.getByTestId("marquee");
+
+  test("replace, Ctrl flips, Shift adds, Esc puts it back, a click clears", async ({
+    page,
+  }) => {
+    // Four wide at 1280px: a b c d / e f, and empty cells after f.
+    await folderWith(page, "marquee", [
+      "a.png",
+      "b.png",
+      "c.png",
+      "d.png",
+      "e.png",
+      "f.png",
+    ]);
+    // From the empty cell under d.
+    const start = {
+      x: (await center(page, "d.png")).x,
+      y: (await center(page, "f.png")).y,
+    };
+    const drag = async (to: { x: number; y: number }, mods: string[] = []) => {
+      for (const m of mods) await page.keyboard.down(m);
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 6 });
+      await expect(marquee(page)).toBeVisible();
+      await page.mouse.up();
+      for (const m of mods) await page.keyboard.up(m);
+      await expect(marquee(page)).toHaveCount(0);
+    };
+
+    // Plain: up to b covers b c d and f (the rectangle reaches column 2).
+    await drag(await center(page, "b.png"));
+    expect(await selectedNames(page)).toEqual([
+      "b.png",
+      "c.png",
+      "d.png",
+      "f.png",
+    ]);
+    await expect(summary(page)).toContainText("4 件選択");
+    // The focus is on an item the rectangle touched, which has the tab
+    // stop (roving tabindex).
+    const focused = page.locator("[role=option]:focus");
+    await expect(focused).toHaveAttribute("aria-selected", "true");
+    await expect(focused).toHaveAttribute("tabindex", "0");
+
+    // Plain again replaces: only d.
+    await drag(await center(page, "d.png"));
+    expect(await selectedNames(page)).toEqual(["d.png"]);
+
+    // Ctrl flips what it covers: c on, d off.
+    await drag(await center(page, "c.png"), ["Control"]);
+    expect(await selectedNames(page)).toEqual(["c.png"]);
+
+    // Shift adds: b d f join c.
+    await drag(await center(page, "b.png"), ["Shift"]);
+    expect(await selectedNames(page)).toEqual([
+      "b.png",
+      "c.png",
+      "d.png",
+      "f.png",
+    ]);
+
+    // Live while dragging; Esc puts back the selection it started from.
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    const d = await center(page, "d.png");
+    await page.mouse.move(d.x, d.y, { steps: 4 });
+    await expect(summary(page)).toContainText("1 件選択");
+    await page.keyboard.press("Escape");
+    await expect(marquee(page)).toHaveCount(0);
+    await page.mouse.up();
+    await expect(summary(page)).toContainText("4 件選択");
+
+    // A click on empty space clears it, and opens nothing.
+    const url = page.url();
+    await page.mouse.click(start.x, start.y);
+    await expect(bar(page)).toHaveCount(0);
+    expect(page.url()).toBe(url);
+
+    // A tile still drags as a move, not a rectangle: pressing on it
+    // and moving draws none.
+    const a = await center(page, "a.png");
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(a.x + 3, a.y + 40, { steps: 3 });
+    await expect(marquee(page)).toHaveCount(0);
+    await page.mouse.up();
+  });
+
+  test("in the list layout, from below the rows, scrolling at the edge", async ({
+    page,
+  }) => {
+    const names = Array.from(
+      { length: 12 },
+      (_, i) => `r${String(i).padStart(2, "0")}.png`,
+    );
+    await folderWith(page, "marquee-list", names);
+    await page.getByRole("button", { name: "リスト" }).click();
+    await expect(page.locator("[data-file-browser]")).toHaveAttribute(
+      "data-layout",
+      "list",
+    );
+    try {
+      // From the space under the last row up to the middle of r09.
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      const below = (await page.locator("[data-file-browser]").boundingBox())!;
+      const x = below.x + below.width / 2;
+      const y = below.y + below.height + 12;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x - 200, (await center(page, "r09.png")).y, {
+        steps: 6,
+      });
+      await expect(summary(page)).toContainText("3 件選択");
+      // Back down to r10: r09 leaves the selection, and the focus goes to
+      // a row still covered.
+      await page.mouse.move(x - 200, (await center(page, "r10.png")).y, {
+        steps: 3,
+      });
+      await expect(summary(page)).toContainText("2 件選択");
+      await page.mouse.up();
+      expect(await selectedNames(page)).toEqual(["r10.png", "r11.png"]);
+      await expect(page.locator("[role=option]:focus")).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+
+      // Best effort: at the top edge of the window the page scrolls up,
+      // and the rows that come under the rectangle are selected.
+      await page.keyboard.press("Escape");
+      await expect(bar(page)).toHaveCount(0);
+      await page.setViewportSize({ width: 1280, height: 420 });
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      const before = await page.evaluate(() => window.scrollY);
+      expect(before).toBeGreaterThan(0);
+      const b2 = (await page.locator("[data-file-browser]").boundingBox())!;
+      await page.mouse.move(b2.x + b2.width / 2, b2.y + b2.height + 12);
+      await page.mouse.down();
+      await page.mouse.move(b2.x + b2.width / 2 - 100, 2, { steps: 6 });
+      await expect
+        .poll(() => page.evaluate(() => window.scrollY))
+        .toBeLessThan(before);
+      await expect(tile(page, "r00.png")).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      await page.mouse.up();
+      await expect(summary(page)).toContainText("12 件選択");
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "タイル" }).click();
+    }
+  });
+});
+
 test.describe("selection on a phone", () => {
   test.use({
     viewport: { width: 390, height: 844 },
