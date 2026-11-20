@@ -750,20 +750,61 @@ test("drop files whose drag does not list Files until the drop", async ({
   expect(await uploadedKeys(page)).toContain(`${dir}/late.png`);
   await page.getByRole("button", { name: "閉じる" }).click();
 
-  // Text alone: nothing to upload, and the toast says so.
-  const text = await page.evaluateHandle(() => {
-    const d = new DataTransfer();
-    d.setData("text/plain", "hello");
-    return d;
-  });
-  await zone.dispatchEvent("dragenter", { dataTransfer: text });
-  await zone.dispatchEvent("dragover", { dataTransfer: text });
-  await zone.dispatchEvent("drop", { dataTransfer: text });
-  await expect(
-    page.getByText("ドロップされたものにファイルがありませんでした"),
-  ).toBeVisible();
-  await expect(zone).not.toContainText("ここにドロップして");
-  await expect(rows(page)).toHaveCount(0);
+  // Text alone, or a URI list with no files at the drop (what Firefox may
+  // hand over from a source it cannot read): nothing to upload, and the
+  // toast says where to go instead.
+  for (const [type, value] of [
+    ["text/plain", "hello"],
+    ["text/uri-list", "file:///home/me/gone.png"],
+  ]) {
+    const text = await page.evaluateHandle(
+      ([type, value]) => {
+        const d = new DataTransfer();
+        d.setData(type, value);
+        return d;
+      },
+      [type, value] as const,
+    );
+    await zone.dispatchEvent("dragenter", { dataTransfer: text });
+    await zone.dispatchEvent("dragover", { dataTransfer: text });
+    const warned = page.waitForEvent(
+      "console",
+      (m) => m.type() === "warning" && m.text().includes("drop:"),
+    );
+    await zone.dispatchEvent("drop", { dataTransfer: text });
+    const toast = page.getByText(
+      "ファイルを読み込めませんでした。「Upload」から選んでください",
+    );
+    await expect(toast).toBeVisible();
+    await warned;
+    await expect(zone).not.toContainText("ここにドロップして");
+    await expect(rows(page)).toHaveCount(0);
+    await page.getByRole("button", { name: "Dismiss" }).click();
+    await expect(toast).toBeHidden();
+  }
+});
+
+test("drop files read during the event itself", async ({ page }) => {
+  // The browser empties the DataTransfer as soon as the drop event ends:
+  // the files must be read in the listener, before any await.
+  const dir = `/mock/up-sync${browserSuffix()}`;
+  await newFolder(page, "/mock", `up-sync${browserSuffix()}`);
+  const zone = page.getByTestId("drop-zone");
+  const dt = await pngTransfer(page, "sync.png", seedOf(23));
+  await zone.dispatchEvent("dragenter", { dataTransfer: dt });
+  await zone.dispatchEvent("dragover", { dataTransfer: dt });
+  await zone.evaluate((el, d) => {
+    el.dispatchEvent(
+      new DragEvent("drop", {
+        dataTransfer: d,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    d.items.clear();
+  }, dt);
+  await expect(rows(page)).toHaveAttribute("data-status", "done");
+  expect(await uploadedKeys(page)).toContain(`${dir}/sync.png`);
 });
 
 test("drop files on a folder to upload them into it", async ({ page }) => {
