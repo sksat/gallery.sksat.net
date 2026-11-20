@@ -28,7 +28,9 @@
  *
  * The public handler never serves a file as-is (they carry their full
  * EXIF/XMP). Only `AdminImage` does, for the large presets when the resize
- * fails, so the admin still shows the photo (fallback.ts). With B2 credentials the Worker
+ * fails, so the admin still shows the photo (fallback.ts). A card whose
+ * transformation fails is answered with the site's own card (siteCard),
+ * which shows nothing of the photo. With B2 credentials the Worker
  * fetches them through presigned URLs (origin.ts), so the bucket can be
  * private.
  *
@@ -41,7 +43,8 @@ import { parseRange, readObjectBytes, type ObjectBytes } from "./bytes";
 import { edgeCacheKey, withEdgeCache } from "./cache";
 import { captionFor, type Caption, type CaptionSource } from "./caption";
 import { embedExif } from "./exif-embed";
-import { fallsBackToSource, sourceResponse } from "./fallback";
+import { FALLBACK_HEADER, fallsBackToSource, sourceResponse } from "./fallback";
+import siteCardJpeg from "./og-fallback.jpg";
 import { encodeTiff } from "./exif-encode";
 import { publicExif, type PublicMeta } from "./public-exif";
 import { originFor, type OriginEnv } from "./origin";
@@ -200,6 +203,24 @@ const respond = (
   headers.set("Cache-Control", cacheControl);
   return new Response(upstream.body, { status: upstream.status, headers });
 };
+
+/**
+ * The site's card (the badge on the site background, og-assets.sh), for a
+ * card (`og` / `og-site`) whose transformation failed, e.g. when the
+ * month's free transformations are used up: crawlers then still get an
+ * image (X shows no card when og:image fails to load) instead of 502. It
+ * shows nothing of the photo. Kept briefly and never put in the edge
+ * cache, so the real card replaces it once transformations work again.
+ */
+const siteCard = (): Response =>
+  new Response(siteCardJpeg, {
+    headers: {
+      "Content-Type": "image/jpeg",
+      "Content-Length": String(siteCardJpeg.byteLength),
+      "Cache-Control": "public, max-age=300",
+      [FALLBACK_HEADER]: "site-card",
+    },
+  });
 
 /**
  * A transformed image with `tiff` as its EXIF (exif-embed.ts). Only a
@@ -364,6 +385,15 @@ export default {
         tiff && request.method === "GET"
           ? await withExif(rendered.upstream, tiff)
           : rendered.upstream;
+      if (
+        isCardPreset(parsed.preset) &&
+        transformFailed(upstream.status, upstream.headers.get("Cf-Resized"))
+      ) {
+        // Never the photo itself: the site's card, not stored.
+        console.error(`card transform failed: ${upstream.status}`);
+        void upstream.body?.cancel().catch(() => {});
+        return { response: siteCard(), store: false };
+      }
       const response = respond(
         upstream,
         parsed.preset,
