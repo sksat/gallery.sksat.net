@@ -8,7 +8,9 @@ import {
   type NoSerialize,
   type QRL,
   type Signal,
+  useTask$,
 } from "@builder.io/qwik";
+import { useLocation, usePreventNavigate$ } from "@builder.io/qwik-city";
 import { MAX_BULK_IDS } from "~/lib/db";
 import { formatUploadSize, UPLOAD_ACCEPT } from "~/lib/upload";
 import type { IncompleteUpload } from "~/lib/db-upload";
@@ -65,6 +67,83 @@ const VIEW_INTERVAL_MS = 1000;
 const concurrencyFor = () =>
   window.matchMedia("(pointer: coarse)").matches ? 2 : 3;
 
+/** Longest wait of a link for a refresh to be on screen. */
+const REFRESH_WAIT_MS = 15_000;
+
+/**
+ * `refresh`, kept from undoing a link. It is an action on this page's URL,
+ * and Qwik City shows the page of whichever navigation answers last: a
+ * photo opened while a refresh was on its way (they start on their own,
+ * when a batch ends) was replaced by this page again once the refresh
+ * answered. So a link waits until the refresh in flight is on screen, and
+ * no refresh starts once a link is on its way.
+ */
+const useRefreshBeforeLinks = (refresh: QRL<() => unknown>) => {
+  const loc = useLocation();
+  /** The refreshes in flight, until their page is on screen. */
+  const refreshing =
+    useSignal<NoSerialize<{ answer: Promise<unknown>; done: boolean }>>();
+  const leaving = useSignal(false);
+  /** Links still waiting for a refresh. */
+  const held = useSignal(0);
+  /** Links waiting for the refresh's page to be on screen. */
+  const waiting = useSignal<NoSerialize<(() => void)[]>>();
+  useTask$(({ track }) => {
+    // Set by the refresh (an action) and by a link, cleared once on screen.
+    if (track(() => loc.isNavigating)) return;
+    if (held.value === 0) leaving.value = false;
+    if (refreshing.value?.done) refreshing.value = undefined;
+    const go = waiting.value;
+    waiting.value = undefined;
+    go?.forEach((f) => f());
+  });
+  usePreventNavigate$((url) => {
+    // The browser's own navigations (reload, close) cannot wait.
+    if (url === undefined) return false;
+    // No refresh from now on, while this link waits either.
+    leaving.value = true;
+    const p = refreshing.value?.answer;
+    if (!p) return false;
+    held.value++;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const go = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        held.value--;
+        leaving.value = true;
+        resolve(false);
+      };
+      // One that never shows (its request failed) must not hold the link;
+      // one slower than this can still come back over it, as before.
+      const timer = setTimeout(go, REFRESH_WAIT_MS);
+      const onScreen = () => {
+        if (!loc.isNavigating) go();
+        else waiting.value = noSerialize([...(waiting.value ?? []), go]);
+      };
+      p.then(onScreen, onScreen);
+    });
+  });
+  return $(() => {
+    if (leaving.value) return;
+    const answer = Promise.resolve(refresh());
+    // Together with any earlier one still on its way (it may answer last).
+    const earlier = refreshing.value;
+    const r = {
+      answer: (earlier && !earlier.done
+        ? Promise.allSettled([earlier.answer, answer])
+        : answer
+      ).finally(() => {
+        r.done = true;
+      }),
+      done: false,
+    };
+    refreshing.value = noSerialize(r);
+    return answer;
+  });
+};
+
 /**
  * The page's uploader state. Once a batch has finished, `refresh` reloads
  * the page data so the new photos show up in the folder. (A routeAction
@@ -72,10 +151,11 @@ const concurrencyFor = () =>
  * City's cached page data.)
  */
 export const useUploader = (
-  refresh: QRL<() => unknown>,
+  pageRefresh: QRL<() => unknown>,
   /** Upload pictures of this camera instead of photos. */
   cameraId?: number,
 ): Uploader => {
+  const refresh = useRefreshBeforeLinks(pageRefresh);
   const items = useSignal<UploadItem[]>([]);
   /** Anything queued or in flight (changes only at a batch's ends). */
   const busy = useSignal(false);

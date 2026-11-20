@@ -582,6 +582,45 @@ test("閉じる after a failure clears the panel and completes stored files", as
   expect(await putCount(page, "/mock/up-close/d.png")).toBe(1);
 });
 
+test("a photo opened while the view reloads after an upload stays open", async ({
+  page,
+}) => {
+  await newFolder(page, "/mock", "up-open");
+  const input = page.getByTestId("upload-input");
+  await input.setInputFiles([png("a.png", "up-open/a")]);
+  const tile = page.getByRole("option", { name: "a.png", exact: true });
+  await expect(tile).toBeVisible();
+  // The reload when the next batch ends (an action on this page) answers
+  // only once the photo's page is on screen, as on a slow connection. (The
+  // app makes the photo wait for the reload, so then it answers after 1 s.)
+  await page.route(/qaction=/, async (route) => {
+    await page
+      .locator('input[name="tags"]')
+      .waitFor({ timeout: 1000 })
+      .catch(() => {});
+    await route.continue();
+  });
+  const reloaded = page.waitForResponse(/qaction=/);
+  await input.setInputFiles([png("b.png", "up-open/b")]);
+  await expect(
+    page.getByTestId("upload-panel").getByRole("heading"),
+  ).toHaveText("2 件アップロードしました");
+  await tile.dblclick();
+  await (await reloaded).finished();
+  await expect(page).toHaveURL(/\/media\/\d+\//);
+  await expect(page.locator('input[name="tags"]')).toBeVisible();
+  // The reload's answer, put on screen within frames of its arrival, did
+  // not bring the folder back.
+  await page.evaluate(
+    () =>
+      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+  );
+  await expect(page).toHaveURL(/\/media\/\d+\//);
+  await expect(
+    page.getByRole("listbox", { name: "フォルダの中身" }),
+  ).toHaveCount(0);
+});
+
 /** A tiny synthetic image from src/lib/fixtures (Pillow, no real photo). */
 const fixture = (name: string, mimeType: string) => ({
   name,
