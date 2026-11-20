@@ -237,7 +237,20 @@ describe("paths", () => {
           ? { kind: "photo" as const, photo: { ...photo, file: FILE } }
           : path === "/camera/vl2/front.png"
             ? { kind: "camera-image" as const, file: path }
-            : null,
+            : // A picture that is a photo: its display copy.
+              path === "/camera/vl2/7.photo.jpg"
+              ? {
+                  kind: "camera-image" as const,
+                  file: "/.derived/x-1.jpg",
+                  source: { storage: "b2" as const, key: "/.derived/x-1.jpg" },
+                }
+              : path === "/camera/vl2/8.photo.jpg"
+                ? {
+                    kind: "camera-image" as const,
+                    file: "/r2.jpg",
+                    source: { storage: "r2" as const, key: "/r2.jpg" },
+                  }
+                : null,
     },
   };
   const at = (path: string) =>
@@ -261,6 +274,18 @@ describe("paths", () => {
     const res = await at("/img/camera/vl2/front.png");
     expect(res.status).toBe(200);
     expect(transforms[0]).toContain("camera/vl2/front.png");
+  });
+
+  it("serves a picture that is a photo from the file the API names", async () => {
+    const res = await at("/img/camera/vl2/7.photo.jpg?size=h480");
+    expect(res.status).toBe(200);
+    expect(transforms[0]).toContain(".derived/x-1.jpg");
+    expect(transforms[0]).not.toContain("7.photo");
+    expect((await at("/img/camera/vl2/7.photo.jpg?size=og-site")).status).toBe(
+      200,
+    );
+    // A file in storage the Worker cannot read yet is an error, not a guess.
+    expect((await at("/img/camera/vl2/8.photo.jpg")).status).toBe(503);
   });
 
   it("answers 400 for a bad size or another parameter, 404 for old paths", async () => {
@@ -304,7 +329,13 @@ describe("public EXIF", () => {
           ? { kind: "photo" as const, photo: p }
           : path === "/camera/vl2/front.png"
             ? { kind: "camera-image" as const, file: path }
-            : null,
+            : path === "/camera/vl2/7.photo.jpg"
+              ? {
+                  kind: "camera-image" as const,
+                  file: "/r/pic.png",
+                  source: { storage: "b2" as const, key: "/r/pic.png" },
+                }
+              : null,
     },
   });
   const formats: string[] = [];
@@ -392,6 +423,14 @@ describe("public EXIF", () => {
     );
     expect(formats).toEqual(["avif"]);
     expect(new Uint8Array(await camera.arrayBuffer())).toEqual(webp);
+    formats.length = 0;
+    // Also a picture that is a photo with public metadata.
+    const picture = await getWith(
+      metaEnv(withMeta),
+      "/img/camera/vl2/7.photo.jpg?size=w1200",
+    );
+    expect(formats).toEqual(["avif"]);
+    expect(new Uint8Array(await picture.arrayBuffer())).toEqual(webp);
     formats.length = 0;
     const card = await getWith(metaEnv(withMeta), `/img/${ID}?size=og`);
     expect(formats).toEqual(["jpeg"]);

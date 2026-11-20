@@ -28,17 +28,25 @@ import {
 const legend = "text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 import {
   addCameraImage,
+  addPhotoPictures,
   DuplicateImageError,
   getCamera,
   PathBusyError,
   listCameraImages,
   MAX_BULK_IDS,
+  MAX_PICTURE_PHOTOS,
+  PhotoFileError,
+  PhotoNotPickableError,
+  type PictureRef,
   removeCameraImage,
+  removePhotoPictures,
   restoreCameraImage,
   SlugConflictError,
   updateCamera,
   updateCameraImageCaption,
 } from "~/lib/db";
+import { PhotoPicker } from "~/components/photo-picker";
+import { VisibilityBadge } from "~/components/visibility-badge";
 import {
   listCameraPhotos,
   removeCameraFrom,
@@ -81,7 +89,7 @@ import {
 } from "~/lib/db-camera-image";
 import { getObjectStat } from "~/lib/object-stat";
 import { formatJst } from "~/lib/format";
-import type { CameraImageRow, CameraRow } from "~/lib/types";
+import type { CameraImageItem, CameraRow } from "~/lib/types";
 import {
   cameraImageDir,
   cameraImagePathLengthError,
@@ -97,7 +105,7 @@ type CameraLoaderResult =
       kind: "ok";
       camera: CameraRow;
       /** In order: the first one is the default. */
-      images: (CameraImageRow & {
+      images: (CameraImageItem & {
         /** 削除 may delete its object too (objectDeletable). */
         deletable: boolean;
       })[];
@@ -159,7 +167,9 @@ export const useCamera = routeLoader$<CameraLoaderResult>(
       camera,
       images: images.map((img) => ({
         ...img,
-        deletable: objectDeletable(img.file, shared.has(img.id)),
+        // A photo's picture is only taken off (its objects are the photo's).
+        deletable:
+          img.file !== null && objectDeletable(img.file, shared.has(img.id)),
       })),
       uploadEnabled:
         config !== null && getObjectStat(platform, url, null) !== null,
@@ -298,6 +308,11 @@ export const useAddCameraImage = routeAction$(
           message: `${v.image.file} はアップロードか削除の途中です`,
         });
       }
+      if (err instanceof PhotoFileError) {
+        return fail(409, {
+          message: "写真のファイルです。「写真から選ぶ」で追加してください",
+        });
+      }
       throw err;
     }
     await contentChanged(db);
@@ -309,6 +324,42 @@ export const useAddCameraImage = routeAction$(
       .string()
       .max(MAX_IMAGE_CAPTION_LEN + 50)
       .default(""),
+  }),
+);
+
+/**
+ * 写真から選ぶ: the photos as pictures after the last one (only public or
+ * unlisted ones; addPhotoPictures checks it in its INSERTs), with the
+ * content version. Returns the new pictures, for 元に戻す.
+ */
+export const useAddPhotoPictures = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = parseId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    const db = getDB(platform);
+    if (!(await getCamera(db, id))) return fail(404, { message: "not found" });
+    const added = await addPhotoPictures(db, id, data.ids);
+    return {
+      ok: true as const,
+      added,
+      skipped: data.ids.length - added.length,
+    };
+  },
+  zod$({
+    ids: z.array(z.number().int().positive()).min(1).max(MAX_PICTURE_PHOTOS),
+  }),
+);
+
+/** Undo of useAddPhotoPictures. */
+export const useRemovePhotoPictures = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = parseId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    await removePhotoPictures(getDB(platform), id, data.ids);
+    return { ok: true as const };
+  },
+  zod$({
+    ids: z.array(z.number().int().positive()).min(1).max(MAX_PICTURE_PHOTOS),
   }),
 );
 
@@ -371,6 +422,9 @@ export const useCameraImageOp = routeAction$(
       }
       const first = await getCameraImage(db, id, imageId);
       if (!first) return fail(404, { message: "image not found" });
+      if (first.file === null) {
+        return fail(409, { message: "写真から選んだ画像は外してください" });
+      }
       // Hold the path (no new picture can be added at it meanwhile,
       // addCameraImage), then make sure nothing else uses it. The claim's
       // token is this request's own, so a second 削除 of it at once (or
@@ -382,21 +436,25 @@ export const useCameraImageOp = routeAction$(
         });
       }
       const image = await getCameraImage(db, id, imageId);
-      if (!image || !objectDeletable(image.file, image.shared)) {
+      if (
+        !image ||
+        image.file !== first.file ||
+        !objectDeletable(image.file, image.shared)
+      ) {
         await releasePictureName(db, first.file);
         return fail(409, { message: "ほかでも使われているファイルです" });
       }
       try {
-        await deleteAllVersions(config, image.file);
+        await deleteAllVersions(config, first.file);
       } catch (err) {
-        await releasePictureName(db, image.file);
+        await releasePictureName(db, first.file);
         if (err instanceof DeletePermissionError) {
           return fail(403, { message: err.message });
         }
         throw err;
       }
       // With the claim's release and the content version (one batch).
-      await deleteCameraImageRow(db, id, imageId, image.file, new Date());
+      await deleteCameraImageRow(db, id, imageId, first.file, new Date());
       return { ok: true, op: data.op };
     }
     if (!done) return fail(404, { message: "image not found" });
@@ -418,11 +476,21 @@ export const useRestoreCameraImage = routeAction$(
   async (data, { platform, params, fail }) => {
     const id = parseId(params.id);
     if (id === null) return fail(400, { message: "invalid id" });
+    // Its own file (checked as when added), or a photo.
     const v = validateCameraImage({
-      file: data.file,
+      file: data.file ?? "/x.png",
       caption: data.caption ?? "",
     });
     if (!v.ok) return fail(400, { message: v.error });
+    if ((data.file === null) === (data.media_id === null)) {
+      return fail(400, { message: "file or media_id" });
+    }
+    const image: PictureRef = {
+      file: data.file === null ? null : v.image.file,
+      media_id: data.media_id,
+      caption: v.image.caption,
+    };
+    const what = image.file ?? "この写真";
     let db: D1Database;
     try {
       db = getDB(platform);
@@ -432,15 +500,23 @@ export const useRestoreCameraImage = routeAction$(
     }
     if (!(await getCamera(db, id))) return fail(404, { message: "not found" });
     try {
-      await restoreCameraImage(db, id, v.image, data.index);
+      await restoreCameraImage(db, id, image, data.index);
     } catch (err) {
       if (err instanceof DuplicateImageError) {
-        return fail(409, { message: `${v.image.file} is already added` });
+        return fail(409, { message: `${what} はもう追加されています` });
       }
       if (err instanceof PathBusyError) {
         return fail(409, {
-          message: `${v.image.file} は削除されたか、アップロードの途中です`,
+          message: `${what} は削除されたか、アップロードの途中です`,
         });
+      }
+      if (err instanceof PhotoNotPickableError) {
+        return fail(409, {
+          message: "写真が非公開になったか、ゴミ箱にあります",
+        });
+      }
+      if (err instanceof PhotoFileError) {
+        return fail(409, { message: `${what} は写真のファイルです` });
       }
       throw err;
     }
@@ -448,7 +524,11 @@ export const useRestoreCameraImage = routeAction$(
     return { ok: true };
   },
   zod$({
-    file: z.string().max(MAX_IMAGE_FILE_LEN + 50),
+    media_id: z.number().int().positive().nullable(),
+    file: z
+      .string()
+      .max(MAX_IMAGE_FILE_LEN + 50)
+      .nullable(),
     caption: z
       .string()
       .max(MAX_IMAGE_CAPTION_LEN + 50)
@@ -595,11 +675,12 @@ export default component$(() => {
   /** Whether the running tag op is an undo (no new undo for it). */
   const undoingTag = useSignal(false);
   /** The last removed picture, for 「元に戻す」. */
-  const removed = useSignal<{
-    file: string;
-    caption: string | null;
-    index: number;
-  } | null>(null);
+  const removed = useSignal<(PictureRef & { index: number }) | null>(null);
+  /** The pictures 写真から選ぶ added last, for 「元に戻す」. */
+  const addedUndo = useSignal<number[] | null>(null);
+  const picking = useSignal(false);
+  const addPhotos = useAddPhotoPictures();
+  const removePhotoPics = useRemovePhotoPictures();
   /** The pictures' order before the last change of it, for 「元に戻す」. */
   const orderUndo = useSignal<number[] | null>(null);
   const orderAction = useCameraImageOrder();
@@ -619,6 +700,7 @@ export default component$(() => {
     removed.value = null;
     photoUndo.value = null;
     tagUndo.value = null;
+    addedUndo.value = null;
     orderUndo.value = undo ? null : (r.value.previous ?? null);
     toast.value = {
       tone: "success",
@@ -649,6 +731,7 @@ export default component$(() => {
       photoUndo.value = null;
       tagUndo.value = null;
       orderUndo.value = null;
+      addedUndo.value = null;
     } else if (toast.value?.actionLabel) {
       // E.g. a caption saved on blur by the tap on Remove, landing after
       // it: keep the undo in view.
@@ -690,6 +773,7 @@ export default component$(() => {
     removed.value = null;
     tagUndo.value = null;
     orderUndo.value = null;
+    addedUndo.value = null;
     photoUndo.value = previous.length > 0 ? previous : null;
     const what = `${previous.length} 枚からカメラを外しました。`;
     toast.value = error
@@ -729,6 +813,7 @@ export default component$(() => {
     removed.value = null;
     photoUndo.value = null;
     orderUndo.value = null;
+    addedUndo.value = null;
     if (v.op === "add") {
       tagUndo.value = { op: "remove", tag: v.tag };
     } else if (v.op === "remove") {
@@ -761,7 +846,52 @@ export default component$(() => {
       actionLabel: v.op === "restore" ? undefined : "元に戻す",
     };
   });
+  /** 写真から選ぶ → 追加: true when it went through. */
+  const addPicked = $(async (ids: number[]): Promise<boolean> => {
+    const r = await addPhotos.submit({ ids }).catch(() => null);
+    if (!r || r.value.failed) {
+      toast.value = {
+        tone: "error",
+        message: `追加できませんでした: ${
+          (r && "message" in r.value ? String(r.value.message) : "") ||
+          "unknown error"
+        }`,
+      };
+      return false;
+    }
+    const { added, skipped } = r.value;
+    removed.value = null;
+    photoUndo.value = null;
+    tagUndo.value = null;
+    orderUndo.value = null;
+    addedUndo.value = added.length > 0 ? added : null;
+    toast.value = {
+      tone: added.length > 0 ? "success" : "error",
+      message:
+        `${added.length} 枚を追加しました。` +
+        (skipped > 0
+          ? `${skipped} 枚は追加できませんでした（非公開か追加済み）。`
+          : ""),
+      actionLabel: added.length > 0 ? "元に戻す" : undefined,
+    };
+    return true;
+  });
   const undoRemove = $(async () => {
+    const added = addedUndo.value;
+    if (added) {
+      const r = await removePhotoPics.submit({ ids: added }).catch(() => null);
+      if (!r || r.value.failed) {
+        toast.value = {
+          tone: "error",
+          message: "元に戻せませんでした",
+          actionLabel: "元に戻す",
+        };
+        return;
+      }
+      addedUndo.value = null;
+      toast.value = { tone: "success", message: "元に戻しました。" };
+      return;
+    }
     const order = orderUndo.value;
     if (order) {
       // Kept until it goes through (reorder clears it then).
@@ -1013,7 +1143,14 @@ export default component$(() => {
             <h2 id="images-heading" class={legend}>
               画像 ({images.length})
             </h2>
-            <div class="flex gap-2">
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick$={() => (picking.value = true)}
+                class={[buttonSecondary, "shrink-0"]}
+              >
+                写真から選ぶ
+              </button>
               {images.length > 1 && (
                 <button
                   type="button"
@@ -1145,12 +1282,13 @@ export default component$(() => {
                     </svg>
                   </span>
                   <div class="relative shrink-0 sm:row-span-2">
+                    {/* Its own object as it is; a photo as it is shown. */}
                     <Thumb
-                      file={img.file}
+                      file={img.file ?? img.photo?.file ?? ""}
                       platform={null}
                       imageBase={imageBase}
                       variant="list"
-                      exact
+                      exact={img.file !== null}
                       large
                       class="w-28 rounded-md sm:w-48"
                     />
@@ -1172,7 +1310,37 @@ export default component$(() => {
                     )}
                   </div>
                   <div class="min-w-0 flex-1 space-y-2">
-                    <code class="block text-xs break-all">{img.file}</code>
+                    {img.file !== null ? (
+                      <code class="block text-xs break-all">{img.file}</code>
+                    ) : img.photo ? (
+                      <div class="space-y-1">
+                        <div class="flex min-w-0 items-center gap-2">
+                          <VisibilityBadge
+                            visibility={img.photo.visibility}
+                            compact
+                          />
+                          <Link
+                            href={`/media/${img.media_id}/`}
+                            prefetch="js"
+                            data-testid="picture-photo-link"
+                            class="min-w-0 truncate text-xs font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
+                          >
+                            {img.photo.path}
+                          </Link>
+                        </div>
+                        {(img.photo.visibility === "private" ||
+                          !img.photo.live) && (
+                          <p
+                            data-testid="picture-hidden"
+                            class="text-xs text-amber-700 dark:text-amber-400"
+                          >
+                            {img.photo.live
+                              ? "写真が非公開なので、公開サイトには出ません"
+                              : "写真がゴミ箱にあるので、公開サイトには出ません"}
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
                     {/* Saved when it changes (on leaving the field, or Enter). */}
                     <Form
                       action={imageOp}
@@ -1277,15 +1445,14 @@ export default component$(() => {
                         外す
                       </SubmitButton>
                     </Form>
-                    {deleteEnabled && img.deletable && (
+                    {deleteEnabled && img.deletable && img.file !== null && (
                       <button
                         type="button"
                         aria-label={`画像 ${i + 1} を削除`}
                         disabled={imageOp.isRunning}
                         onClick$={async () => {
-                          const name = img.file.slice(
-                            img.file.lastIndexOf("/") + 1,
-                          );
+                          const file = img.file ?? "";
+                          const name = file.slice(file.lastIndexOf("/") + 1);
                           if (
                             !confirm(
                               `${name} を削除します。ファイルも消え、元に戻せません。`,
@@ -1365,6 +1532,17 @@ export default component$(() => {
         busy={removePhotos.isRunning}
         onRemove$={removeCamera}
       />
+      {picking.value && (
+        <PhotoPicker
+          cameraPhotos={photos}
+          added={images.flatMap((img) =>
+            img.media_id === null ? [] : [img.media_id],
+          )}
+          imageBase={imageBase}
+          onAdd$={addPicked}
+          onClose$={() => (picking.value = false)}
+        />
+      )}
       <Toast toast={toast} onAction$={undoRemove} />
     </div>
   );

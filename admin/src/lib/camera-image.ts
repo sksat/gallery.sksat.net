@@ -12,6 +12,7 @@ import {
 } from "./upload";
 import {
   cameraImageDir,
+  isPhotoPicturePath,
   MAX_IMAGE_FILE_LEN,
   validateImageFile,
 } from "./validate";
@@ -43,7 +44,7 @@ export const cameraPictureTarget = (
       error: `パスが長すぎます（${MAX_IMAGE_FILE_LEN} 文字まで）`,
     };
   }
-  if (!validateImageFile(file).ok) {
+  if (!validateImageFile(file).ok || isPhotoPicturePath(file)) {
     return { ok: false, error: `使えないファイル名です: ${raw}` };
   }
   return { ok: true, file, dir: base.slice(0, -1) };
@@ -104,6 +105,7 @@ export const validateCameraUpload = (
   if (
     !file.ok ||
     file.file !== o.file ||
+    isPhotoPicturePath(file.file) ||
     !(slug === null ? inAnyCameraDir(file.file) : inCameraDir(file.file, slug))
   ) {
     return { ok: false, error: "保存先のパスが正しくありません" };

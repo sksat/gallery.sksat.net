@@ -71,9 +71,15 @@ type FileSource = { storage: "b2" | "r2"; key: string };
 type Photo = CaptionSource &
   PublicMeta & { id: string; file: string; source?: FileSource };
 
-/** The API's getPathAccess (workers/api/src/query.ts). */
+/**
+ * The API's getPathAccess (workers/api/src/query.ts). A camera picture's
+ * `source` is where its image is: its own object, or, for a picture that
+ * is a photo, the file the photo shows (or its display copy); an API
+ * Worker from before that gives none, and `file` then.
+ */
 type PathAccess =
-  { kind: "photo"; photo: Photo } | { kind: "camera-image"; file: string };
+  | { kind: "photo"; photo: Photo }
+  | { kind: "camera-image"; file: string; source?: FileSource };
 
 /** The API Worker, through a service binding. */
 interface Api {
@@ -99,7 +105,10 @@ const plain = (status: number, body: string) =>
  * as it goes into the origin URL. Null when it is not a usable B2 key; a
  * file in R2 cannot be served yet (no R2 binding).
  */
-const sourceKey = (photo: Photo): string | null => {
+const sourceKey = (photo: {
+  file: string;
+  source?: FileSource;
+}): string | null => {
   const source = photo.source ?? { storage: "b2", key: photo.file };
   if (source.storage !== "b2" || typeof source.key !== "string") return null;
   return parseFilePath(source.key);
@@ -318,10 +327,11 @@ export default {
       if (parsed.preset === "og-site" && access.kind !== "camera-image") {
         return notFound();
       }
-      const checked =
-        access.kind === "photo"
-          ? sourceKey(access.photo)
-          : parseFilePath(access.file);
+      // A camera picture gets no EXIF (`meta` stays null), also when it is
+      // a photo.
+      const checked = sourceKey(
+        access.kind === "photo" ? access.photo : access,
+      );
       if (!checked) {
         console.error(`API returned no usable file for ${parsed.path}`);
         return plain(503, "Service Unavailable");

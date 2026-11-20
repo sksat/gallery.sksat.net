@@ -5,7 +5,6 @@ import { ensureTags } from "~/lib/db-meta";
 import { initUpload } from "~/lib/db-upload";
 import { decideUpload } from "~/lib/db-upload-rules";
 import { getDB } from "~/lib/env";
-import { contentChanged, uploadsOverCameraPicture } from "~/lib/last-good";
 import { generatePublicId } from "~/lib/public-id";
 import { DISPLAY_CONTENT_TYPE, validateUploadInit } from "~/lib/upload";
 
@@ -64,14 +63,7 @@ export const onPost: RequestHandler = withErrorHandler(
     });
     // A new row is still uploading (also one a rule makes public: the API
     // shows ready rows only, and completeUpload bumps for it), so the
-    // public API is unchanged, unless it has a camera picture's file: it
-    // hides that picture from /img already.
-    if (
-      outcome.kind === "upload" &&
-      (await uploadsOverCameraPicture(db, [outcome.id]))
-    ) {
-      await contentChanged(db);
-    }
+    // public API is unchanged (its file is never a camera picture's, 0019).
     if (outcome.kind === "conflict") {
       // A lost race is worth retrying (503); the rest is not (409).
       json(outcome.retry ? 503 : 409, { error: outcome.message });

@@ -153,6 +153,16 @@ export const initLookups = (
             WHERE storage = 'b2' AND object_key >= ?1 AND object_key < ?2`,
       args: [lo, hi],
     },
+    // Camera pictures' own objects (0019: a photo never takes one; a
+    // trigger refuses it), by idx_camera_image_file.
+    {
+      sql: `SELECT file FROM camera_image WHERE file = ?`,
+      args: [file],
+    },
+    {
+      sql: `SELECT file FROM camera_image WHERE file >= ?1 AND file < ?2`,
+      args: [lo, hi],
+    },
     // Two statements: SQLite does not split an OR over a partial index.
     { sql: `${select} trashed_at IS NULL AND path = ?`, args: [file] },
     {
@@ -293,11 +303,14 @@ export const initUpload = async (
     return { ...resumed, display: copy.object_key };
   }
   // A name is taken by another file in the bucket (any row: keys never
-  // change) or by a photo shown there (path, not trashed: moved photos).
-  // The lookups may return other names too; only the candidates count.
-  const [keyIs, keyIn, ...byPath] = byName;
+  // change; a camera picture's too) or by a photo shown there (path, not
+  // trashed: moved photos). The lookups may return other names too; only
+  // the candidates count.
+  const [keyIs, keyIn, pictureIs, pictureIn, ...byPath] = byName;
   const taken = new Set([
-    ...[keyIs, keyIn].flatMap((r) => r.results ?? []).map((r) => r.file),
+    ...[keyIs, keyIn, pictureIs, pictureIn]
+      .flatMap((r) => r.results ?? [])
+      .map((r) => r.file),
     ...byPath.flatMap((r) => r.results ?? []).map((r) => r.path),
   ]);
   const file = candidates.find((c) => !taken.has(c));

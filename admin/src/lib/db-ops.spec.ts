@@ -214,16 +214,19 @@ describe("purgeItems", () => {
     ]);
   });
 
-  it("keeps the object of a file that is also a camera picture", async () => {
+  it("takes a photo chosen as a camera picture off the camera (0019)", async () => {
     const { raw, db } = setup();
     raw.exec(`INSERT INTO camera (id, slug, name) VALUES (1, 'c', 'C');
-      INSERT INTO camera_image (camera_id, file) VALUES (1, '/V/a.png');`);
+      INSERT INTO camera_image (camera_id, media_id) VALUES (1, 1);`);
     await trashItems(db, { photos: [1], folders: [] });
     const remove = vi.fn(async () => {});
     expect(await purgeItems(db, [1], remove)).toEqual({
       deleted: [1],
       failed: [],
     });
-    expect(remove).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalled();
+    expect(raw.prepare("SELECT COUNT(*) AS n FROM camera_image").get()).toEqual(
+      { n: 0 },
+    );
   });
 });

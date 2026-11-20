@@ -40,7 +40,7 @@ const setup = () => {
     INSERT INTO media (id, public_id, file, platform, timestamp, camera_id, tags, visibility, status) VALUES
       (7, 'aaaaaaaaa8', '/up.png', 'Real', '2023-12-09T00:00:00Z', 2, '[]', 'public',   'uploading'),
       (8, 'aaaaaaaaa9', '/uu.png', 'Real', '2023-12-09T00:00:00Z', 2, '[]', 'unlisted', 'uploading');
-    INSERT INTO camera_image (camera_id, file, position) VALUES (3, '/up.png', 9);
+    INSERT INTO camera_image (camera_id, media_id, position) VALUES (3, 7, 9);
     -- Tags: "secret" is private.
     INSERT INTO tag (name, public) VALUES ('film', 1), ('VRChat', 1), ('secret', 0);
     -- File names (hidden by default) are public with their folder, except
@@ -202,16 +202,19 @@ describe("getPathAccess", () => {
     expect(await getPathAccess(db, "/c/a.png")).toEqual({
       kind: "camera-image",
       file: "/c/a.png",
+      source: { storage: "b2", key: "/c/a.png" },
     });
   });
 
   it("refuses unlisted, private and unknown files", async () => {
     const { raw, db } = setup();
-    // A private photo also listed as a camera picture stays private.
-    run(
-      raw,
-      "INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/x.png', 5)",
-    );
+    // A photo's file cannot be a camera picture of its own (admin 0019).
+    expect(() =>
+      run(
+        raw,
+        "INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/x.png', 5)",
+      ),
+    ).toThrow(/photo's file/);
     expect(await getPathAccess(db, "/x.png")).toBeNull();
     expect(await getPathAccess(db, "/u.png")).toBeNull();
     expect(await getPathAccess(db, "/none.png")).toBeNull();
@@ -582,6 +585,88 @@ describe("cameras", () => {
     expect((await getCamera(db, "b-public"))?.images).toEqual([]);
     expect((await getCamera(db, "a-unlisted"))?.manufacturer).toBeNull();
     expect(await getCamera(db, "nope")).toBeNull();
+  });
+
+  it("shows a picture that is a photo only while the photo may be opened", async () => {
+    const { raw, db } = setup();
+    // Camera 1's pictures: its own two, then photo 1 (public), photo 3
+    // (unlisted) and photo 4 (private), photo 1 as the default.
+    run(
+      raw,
+      `INSERT INTO camera_image (id, camera_id, media_id, position, caption) VALUES
+         (10, 1, 1, -1, 'Public'), (11, 1, 3, 5, NULL), (12, 1, 4, 6, 'Private')`,
+    );
+    const images = [
+      { file: "/camera/virtuallens2/10.photo.jpg", caption: "Public" },
+      { file: "/c/a.png", caption: "Front" },
+      { file: "/c/b.png", caption: null },
+      { file: "/camera/virtuallens2/11.photo.jpg", caption: null },
+    ];
+    expect((await getCamera(db, "virtuallens2"))?.images).toEqual(images);
+    expect(
+      (await listCameras(db)).find((c) => c.slug === "virtuallens2")?.images,
+    ).toEqual(images);
+    // Camera 3's picture is photo 7, still uploading.
+    expect((await getCamera(db, "a-unlisted"))?.images).toEqual([]);
+    // Served from the photo's file, without its public id or path.
+    expect(
+      await getPathAccess(db, "/camera/virtuallens2/10.photo.jpg"),
+    ).toEqual({
+      kind: "camera-image",
+      file: "/p1.png",
+      source: { storage: "b2", key: "/p1.png" },
+    });
+    expect(
+      (await getPathAccess(db, "/camera/virtuallens2/11.photo.jpg"))?.kind,
+    ).toBe("camera-image");
+    // The private photo's picture, another camera's slug, an unknown id.
+    expect(
+      await getPathAccess(db, "/camera/virtuallens2/12.photo.jpg"),
+    ).toBeNull();
+    expect(await getPathAccess(db, "/camera/b-public/10.photo.jpg")).toBeNull();
+    expect(
+      await getPathAccess(db, "/camera/virtuallens2/99.photo.jpg"),
+    ).toBeNull();
+
+    // Made private, trashed or still uploading: gone from both.
+    run(raw, "UPDATE media SET visibility = 'private' WHERE id = 1");
+    run(raw, "UPDATE media SET trashed_at = '2026-11-18T00:00:00Z' WHERE id = 3");
+    expect((await getCamera(db, "virtuallens2"))?.images).toEqual(
+      images.slice(1, 3),
+    );
+    expect(
+      await getPathAccess(db, "/camera/virtuallens2/10.photo.jpg"),
+    ).toBeNull();
+    expect(
+      await getPathAccess(db, "/camera/virtuallens2/11.photo.jpg"),
+    ).toBeNull();
+    // Camera 3's picture is photo 7, still uploading.
+    expect(await getPathAccess(db, "/camera/a-unlisted/3.photo.jpg")).toBeNull();
+
+    // Deleted for good: the picture goes with it.
+    run(raw, "DELETE FROM media WHERE id = 4");
+    expect(
+      raw.prepare("SELECT COUNT(*) AS n FROM camera_image WHERE id = 12").get(),
+    ).toEqual({ n: 0 });
+  });
+
+  it("serves a photo picture from the file the photo shows", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `INSERT INTO camera_image (id, camera_id, media_id, position) VALUES (10, 1, 2, 0);
+       INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status)
+         SELECT 100, 2, 'edit', '/p2_edit.jpg', id, 'ready' FROM media_file
+         WHERE media_id = 2 AND role = 'original';
+       UPDATE media SET active_file_id = 100 WHERE id = 2;`,
+    );
+    expect(
+      await getPathAccess(db, "/camera/virtuallens2/10.photo.jpg"),
+    ).toEqual({
+      kind: "camera-image",
+      file: "/p2_edit.jpg",
+      source: { storage: "b2", key: "/p2_edit.jpg" },
+    });
   });
 
   it("hides a camera used only for private photos", async () => {

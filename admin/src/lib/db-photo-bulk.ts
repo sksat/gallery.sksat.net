@@ -146,7 +146,11 @@ export const restoreInfo = (
   previous: readonly InfoRow[],
 ): Promise<void> => writeInfo(db, previous);
 
-/** A camera to pick: its name and its first picture, if any. */
+/**
+ * A camera to pick: its name and its first picture, if any (a file for
+ * the thumbnail route: the picture's own object, or its photo's original,
+ * which the route resizes as the photo is shown).
+ */
 export type CameraChoice = { id: number; name: string; image: string | null };
 
 export const listCameraChoices = async (
@@ -155,7 +159,8 @@ export const listCameraChoices = async (
   const res = await db
     .prepare(
       `SELECT c.id, c.name,
-         (SELECT file FROM camera_image i WHERE i.camera_id = c.id
+         (SELECT COALESCE(i.file, (SELECT m.file FROM media m WHERE m.id = i.media_id))
+          FROM camera_image i WHERE i.camera_id = c.id
           ORDER BY i.position, i.id LIMIT 1) AS image
        FROM camera c ORDER BY c.name COLLATE NOCASE, c.id`,
     )

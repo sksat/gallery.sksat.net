@@ -590,6 +590,20 @@ export const validateImageFile = (
   return { ok: true, file };
 };
 
+/**
+ * Whether `file` has the public path of a camera picture that is a photo
+ * (`/camera/<slug>/<n>.photo.jpg`, workers/api/src/query.ts
+ * photoPicturePath): a picture's own file there would shadow it, so
+ * none is put there.
+ */
+export const isPhotoPicturePath = (file: string): boolean =>
+  /^\/camera\/[^/]+\/\d+\.photo\.jpe?g$/i.test(file);
+
+const PHOTO_PICTURE_NAME_ERROR = {
+  ok: false as const,
+  error: "<数字>.photo.jpg は使えない名前です（名前を変えてください）",
+};
+
 export type ValidateCameraImageResult =
   | { ok: true; image: { file: string; caption: string | null } }
   | { ok: false; error: string };
@@ -603,6 +617,7 @@ export const validateCameraImage = (
   const obj = input as Record<string, unknown>;
   const file = validateImageFile(obj.file);
   if (!file.ok) return file;
+  if (isPhotoPicturePath(file.file)) return PHOTO_PICTURE_NAME_ERROR;
   const caption = optionalText(obj, "caption", MAX_IMAGE_CAPTION_LEN);
   if (!caption.ok) return caption;
   return { ok: true, image: { file: file.file, caption: caption.value } };

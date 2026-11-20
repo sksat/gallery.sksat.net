@@ -1,20 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  contentChanged,
-  CONTENT_VERSION_KEY,
-  uploadsOverCameraPicture,
-} from "./last-good";
+import { contentChanged, CONTENT_VERSION_KEY } from "./last-good";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 const setup = () => {
   const raw = migratedSqlite();
-  raw.exec(`
-    INSERT INTO camera (id, slug, name) VALUES (1, 'cam-a', 'A');
-    INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/camera/cam-a/front.png', 0);
-    INSERT INTO media (id, file, platform, visibility, status) VALUES
-      (1, '/camera/cam-a/front.png', 'Real', 'private', 'uploading'),
-      (2, '/V/new.png', 'VRChat', 'private', 'uploading');
-  `);
   const version = () =>
     (
       raw
@@ -60,23 +49,5 @@ describe("contentChanged", () => {
       },
     } as unknown as D1Database;
     await expect(contentChanged(broken)).rejects.toThrow("もう一度操作");
-  });
-});
-
-describe("uploadsOverCameraPicture", () => {
-  it("is true only for an upload onto a camera picture's file", async () => {
-    const t = setup();
-    expect(await uploadsOverCameraPicture(t.db, [1])).toBe(true);
-    expect(await uploadsOverCameraPicture(t.db, [2])).toBe(false);
-    expect(await uploadsOverCameraPicture(t.db, [])).toBe(false);
-  });
-
-  it("assumes a change when it cannot tell", async () => {
-    const broken = {
-      prepare: () => {
-        throw new Error("D1 down");
-      },
-    } as unknown as D1Database;
-    expect(await uploadsOverCameraPicture(broken, [1])).toBe(true);
   });
 });

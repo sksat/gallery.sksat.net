@@ -16,7 +16,9 @@ const setup = () => {
       (11, 1, 'display', '/a_lightroom.d.jpg', 10, 'ready'),
       (12, 1, 'display', '/a_lightroom.d2.jpg', 10, 'failed');
     INSERT INTO camera (id, slug, name) VALUES (1, 'c', 'C');
-    INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/a_lightroom.jpg', 0);
+    -- A picture of its own, and photo 1 chosen as a picture (0019).
+    INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/camera/c/x.png', 0);
+    INSERT INTO camera_image (camera_id, media_id, position) VALUES (1, 1, 1);
   `);
   return { raw, db: sqliteD1(raw) };
 };
@@ -61,11 +63,11 @@ describe("imageSource", () => {
 });
 
 describe("photoObjects", () => {
-  it("lists every file of the photos, marking camera pictures", async () => {
+  it("lists every file of the photos (none a camera picture's own, 0019)", async () => {
     const { db } = setup();
     expect(await photoObjects(db, [1])).toEqual([
       { mediaId: 1, storage: "b2", key: "/a.png", shared: false },
-      { mediaId: 1, storage: "b2", key: "/a_lightroom.jpg", shared: true },
+      { mediaId: 1, storage: "b2", key: "/a_lightroom.jpg", shared: false },
       { mediaId: 1, storage: "b2", key: "/a_lightroom.d.jpg", shared: false },
       { mediaId: 1, storage: "b2", key: "/a_lightroom.d2.jpg", shared: false },
     ]);

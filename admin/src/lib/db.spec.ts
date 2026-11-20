@@ -172,7 +172,7 @@ describe("restoreCameraImageStatements", () => {
     try {
       for (const { sql, args } of restoreCameraImageStatements(
         1,
-        { file, caption: "back" },
+        { file, media_id: null, caption: "back" },
         index,
       )) {
         db.prepare(sql).run(...(args as (string | number | null)[]));

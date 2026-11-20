@@ -51,12 +51,30 @@ export type CameraRow = CameraInput & {
 };
 
 /** A picture of the camera itself; `file` is a bucket path like media's. */
+/**
+ * A camera's picture (0019): exactly one of `file` (an object of its own)
+ * and `media_id` (a photo of the library) is set.
+ */
 export type CameraImageRow = {
   id: number;
   camera_id: number;
-  file: string;
+  file: string | null;
+  media_id: number | null;
   caption: string | null;
   position: number;
+};
+
+/** A camera picture as the camera page lists it. */
+export type CameraImageItem = CameraImageRow & {
+  /** For a photo's picture: the photo, and whether the public site shows it. */
+  photo: {
+    /** Its original's key (thumbnails resize the file it shows). */
+    file: string;
+    path: string;
+    visibility: Visibility;
+    /** Ready and not in the trash. */
+    live: boolean;
+  } | null;
 };
 
 /**

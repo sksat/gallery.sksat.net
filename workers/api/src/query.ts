@@ -564,51 +564,94 @@ export const getPhotoForImage = async (
   return row ? imagePhoto(row, toContext(results)) : null;
 };
 
+/**
+ * A camera picture: `file` is the bucket key to resize, and `source`
+ * where it is (a photo's picture may be shown from another storage). No
+ * EXIF is embedded in either kind.
+ */
 export type PathAccess =
-  { kind: "photo"; photo: ImagePhoto } | { kind: "camera-image"; file: string };
+  | { kind: "photo"; photo: ImagePhoto }
+  | { kind: "camera-image"; file: string; source: FileSource };
 
 /** The image Worker's photo by display path (see getPathAccess). */
 export const IMAGE_BY_PATH_SQL = `${MEDIA_SELECT_WITH_SOURCE} WHERE m.path = ?1 AND ${LISTED}
            AND ${levelSql("file_name")} = 'path'`;
 
 /**
- * A camera picture at a bucket path that is no photo's file. A file of a
- * photo (any of them, admin 0013) follows the photo's visibility and
- * status: listing a private photo (or one still being uploaded) as a
- * camera picture must not publish it by path.
+ * A camera picture of its own at bucket path ?1 (admin 0019: such a
+ * `file` is never a photo's object, which triggers keep so, so it gives
+ * no photo away).
  */
-export const CAMERA_IMAGE_SQL = `SELECT 1 AS found FROM camera_image WHERE file = ?1
-           AND NOT EXISTS (SELECT 1 FROM media_file
-                           WHERE storage = 'b2' AND object_key = ?1) LIMIT 1`;
+export const CAMERA_IMAGE_SQL = `SELECT 1 AS found FROM camera_image WHERE file = ?1 LIMIT 1`;
+
+/**
+ * The public path of a camera picture that is a photo (admin 0019,
+ * `camera_image.media_id`): under the camera's folder, by the picture's
+ * id, so it names neither the photo's public id nor its file. The
+ * extension is only there for the image Worker's path syntax. A numbered
+ * upload name (`a-1.jpg`) never has this shape, and the admin refuses it
+ * for a picture's own file (isPhotoPicturePath), which would come first.
+ */
+export const photoPicturePath = (slug: string, id: number): string =>
+  `/camera/${slug}/${id}.photo.jpg`;
+
+const PHOTO_PICTURE_PATH_SQL = `'/camera/' || c.slug || '/' || i.id || '.photo.jpg'`;
+
+const PHOTO_PICTURE_RE =
+  /^\/camera\/([a-z0-9-]+)\/([1-9][0-9]{0,14})\.photo\.jpg$/;
+
+/**
+ * The file to resize for the photo picture ?2 of the camera with slug ?1,
+ * while its photo may be opened (public or unlisted, ready, not in the
+ * trash): a private photo chosen as a picture is never served.
+ */
+export const PHOTO_PICTURE_SQL = `SELECT m.file${SOURCE_COLUMNS}
+  FROM camera_image i JOIN camera c ON c.id = i.camera_id
+  JOIN media m ON m.id = i.media_id${SOURCE_JOINS}
+  WHERE i.id = ?2 AND c.slug = ?1 AND ${VIEWABLE}`;
 
 /**
  * What the image Worker may serve at /img/<path>: a public photo whose
  * display path is `path` and whose file name level is "path" (so a moved
  * photo is found at its new path, and its bucket key, which may differ,
  * comes back in `photo.file`, and the file to resize in `photo.source`;
- * the rest is projected, for captions); or a
- * camera picture whose bucket path is `path`. Null for anything else, in
- * particular unlisted and private photos, whose predictable paths must not
- * give them away, and a moved photo's old path.
+ * the rest is projected, for captions); a camera picture whose bucket path
+ * is `path`; or a camera picture that is a photo, at photoPicturePath,
+ * while the photo may be opened. Null for anything else, in particular
+ * unlisted and private photos, whose predictable paths must not give them
+ * away, and a moved photo's old path.
  */
 export const getPathAccess = async (
   db: D1Database,
   path: string,
 ): Promise<PathAccess | null> => {
+  const picture = PHOTO_PICTURE_RE.exec(path);
   const results = await db.batch([
     ...contextStatements(db, false),
     db.prepare(IMAGE_BY_PATH_SQL).bind(path),
     db.prepare(CAMERA_IMAGE_SQL).bind(path),
+    ...(picture
+      ? [db.prepare(PHOTO_PICTURE_SQL).bind(picture[1], Number(picture[2]))]
+      : []),
   ]);
-  const [photos, images] = results.slice(CONTEXT_SIZE);
+  const [photos, images, pictures] = results.slice(CONTEXT_SIZE);
   const row = (photos.results ?? [])[0] as
     (MediaJoinRow & SourceRow) | undefined;
   if (row) {
     return { kind: "photo", photo: imagePhoto(row, toContext(results)) };
   }
-  return (images.results ?? []).length > 0
-    ? { kind: "camera-image", file: path }
-    : null;
+  if ((images.results ?? []).length > 0) {
+    return {
+      kind: "camera-image",
+      file: path,
+      source: { storage: "b2", key: path },
+    };
+  }
+  const shown = (pictures?.results ?? [])[0] as
+    (SourceRow & { file: string }) | undefined;
+  if (!shown) return null;
+  const source = sourceOf(shown as MediaJoinRow & SourceRow);
+  return { kind: "camera-image", file: source.key, source };
 };
 
 /**
@@ -623,13 +666,24 @@ const cameraUsed = (visibility: string) =>
     OR EXISTS (SELECT 1 FROM media m WHERE m.digitized_with = c.id
               AND ${visibility} AND ${levelSql("digitizer")} = 'model'))`;
 
+/**
+ * Camera pictures as the API gives them: a picture of its own by its
+ * bucket path, a photo (admin 0019) at photoPicturePath and only while the
+ * photo may be opened (public or unlisted, ready, not in the trash).
+ */
+export const CAMERA_IMAGES_SQL = `SELECT i.id, i.camera_id, i.position, i.caption,
+    COALESCE(i.file, ${PHOTO_PICTURE_PATH_SQL}) AS file
+  FROM camera_image i JOIN camera c ON c.id = i.camera_id
+  LEFT JOIN media m ON m.id = i.media_id
+  WHERE (i.media_id IS NULL OR (${VIEWABLE}))`;
+
 /** Cameras with at least one public photo, by slug. */
 export const listCameras = async (db: D1Database): Promise<CameraJSON[]> => {
   const [cameras, images] = await db.batch([
     db.prepare(
       `SELECT c.* FROM camera c WHERE ${cameraUsed(LISTED)} ORDER BY c.slug`,
     ),
-    db.prepare("SELECT * FROM camera_image"),
+    db.prepare(CAMERA_IMAGES_SQL),
   ]);
   const imageRows = (images.results ?? []) as CameraImageRow[];
   return ((cameras.results ?? []) as CameraRow[]).map((c) =>
@@ -647,11 +701,7 @@ export const getCamera = async (
         `SELECT c.* FROM camera c WHERE c.slug = ? AND ${cameraUsed(VIEWABLE)}`,
       )
       .bind(slug),
-    db
-      .prepare(
-        "SELECT i.* FROM camera_image i JOIN camera c ON c.id = i.camera_id WHERE c.slug = ?",
-      )
-      .bind(slug),
+    db.prepare(`${CAMERA_IMAGES_SQL} AND c.slug = ?`).bind(slug),
   ]);
   const row = (cameras.results ?? [])[0] as CameraRow | undefined;
   return row

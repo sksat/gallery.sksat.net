@@ -10,6 +10,7 @@ import {
   LIST_SQL,
   listPublicMedia,
   MEDIA_BY_ID_SQL,
+  PHOTO_PICTURE_SQL,
 } from "./query";
 import { d1, migratedDb } from "./sqlite-d1.test-helper";
 
@@ -103,12 +104,25 @@ describe("the file to resize", () => {
     raw.exec("UPDATE media SET active_file_id = 16 WHERE id = 3");
     expect(await getPhotoForImage(db, "aaaaaaaaa4")).toBeNull();
     raw.exec(
-      "INSERT INTO camera (id, slug, name) VALUES (1, 'x', 'X'); INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/c_edit.jpg', 0), (1, '/cam.jpg', 1)",
+      "INSERT INTO camera (id, slug, name) VALUES (1, 'x', 'X'); INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/cam.jpg', 1)",
     );
+    // Any file of a photo is refused as a picture's own file (admin 0019),
+    // and a picture's file as a new file of a photo.
+    expect(() =>
+      raw.exec(
+        "INSERT INTO camera_image (camera_id, file, position) VALUES (1, '/c_edit.jpg', 0)",
+      ),
+    ).toThrow(/photo's file/);
+    expect(() =>
+      raw.exec(
+        "INSERT INTO media_file (media_id, role, object_key, source_file_id, status) SELECT 3, 'edit', '/cam.jpg', id, 'ready' FROM media_file WHERE media_id = 3 AND role = 'original'",
+      ),
+    ).toThrow(/camera picture's file/);
     expect(await getPathAccess(db, "/c_edit.jpg")).toBeNull();
     expect(await getPathAccess(db, "/cam.jpg")).toEqual({
       kind: "camera-image",
       file: "/cam.jpg",
+      source: { storage: "b2", key: "/cam.jpg" },
     });
   });
 
@@ -154,7 +168,11 @@ describe("query plans", () => {
       expect(text).not.toMatch(/TEMP B-TREE/);
     }
     expect(plan(CAMERA_IMAGE_SQL, "/x.png").join("\n")).toMatch(
-      /USING COVERING INDEX sqlite_autoindex_media_file_1/,
+      /USING COVERING INDEX idx_camera_image_file/,
     );
+    const picture = plan(PHOTO_PICTURE_SQL, "x", "1").join("\n");
+    expect(picture).not.toMatch(/\bSCAN\b|TEMP B-TREE/);
+    expect(picture).toMatch(/SEARCH i USING INTEGER PRIMARY KEY/);
+    expect(picture).toMatch(/SEARCH src USING INTEGER PRIMARY KEY/);
   });
 });
