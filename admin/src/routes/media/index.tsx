@@ -96,6 +96,7 @@ import {
   type IncompleteUpload,
 } from "~/lib/db-upload";
 import { getUploadConfig } from "~/lib/b2";
+import { deleteAllVersions } from "~/lib/b2-delete";
 import { getObjectStat } from "~/lib/object-stat";
 import {
   DropZone,
@@ -441,7 +442,21 @@ export const useDeleteIncomplete = routeAction$(
       console.error("/media delete-incomplete action: getDB failed:", err);
       return fail(500, { message: "データベースに接続できません" });
     }
-    if (!(await deleteIncompleteUpload(db, data.id))) {
+    // A display copy's object goes too (its name is never used again).
+    const config = getUploadConfig(platform);
+    let deleted: boolean;
+    try {
+      deleted = await deleteIncompleteUpload(db, data.id, async (key) => {
+        if (!config) throw new Error("B2 の設定がないので削除できません");
+        await deleteAllVersions(config, key);
+      });
+    } catch (err) {
+      console.error("/media delete-incomplete action:", err);
+      return fail(502, {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (!deleted) {
       return fail(404, { message: "未完了のアップロードが見つかりません" });
     }
     // A camera picture with its file can be served by path again.

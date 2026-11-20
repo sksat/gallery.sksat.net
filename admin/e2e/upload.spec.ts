@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 // Uploads from the Files view into a fake bucket (e2e/fake-b2.mjs on
@@ -203,37 +204,165 @@ const pngHeaderOnly = (name: string, width: number, height: number) => {
   };
 };
 
-test("files the image Worker could not resize are refused before uploading", async ({
+/**
+ * A real PNG of one colour, `width` × `height`: large in pixels, a few KB
+ * in bytes (its rows deflate to almost nothing).
+ */
+const solidPng = (
+  name: string,
+  width: number,
+  height: number,
+  grey = 0x60,
+) => {
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    const out = Buffer.alloc(body.length + 8);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc32(body), body.length + 4);
+    return out;
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // RGB
+  const row = Buffer.alloc(1 + width * 3, grey); // filter 0, grey
+  row[0] = 0;
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", ihdr),
+      chunk("IDAT", deflateSync(raw, { level: 9 })),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  };
+};
+
+/** Width and height from a JPEG's SOF marker (null if there is none). */
+const jpegSize = (b: Buffer): { width: number; height: number } | null => {
+  let i = 2;
+  while (i + 9 < b.length && b[i] === 0xff) {
+    const marker = b[i + 1];
+    const len = b.readUInt16BE(i + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
+    }
+    i += 2 + len;
+  }
+  return null;
+};
+
+test("an image over the resize limits goes up with a display copy", async ({
   page,
 }) => {
-  await newFolder(page, "/mock", "up-limits");
-  const sent = uploadRequests(page);
-  // Just over 100 MB, sparse on disk (setInputFiles buffers stop at 50 MB).
-  const dir = mkdtempSync(join(tmpdir(), "admin-upload-"));
-  const big = join(dir, "big.png");
-  writeFileSync(big, Buffer.alloc(0));
-  truncateSync(big, 123_400_000);
-  const input = page.getByTestId("upload-input");
-  await input.setInputFiles(big);
-  const bigRow = rows(page).filter({ hasText: "big.png" });
-  await expect(bigRow).toHaveAttribute("data-status", "skipped");
-  await expect(bigRow).toContainText(
-    "ファイルが大きすぎます：123.4 MB（117.7 MiB）。上限は 100 MB（95.4 MiB）です。",
-  );
+  const folder = `up-wide${browserSuffix()}`;
+  await newFolder(page, "/mock", folder);
+  const before = await uploadedKeys(page);
+  // 13,000 px wide: over the 12,000 px Cloudflare resizes.
+  await page
+    .getByTestId("upload-input")
+    .setInputFiles(solidPng("wide.png", 13_000, 200, seedOf(0x60)));
+  const row = rows(page).filter({ hasText: "wide.png" });
+  await expect(row).toHaveAttribute("data-status", "done");
 
+  // The original as it is, and a JPEG copy within the limits beside it.
+  const res = await page.request.get(`${fakeB2}/__uploads`);
+  const uploads = (await res.json()) as { key: string; contentType: string }[];
+  expect(uploads.map((u) => u.key)).toContain(`/mock/${folder}/wide.png`);
+  const copies = uploads.filter(
+    (u) => u.key.startsWith("/.derived/") && !before.includes(u.key),
+  );
+  expect(copies).toHaveLength(1);
+  const copy = copies[0];
+  expect(copy.key).toMatch(/^\/\.derived\/[2-9a-z]{10}-[0-9a-f]{16}\.jpg$/);
+  expect(copy.contentType).toBe("image/jpeg");
+  const bytes = Buffer.from(
+    await (
+      await page.request.get(
+        `${fakeB2}/__bytes?key=${encodeURIComponent(copy.key)}&offset=0&length=65536`,
+      )
+    ).body(),
+  );
+  // Long side 8,192 px, the aspect kept (the browser rounds the height
+  // when it scales while decoding), and no EXIF.
+  const size = jpegSize(bytes);
+  expect(size?.width).toBe(8192);
+  expect(size?.height).toBeGreaterThanOrEqual(126);
+  expect(size?.height).toBeLessThanOrEqual(127);
+  expect(bytes.includes(Buffer.from("Exif\0\0", "latin1"))).toBe(false);
+
+  // A photo like any other (its images come from the copy: /thumb and the
+  // image Worker pick a ready display copy, media-file.ts).
+  await expect(page.getByTestId("file-tile")).toHaveCount(1);
+});
+
+test("deleting an incomplete over-limit upload deletes its display copy", async ({
+  page,
+}) => {
+  const folder = `up-wide-gone${browserSuffix()}`;
+  await newFolder(page, "/mock", folder);
+  // Both PUTs go through; every completion fails, the page's own re-check
+  // after the reload too.
+  await page.route(/\/api\/upload\/\d+$/, (route) => route.abort("failed"));
+  await page
+    .getByTestId("upload-input")
+    .setInputFiles(solidPng("gone.png", 12_500, 100, seedOf(0x40)));
+  await expect(
+    page.getByTestId("upload-panel").getByRole("heading"),
+  ).toHaveText("1 件が失敗しました", { timeout: 15_000 });
+  const copies = async () =>
+    (await uploadedKeys(page)).filter((k) => k.startsWith("/.derived/"));
+  const before = await copies();
+  await page.reload();
+  const incomplete = page.getByTestId("incomplete-uploads");
+  const remove = incomplete.getByRole("button", {
+    name: `/mock/${folder}/gone.png の未完了のアップロードを削除`,
+  });
+  // Let the page's own re-check fail first (it disables the buttons).
+  await expect(incomplete.getByTestId("incomplete-reason")).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(remove).toBeEnabled();
+  await remove.click();
+  await expect(incomplete).toHaveCount(0);
+  // Exactly one copy (this upload's) left the bucket.
+  const after = await copies();
+  expect(after).toHaveLength(before.length - 1);
+});
+
+test("an over-limit image whose copy cannot be made is refused", async ({
+  page,
+}) => {
+  await newFolder(page, "/mock", `up-limits${browserSuffix()}`);
+  const sent = uploadRequests(page);
+  const input = page.getByTestId("upload-input");
+  // Over the limits, but nothing to decode: no copy, so not uploaded.
   await input.setInputFiles([
     pngHeaderOnly("wide.png", 13_000, 9_000),
     pngHeaderOnly("dense.png", 12_000, 10_000),
   ]);
-  const wide = rows(page).filter({ hasText: "wide.png" });
-  await expect(wide).toHaveAttribute("data-status", "skipped");
-  await expect(wide).toContainText(
-    "画像が大きすぎます：13,000 × 9,000 px。1 辺 12,000 px までです。",
-  );
-  const dense = rows(page).filter({ hasText: "dense.png" });
-  await expect(dense).toHaveAttribute("data-status", "skipped");
-  await expect(dense).toContainText(
-    "画素数が多すぎます：120 MP。上限は 100 MP です。",
+  for (const name of ["wide.png", "dense.png"]) {
+    const r = rows(page).filter({ hasText: name });
+    await expect(r).toHaveAttribute("data-status", "skipped");
+    await expect(r).toContainText(
+      "この画像をこのブラウザでは読み込めませんでした。100 MB、1 辺 12,000 px、1 億画素までに縮小した画像なら追加できます。",
+    );
+  }
+
+  // Over one PUT (5 GB), sparse on disk: refused before it is read.
+  const dir = mkdtempSync(join(tmpdir(), "admin-upload-"));
+  const big = join(dir, "big.png");
+  writeFileSync(big, Buffer.alloc(0));
+  truncateSync(big, 5_100_000_000);
+  await input.setInputFiles(big);
+  const bigRow = rows(page).filter({ hasText: "big.png" });
+  await expect(bigRow).toHaveAttribute("data-status", "skipped");
+  await expect(bigRow).toContainText(
+    "ファイルが大きすぎます：5.1 GB（4.8 GiB）。上限は 5 GB（4.7 GiB）です。",
   );
 
   // Nothing was asked for or sent, and nothing was added.
@@ -262,6 +391,30 @@ test("the server refuses an over-limit init with the same words", async ({
   expect(res.status()).toBe(400);
   expect(await res.json()).toEqual({
     error: "画像が大きすぎます：13,000 × 9,000 px。1 辺 12,000 px までです。",
+  });
+  // With a display copy, the copy must be within the limits.
+  const copy = await page.request.post("/api/upload", {
+    headers: { Origin: new URL(page.url()).origin },
+    data: {
+      file: "/mock/up-limits-api.png",
+      size: 1234,
+      contentType: "image/png",
+      sha256: "1".repeat(64),
+      timestamp: null,
+      width: 13_000,
+      height: 9_000,
+      display: {
+        size: 1000,
+        width: 12_001,
+        height: 8_308,
+        sha256: "2".repeat(64),
+      },
+    },
+  });
+  expect(copy.status()).toBe(400);
+  expect(await copy.json()).toEqual({
+    error:
+      "縮小版の画像が大きすぎます：12,001 × 8,308 px。1 辺 12,000 px までです。",
   });
 });
 

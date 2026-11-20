@@ -17,7 +17,25 @@ import {
   PHOTO_META_PARSER_DATE,
   type StoredMeta,
 } from "./photo-meta";
-import { formatUploadSize, groupDigits, type UploadInit } from "./upload";
+import {
+  DISPLAY_CONTENT_TYPE,
+  DISPLAY_DIR,
+  formatUploadSize,
+  groupDigits,
+  type DisplayInit,
+  type UploadInit,
+} from "./upload";
+
+/**
+ * The completion's answer when a display copy is missing or not the one
+ * announced: the copy is the uploader's own business, so the words are
+ * about the upload.
+ */
+export const NOT_COMPLETE =
+  "アップロードが完了していません。もう一度試してください。";
+
+/** displayKey in SQL, from the photo `m`'s public id and the hash `?3`. */
+const DISPLAY_KEY_SQL = `'${DISPLAY_DIR}' || m.public_id || '-' || substr(?3, 1, 16) || '.jpg'`;
 import type { MediaPlatform, Visibility } from "./types";
 
 /** media columns (0005) for metadata read from the file itself. */
@@ -55,7 +73,17 @@ export type InitOutcome =
    * by another photo ("IMG_0001-1.jpg"), or when the same photo's earlier
    * attempt went elsewhere.
    */
-  | { kind: "upload"; id: number; file: string; resumed: boolean }
+  | {
+      kind: "upload";
+      id: number;
+      file: string;
+      resumed: boolean;
+      /**
+       * Where the display copy goes, when the init has one: its media_file
+       * row (role display), uploading until the completion (displayKey).
+       */
+      display?: string;
+    }
   /** This photo (same SHA-256) is already uploaded, at `file`. */
   | { kind: "exists"; id: number; file: string }
   /** Cannot upload here; `message` says why. */
@@ -134,6 +162,37 @@ export const initLookups = (
   ];
 };
 
+/**
+ * The display copy of the photo whose original is `file`, still uploading
+ * (an original over the resize limits; display-copy.ts): a media_file row
+ * (0013) with role display, made from the original, at displayKey (in
+ * SQL, from the photo's public id and the hash) with the announced size
+ * and hash. Written again on a resume of the same encoding; never touches
+ * a row that is ready or another photo's. RETURNING its key, no row when
+ * it was not written.
+ */
+export const displayCopyStatement = (
+  db: D1Database,
+  file: string,
+  display: DisplayInit,
+) =>
+  db
+    .prepare(
+      `INSERT INTO media_file (media_id, role, storage, object_key,
+         source_file_id, status, size, sha256, mime_type)
+       SELECT m.id, 'display', 'b2', ${DISPLAY_KEY_SQL}, o.id, 'uploading',
+         ?2, ?3, '${DISPLAY_CONTENT_TYPE}'
+       FROM media m JOIN media_file o ON o.media_id = m.id AND o.role = 'original'
+       WHERE m.file = ?1 AND m.status = 'uploading'
+       ON CONFLICT (storage, object_key) DO UPDATE
+         SET size = excluded.size, sha256 = excluded.sha256
+         WHERE media_file.status = 'uploading'
+           AND media_file.media_id = excluded.media_id
+           AND media_file.role = 'display'
+       RETURNING object_key`,
+    )
+    .bind(file, display.size, display.sha256);
+
 // The photo's original row (media_file, 0013) is inserted by a trigger in
 // the same statement, so its UNIQUE indexes can refuse it too.
 const isUniqueError = (err: unknown) =>
@@ -192,7 +251,46 @@ export const initUpload = async (
     if (same.status === "ready") {
       return { kind: "exists", id: same.id, file: same.path };
     }
-    return { kind: "upload", id: same.id, file: same.file, resumed: true };
+    const resumed = {
+      kind: "upload" as const,
+      id: same.id,
+      file: same.file,
+      resumed: true,
+    };
+    if (!init.display) return resumed;
+    // Its display copy's row as this attempt announces it, in place of
+    // any other encoding an earlier attempt announced (whose object, if
+    // its PUT went through, is left over unread).
+    const copy = await db
+      .batch<{ object_key: string }>([
+        db
+          .prepare(
+            `DELETE FROM media_file
+             WHERE role = 'display' AND status = 'uploading'
+               AND media_id = (SELECT id FROM media
+                               WHERE file = ?1 AND status = 'uploading')
+               AND object_key IS NOT (
+                 SELECT '${DISPLAY_DIR}' || m.public_id || '-' || substr(?2, 1, 16) || '.jpg'
+                 FROM media m WHERE m.file = ?1)`,
+          )
+          .bind(same.file, init.display.sha256),
+        displayCopyStatement(db, same.file, init.display),
+      ])
+      .then(([, written]) => (written.results ?? [])[0] ?? null)
+      .catch((err: unknown) => {
+        if (isUniqueError(err)) return null;
+        throw err;
+      });
+    // Completed or deleted meanwhile, or those bytes are another file's:
+    // the browser asks again.
+    if (!copy) {
+      return {
+        kind: "conflict",
+        message: `${same.path} は別のアップロードと重なりました`,
+        retry: true,
+      };
+    }
+    return { ...resumed, display: copy.object_key };
   }
   // A name is taken by another file in the bucket (any row: keys never
   // change) or by a photo shown there (path, not trashed: moved photos).
@@ -302,14 +400,28 @@ export const initUpload = async (
               xmpSummary ? JSON.stringify(xmpSummary) : null,
             )
         : null;
-    const out = await db.batch<{ id: number }>([
+    // An original over the resize limits: its display copy's row, in the
+    // same batch (a photo never has one without the other).
+    const copy = init.display
+      ? displayCopyStatement(db, file, init.display)
+      : null;
+    const out = await db.batch<{ id: number; object_key: string }>([
       ...(device?.create ? [ensureDeviceStatement(db, device)] : []),
       insert,
       ...(tool ? [tool] : []),
+      ...(copy ? [copy] : []),
     ]);
     const inserted = out[device?.create ? 1 : 0].results?.[0];
     if (!inserted) throw new Error("INSERT INTO media returned no row");
-    return { kind: "upload", id: inserted.id, file, resumed: false };
+    const display = copy ? out[out.length - 1].results?.[0]?.object_key : null;
+    if (copy && !display) throw new Error("display copy row not written");
+    return {
+      kind: "upload",
+      id: inserted.id,
+      file,
+      resumed: false,
+      ...(display ? { display } : {}),
+    };
   } catch (err) {
     // Lost a race with another upload of the same path or photo; the
     // browser retries (and then resumes or takes the next name).
@@ -419,13 +531,63 @@ export const completeUpload = async (
       message: "中身が違います (SHA-256 が一致しません)",
     };
   }
-  const [, after] = await db.batch([
+  // Its display copy (an original over the resize limits; media_file role
+  // display, still uploading): the bucket must have it too, as announced.
+  const copies =
+    (
+      await db
+        .prepare(
+          `SELECT id, object_key AS file, size, sha256 FROM media_file
+           WHERE media_id = ? AND role = 'display' AND status = 'uploading'
+             AND storage = 'b2'`,
+        )
+        .bind(id)
+        .all<{
+          id: number;
+          file: string;
+          size: number | null;
+          sha256: string | null;
+        }>()
+    ).results ?? [];
+  for (const c of copies) {
+    const copy = await stat(c.file);
+    if (!copy) {
+      return { kind: "mismatch", message: NOT_COMPLETE };
+    }
+    if (
+      (c.size !== null && copy.size !== c.size) ||
+      (c.sha256 !== null && copy.sha256 !== c.sha256)
+    ) {
+      return {
+        kind: "mismatch",
+        message: NOT_COMPLETE,
+      };
+    }
+  }
+  const out = await db.batch([
+    // Its display copies first, each only as it was checked (a resume may
+    // have announced another meanwhile)...
+    ...copies.map((c) =>
+      db
+        .prepare(
+          `UPDATE media_file SET status = 'ready',
+             uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+           WHERE id = ?1 AND status = 'uploading'
+             AND size IS ?2 AND sha256 IS ?3`,
+        )
+        .bind(c.id, c.size, c.sha256),
+    ),
+    // ...then the photo, only with every display copy ready: it is never
+    // ready without them.
     db
       .prepare(
         `UPDATE media SET status = 'ready',
            uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE id = ? AND status = 'uploading'`,
+         WHERE id = ? AND status = 'uploading'
+           AND NOT EXISTS (SELECT 1 FROM media_file d
+             WHERE d.media_id = media.id AND d.role = 'display'
+               AND d.status <> 'ready')`,
       )
       // The trigger (0013) marks the original's media_file row ready in
       // the same statement and clears its multipart upload id.
@@ -436,26 +598,52 @@ export const completeUpload = async (
     // the same batch. A private one changes nothing the API answers.
     ...(row.visibility !== "private" ? [contentVersionStatement(db)] : []),
   ]);
-  const now = (after.results ?? [])[0] as { status: string } | undefined;
+  const now = (out[copies.length + 1].results ?? [])[0] as
+    { status: string } | undefined;
   // Deleted meanwhile (incomplete uploads can be deleted).
-  return now?.status === "ready" ? { kind: "ready" } : { kind: "not-found" };
+  if (!now) return { kind: "not-found" };
+  if (now.status === "ready") return { kind: "ready" };
+  // Its copy changed under it (a resume): the next try checks it again.
+  return {
+    kind: "mismatch",
+    message: NOT_COMPLETE,
+  };
 };
 
 /**
  * Forget an upload that never completed (only `uploading` rows; a ready
- * photo is never deleted here). A file the PUT may have stored stays in
- * the bucket, unreferenced and not served; uploading to the same path
- * again replaces it.
+ * photo is never deleted here). The original the PUT may have stored stays
+ * in the bucket, unreferenced and not served; uploading to the same path
+ * again replaces it. A display copy's object (an original over the resize
+ * limits) is named by the photo's public id, which a new upload never
+ * gets again, so it is deleted too (`removeObject`, every version), once
+ * the row is gone: a completion running meanwhile then finds no row,
+ * rather than a ready photo whose copy was just deleted. If that deletion
+ * fails, the object is left over (the error says so).
  */
 export const deleteIncompleteUpload = async (
   db: D1Database,
   id: number,
+  removeObject: (key: string) => Promise<void>,
 ): Promise<boolean> => {
-  const res = await db
-    .prepare("DELETE FROM media WHERE id = ? AND status = 'uploading'")
-    .bind(id)
-    .run();
-  return (res.meta.changes ?? 0) > 0;
+  // One batch: the copies' keys and the row (its files go with it), only
+  // while it is still uploading.
+  const [copies, deleted] = await db.batch<{ key: string }>([
+    db
+      .prepare(
+        `SELECT f.object_key AS key FROM media_file f
+         JOIN media m ON m.id = f.media_id
+         WHERE f.media_id = ? AND m.status = 'uploading'
+           AND f.role = 'display' AND f.storage = 'b2'`,
+      )
+      .bind(id),
+    db
+      .prepare("DELETE FROM media WHERE id = ? AND status = 'uploading'")
+      .bind(id),
+  ]);
+  if ((deleted.meta.changes ?? 0) === 0) return false;
+  for (const c of copies.results ?? []) await removeObject(c.key);
+  return true;
 };
 
 export type IncompleteUpload = {

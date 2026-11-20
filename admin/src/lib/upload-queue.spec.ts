@@ -54,6 +54,7 @@ const harness = (over: Partial<QueueDeps<UploadSource>> = {}) => {
           }),
         ),
     ),
+    putDisplay: vi.fn(async () => {}),
     complete: vi.fn(async () => {}),
     sleep: vi.fn(async (ms: number) => {
       sleeps.push(ms);
@@ -137,16 +138,76 @@ describe("createUploadQueue", () => {
     });
   });
 
-  it("refuses a file over the size limit without reading or sending it", async () => {
+  it("refuses a file over one PUT without reading or sending it", async () => {
     const h = harness();
-    h.queue.add("/", [src("big.png", 123_400_000), src("ok.png")]);
+    h.queue.add("/", [src("big.png", 5_100_000_000), src("ok.png")]);
     await flush();
     expect(h.status()).toEqual(["big.png:skipped", "ok.png:uploading"]);
     expect(h.items()[0].message).toBe(
-      "ファイルが大きすぎます：123.4 MB（117.7 MiB）。上限は 100 MB（95.4 MiB）です。",
+      "ファイルが大きすぎます：5.1 GB（4.8 GiB）。上限は 5 GB（4.7 GiB）です。",
     );
     expect(h.deps.prepare).toHaveBeenCalledTimes(1);
     expect(h.puts.map((p) => p.file)).toEqual(["/ok.png"]);
+  });
+
+  it("queues a file over the resize limits (prepare makes its copy)", async () => {
+    const h = harness();
+    h.queue.add("/", [src("big.png", 123_400_000)]);
+    await flush();
+    expect(h.status()).toEqual(["big.png:uploading"]);
+  });
+
+  it("PUTs the display copy after the original, then completes", async () => {
+    const blob = new Blob(["jpeg"]);
+    const display = {
+      blob,
+      size: 4,
+      width: 8192,
+      height: 126,
+      sha256: "d".repeat(64),
+    };
+    const target = {
+      file: "/.derived/abcdefghjk.jpg",
+      url: "https://b2.example/.derived/abcdefghjk.jpg",
+      headers: { "Content-Type": "image/jpeg" },
+    };
+    const h = harness({
+      prepare: vi.fn(async (s) => ({
+        sha256: s.name.padEnd(64, "0").slice(0, 64),
+        contentType: "image/png",
+        timestamp: null,
+        display,
+      })),
+      init: vi.fn(async (req): Promise<InitResult> => ({
+        status: "upload",
+        id: 1,
+        file: req.file,
+        url: `https://b2.example/${req.file}`,
+        headers: {},
+        display: target,
+      })),
+    });
+    h.queue.add("/", [src("wide.png")]);
+    await flush();
+    expect(h.deps.init).toHaveBeenCalledWith(
+      expect.objectContaining({ display }),
+    );
+    expect(h.deps.putDisplay).not.toHaveBeenCalled();
+    h.puts[0].resolve();
+    await flush();
+    expect(h.deps.putDisplay).toHaveBeenCalledWith(target, blob);
+    expect(h.deps.complete).toHaveBeenCalledWith(1);
+    expect(h.status()).toEqual(["wide.png:done"]);
+  });
+
+  it("never PUTs a display copy for a file within the limits", async () => {
+    const h = harness();
+    h.queue.add("/", [src("a.png")]);
+    await flush();
+    h.puts[0].resolve();
+    await flush();
+    expect(h.status()).toEqual(["a.png:done"]);
+    expect(h.deps.putDisplay).not.toHaveBeenCalled();
   });
 
   it("skips a file that prepare refuses (too many pixels)", async () => {
