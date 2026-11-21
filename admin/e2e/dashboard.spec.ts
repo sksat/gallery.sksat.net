@@ -99,6 +99,11 @@ test("dashboard: access card", async ({ page }) => {
   // The admin is not a referrer.
   await expect(card).not.toContainText("admin.gallery.sksat.net");
 
+  // Switching the range keeps the page where it is.
+  await page.setViewportSize({ width: 1280, height: 400 });
+  await card.getByRole("link", { name: "24 時間" }).scrollIntoViewIfNeeded();
+  const before = await page.evaluate(() => window.scrollY);
+  expect(before).toBeGreaterThan(0);
   await card.getByRole("link", { name: "24 時間" }).click();
   await expect(page).toHaveURL(/\?range=24h$/);
   await expect(card.getByRole("link", { name: "24 時間" })).toHaveAttribute(
@@ -106,6 +111,7 @@ test("dashboard: access card", async ({ page }) => {
     "page",
   );
   await expect(card).toContainText("時間ごとのページビュー");
+  expect(await page.evaluate(() => window.scrollY)).toBe(before);
 });
 
 test("media edit page: the photo's views", async ({ page }) => {
