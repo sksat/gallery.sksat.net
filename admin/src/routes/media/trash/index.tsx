@@ -29,7 +29,7 @@ import {
   restoreItems,
   type TrashedPhoto,
 } from "~/lib/db-ops";
-import { getDB, getImageBase } from "~/lib/env";
+import { getDB, getMediaCache, getImageBase } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
 import { formatJst, splitPath } from "~/lib/format";
 import { formatDecimalBytes } from "~/lib/storage";
@@ -109,11 +109,17 @@ export const usePurge = routeAction$(async (data, { platform, fail }) => {
   if (picked.length > PURGE_CHUNK) {
     return fail(400, { message: `一度に ${PURGE_CHUNK} 件までです` });
   }
-  // B2 only: a photo with an object in R2 (no binding yet) stays in the
-  // trash, untouched (purgeItems).
-  const r = await purgeItems(db, picked, async (o) => {
-    await deleteAllVersions(config, o.key);
-  });
+  // B2 only: a photo with a file in R2 (no binding yet) stays in the
+  // trash, untouched (purgeItems). Its resized copies go from MEDIA_CACHE.
+  const r = await purgeItems(
+    db,
+    picked,
+    async (o) => {
+      await deleteAllVersions(config, o.key);
+    },
+    ["b2"],
+    getMediaCache(platform),
+  );
   // A camera picture with a deleted row's file can be served by path again.
   if (r.deleted.length > 0) await contentChanged(db);
   return {

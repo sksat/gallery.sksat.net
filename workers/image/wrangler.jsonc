@@ -16,7 +16,26 @@
   "rules": [{ "type": "Data", "globs": ["**/*.jpg"], "fallthrough": true }],
   // Photo metadata (workers/api). Requires the gallery-api Worker to exist.
   "services": [{ "binding": "API", "service": "gallery-api" }],
+  // The resized copies and cards, made once (src/fill.ts, or the admin's
+  // browser) and served first (src/stored.ts, after the API said the photo
+  // may be shown; ../../shared/resized/resized.ts). The bucket is created
+  // by Terraform outside this repo and must exist before this Worker is
+  // deployed. It has no public URL: nothing but this Worker and the admin
+  // reaches it.
+  "r2_buckets": [
+    { "binding": "MEDIA_CACHE", "bucket_name": "gallery-media-cache" },
+  ],
+  // Every 5 minutes: make a few photos' copies (src/fill.ts; at most 40
+  // transformations a run, under the Free plan's 50 subrequests).
+  "triggers": { "crons": ["*/5 * * * *"] },
   "vars": {
+    // Where the cards' badge, shade and font are fetched from (src/fill.ts
+    // draws them like the public handler, which uses its request's origin).
+    "PUBLIC_ORIGIN": "https://gallery.sksat.net",
+    // The most transformations the copies' cron asks for per UTC day; ""
+    // for no cap. Set it (e.g. "160") to spread the first backfill over
+    // months within the free 5,000 a month.
+    "RESIZE_DAILY_CAP": "",
     // The public bucket URL: used while B2_KEY_ID / B2_APPLICATION_KEY are
     // unset.
     "ORIGIN_BASE_URL": "https://sksat-gallery.s3.us-west-002.backblazeb2.com",

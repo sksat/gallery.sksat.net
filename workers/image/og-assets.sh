@@ -70,5 +70,12 @@ pyftsubset "$FONT" --unicodes="U+0020-007E,U+00B7,U+2026" \
   --output-file=public/fonts/Roboto-Bold-subset.ttf
 cp /usr/share/licenses/ttf-roboto/OFL.txt public/fonts/Roboto-OFL.txt
 
+# The admin draws the same cards in the browser and stores them
+# (admin/src/lib/og-card.ts): it serves its own copies (admin/src/lib/
+# og-card.spec.ts checks they are the same bytes).
+mkdir -p admin/public/og
+cp public/og-badge.png public/og-shade.png public/fonts/Roboto-Bold-subset.ttf \
+  public/fonts/Roboto-OFL.txt admin/public/og/
+
 magick identify public/og-badge.png public/og-shade.png
 ls -l public/fonts

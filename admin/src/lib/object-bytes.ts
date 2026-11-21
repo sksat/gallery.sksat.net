@@ -1,8 +1,10 @@
-// How the admin reads a few bytes of an original (metadata backfill): its
-// own B2 key cannot read, so it asks the image Worker's AdminImage.bytes
-// (Access JWT checked there too), like object-stat.ts does for uploads.
-// The local E2E server binds E2E_FAKE_B2_BYTES_URL to the fake bucket
-// instead (loopback only, like E2E_FAKE_B2_STAT_URL).
+// How the admin reads a few bytes of an original (metadata backfill), or
+// a whole one (making a photo's resized copies in the browser): its own B2
+// key cannot read, so it asks the image Worker's AdminImage.bytes /
+// AdminImage.object (Access JWT checked there too), like object-stat.ts
+// does for uploads. The local E2E server binds E2E_FAKE_B2_BYTES_URL and
+// E2E_FAKE_B2_OBJECT_URL to the fake bucket instead (loopback only, like
+// E2E_FAKE_B2_STAT_URL).
 
 import { isLoopback } from "./access";
 import type { ReadBytes } from "./backfill";
@@ -41,4 +43,23 @@ export const getObjectBytes = (
     if (!res.ok) throw new Error(`AdminImage.bytes: ${res.status}`);
     return res.object;
   };
+};
+
+/**
+ * The whole object at a bucket key as a streamed response (200; 404 when
+ * there is none), or null when there is nothing to read with.
+ */
+export const getObjectBody = (
+  platform: { env?: Record<string, unknown> } | undefined,
+  url: URL,
+  accessJwt: string | null,
+  fetchFn: typeof fetch = fetch,
+): ((file: string) => Promise<Response>) | null => {
+  const fake = platform?.env?.E2E_FAKE_B2_OBJECT_URL;
+  if (typeof fake === "string" && fake && isLoopback(url.hostname)) {
+    return (file) => fetchFn(`${fake}?${new URLSearchParams({ key: file })}`);
+  }
+  const images = getAdminImages(platform);
+  if (!images) return null;
+  return (file) => images.object(accessJwt, file);
 };

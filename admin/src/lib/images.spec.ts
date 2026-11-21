@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RESIZED_PRESET_NAMES } from "@shared/resized/resized";
 import {
   LIST_CANDIDATES,
   PRESETS,
@@ -13,6 +14,10 @@ const BASE = "https://gallery.sksat.net/img";
 const FILE = "/VRChat/2023-12/VRChat_2023-12-11_01-21-32.519_7680x4320.png";
 
 describe("PRESETS", () => {
+  it("are the presets resized copies are made at", () => {
+    expect([...PRESETS]).toEqual(RESIZED_PRESET_NAMES);
+  });
+
   it("matches the image Worker's preset list", () => {
     // workers/image/src/request.ts — the Worker 404s any other name.
     expect(PRESETS).toEqual([

@@ -34,6 +34,13 @@
  * fetches them through presigned URLs (origin.ts), so the bucket can be
  * private.
  *
+ * A photo's resized copies are made once by the admin (in its browser) and
+ * kept in the R2 bucket `MEDIA_CACHE` (../../../shared/resized/resized.ts):
+ * the public handler serves the copy when there is one, and asks Image
+ * Transformations only for a photo whose copies are not made yet (and for
+ * the og cards, which draw text). The bucket is read only after the API
+ * said the photo may be shown, under a key built from what it answered.
+ *
  * The public handler keeps its finished images in the edge cache
  * (cache.ts) once access is checked; `AdminImage` never touches it.
  */
@@ -48,12 +55,17 @@ import siteCardJpeg from "./og-fallback.jpg";
 import { encodeTiff } from "./exif-encode";
 import { publicExif, type PublicMeta } from "./public-exif";
 import { originFor, type OriginEnv } from "./origin";
-import { statObject, type ObjectStat } from "./stat";
+import { statObject, statUrl, type ObjectStat } from "./stat";
+import { fillCopies, makeCopiesNow, type CopiesApi } from "./fill";
+import { render } from "./render";
+import { storedCopy, wantCard } from "./stored";
 import {
   isCardPreset,
+  notModified,
   parseAdminImage,
   parseFilePath,
   parseImageUrl,
+  PUBLIC_ID_RE,
   transformFailed,
   transformOptions,
   variesByAccept,
@@ -85,7 +97,7 @@ type PathAccess =
   | { kind: "camera-image"; file: string; source?: FileSource };
 
 /** The API Worker, through a service binding. */
-interface Api {
+interface Api extends Omit<CopiesApi, "photo"> {
   /** What a public path shows: a photo (with its files) or a camera picture (RPC). */
   pathAccess(path: string): Promise<PathAccess | null>;
   /** A public or unlisted photo by public id, with its files (RPC). */
@@ -97,6 +109,16 @@ interface Env extends OriginEnv {
   /** Cloudflare Access team domain and the admin's AUD tags (AdminImage). */
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
+  /**
+   * The resized copies and cards, made once (fill.ts, or the admin's
+   * browser; R2 bucket gallery-media-cache). Unbound: every image goes
+   * through Image Transformations, as before.
+   */
+  MEDIA_CACHE?: R2Bucket;
+  /** The public site's origin, where the card assets are (fill.ts). */
+  PUBLIC_ORIGIN?: string;
+  /** The most transformations the copies' maker asks for a day (fill.ts). */
+  RESIZE_DAILY_CAP?: string;
 }
 
 const plain = (status: number, body: string) =>
@@ -136,51 +158,6 @@ const photoById = async (
   const key = sourceKey(photo);
   if (!key) throw new Error(`API returned no usable file for ${id}`);
   return { ...photo, key };
-};
-
-const transform = (originUrl: string, image: TransformOptions) =>
-  fetch(originUrl, {
-    cf: {
-      // workers-types does not know `draw` text entries yet (documented at
-      // https://developers.cloudflare.com/images/optimization/draw-overlays/).
-      image: image as RequestInitCfPropertiesImage,
-      // No `cacheKey`: it is Enterprise-only and ignored here, so the
-      // resized image is cached under `originUrl`, which originFor keeps
-      // stable.
-    },
-  });
-
-/**
- * Resize `file` with `preset`. `degraded` is set when a card had to be
- * drawn without its caption. The caller sets Cache-Control.
- */
-const render = async (
-  env: Env,
-  file: string,
-  preset: PresetName,
-  accept: string | null,
-  origin: string,
-  caption: Caption = {},
-): Promise<{ upstream: Response; degraded: boolean }> => {
-  const original = await originFor(env, file);
-  let upstream = await transform(
-    original,
-    transformOptions(preset, accept, origin, caption),
-  );
-  let degraded = false;
-  if (
-    transformFailed(upstream.status, upstream.headers.get("Cf-Resized")) &&
-    (caption.primary || caption.secondary)
-  ) {
-    // If the text overlay is rejected (font fetch, limits), a card with
-    // just the badge is still better than a broken og:image.
-    upstream = await transform(
-      original,
-      transformOptions(preset, accept, origin),
-    );
-    degraded = true;
-  }
-  return { upstream, degraded };
 };
 
 const transformError = (status: number) =>
@@ -311,6 +288,8 @@ export default {
     let caption: Caption = {};
     /** The photo's public metadata, to embed as EXIF (not in cards). */
     let meta: PublicMeta | null = null;
+    /** The photo's public id, once the API said it may be shown. */
+    let shown: string | null = null;
     const notFound = () =>
       new Response("Not Found", {
         status: 404,
@@ -330,6 +309,7 @@ export default {
       file = photo.key;
       if (parsed.preset === "og") caption = captionFor(photo);
       meta = photo;
+      shown = photo.id;
     } else {
       // By path, only a public photo whose file name is public with its
       // folder (looked up by display path: unlisted and private photos have
@@ -358,7 +338,10 @@ export default {
         return plain(503, "Service Unavailable");
       }
       file = checked;
-      if (access.kind === "photo") meta = access.photo;
+      if (access.kind === "photo") {
+        meta = access.photo;
+        shown = access.photo.id;
+      }
     }
 
     // The public metadata as EXIF, for resized photos (cards carry none).
@@ -371,14 +354,46 @@ export default {
       ? withoutAvif(request.headers.get("Accept"))
       : request.headers.get("Accept");
     const produce = async () => {
-      const rendered = await render(
-        env,
-        file,
-        parsed.preset,
-        accept,
-        url.origin,
-        caption,
-      );
+      // The copy the admin made, else a resize by Image Transformations
+      // (a photo whose copies are not made yet, the cards, camera
+      // pictures). A copy is WebP (or JPEG) whatever the Accept header:
+      // every browser the gallery supports shows WebP.
+      const stored =
+        shown === null
+          ? null
+          : await storedCopy(
+              env.MEDIA_CACHE,
+              shown,
+              file,
+              parsed.preset,
+              caption,
+            );
+      // An `og` card not made yet, or made with a caption that is no
+      // longer the photo's: the admin is asked to make it (stored.ts).
+      if (!stored && shown !== null && parsed.preset === "og") {
+        ctx.waitUntil(wantCard(env.MEDIA_CACHE, shown));
+      }
+      let rendered = stored
+        ? { upstream: stored, degraded: false }
+        : await render(env, file, parsed.preset, accept, url.origin, caption);
+      if (
+        !stored &&
+        shown !== null &&
+        parsed.preset === "og" &&
+        transformFailed(
+          rendered.upstream.status,
+          rendered.upstream.headers.get("Cf-Resized"),
+        )
+      ) {
+        // Image Transformations failed too (e.g. its monthly quota is
+        // used up): the stored badge-only card, which shows no metadata,
+        // is better than no card at all, until the `og` one is made.
+        const site = await storedCopy(env.MEDIA_CACHE, shown, file, "og-site");
+        if (site) {
+          void rendered.upstream.body?.cancel().catch(() => {});
+          rendered = { upstream: site, degraded: true };
+        }
+      }
       const { degraded } = rendered;
       // HEAD has no body to put it in.
       const upstream =
@@ -409,7 +424,7 @@ export default {
     };
     // HEAD is rare (link checkers); it skips the cache.
     if (request.method !== "GET") return (await produce()).response;
-    return withEdgeCache(
+    const response = await withEdgeCache(
       caches.default,
       edgeCacheKey(
         url.origin,
@@ -422,6 +437,26 @@ export default {
       variesByAccept(parsed.preset) ? "Accept" : null,
       (promise) => ctx.waitUntil(promise),
       produce,
+    );
+    // A browser revalidating its copy (after max-age) gets a 304 when the
+    // image (and its EXIF, which the ETag carries) is unchanged.
+    return notModified(request.headers.get("If-None-Match"), response);
+  },
+
+  /**
+   * The cron (wrangler.jsonc triggers): make a few photos' copies and the
+   * og cards asked for, once each, with Image Transformations (fill.ts).
+   */
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(
+      fillCopies(env).then(
+        (n) => console.log(`copies: ${n} transformations`),
+        (err: unknown) => console.error("copies run failed:", err),
+      ),
     );
   },
 } satisfies ExportedHandler<Env>;
@@ -533,5 +568,99 @@ export class AdminImage extends WorkerEntrypoint<Env> {
       console.error(`AdminImage.bytes ${file} failed:`, err);
       return { ok: false, status: 502 };
     }
+  }
+
+  /**
+   * The caption the public `og` card of the photo `publicId` draws now
+   * (captionFor over the API's answer), or null when the photo has no
+   * public card (private, in the trash, unknown): the admin draws the
+   * cards it stores with it, so they say exactly what this Worker would.
+   * Same Access check as `image`.
+   */
+  /**
+   * Make the copies and cards of the photo `id` now, with Image
+   * Transformations (an upload just completed): fill.ts makeCopiesNow,
+   * through the same claim as the cron and the admin's browser. Same
+   * Access check as `image`. 'skipped' when it is not this Worker's to
+   * make (made already, claimed, or the site makes them in the browser).
+   */
+  async makeCopies(
+    accessJwt: string | null,
+    id: number,
+  ): Promise<
+    | { ok: true; outcome: "made" | "later" | "file" | "lost" | "skipped" }
+    | { ok: false; status: number }
+  > {
+    const auth = await verifyAdminToken(accessJwt, parseAccessConfig(this.env));
+    if (!auth.ok) {
+      console.error(`AdminImage.makeCopies: ${auth.status} ${auth.reason}`);
+      return { ok: false, status: auth.status };
+    }
+    if (!Number.isInteger(id) || id <= 0) return { ok: false, status: 400 };
+    try {
+      const made = await makeCopiesNow(this.env, id);
+      return { ok: true, outcome: made?.outcome ?? "skipped" };
+    } catch (err) {
+      console.error(`AdminImage.makeCopies ${id} failed:`, err);
+      return { ok: false, status: 502 };
+    }
+  }
+
+  async caption(
+    accessJwt: string | null,
+    publicId: string,
+  ): Promise<
+    { ok: true; caption: Caption | null } | { ok: false; status: number }
+  > {
+    const auth = await verifyAdminToken(accessJwt, parseAccessConfig(this.env));
+    if (!auth.ok) {
+      console.error(`AdminImage.caption: ${auth.status} ${auth.reason}`);
+      return { ok: false, status: auth.status };
+    }
+    if (typeof publicId !== "string" || !PUBLIC_ID_RE.test(publicId)) {
+      return { ok: false, status: 400 };
+    }
+    try {
+      const photo = await this.env.API.photo(publicId);
+      return { ok: true, caption: photo ? captionFor(photo) : null };
+    } catch (err) {
+      console.error(`AdminImage.caption ${publicId} failed:`, err);
+      return { ok: false, status: 503 };
+    }
+  }
+
+  /**
+   * The whole object at `file`, streamed (the body is passed through, not
+   * read here): the admin's browser makes a photo's resized copies from it
+   * once (admin src/lib/resized.ts), so serving them needs no Image
+   * Transformations. Same Access check and path rules as `stat`, and the
+   * same short-lived URL (a new one per request, so no cache shares it).
+   * Never cached by the browser either.
+   */
+  async object(accessJwt: string | null, file: string): Promise<Response> {
+    const auth = await verifyAdminToken(accessJwt, parseAccessConfig(this.env));
+    if (!auth.ok) {
+      console.error(`AdminImage.object: ${auth.status} ${auth.reason}`);
+      return plain(auth.status, auth.status === 403 ? "Forbidden" : "Error");
+    }
+    if (!parseAdminImage("h240", file)) return plain(404, "Not Found");
+    let upstream: Response;
+    try {
+      upstream = await fetch(await statUrl(this.env, file, Date.now()));
+    } catch (err) {
+      console.error(`AdminImage.object ${file} failed:`, err);
+      return plain(502, "Bad Gateway");
+    }
+    if (!upstream.ok) {
+      await upstream.body?.cancel();
+      console.error(`AdminImage.object ${file}: ${upstream.status}`);
+      return plain(upstream.status === 404 ? 404 : 502, "Unavailable");
+    }
+    const headers = new Headers({ "Cache-Control": "private, no-store" });
+    for (const name of ["Content-Type", "Content-Length", "ETag"]) {
+      const v = upstream.headers.get(name);
+      if (v !== null) headers.set(name, v);
+    }
+    return new Response(upstream.body, { status: 200, headers });
   }
 }

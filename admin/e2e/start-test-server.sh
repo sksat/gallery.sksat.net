@@ -67,6 +67,8 @@ pnpm exec wrangler pages dev ./dist \
   --binding B2_UPLOAD_APPLICATION_KEY=e2e-secret \
   --binding "E2E_FAKE_B2_STAT_URL=http://127.0.0.1:${FAKE_B2_PORT}/__stat" \
   --binding "E2E_FAKE_B2_BYTES_URL=http://127.0.0.1:${FAKE_B2_PORT}/__bytes" \
+  --binding "E2E_FAKE_B2_OBJECT_URL=http://127.0.0.1:${FAKE_B2_PORT}/__object" \
+  --binding "E2E_FAKE_CAPTION_URL=http://127.0.0.1:${FAKE_B2_PORT}/__caption" \
   --binding CF_ANALYTICS_API_TOKEN=e2e-analytics-token \
   --binding "E2E_FAKE_GRAPHQL_URL=http://127.0.0.1:${FAKE_GRAPHQL_PORT}/" \
   --ip 127.0.0.1 --port "$PORT" &

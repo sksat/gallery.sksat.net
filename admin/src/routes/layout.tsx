@@ -1,6 +1,7 @@
 import { component$, Slot } from "@builder.io/qwik";
 import { Link, routeLoader$, useLocation } from "@builder.io/qwik-city";
 import { MetadataReader } from "~/components/metadata-reader";
+import { ResizeMaker } from "~/components/resize-maker";
 import { TabBar } from "~/components/tab-bar";
 import { ThemeToggle } from "~/components/theme-toggle";
 import { listPlatforms } from "~/lib/db-platform";
@@ -129,6 +130,8 @@ export default component$(() => {
           </nav>
           {/* Pushes what follows to the right; a spinner while reading. */}
           <MetadataReader />
+          {/* A spinner while resized copies are made. */}
+          <ResizeMaker />
           <div class="hidden sm:block">
             <ThemeToggle />
           </div>

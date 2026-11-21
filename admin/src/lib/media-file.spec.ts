@@ -10,7 +10,8 @@ import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 const setup = () => {
   const raw = migratedSqlite();
   raw.exec(`
-    INSERT INTO media (id, file, platform) VALUES (1, '/a.png', 'Real'), (2, '/b.png', 'Real');
+    INSERT INTO media (id, file, platform, public_id) VALUES
+      (1, '/a.png', 'Real', '2345678923'), (2, '/b.png', 'Real', '3456789234');
     INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status) VALUES
       (10, 1, 'edit', '/a_lightroom.jpg', 1, 'ready'),
       (11, 1, 'display', '/a_lightroom.d.jpg', 10, 'ready'),
@@ -26,24 +27,29 @@ const setup = () => {
 describe("imageSource", () => {
   it("is the original until the photo shows another file, then that file's display copy", async () => {
     const { raw, db } = setup();
+    const publicId = "2345678923";
     expect(await imageSource(db, "/a.png")).toEqual({
       storage: "b2",
       key: "/a.png",
+      publicId,
     });
     raw.exec("UPDATE media SET active_file_id = 10 WHERE id = 1");
     expect(await imageSource(db, "/a.png")).toEqual({
       storage: "b2",
       key: "/a_lightroom.d.jpg",
+      publicId,
     });
     raw.exec("DELETE FROM media_file WHERE id = 11");
     expect(await imageSource(db, "/a.png")).toEqual({
       storage: "b2",
       key: "/a_lightroom.jpg",
+      publicId,
     });
     // Not a photo's original (a camera picture): itself.
     expect(await imageSource(db, "/camera/c/front.png")).toEqual({
       storage: "b2",
       key: "/camera/c/front.png",
+      publicId: null,
     });
   });
 

@@ -52,7 +52,44 @@ export type AdminImages = {
     | { ok: true; object: { bytes: Uint8Array; size: number } | null }
     | { ok: false; status: number }
   >;
+  /**
+   * The whole object at `file`, streamed (200), or 404 / an error status:
+   * what the browser makes a photo's resized copies from.
+   */
+  object(accessJwt: string | null, file: string): Promise<Response>;
+  /**
+   * Have Image Transformations make the photo's copies and cards now
+   * (an upload just completed; workers/image/src/fill.ts).
+   */
+  makeCopies(
+    accessJwt: string | null,
+    id: number,
+  ): Promise<
+    { ok: true; outcome: string } | { ok: false; status: number }
+  >;
+  /**
+   * The caption the public `og` card of the photo draws now; null when it
+   * has no public card.
+   */
+  caption(
+    accessJwt: string | null,
+    publicId: string,
+  ): Promise<
+    | { ok: true; caption: { primary?: string; secondary?: string } | null }
+    | { ok: false; status: number }
+  >;
 };
+
+/**
+ * The R2 bucket of the photos' resized copies (binding `MEDIA_CACHE`,
+ * bucket gallery-media-cache; src/lib/resized.ts), or null when it is not bound
+ * (previews): then no copies are made, and thumbnails come from the image
+ * Worker as before.
+ */
+export const getMediaCache = (
+  platform: { env?: Record<string, unknown> } | undefined,
+): R2Bucket | null =>
+  (platform?.env?.MEDIA_CACHE as R2Bucket | undefined) ?? null;
 
 /** The `IMAGES` binding, or null when it is not bound. */
 export const getAdminImages = (
