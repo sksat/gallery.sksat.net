@@ -135,7 +135,13 @@ export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
   // as the gallery and the photo page show (taken.ts).
   const taken = takenJa(m.timestamp, m.timestamp_precision);
 
-  const subject = taken ? `${taken.day}の写真` : "写真";
+  // What the title names the photo by, from its public fields only: its
+  // day "@" its VRChat world, then "📷" its camera (or maker); with none of
+  // them, the title is just the site's name.
+  const subject =
+    [taken?.day, m.world?.name && `@ ${m.world.name}`, camera && `📷 ${camera}`]
+      .filter(Boolean)
+      .join(" ") || null;
   const description = [
     taken && `${taken.full} 撮影。`,
     tags.length > 0 && `タグ: ${tags.join(", ")}。`,
@@ -145,12 +151,12 @@ export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
     .join("");
 
   return {
-    title: `${subject} | ${SITE_NAME}`,
+    title: subject ? `${subject} | ${SITE_NAME}` : SITE_NAME,
     description: description || `${SITE_NAME} の写真です。`,
     // Qwik City redirects /photo/<id> to the trailing-slash form.
     url: `${SITE_URL}/photo/${m.id}/`,
     type: "article",
-    image: ogImage(bases, photoSource(m), subject, "og"),
+    image: ogImage(bases, photoSource(m), subject ?? "写真", "og"),
   };
 };
 
