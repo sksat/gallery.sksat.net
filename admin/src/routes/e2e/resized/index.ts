@@ -1,5 +1,5 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
-import { cardWantedKey } from "@shared/resized/resized";
+import { cardWantedKey, removeCopies } from "@shared/resized/resized";
 import { getDB, getMediaCache } from "~/lib/env";
 import { e2eRoutesEnabled } from "~/lib/e2e-routes";
 
@@ -40,5 +40,13 @@ export const onPost: RequestHandler = async ({ platform, url, json }) => {
     .prepare("UPDATE media SET resized_at = NULL WHERE id = ?")
     .bind(id)
     .run();
+  // And without its copies, as after a change of its file, so a spec can
+  // run again (--repeat-each) and still watch them being made.
+  const row = await db
+    .prepare("SELECT public_id FROM media WHERE id = ?")
+    .bind(id)
+    .first<{ public_id: string }>();
+  const bucket = getMediaCache(platform);
+  if (row && bucket) await removeCopies(bucket, row.public_id);
   json(200, { ok: true });
 };
