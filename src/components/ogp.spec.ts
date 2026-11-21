@@ -65,14 +65,14 @@ describe("newestMediaIndex", () => {
 describe("photoOgp", () => {
   it("describes a photo with date, tags and camera", () => {
     expect(photoOgp(worker, vrchat)).toEqual({
-      title: "2023年12月16日 | sksat gallery",
+      title: "2023年12月16日 📷 VirtualLens2 | sksat gallery",
       description:
         "2023年12月16日 23:12 撮影。タグ: VRChat。カメラ: VirtualLens2。",
       url: "https://gallery.sksat.net/photo/vrcxxxxxxa/",
       type: "article",
       image: {
         url: "https://gallery.sksat.net/img/vrcxxxxxxa?size=og",
-        alt: "2023年12月16日",
+        alt: "2023年12月16日 📷 VirtualLens2",
         width: 1200,
         height: 630,
       },
@@ -91,23 +91,23 @@ describe("photoOgp", () => {
       ...vrchat,
       world: { id: "wrld_x", name: "Re․Aurora" },
     });
-    expect(ogp.title).toBe("2023年12月16日 @ Re․Aurora | sksat gallery");
-    expect(ogp.image?.alt).toBe("2023年12月16日 @ Re․Aurora");
+    expect(ogp.title).toBe("2023年12月16日 @ Re․Aurora 📷 VirtualLens2 | sksat gallery");
+    expect(ogp.image?.alt).toBe("2023年12月16日 @ Re․Aurora 📷 VirtualLens2");
     const undatedWorld = { ...undated, world: { id: null, name: "Re․Aurora" } };
     expect(photoOgp(worker, undatedWorld).title).toBe(
       "Re․Aurora | sksat gallery",
     );
     // An id alone (no name) is not a title.
     const idOnly = { ...vrchat, world: { id: "wrld_x", name: null } };
-    expect(photoOgp(worker, idOnly).title).toBe("2023年12月16日 | sksat gallery");
+    expect(photoOgp(worker, idOnly).title).toBe("2023年12月16日 📷 VirtualLens2 | sksat gallery");
   });
 
   it("names an undated photo by its camera, else just the site", () => {
     const withCamera = photoOgp(worker, { ...undated, camera: vrchat.camera });
-    expect(withCamera.title).toBe("VirtualLens2 | sksat gallery");
-    expect(withCamera.image?.alt).toBe("VirtualLens2");
+    expect(withCamera.title).toBe("📷 VirtualLens2 | sksat gallery");
+    expect(withCamera.image?.alt).toBe("📷 VirtualLens2");
     const withMaker = photoOgp(worker, { ...undated, maker: "Nikon" });
-    expect(withMaker.title).toBe("Nikon | sksat gallery");
+    expect(withMaker.title).toBe("📷 Nikon | sksat gallery");
 
     const ogp = photoOgp(worker, undated);
     expect(ogp.title).toBe("sksat gallery");
@@ -118,7 +118,7 @@ describe("photoOgp", () => {
   it("falls back to the original, sized only when the name says so", () => {
     expect(photoOgp(noWorker, vrchat).image).toEqual({
       url: s3Base + vrchat.file,
-      alt: "2023年12月16日",
+      alt: "2023年12月16日 📷 VirtualLens2",
       width: 7680,
       height: 4320,
     });
@@ -205,7 +205,7 @@ describe("ogpHead", () => {
 
   it("emits OGP and a large Twitter card", () => {
     const head = ogpHead(photoOgp(worker, vrchat));
-    expect(head.title).toBe("2023年12月16日 | sksat gallery");
+    expect(head.title).toBe("2023年12月16日 📷 VirtualLens2 | sksat gallery");
     expect(content(head, "og:site_name")).toBe("sksat gallery");
     expect(content(head, "og:type")).toBe("article");
     expect(content(head, "og:url")).toBe(
@@ -215,7 +215,7 @@ describe("ogpHead", () => {
     expect(content(head, "og:description")).toBe(content(head, "description"));
     expect(content(head, "og:image:width")).toBe("1200");
     expect(content(head, "og:image:height")).toBe("630");
-    expect(content(head, "og:image:alt")).toBe("2023年12月16日");
+    expect(content(head, "og:image:alt")).toBe("2023年12月16日 📷 VirtualLens2");
     expect(content(head, "twitter:card")).toBe("summary_large_image");
   });
 

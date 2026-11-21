@@ -136,10 +136,15 @@ export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
   const taken = takenJa(m.timestamp, m.timestamp_precision);
 
   // What the title names the photo by, from its public fields only: its
-  // day (else its camera) "@" its VRChat world; with none of them, the
-  // title is just the site's name.
+  // day "@" its VRChat world, then "📷" its camera (or maker); with none of
+  // them, the title is just the site's name.
   const subject =
-    [taken?.day ?? camera, m.world?.name].filter(Boolean).join(" @ ") || null;
+    [
+      [taken?.day, m.world?.name].filter(Boolean).join(" @ "),
+      camera && `📷 ${camera}`,
+    ]
+      .filter(Boolean)
+      .join(" ") || null;
   const description = [
     taken && `${taken.full} 撮影。`,
     tags.length > 0 && `タグ: ${tags.join(", ")}。`,

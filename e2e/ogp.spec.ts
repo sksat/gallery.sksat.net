@@ -29,7 +29,7 @@ test("top page: site card with the newest photo", async ({ page }) => {
 test("photo page: card describing the photo", async ({ page }) => {
   await page.goto("/photo/vrcxxxxxxa");
 
-  const title = "2023年12月2日 @ Fixture World | sksat gallery";
+  const title = "2023年12月2日 @ Fixture World 📷 VirtualLens2 | sksat gallery";
   await expect(page).toHaveTitle(title);
   expect(await meta(page, "og:type")).toBe("article");
   expect(await meta(page, "og:url")).toBe(
@@ -42,6 +42,6 @@ test("photo page: card describing the photo", async ({ page }) => {
     "2023年12月2日 00:00 撮影。タグ: VRChat。カメラ: VirtualLens2。",
   );
   expect(await meta(page, "og:image")).toMatch(/\/test-media\/+mock\/vrchat1\.png$/);
-  expect(await meta(page, "og:image:alt")).toBe("2023年12月2日 @ Fixture World");
+  expect(await meta(page, "og:image:alt")).toBe("2023年12月2日 @ Fixture World 📷 VirtualLens2");
   expect(await meta(page, "twitter:card")).toBe("summary_large_image");
 });
