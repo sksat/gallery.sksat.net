@@ -274,6 +274,37 @@ export const variesByAccept = (preset: PresetName): boolean =>
   !isCardPreset(preset);
 
 /**
+ * `response` as a 304 when `ifNoneMatch` (the request's If-None-Match)
+ * names its ETag (weak comparison, RFC 9110 13.1.2), else unchanged. Only
+ * a 200 with an ETag is turned into one; its body is dropped.
+ */
+export const notModified = (
+  ifNoneMatch: string | null,
+  response: Response,
+): Response => {
+  const etag = response.headers.get("ETag");
+  if (!ifNoneMatch || !etag || response.status !== 200) return response;
+  const opaque = (tag: string) => tag.trim().replace(/^W\//, "");
+  const match =
+    ifNoneMatch.trim() === "*" ||
+    ifNoneMatch.split(",").some((t) => opaque(t) === opaque(etag));
+  if (!match) return response;
+  void response.body?.cancel();
+  const headers = new Headers();
+  for (const name of [
+    "Cache-Control",
+    "ETag",
+    "Vary",
+    "Last-Modified",
+    "X-Image-Cache",
+  ]) {
+    const v = response.headers.get(name);
+    if (v !== null) headers.set(name, v);
+  }
+  return new Response(null, { status: 304, headers });
+};
+
+/**
  * Whether Image Transformations failed. Some failures still answer 2xx with
  * the untransformed original and report the error in `Cf-Resized: err=...`.
  */

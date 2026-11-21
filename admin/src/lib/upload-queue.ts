@@ -130,7 +130,8 @@ export type QueueDeps<S extends UploadSource> = {
   ): Promise<void>;
   /** PUT a display copy (after the original's PUT). */
   putDisplay(target: PutTarget, blob: Blob): Promise<void>;
-  complete(id: number): Promise<void>;
+  /** Mark the photo `id` ready; `source` is the file that was sent. */
+  complete(id: number, source: S): Promise<void>;
   sleep(ms: number): Promise<void>;
   /** Called with a fresh snapshot after every change. */
   onChange(items: UploadItem[]): void;
@@ -224,7 +225,7 @@ export const createUploadQueue = <S extends UploadSource>(
       attempts: 0,
     });
     try {
-      await withRetry(item, () => deps.complete(id));
+      await withRetry(item, () => deps.complete(id, entry.source));
     } catch (err) {
       // Not in the bucket after all, the wrong file, or the row is gone:
       // the next try uploads again. Only a check that could not be made

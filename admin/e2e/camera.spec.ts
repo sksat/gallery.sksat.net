@@ -150,7 +150,9 @@ test("cameras: add, reorder, caption and remove images", async ({ page }) => {
   await Promise.all([
     page.waitForResponse(
       (r) =>
-        r.request().method() === "POST" && !r.url().includes("/api/metadata/"),
+        r.request().method() === "POST" &&
+        !r.url().includes("/api/metadata/") &&
+        !r.url().includes("/api/resized"),
     ),
     caption(page, 1).blur(),
   ]);
@@ -182,8 +184,15 @@ test("cameras: a too long image path is caught before submitting", async ({
   await page.goto("/camera/1/");
   let posts = 0;
   page.on("request", (r) => {
-    // (The background metadata reader posts on its own.)
-    if (r.method() === "POST" && !r.url().includes("/api/metadata/")) posts++;
+    // (The background metadata reader and resized-copy maker post on
+    // their own.)
+    if (
+      r.method() === "POST" &&
+      !r.url().includes("/api/metadata/") &&
+      !r.url().includes("/api/resized")
+    ) {
+      posts++;
+    }
   });
   // 490 chars fits on its own, but not with /camera/virtuallens2/ in front.
   const name = "a".repeat(486) + ".png";

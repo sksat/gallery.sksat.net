@@ -5,6 +5,7 @@
 import { cameraPictureProblem, cameraPictureTarget } from "./camera-image";
 import { imageSize } from "./image-size";
 import { markUnread } from "./read-state";
+import { queueResize } from "./resize-client";
 import {
   PHOTO_META_PARSER_DATE,
   readFileTool,
@@ -299,7 +300,12 @@ export const browserDeps = (
   init: initUploadRequest,
   put: putFile,
   putDisplay: (target, blob) => putBlob(target, blob, () => {}),
-  complete: completeUploadRequest,
+  complete: async (id, f) => {
+    await completeUploadRequest(id);
+    // The new photo's resized copies, from the file in hand
+    // (src/components/resize-maker.tsx).
+    queueResize(id, f.blob);
+  },
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   onChange,
   concurrency,

@@ -54,3 +54,9 @@ UPDATE media SET latitude = 34.702485, longitude = 135.495951, location_source =
 -- fake bucket): the admin's metadata reader stays idle unless a test
 -- uploads an unread one. Far in the future so parser updates keep it so.
 UPDATE media SET metadata_read_at = '2100-01-01T00:00:00.000Z';
+-- Likewise their resized copies count as made: the background maker
+-- stays idle unless a test uploads a photo (resized.spec.ts) or puts one
+-- back to waiting (/e2e/resized/).
+UPDATE media SET resized_at = '2100-01-01T00:00:00.000Z';
+-- The E2E server has no image Worker: the copies are made in the browser.
+INSERT INTO setting (key, value) VALUES ('resize_maker', '"browser"');

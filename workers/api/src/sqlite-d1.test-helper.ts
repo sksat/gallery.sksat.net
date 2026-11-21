@@ -12,6 +12,10 @@ export const d1 = (db: DatabaseSync): D1Database => {
     bind: (...next: SQLInputValue[]) => statement(sql, next),
     all: async () => ({ results: db.prepare(sql).all(...args) }),
     first: async () => db.prepare(sql).get(...args) ?? null,
+    run: async () => {
+      const r = db.prepare(sql).run(...args);
+      return { results: [], meta: { changes: Number(r.changes) } };
+    },
   });
   return {
     prepare: (sql: string) => statement(sql),

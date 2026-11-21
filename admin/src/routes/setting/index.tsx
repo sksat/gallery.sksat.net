@@ -20,6 +20,7 @@ import {
   setSiteDefaults,
 } from "~/lib/db-meta";
 import { getDB } from "~/lib/env";
+import { resizeMaker, setResizeMaker, type Maker } from "@shared/resized/claim";
 import { contentChanged } from "~/lib/last-good";
 import {
   EDITABLE_FIELDS,
@@ -33,18 +34,19 @@ import {
 // on its edit page.
 
 type SettingResult =
-  | { kind: "ok"; defaults: MetadataLevels; embed: boolean }
+  | { kind: "ok"; defaults: MetadataLevels; embed: boolean; maker: Maker }
   | { kind: "missing-binding" };
 
 export const useSettings = routeLoader$<SettingResult>(
   async ({ platform, status }) => {
     try {
       const db = getDB(platform);
-      const [defaults, embed] = await Promise.all([
+      const [defaults, embed, maker] = await Promise.all([
         getSiteDefaults(db),
         getEmbedDefault(db),
+        resizeMaker(db),
       ]);
-      return { kind: "ok", defaults, embed };
+      return { kind: "ok", defaults, embed, maker };
     } catch (err) {
       console.error("/setting loader: getDB failed:", err);
       status(500);
@@ -65,6 +67,7 @@ export const useSaveDefaults = routeAction$(
     await Promise.all([
       setSiteDefaults(db, next),
       setEmbedDefault(db, data.embed_exif === "on"),
+      setResizeMaker(db, data.resize_maker),
     ]);
     await contentChanged(db);
     return { ok: true };
@@ -76,6 +79,7 @@ export const useSaveDefaults = routeAction$(
     digitizer: z.string().max(20),
     digitized_at: z.string().max(20),
     embed_exif: z.enum(["on", "off"]),
+    resize_maker: z.enum(["worker", "browser"]),
     tags: z.string().max(20),
     exif: z.string().max(20),
     world: z.string().max(20),
@@ -98,7 +102,7 @@ export default component$(() => {
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
-  const { defaults, embed } = data.value;
+  const { defaults, embed, maker } = data.value;
   return (
     <div class="mx-auto max-w-3xl space-y-6">
       <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">設定</h1>
@@ -136,6 +140,19 @@ export default component$(() => {
             </option>
             <option value="off" selected={!embed}>
               しない
+            </option>
+          </select>
+        </div>
+        <div class="max-w-xs">
+          <label for="setting-resize-maker" class={label}>
+            縮小版の作成
+          </label>
+          <select id="setting-resize-maker" name="resize_maker" class={field}>
+            <option value="worker" selected={maker === "worker"}>
+              Cloudflare で作る
+            </option>
+            <option value="browser" selected={maker === "browser"}>
+              管理画面のブラウザで作る
             </option>
           </select>
         </div>

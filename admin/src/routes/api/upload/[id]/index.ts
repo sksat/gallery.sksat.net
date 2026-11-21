@@ -1,7 +1,7 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { completeUpload } from "~/lib/db-upload";
-import { getDB } from "~/lib/env";
+import { getAdminImages, getDB } from "~/lib/env";
 import { getObjectStat } from "~/lib/object-stat";
 
 class StatError extends Error {
@@ -61,9 +61,26 @@ export const onPost: RequestHandler = withErrorHandler(
       return;
     }
     switch (outcome.kind) {
-      case "ready":
+      case "ready": {
+        // Its resized copies and cards, made now by Image Transformations
+        // (the image Worker's makeCopies; else its cron within minutes, or
+        // the browser maker when the site uses that), after the answer.
+        const images = getAdminImages(platform);
+        const made = images
+          ?.makeCopies(request.headers.get("cf-access-jwt-assertion"), id)
+          .then((r) => {
+            if (!r.ok) console.error(`makeCopies ${id}: ${r.status}`);
+          })
+          .catch((err: unknown) =>
+            console.error(`makeCopies ${id} failed:`, err),
+          );
+        const ctx = (platform as unknown as { ctx?: ExecutionContext } | null)
+          ?.ctx;
+        if (made && ctx) ctx.waitUntil(made);
+        else if (made) await made;
         json(200, { id, status: "ready" });
         return;
+      }
       case "not-found":
         json(404, { error: "このアップロードはもうありません（再読み込み）" });
         return;

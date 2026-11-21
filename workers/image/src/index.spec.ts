@@ -349,13 +349,18 @@ describe("public EXIF", () => {
     formats.length = 0;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string, init?: { cf?: { image?: { format?: string } } }) => {
-        transforms.push(url);
-        formats.push(init?.cf?.image?.format ?? "");
-        return new Response(webp, {
-          headers: { "Content-Type": "image/webp", "Content-Length": "62" },
-        });
-      }),
+      vi.fn(
+        async (
+          url: string,
+          init?: { cf?: { image?: { format?: string } } },
+        ) => {
+          transforms.push(url);
+          formats.push(init?.cf?.image?.format ?? "");
+          return new Response(webp, {
+            headers: { "Content-Type": "image/webp", "Content-Length": "62" },
+          });
+        },
+      ),
     );
   };
   const getWith = (e: unknown, path: string) =>
@@ -379,14 +384,17 @@ describe("public EXIF", () => {
     const out = new Uint8Array(await res.arrayBuffer());
     const at = Buffer.from(out).indexOf("EXIF");
     const size = new DataView(out.buffer).getUint32(at + 4, true);
-    const tiff = await exifr.parse(Buffer.from(out.subarray(at + 8, at + 8 + size)), {
-      tiff: true,
-      exif: true,
-      gps: true,
-      translateKeys: false,
-      reviveValues: false,
-      mergeOutput: false,
-    });
+    const tiff = await exifr.parse(
+      Buffer.from(out.subarray(at + 8, at + 8 + size)),
+      {
+        tiff: true,
+        exif: true,
+        gps: true,
+        translateKeys: false,
+        reviveValues: false,
+        mergeOutput: false,
+      },
+    );
     // Make only (the camera's level is "manufacturer"), nothing else.
     expect(tiff.ifd0).toEqual({ 0x010f: "Sony" });
     // Date precision: the time blank (exifr trims the trailing blanks).
@@ -712,5 +720,378 @@ describe("the site's card (og-fallback.jpg)", () => {
     expect([bytes.readUInt16BE(at + 7), bytes.readUInt16BE(at + 5)]).toEqual([
       1200, 630,
     ]);
+  });
+});
+
+/** An R2 bucket in memory, the part MEDIA_CACHE is read through. */
+const fakeBucket = (
+  objects: Record<
+    string,
+    {
+      body: Uint8Array;
+      type?: string;
+      same?: string;
+      etag?: string;
+      caption?: string;
+    }
+  >,
+) => {
+  const gets: string[] = [];
+  const puts: string[] = [];
+  return {
+    gets,
+    puts,
+    get: vi.fn(async (key: string) => {
+      gets.push(key);
+      const o = objects[key];
+      if (!o) return null;
+      return {
+        body: new Response(o.body).body!,
+        size: o.body.length,
+        httpEtag: `"${o.etag ?? "e-" + key.length}"`,
+        httpMetadata: o.type ? { contentType: o.type } : {},
+        customMetadata: {
+          ...(o.same ? { "same-as": o.same } : {}),
+          ...(o.caption !== undefined ? { caption: o.caption } : {}),
+        },
+      };
+    }),
+    head: vi.fn(async (key: string) => (objects[key] ? {} : null)),
+    put: vi.fn(async (key: string) => {
+      puts.push(key);
+      objects[key] = { body: new Uint8Array() };
+      return {};
+    }),
+  };
+};
+
+describe("stored copies (MEDIA_CACHE)", () => {
+  const webp = new Uint8Array(
+    readFileSync(new URL("./fixtures/lossy.webp", import.meta.url)),
+  );
+  const KEY = (preset: string) => `img/${ID}${FILE}/${preset}`;
+  const withDerived = (bucket: unknown, p: unknown = photo) => ({
+    ...env,
+    MEDIA_CACHE: bucket,
+    API: {
+      photo: async (id: string) => (id === ID ? p : null),
+      pathAccess: async (path: string) =>
+        path === FILE ? { kind: "photo" as const, photo: p } : null,
+    },
+  });
+  const getWith = (e: unknown, path: string, headers: HeadersInit = {}) =>
+    worker.fetch(
+      new Request(`https://gallery.sksat.net${path}`, {
+        headers: { Accept: AVIF, ...headers },
+      }),
+      e as never,
+      ctx,
+    );
+
+  it("serves the stored copy, by public id and by path, without a transform", async () => {
+    const bucket = fakeBucket({
+      [KEY("w1200")]: { body: webp, type: "image/webp", etag: "abc" },
+    });
+    const e = withDerived(bucket);
+    const res = await getWith(e, `/img/${ID}?size=w1200`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/webp");
+    expect(res.headers.get("X-Image-Source")).toBe("stored");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(res.headers.get("ETag")).toBe('"abc"');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(webp);
+    expect(transforms).toHaveLength(0);
+    // Kept in the edge cache like a resized one.
+    await Promise.all(pending);
+    expect(store.size).toBe(1);
+
+    const byPath = await getWith(e, `/img${FILE}?size=w1200`);
+    expect(byPath.status).toBe(200);
+    expect(byPath.headers.get(CACHE_STATUS_HEADER)).toBe("HIT");
+    expect(transforms).toHaveLength(0);
+  });
+
+  it("follows a copy stored as another preset's image, one step only", async () => {
+    const bucket = fakeBucket({
+      [KEY("w1920")]: { body: webp, type: "image/webp" },
+      [KEY("w3840")]: { body: new Uint8Array(), same: "w1920" },
+      // Broken ones: a loop, and an alias of an alias.
+      [KEY("w2560")]: { body: new Uint8Array(), same: "w2560" },
+      [KEY("h480")]: { body: new Uint8Array(), same: "w3840" },
+    });
+    const e = withDerived(bucket);
+    const res = await getWith(e, `/img/${ID}?size=w3840`);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(webp);
+    expect(bucket.gets).toEqual([KEY("w3840"), KEY("w1920")]);
+    expect(transforms).toHaveLength(0);
+    // The broken ones fall back to a resize.
+    await getWith(e, `/img/${ID}?size=w2560`);
+    await getWith(e, `/img/${ID}?size=h480`);
+    expect(transforms).toHaveLength(2);
+  });
+
+  it("falls back to Image Transformations without a copy, a binding or a usable type", async () => {
+    const failing = {
+      get: vi.fn(async () => {
+        throw new Error("R2 down");
+      }),
+    };
+    const odd = fakeBucket({
+      [KEY("h240")]: { body: webp, type: "image/png" },
+    });
+    const envs = [
+      withDerived(fakeBucket({})),
+      withDerived(undefined),
+      withDerived(failing),
+      withDerived(odd),
+    ];
+    for (const [i, e] of envs.entries()) {
+      store.clear();
+      const res = await getWith(e, `/img/${ID}?size=h240`);
+      expect(res.status, String(i)).toBe(200);
+      expect(await res.text()).toBe("resized");
+      expect(res.headers.get("X-Image-Source")).toBeNull();
+    }
+    expect(transforms).toHaveLength(4);
+  });
+
+  it("never reads the bucket for a photo the API does not show or a camera picture", async () => {
+    const bucket = fakeBucket({
+      [KEY("w1200")]: { body: webp, type: "image/webp" },
+    });
+    const hidden = {
+      ...env,
+      MEDIA_CACHE: bucket,
+      API: {
+        photo: async () => null,
+        pathAccess: async (path: string) =>
+          path === "/camera/a.png"
+            ? { kind: "camera-image" as const, file: path }
+            : null,
+      },
+    };
+    expect((await getWith(hidden, `/img/${ID}?size=w1200`)).status).toBe(404);
+    expect((await getWith(hidden, `/img${FILE}?size=w1200`)).status).toBe(404);
+    await getWith(hidden, "/img/camera/a.png?size=w1200");
+    await getWith(hidden, "/img/camera/a.png?size=og-site");
+    expect((await getWith(hidden, `/img/${ID}?size=og`)).status).toBe(404);
+    expect(bucket.gets).toEqual([]);
+    expect(bucket.puts).toEqual([]);
+  });
+
+  describe("cards", () => {
+    const jpeg = new Uint8Array(
+      readFileSync(new URL("./fixtures/plain.jpg", import.meta.url)),
+    );
+    const withMeta = {
+      ...photo,
+      timestamp: "2023-12-16T23:12:53+09:00",
+      timestamp_precision: "second",
+      camera: {
+        slug: null,
+        name: "VirtualLens2",
+        manufacturer: "logilabo",
+        model: "VirtualLens2",
+      },
+      tags: [],
+      platform: "VRChat",
+    };
+    const CAPTION = JSON.stringify([
+      "2023-12-16 23:12 JST",
+      "logilabo VirtualLens2 · #VRChat",
+    ]);
+
+    it("serves an og card made with the caption it would draw", async () => {
+      const bucket = fakeBucket({
+        [KEY("og")]: { body: jpeg, type: "image/jpeg", caption: CAPTION },
+      });
+      const res = await getWith(
+        withDerived(bucket, withMeta),
+        `/img/${ID}?size=og`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("X-Image-Source")).toBe("stored");
+      expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(jpeg);
+      expect(transforms).toHaveLength(0);
+      await Promise.all(pending);
+      expect(bucket.puts).toEqual([]);
+    });
+
+    it("never serves a card whose caption is no longer the photo's, and asks for it once", async () => {
+      // Made before the camera was hidden: its caption names it.
+      const bucket = fakeBucket({
+        [KEY("og")]: { body: jpeg, type: "image/jpeg", caption: CAPTION },
+      });
+      const hidden = { ...withMeta, camera: null };
+      const e = withDerived(bucket, hidden);
+      const res = await getWith(e, `/img/${ID}?size=og`);
+      expect(res.headers.get("X-Image-Source")).toBeNull();
+      expect(transforms).toHaveLength(1);
+      await Promise.all(pending);
+      expect(bucket.puts).toEqual([`og-wanted/${ID}`]);
+      store.clear();
+      await getWith(e, `/img/${ID}?size=og`);
+      await Promise.all(pending);
+      // The marker is there already: not written again.
+      expect(bucket.puts).toHaveLength(1);
+    });
+
+    it("falls back to the stored badge-only card when the resize fails too", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          transforms.push(url);
+          return new Response("quota", {
+            status: 429,
+            headers: { "Cf-Resized": "err=9422" },
+          });
+        }),
+      );
+      const bucket = fakeBucket({
+        [KEY("og-site")]: { body: jpeg, type: "image/jpeg" },
+      });
+      const res = await getWith(
+        withDerived(bucket, withMeta),
+        `/img/${ID}?size=og`,
+      );
+      expect(res.status).toBe(200);
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(jpeg);
+      // Not kept: the real card replaces it once it is made.
+      expect(res.headers.get("Cache-Control")).toBe("public, max-age=300");
+      await Promise.all(pending);
+      expect(store.size).toBe(0);
+      expect(bucket.puts).toEqual([`og-wanted/${ID}`]);
+    });
+
+    it("serves the stored og-site card by public id", async () => {
+      const bucket = fakeBucket({
+        [KEY("og-site")]: { body: jpeg, type: "image/jpeg" },
+      });
+      const res = await getWith(withDerived(bucket), `/img/${ID}?size=og-site`);
+      expect(res.headers.get("X-Image-Source")).toBe("stored");
+      expect(transforms).toHaveLength(0);
+    });
+  });
+
+  describe("AdminImage.caption", () => {
+    it("is the caption the public card draws, null for a photo with none", async () => {
+      const admin = new AdminImage(
+        ctx as never,
+        {
+          ...env,
+          API: { photo: async (id: string) => (id === ID ? photo : null) },
+        } as never,
+      );
+      expect(await admin.caption("jwt", ID)).toEqual({
+        ok: true,
+        caption: { secondary: "#w" },
+      });
+      expect(await admin.caption("jwt", "2222222222")).toEqual({
+        ok: true,
+        caption: null,
+      });
+      expect(await admin.caption("jwt", "../x")).toEqual({
+        ok: false,
+        status: 400,
+      });
+    });
+  });
+
+  it("is read under the key of the file the API names as the source", async () => {
+    const EDIT = "/VRChat/2023-12/a_lightroom.jpg";
+    const bucket = fakeBucket({
+      [KEY("w1200")]: { body: webp, type: "image/webp" },
+    });
+    const res = await getWith(
+      withDerived(bucket, { ...photo, source: { storage: "b2", key: EDIT } }),
+      `/img/${ID}?size=w1200`,
+    );
+    expect(await res.text()).toBe("resized");
+    expect(bucket.gets).toEqual([`img/${ID}${EDIT}/w1200`]);
+  });
+
+  it("still embeds the photo's public EXIF", async () => {
+    const bucket = fakeBucket({
+      [KEY("w1200")]: { body: webp, type: "image/webp", etag: "abc" },
+    });
+    const withMeta = {
+      ...photo,
+      camera: { slug: null, name: "Sony", manufacturer: "Sony", model: null },
+      exif: { iso: 100 },
+    };
+    const res = await getWith(
+      withDerived(bucket, withMeta),
+      `/img/${ID}?size=w1200`,
+    );
+    expect(transforms).toHaveLength(0);
+    expect(res.headers.get("ETag")).toMatch(/^W\/"abc-[0-9a-f]{16}"$/);
+    expect(res.headers.get("Content-Length")).toBeNull();
+    const out = new Uint8Array(await res.arrayBuffer());
+    const at = Buffer.from(out).indexOf("EXIF");
+    expect(at).toBeGreaterThan(0);
+    const size = new DataView(out.buffer).getUint32(at + 4, true);
+    const tiff = await exifr.parse(
+      Buffer.from(out.subarray(at + 8, at + 8 + size)),
+      { tiff: true, translateKeys: false, mergeOutput: false },
+    );
+    expect(tiff.ifd0).toEqual({ 0x010f: "Sony" });
+  });
+
+  it("answers 304 to a matching If-None-Match", async () => {
+    const bucket = fakeBucket({
+      [KEY("w1200")]: { body: webp, type: "image/webp", etag: "abc" },
+    });
+    const e = withDerived(bucket);
+    const res = await getWith(e, `/img/${ID}?size=w1200`, {
+      "If-None-Match": 'W/"zzz", "abc"',
+    });
+    expect(res.status).toBe(304);
+    expect(res.headers.get("ETag")).toBe('"abc"');
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(await res.text()).toBe("");
+    const other = await getWith(e, `/img/${ID}?size=w1200`, {
+      "If-None-Match": '"old"',
+    });
+    expect(other.status).toBe(200);
+  });
+});
+
+describe("AdminImage.object", () => {
+  it("streams the whole object, never cached, and refuses bad paths", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        transforms.push(url);
+        return new Response("original", {
+          headers: { "Content-Type": "image/png", "Content-Length": "8" },
+        });
+      }),
+    );
+    const admin = new AdminImage(ctx as never, env as never);
+    const res = await admin.object("jwt", FILE);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("original");
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(res.headers.get("Content-Type")).toBe("image/png");
+    // A short-lived URL of its own, not the stable one resizes use.
+    expect(transforms[0]).toMatch(/^https:\/\/s3\.example\/bucket\/VRChat/);
+    expect(transforms[0]).toMatch(/X-Amz-Expires=60&/);
+    expect((await admin.object("jwt", "/../media.json")).status).toBe(404);
+    expect(transforms).toHaveLength(1);
+  });
+
+  it("answers 404 for a missing object, 502 for another failure", async () => {
+    let status = 404;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<Error/>", { status })),
+    );
+    const admin = new AdminImage(ctx as never, env as never);
+    expect((await admin.object("jwt", FILE)).status).toBe(404);
+    status = 500;
+    const res = await admin.object("jwt", FILE);
+    expect(res.status).toBe(502);
+    expect(await res.text()).not.toMatch(/Error/);
   });
 });

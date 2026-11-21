@@ -52,6 +52,13 @@
       "entrypoint": "AdminImage",
     },
   ],
+  // The photos' resized copies (src/lib/resized.ts), which the browser
+  // makes and this stores; the image Worker serves them (its MEDIA_CACHE). The
+  // bucket is created by Terraform outside this repo and must exist before
+  // this is deployed. Locally (pnpm serve, E2E) wrangler keeps it on disk.
+  "r2_buckets": [
+    { "binding": "MEDIA_CACHE", "bucket_name": "gallery-media-cache" },
+  ],
   "d1_databases": [
     {
       // Production D1 (`pnpm db.create`). A database id is an identifier,
@@ -77,8 +84,10 @@
       // able to read or rewrite production metadata) and no image Worker
       // binding (they could otherwise fetch any private photo by path):
       // thumbnails are placeholders there. The image Worker accepts only the
-      // production Access app's tokens anyway.
+      // production Access app's tokens anyway. Nor the resized copies'
+      // bucket: they could overwrite what the public site serves.
       "services": [],
+      "r2_buckets": [],
       "d1_databases": [],
     },
   },

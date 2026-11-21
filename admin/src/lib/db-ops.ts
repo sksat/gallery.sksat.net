@@ -12,6 +12,8 @@ import {
   type FileObject,
   type FileStorage,
 } from "./media-file";
+import type { CopiesBucket } from "@shared/resized/resized";
+import { removeResized } from "./resized";
 import type { MediaPlatform } from "./types";
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
@@ -285,7 +287,9 @@ export type PurgeResult = {
  * media_file rows with it. Retry-safe: an object already gone is skipped
  * next time, and a failure leaves the row (and every file row) for a
  * retry. Only trashed rows are touched; a file that is also a camera
- * picture keeps its object.
+ * picture keeps its object. The photo's resized copies (0018) go from
+ * `copies` (the MEDIA_CACHE bucket) first; a photo that has some stays whole
+ * when there is no such bucket.
  */
 export const purgeItems = async (
   db: D1Database,
@@ -293,17 +297,19 @@ export const purgeItems = async (
   removeObject: (object: FileObject) => Promise<void>,
   /** Where objects can be deleted from (R2 has no binding yet). */
   storages: readonly FileStorage[] = ["b2"],
+  copies: CopiesBucket | null = null,
 ): Promise<PurgeResult> => {
   const rows =
     (
       await db
         .prepare(
-          `SELECT id FROM media WHERE trashed_at IS NOT NULL AND status = 'ready'
+          `SELECT id, resized_at FROM media
+           WHERE trashed_at IS NOT NULL AND status = 'ready'
              AND id IN (SELECT value FROM json_each(?1))
            ORDER BY id`,
         )
         .bind(JSON.stringify(ids))
-        .all<{ id: number }>()
+        .all<{ id: number; resized_at: string | null }>()
     ).results ?? [];
   const objects = await photoObjects(
     db,
@@ -317,6 +323,11 @@ export const purgeItems = async (
       // it stays in the trash whole, and can still be restored.
       const stuck = mine.find((o) => !storages.includes(o.storage));
       if (stuck) throw new UnsupportedStorageError(stuck.storage);
+      if (copies) await removeResized(db, copies, r.id);
+      else if (r.resized_at !== null) {
+        // It may have copies (made, or being made) we cannot remove.
+        throw new Error("縮小版の置き場が設定されていないので削除できません");
+      }
       for (const o of mine) await removeObject(o);
       await db
         .prepare("DELETE FROM media WHERE id = ? AND trashed_at IS NOT NULL")

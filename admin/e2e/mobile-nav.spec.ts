@@ -10,6 +10,15 @@ test.use({
 
 const cards = (page: Page) => page.getByTestId("media-card");
 
+/**
+ * A POST the page made itself (not the background metadata reader's or
+ * resized-copy maker's).
+ */
+const ownPost = (method: string, url: string) =>
+  method === "POST" &&
+  !url.includes("/api/metadata/") &&
+  !url.includes("/api/resized");
+
 test("tab bar and the header menu", async ({ page }) => {
   await page.goto("/camera/");
   const tabs = page.getByRole("navigation", { name: "Main" });
@@ -111,10 +120,7 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
   const caption = page.getByRole("textbox", { name: "画像 2 のキャプション" });
   await caption.fill("Bee");
   await Promise.all([
-    page.waitForResponse(
-      (r) =>
-        r.request().method() === "POST" && !r.url().includes("/api/metadata/"),
-    ),
+    page.waitForResponse((r) => ownPost(r.request().method(), r.url())),
     caption.blur(),
   ]);
   await expect(page.getByRole("status")).toHaveText(
@@ -123,24 +129,18 @@ test("camera pictures: short paths, auto-saved captions, reorder, undo remove", 
   // Enter saves too, once.
   let posts = 0;
   page.on("request", (r) => {
-    if (r.method() === "POST" && !r.url().includes("/api/metadata/")) posts++;
+    if (ownPost(r.method(), r.url())) posts++;
   });
   await caption.fill("Bee 2");
   await Promise.all([
-    page.waitForResponse(
-      (r) =>
-        r.request().method() === "POST" && !r.url().includes("/api/metadata/"),
-    ),
+    page.waitForResponse((r) => ownPost(r.request().method(), r.url())),
     caption.press("Enter"),
   ]);
   await page.waitForTimeout(500);
   expect(posts).toBe(1);
   await caption.fill("Bee");
   await Promise.all([
-    page.waitForResponse(
-      (r) =>
-        r.request().method() === "POST" && !r.url().includes("/api/metadata/"),
-    ),
+    page.waitForResponse((r) => ownPost(r.request().method(), r.url())),
     caption.blur(),
   ]);
 

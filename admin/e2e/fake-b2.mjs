@@ -7,7 +7,8 @@
 // the signed x-amz-meta-sha256. GET /__uploads lists what was stored;
 // GET /__stat?key=<file> is what the admin's upload check sees
 // (E2E_FAKE_B2_STAT_URL, in place of the image Worker's stat); GET
-// /__bytes reads a stored or seeded (PUT /__seed) object's bytes. A PUT
+// /__bytes reads a stored or seeded (PUT /__seed) object's bytes, GET
+// /__object the whole of one (E2E_FAKE_B2_OBJECT_URL). A PUT
 // whose key contains "slow" is read at 1 MiB/s.
 //
 // Usage: node e2e/fake-b2.mjs <port> <bucket> <keyId> <secret> <region>
@@ -21,6 +22,11 @@ const uploads = [];
 let versions = 0;
 /** What was PUT, by key (GET /__bytes reads it). */
 const bodies = new Map();
+/** The og caption GET /__caption answers (JSON). */
+let caption = JSON.stringify({
+  primary: "2023-12-02 09:00 JST",
+  secondary: "logilabo VirtualLens2 · #VRChat",
+});
 
 const enc = (s) =>
   encodeURIComponent(s).replace(
@@ -191,8 +197,40 @@ createServer((req, res) => {
     res.end(part);
     return;
   }
+  // Stands in for AdminImage.caption (E2E_FAKE_CAPTION_URL): the caption
+  // of every photo's og card, which PUT /__caption replaces (JSON).
+  if (url.pathname === "/__caption") {
+    if (req.method === "PUT") {
+      const chunks = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        caption = Buffer.concat(chunks).toString("utf8");
+        res.writeHead(204).end();
+      });
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(caption);
+    return;
+  }
+  // Stands in for AdminImage.object (making resized copies): the whole
+  // object at ?key=.
+  if (req.method === "GET" && url.pathname === "/__object") {
+    const body = bodies.get(url.searchParams.get("key"));
+    if (!body) {
+      res.writeHead(404).end();
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "application/octet-stream",
+      "content-length": String(body.length),
+    });
+    res.end(body);
+    return;
+  }
   // PUT /__seed?key=<file>: puts a fixture photo's original in place, for
-  // /__bytes (no upload row, so nothing lists it); DELETE takes it away.
+  // /__bytes and /__object (no upload row, so nothing lists it); DELETE
+  // takes it away.
   if (req.method === "DELETE" && url.pathname === "/__seed") {
     bodies.delete(url.searchParams.get("key"));
     res.writeHead(204).end();

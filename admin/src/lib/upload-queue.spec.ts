@@ -125,7 +125,11 @@ describe("createUploadQueue", () => {
 
     h.puts[0].resolve();
     await flush();
-    expect(h.deps.complete).toHaveBeenCalledWith(1);
+    // With the file sent (its resized copies are made from it).
+    expect(h.deps.complete).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ name: "a.png" }),
+    );
     expect(h.puts.map((p) => p.file)).toContain("/trip/c.png");
     h.puts[1].resolve();
     h.puts[2].resolve();
@@ -208,7 +212,10 @@ describe("createUploadQueue", () => {
     h.puts[0].resolve();
     await flush();
     expect(h.deps.putDisplay).toHaveBeenCalledWith(target, blob);
-    expect(h.deps.complete).toHaveBeenCalledWith(1);
+    expect(h.deps.complete).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ name: "wide.png" }),
+    );
     expect(h.status()).toEqual(["wide.png:done"]);
   });
 

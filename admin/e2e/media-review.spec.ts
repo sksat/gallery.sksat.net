@@ -285,8 +285,15 @@ test("held keys, typing and IME do not trigger shortcuts", async ({ page }) => {
   await openFromFolder(page);
   let posts = 0;
   page.on("request", (r) => {
-    // (The background metadata reader posts on its own.)
-    if (r.method() === "POST" && !r.url().includes("/api/metadata/")) posts++;
+    // (The background metadata reader and resized-copy maker post on
+    // their own.)
+    if (
+      r.method() === "POST" &&
+      !r.url().includes("/api/metadata/") &&
+      !r.url().includes("/api/resized")
+    ) {
+      posts++;
+    }
   });
   // Held down: one choice and one step only, and nothing saved.
   await page.keyboard.down("1");

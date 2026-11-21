@@ -9,15 +9,14 @@ export type FileStorage = "b2" | "r2";
 export type FileObject = { storage: FileStorage; key: string };
 
 /**
- * The file an image of the photo whose original is `?1` (media.file) is
- * resized from: the file the photo shows (media.active_file_id, NULL = the
- * original), or that file's newest ready display copy. The same rule as
- * the API Worker's (workers/api/src/query.ts SOURCE_JOINS), in a few index
- * steps: media.file's UNIQUE index, the original by idx_media_file_media,
- * the shown file by its id, the copy by idx_media_file_source.
+ * Joins `src`, the file an image of the photo `m` is resized from: the
+ * file the photo shows (media.active_file_id, NULL = the original), or
+ * that file's newest ready display copy. The same rule as the API
+ * Worker's (workers/api/src/query.ts SOURCE_JOINS), in a few index steps:
+ * the original by idx_media_file_media, the shown file by its id, the
+ * copy by idx_media_file_source.
  */
-export const IMAGE_SOURCE_SQL = `SELECT src.storage, src.object_key AS key
-  FROM media m
+export const IMAGE_SOURCE_JOINS = `
   JOIN media_file shown ON shown.id = COALESCE(m.active_file_id,
     (SELECT o.id FROM media_file o
      WHERE o.media_id = m.id AND o.role = 'original'))
@@ -27,25 +26,42 @@ export const IMAGE_SOURCE_SQL = `SELECT src.storage, src.object_key AS key
      WHERE dc.source_file_id = shown.id AND dc.role = 'display'
        AND dc.status = 'ready' AND dc.media_id = m.id
      ORDER BY dc.id DESC LIMIT 1),
-    shown.id)
+    shown.id)`;
+
+/**
+ * The file an image of the photo whose original is `?1` (media.file) is
+ * resized from (IMAGE_SOURCE_JOINS; the photo by media.file's UNIQUE
+ * index), and the photo's public id (the key of its resized copies).
+ */
+export const IMAGE_SOURCE_SQL = `SELECT src.storage, src.object_key AS key,
+    m.public_id
+  FROM media m ${IMAGE_SOURCE_JOINS}
   WHERE m.file = ?1`;
+
+/** The object an image is resized from, and its photo's public id. */
+export type ImageSource = FileObject & { publicId: string | null };
 
 /**
  * The object to resize for a thumbnail of `file`: a photo's original key
  * (what the admin's pages link) gives the file the photo shows or its
- * display copy; anything else (a camera picture) is itself.
+ * display copy; anything else (a camera picture) is itself, with no
+ * public id.
  */
 export const imageSource = async (
   db: D1Database,
   file: string,
-): Promise<FileObject> => {
+): Promise<ImageSource> => {
   const row = await db
     .prepare(IMAGE_SOURCE_SQL)
     .bind(file)
-    .first<{ storage: string; key: string }>();
+    .first<{ storage: string; key: string; public_id: string }>();
   return row
-    ? { storage: row.storage === "r2" ? "r2" : "b2", key: row.key }
-    : { storage: "b2", key: file };
+    ? {
+        storage: row.storage === "r2" ? "r2" : "b2",
+        key: row.key,
+        publicId: row.public_id,
+      }
+    : { storage: "b2", key: file, publicId: null };
 };
 
 /**
