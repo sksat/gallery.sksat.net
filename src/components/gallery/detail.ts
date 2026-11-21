@@ -1,11 +1,11 @@
-// The photo page (/photo/<id>/): where its back link and previous / next
+// The photo's detail page (/photo/<id>/detail/): where its back link and previous / next
 // go, from the list it was opened from (carried in its query).
 import { findCamera } from "./cameras";
 import {
   dateParam,
   galleryUrl,
   neighborIds,
-  photoPageUrl,
+  photoDetailUrl,
   visibleMedia,
 } from "./logic";
 import { parseSort, sortMedia, type SortOrder } from "./sort";
@@ -56,7 +56,7 @@ export const photoContext = (
     ofDate.includes(id) ? ofDate : ids({ tags: [], mode: filter.mode }, null),
   );
   const href = (other: string | null) =>
-    other === null ? null : photoPageUrl(other, filter, sort, camera, date);
+    other === null ? null : photoDetailUrl(other, filter, sort, camera, date);
   return {
     filter,
     sort,

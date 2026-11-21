@@ -87,18 +87,17 @@ test("calendar: arrows and Back in a date's gallery", async ({ page }) => {
   // A photo that is not on the date (an edited link): the arrows walk
   // the whole gallery instead of doing nothing.
   await page.goto("/photo/reaxxxxxxa/?date=2023-12-04");
-  await expect(page.getByTestId("photo-detail")).toBeVisible({
-    timeout: 10000,
-  });
+  await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId("date-heading")).toBeVisible();
   await page.keyboard.press("ArrowLeft");
   await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/\?date=2023-12-04$/);
 
-  // Its own page follows the same list: previous / next within the
+  // Its detail page follows the same list: previous / next within the
   // date's photos, and back to the date's gallery.
-  await page.goto("/photo/vrcxxxxxxb/?date=2023-12");
+  await page.goto("/photo/vrcxxxxxxb/detail/?date=2023-12");
   await expect(page.getByTestId("prev-link")).toHaveAttribute(
     "href",
-    "/photo/vrcxxxxxxc/?date=2023-12",
+    "/photo/vrcxxxxxxc/detail/?date=2023-12",
   );
   await expect(page.getByTestId("back-link")).toHaveAttribute(
     "href",

@@ -20,6 +20,10 @@ describe("classifyPath", () => {
     ["/photo/30/", { kind: "old-photo" }],
     ["/photo/AAAAAAAAA3/", { kind: "other" }],
     ["/photo/aaaaaaaaa3/x/", { kind: "other" }],
+    ["/photo/aaaaaaaaa3/detail/", { kind: "photo", publicId: "aaaaaaaaa3" }],
+    ["/photo/aaaaaaaaa3/detail", { kind: "photo", publicId: "aaaaaaaaa3" }],
+    ["/photo/1/detail/", { kind: "other" }],
+    ["/photo/aaaaaaaaa3/detail/x/", { kind: "other" }],
     ["/photo/", { kind: "other" }],
     ["/camera/", { kind: "cameras" }],
     ["/camera", { kind: "cameras" }],
@@ -68,6 +72,9 @@ describe("rankPaths", () => {
         page("/", 45),
         page("/photo/aaaaaaaaa3", 4, 2),
         page("/photo/aaaaaaaaa3/", 4, 3),
+        // The photo's detail page counts for the photo.
+        page("/photo/aaaaaaaaa3/detail/", 3, 2),
+        page("/photo/aaaaaaaaa3/detail", 1, 1),
         page("/camera/pentax-sp/", 7),
         page("/camera/pentax-sp", 1),
         page("/map/", 8),
@@ -76,9 +83,9 @@ describe("rankPaths", () => {
     );
     expect(ranked.map((r) => [r.path, r.pageViews, r.visits])).toEqual([
       ["/", 45, 45],
+      ["/photo/aaaaaaaaa3/", 12, 8],
       ["/camera/pentax-sp/", 8, 8],
       ["/map/", 8, 8],
-      ["/photo/aaaaaaaaa3/", 8, 5],
     ]);
   });
 

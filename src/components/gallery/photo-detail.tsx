@@ -44,7 +44,7 @@ const Chevron = component$<{ dir: "prev" | "next" }>(({ dir }) => (
 ));
 
 /**
- * A photo's own page (/photo/<id>/): the photo large, everything public
+ * A photo's detail page (/photo/<id>/detail/): the photo large, everything public
  * about it, and the previous / next photo and a way back to the list it
  * was opened from (carried in the query). Server-rendered in full; the
  * arrow keys and swipes step like the overlay's.
@@ -122,16 +122,6 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
     else if (e.key === "ArrowRight") go("next");
   });
 
-  // This page never changes its own URL. Loaded at the URL of a gallery
-  // overlay (a reload, a restored tab), it takes over the history entries
-  // the gallery pushed with it, so Back to the list arrives here as a
-  // popstate to another URL: load that URL.
-  const ownUrl = location.url.pathname + location.url.search;
-  const onPopState = $(() => {
-    if (window.location.pathname + window.location.search !== ownUrl)
-      window.location.reload();
-  });
-
   const { photo, ctx, camera, listed, info, backLabel, tagLinks } = page.value;
   const cover = camera?.images[0]?.file;
   const size = photoSize(photo);
@@ -143,7 +133,6 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
       aria-labelledby="photo-detail-title"
       // On an element: see gallery.tsx on why not useOnDocument.
       document:onKeyDown$={onKeyDown}
-      window:onPopState$={onPopState}
       class="mx-auto flex max-w-7xl flex-col gap-6 px-3 py-4 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-8 lg:px-6"
     >
       <h1 id="photo-detail-title" class="sr-only">

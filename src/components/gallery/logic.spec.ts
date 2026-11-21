@@ -6,7 +6,8 @@ import {
   neighborIds,
   galleryStateFromUrl,
   photoIdFromPath,
-  photoPageUrl,
+  photoDetailUrl,
+  photoUrl,
   visibleMedia,
 } from "./logic";
 import type { MediaInfo } from "./types";
@@ -104,16 +105,16 @@ describe("galleryUrl", () => {
   });
 });
 
-describe("photoPageUrl", () => {
+describe("photoUrl", () => {
   const id = "abcdefghjk";
 
   it("is /photo/{id}/ alone by default", () => {
-    expect(photoPageUrl(id)).toBe(`/photo/${id}/`);
+    expect(photoUrl(id)).toBe(`/photo/${id}/`);
   });
 
   it("carries the list it was opened from", () => {
     expect(
-      photoPageUrl(
+      photoUrl(
         id,
         { tags: ["VRChat", "night"], mode: "or" },
         { kind: "random", seed: 3 },
@@ -121,6 +122,28 @@ describe("photoPageUrl", () => {
       ),
     ).toBe(
       `/photo/${id}/?camera=virtuallens2&tag=VRChat&tag=night&mode=or&sort=random&seed=3`,
+    );
+  });
+});
+
+describe("photoDetailUrl", () => {
+  const id = "abcdefghjk";
+
+  it("is /photo/{id}/detail/ alone by default", () => {
+    expect(photoDetailUrl(id)).toBe(`/photo/${id}/detail/`);
+  });
+
+  it("carries the same list as the photo URL", () => {
+    const filter = { tags: ["night"], mode: "and" as const };
+    const sort = { kind: "old" as const, seed: 0 };
+    expect(photoDetailUrl(id, filter, sort, null, "2023-12")).toBe(
+      `/photo/${id}/detail/?date=2023-12&tag=night&sort=old`,
+    );
+    expect(photoDetailUrl(id, filter, sort, "virtuallens2")).toBe(
+      photoUrl(id, filter, sort, "virtuallens2").replace(
+        `/photo/${id}/`,
+        `/photo/${id}/detail/`,
+      ),
     );
   });
 });
@@ -136,6 +159,8 @@ describe("photoIdFromPath", () => {
     expect(photoIdFromPath("/photo/3/")).toBeNull();
     expect(photoIdFromPath("/photo/abcdefghjo/")).toBeNull();
     expect(photoIdFromPath("/photo/abcdefghjk/x/")).toBeNull();
+    // The detail page is not the overlay's URL.
+    expect(photoIdFromPath("/photo/abcdefghjk/detail/")).toBeNull();
     expect(photoIdFromPath("/camera/abcdefghjk/")).toBeNull();
   });
 });
@@ -171,7 +196,7 @@ describe("galleryStateFromUrl", () => {
     const filter = { tags: ["VRChat"], mode: "or" as const };
     const random = { kind: "random" as const, seed: 3 };
     expect(
-      at(photoPageUrl("abcdefghjk", filter, random, null, "2023-12-04")),
+      at(photoUrl("abcdefghjk", filter, random, null, "2023-12-04")),
     ).toEqual({
       selectedImageId: "abcdefghjk",
       filter,
@@ -180,7 +205,7 @@ describe("galleryStateFromUrl", () => {
       date: "2023-12-04",
     });
     expect(
-      at(photoPageUrl("abcdefghjk", filter, random, "virtuallens2")),
+      at(photoUrl("abcdefghjk", filter, random, "virtuallens2")),
     ).toEqual({
       selectedImageId: "abcdefghjk",
       filter,
@@ -193,7 +218,7 @@ describe("galleryStateFromUrl", () => {
   it("goes back to the list the photo was opened over", () => {
     const filter = { tags: ["night"], mode: "and" as const };
     const sort = { kind: "old" as const, seed: 0 };
-    const state = at(photoPageUrl("abcdefghjk", filter, sort, "virtuallens2"));
+    const state = at(photoUrl("abcdefghjk", filter, sort, "virtuallens2"));
     expect(
       galleryUrl(state.filter, state.sort, state.camera, state.date),
     ).toBe(galleryUrl(filter, sort, "virtuallens2"));
@@ -278,7 +303,7 @@ describe("galleryUrl with a date", () => {
 
   it("keeps it on the photo's page", () => {
     expect(
-      photoPageUrl("abcdefghjk", none, undefined, null, "2023-12-04"),
+      photoUrl("abcdefghjk", none, undefined, null, "2023-12-04"),
     ).toBe("/photo/abcdefghjk/?date=2023-12-04");
   });
 });

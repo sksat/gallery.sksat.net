@@ -63,10 +63,10 @@ const settled = (page: Page) =>
         .length === 0,
   );
 
-// vrcxxxxxxa's own page, opened from the VRChat list (so it has a previous
+// vrcxxxxxxa's detail page, opened from the VRChat list (so it has a previous
 // photo and no next one), with the full-size image loaded.
 const openDetail = async (page: Page) => {
-  await page.goto("/photo/vrcxxxxxxa/?tag=VRChat");
+  await page.goto("/photo/vrcxxxxxxa/detail/?tag=VRChat");
   const detail = page.getByTestId("photo-detail");
   await expect(detail).toBeVisible({ timeout: 10000 });
   await expect

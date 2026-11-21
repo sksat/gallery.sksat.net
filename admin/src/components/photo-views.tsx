@@ -12,8 +12,8 @@ import { muted } from "./ui";
 type ViewsResult =
   { kind: "ok"; d7: number; d30: number } | { kind: "unavailable" | "error" };
 
-// The photo's page views (/photo/<public_id>, with or without the trailing
-// slash) from the same cached Web Analytics answers as the dashboard (the
+// The photo's page views (/photo/<public_id> and its /detail page, with or
+// without the trailing slash) from the same cached Web Analytics answers as the dashboard (the
 // 7 d and 30 d ranges).
 const loadViews = server$(async function (
   publicId: string,

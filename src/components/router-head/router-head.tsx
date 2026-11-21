@@ -17,10 +17,13 @@ export const RouterHead = component$(() => {
     <>
       <title>{head.title}</title>
 
-      {/* Without the query: a filter, sort order or the list a photo page
-          (or the gallery's overlay on its URL) was opened from are views of the same
-          page, not pages of their own. */}
-      <link rel="canonical" href={loc.url.origin + loc.url.pathname} />
+      {/* Without the query: a filter, sort order or the list a photo (or
+          its detail page) was opened from are views of the same page, not
+          pages of their own. A page may name its own (a photo's detail
+          page names the photo's URL). */}
+      {!head.links.some((l) => l.rel === "canonical") && (
+        <link rel="canonical" href={loc.url.origin + loc.url.pathname} />
+      )}
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <meta name="theme-color" content="#151934" />
       <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />

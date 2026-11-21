@@ -1,6 +1,7 @@
 // The dashboard's ranking of the public site's pages: each Web Analytics
 // path is classified (a photo, a camera, a calendar month, …), the forms
-// of one page (with and without the trailing slash) are added up, and the
+// of one page (with and without the trailing slash; a photo's URL and its
+// /detail/ page as one photo) are added up, and the
 // top pages are named from D1 (photos by public id, cameras by slug, one
 // IN lookup each for the shown rows only). Old numeric /photo/<N> URLs
 // map to nothing (media.legacy_index was dropped in 0005), so they stay
@@ -35,6 +36,10 @@ export const classifyPath = (path: string): PageKind => {
       if (a !== undefined && b === undefined) {
         if (PUBLIC_ID_RE.test(a)) return { kind: "photo", publicId: a };
         if (/^\d+$/.test(a)) return { kind: "old-photo" };
+      }
+      // Its detail page is a view of the same photo.
+      if (a !== undefined && b === "detail" && PUBLIC_ID_RE.test(a)) {
+        return { kind: "photo", publicId: a };
       }
       break;
     case "camera":
@@ -73,7 +78,9 @@ export const OLD_PHOTO_PATH = "/photo/<N>/";
 const canonicalPath = (path: string, page: PageKind): string =>
   page.kind === "old-photo"
     ? OLD_PHOTO_PATH
-    : page.kind === "other" || path.endsWith("/")
+    : page.kind === "photo"
+      ? `/photo/${page.publicId}/`
+      : page.kind === "other" || path.endsWith("/")
       ? path
       : `${path}/`;
 

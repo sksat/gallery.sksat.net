@@ -113,24 +113,35 @@ export const galleryUrl = (
   return withQuery(camera === null ? "/" : cameraHref(camera), params);
 };
 
+/** A photo's URL under `/photo/{id}/`, with the list it is in. */
+const photoPath =
+  (suffix: string) =>
+  (
+    imageId: string,
+    filter: TagFilter = { tags: [], mode: "and" },
+    sort: SortOrder = DEFAULT_SORT,
+    camera: string | null = null,
+    date: string | null = null,
+  ): string => {
+    const params = new URLSearchParams();
+    if (camera !== null) params.set("camera", camera);
+    appendList(params, filter, sort, date);
+    return withQuery(`/photo/${imageId}/${suffix}`, params);
+  };
+
 /**
- * A photo's own page, `/photo/{id}/` (its canonical URL, the one shared),
- * carrying the list it was opened from (`?camera=`, date, tags, sort) so
- * its previous / next and back link follow that list. The gallery's
- * overlay shows the photo at this URL too, so a reload opens its page.
+ * The photo's URL, `/photo/{id}/` (its canonical URL, the one shared): the
+ * list it is in (`?camera=`, date, tags, sort; the whole gallery without
+ * them) with the photo open over it in the overlay. Loaded directly, it
+ * shows the same as a click on the photo's tile.
  */
-export const photoPageUrl = (
-  imageId: string,
-  filter: TagFilter = { tags: [], mode: "and" },
-  sort: SortOrder = DEFAULT_SORT,
-  camera: string | null = null,
-  date: string | null = null,
-): string => {
-  const params = new URLSearchParams();
-  if (camera !== null) params.set("camera", camera);
-  appendList(params, filter, sort, date);
-  return withQuery(`/photo/${imageId}/`, params);
-};
+export const photoUrl = photoPath("");
+
+/**
+ * The photo's detail page, `/photo/{id}/detail/`, within the same list:
+ * its previous / next and back link follow it.
+ */
+export const photoDetailUrl = photoPath("detail/");
 
 /** The photo of a `/photo/{id}/` path (trailing slash optional), if any. */
 export const photoIdFromPath = (pathname: string): string | null => {
@@ -152,7 +163,7 @@ export type GalleryUrlState = {
 
 /**
  * The gallery state a URL encodes: a list URL (`galleryUrl`), or a photo
- * URL (`photoPageUrl`) the overlay pushed over one, whose list is in its
+ * URL (`photoUrl`), the overlay over a list, whose list is in its
  * query (`?camera=` for a camera page). The calendar leads to the whole
  * gallery only; a camera's list has no date.
  */

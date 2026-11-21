@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 import { openInOverlay, VIRTUALLENS2_ORDER } from "./open-photo";
 
-// A photo's own page, /photo/<id>/. Test data: e2e/fixture.sql (see the
+// A photo's detail page, /photo/<id>/detail/. Test data: e2e/fixture.sql (see the
 // table in gallery.spec.ts and info-panel.spec.ts). Newest first, the
 // VRChat photos are vrcxxxxxxc, vrcxxxxxxb, vrcxxxxxxa.
 
@@ -25,7 +25,7 @@ const resumed = (page: Page) =>
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("list → overlay → photo page, keeping the list", async ({ page }) => {
+  test("list → overlay → detail page, keeping the list", async ({ page }) => {
     await page.goto("/?tag=VRChat");
     await expect(page.getByTestId("gallery-image")).toHaveCount(3, {
       timeout: 10000,
@@ -34,20 +34,20 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/\?tag=VRChat$/);
     await expect(page.getByTestId("overlay")).toBeVisible();
 
-    // The page button loads the page at the same URL.
+    // The page button loads the detail page, within the same list.
     await page.getByTestId("detail-link").click();
     await expect(detail(page)).toBeVisible();
     await expect(page.getByTestId("overlay")).toHaveCount(0);
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/\?tag=VRChat$/);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/detail\/\?tag=VRChat$/);
 
     // Previous / next within the VRChat photos, and back to that list.
     await expect(page.getByTestId("prev-link")).toHaveAttribute(
       "href",
-      "/photo/vrcxxxxxxc/?tag=VRChat",
+      "/photo/vrcxxxxxxc/detail/?tag=VRChat",
     );
     await expect(page.getByTestId("next-link")).toHaveAttribute(
       "href",
-      "/photo/vrcxxxxxxa/?tag=VRChat",
+      "/photo/vrcxxxxxxa/detail/?tag=VRChat",
     );
     await expect(page.getByTestId("back-link")).toHaveAttribute(
       "href",
@@ -57,18 +57,18 @@ test.describe("desktop", () => {
     // The arrow keys step like the links.
     await resumed(page);
     await page.keyboard.press("ArrowRight");
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/\?tag=VRChat$/);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/detail\/\?tag=VRChat$/);
     await expect(page.getByTestId("next-link")).toHaveCount(0);
     await resumed(page);
     await page.keyboard.press("ArrowLeft");
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/\?tag=VRChat$/);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/detail\/\?tag=VRChat$/);
 
     await page.getByTestId("back-link").click();
     await expect(page).toHaveURL(/\/\?tag=VRChat$/);
     await expect(page.getByTestId("gallery-image")).toHaveCount(3);
   });
 
-  test("Enter in the overlay opens the photo page", async ({ page }) => {
+  test("Enter in the overlay opens the detail page", async ({ page }) => {
     await openInOverlay(
       page,
       "vrcxxxxxxc",
@@ -83,7 +83,7 @@ test.describe("desktop", () => {
     );
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(
-      /\/photo\/vrcxxxxxxc\/\?camera=virtuallens2$/,
+      /\/photo\/vrcxxxxxxc\/detail\/\?camera=virtuallens2$/,
     );
     await expect(page.getByTestId("back-link")).toHaveText("← VirtualLens2");
     await expect(page.getByTestId("back-link")).toHaveAttribute(
@@ -91,13 +91,14 @@ test.describe("desktop", () => {
       "/camera/virtuallens2/",
     );
     await expect(detail(page)).toBeVisible();
-    // The page took the overlay's entry (same URL): Back returns to the
-    // list it was opened over.
+    // Back returns to the photo open over the camera's list.
     await page.goBack();
-    await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
-    await expect(page.getByTestId("gallery-image")).toHaveCount(2, {
-      timeout: 10000,
-    });
+    await expect(page).toHaveURL(
+      /\/photo\/vrcxxxxxxc\/\?camera=virtuallens2$/,
+    );
+    await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("gallery-image")).toHaveCount(2);
+    await expect(page.getByTestId("camera-header")).toBeVisible();
   });
 
   test("the page button on a camera page keeps the camera", async ({
@@ -108,13 +109,13 @@ test.describe("desktop", () => {
     ].reverse());
     await page.getByTestId("detail-link").click();
     await expect(page).toHaveURL(
-      /\/photo\/vrcxxxxxxa\/\?camera=virtuallens2&sort=old$/,
+      /\/photo\/vrcxxxxxxa\/detail\/\?camera=virtuallens2&sort=old$/,
     );
     // Oldest first within the camera: vrcxxxxxxa, then vrcxxxxxxc.
     await expect(page.getByTestId("prev-link")).toHaveCount(0);
     await expect(page.getByTestId("next-link")).toHaveAttribute(
       "href",
-      "/photo/vrcxxxxxxc/?camera=virtuallens2&sort=old",
+      "/photo/vrcxxxxxxc/detail/?camera=virtuallens2&sort=old",
     );
   });
 
@@ -135,7 +136,7 @@ test.describe("desktop", () => {
   });
 
   test("everything public about the photo", async ({ page }) => {
-    await page.goto("/photo/vrcxxxxxxa/");
+    await page.goto("/photo/vrcxxxxxxa/detail/");
     const d = detail(page);
     await expect(d.getByTestId("info-taken")).toHaveText(
       "撮影日時2023/12/02 00:00",
@@ -178,7 +179,7 @@ test.describe("desktop", () => {
   });
 
   test("hidden fields are absent", async ({ page }) => {
-    await page.goto("/photo/vrcxxxxxxb/");
+    await page.goto("/photo/vrcxxxxxxb/detail/");
     const d = detail(page);
     await expect(d.getByTestId("info-taken")).toHaveText("撮影日時2023/12/04");
     // Maker only: no camera page, so no card.
@@ -192,7 +193,7 @@ test.describe("desktop", () => {
         .getByRole("link", { name: "12月4日の写真" }),
     ).toHaveAttribute("href", "/?date=2023-12-04");
 
-    await page.goto("/photo/reaxxxxxxb/");
+    await page.goto("/photo/reaxxxxxxb/detail/");
     await expect(d.getByTestId("info-camera")).toHaveCount(0);
     await expect(d.getByTestId("camera-card")).toHaveCount(0);
     await expect(d.getByTestId("info-file")).toHaveCount(0);
@@ -200,7 +201,7 @@ test.describe("desktop", () => {
   });
 
   test("a tag's fields", async ({ page }) => {
-    await page.goto("/photo/reaxxxxxxa/");
+    await page.goto("/photo/reaxxxxxxa/detail/");
     const group = detail(page).getByTestId("info-tag-fields");
     await expect(group).toContainText("film");
     await expect(group).toContainText("銘柄Kodak Portra 400");
@@ -213,7 +214,7 @@ test.describe("desktop", () => {
   }) => {
     // reaxxxxxxa's exact place: the whole map links to /map/ on it, and
     // the place is not listed a second time.
-    await page.goto("/photo/reaxxxxxxa/");
+    await page.goto("/photo/reaxxxxxxa/detail/");
     const map = detail(page).getByTestId("mini-map");
     await expect(map.getByRole("link")).toHaveAttribute(
       "href",
@@ -221,13 +222,13 @@ test.describe("desktop", () => {
     );
     await expect(detail(page).getByTestId("info-location")).toHaveCount(0);
     // reaxxxxxxb only to the city.
-    await page.goto("/photo/reaxxxxxxb/");
+    await page.goto("/photo/reaxxxxxxb/detail/");
     await expect(
       detail(page).getByTestId("mini-map").getByRole("link"),
     ).toHaveAttribute("aria-label", /市区町村くらい/);
 
     // The unlisted photo is on no day's list: its day is marked, unlinked.
-    await page.goto("/photo/unxxxxxxxx/");
+    await page.goto("/photo/unxxxxxxxx/detail/");
     const calendar = detail(page).getByTestId("mini-calendar");
     await expect(calendar).toContainText("2023年12月");
     await expect(calendar.getByRole("link", { name: /12月6日/ })).toHaveCount(
@@ -237,12 +238,12 @@ test.describe("desktop", () => {
 
   test("is server-rendered in full", async ({ request }) => {
     const html = await (
-      await request.get("/photo/vrcxxxxxxb/?tag=VRChat")
+      await request.get("/photo/vrcxxxxxxb/detail/?tag=VRChat")
     ).text();
     expect(html).toContain('data-testid="photo-detail"');
     expect(html).toContain("2023/12/04");
-    expect(html).toContain('href="/photo/vrcxxxxxxc/?tag=VRChat"');
-    expect(html).toContain('href="/photo/vrcxxxxxxa/?tag=VRChat"');
+    expect(html).toContain('href="/photo/vrcxxxxxxc/detail/?tag=VRChat"');
+    expect(html).toContain('href="/photo/vrcxxxxxxa/detail/?tag=VRChat"');
     expect(html).toContain('href="/?tag=VRChat"');
     expect(html).toContain("Name Only World");
   });
@@ -252,7 +253,7 @@ test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
   test("swipes step through the list", async ({ page }) => {
-    await page.goto("/photo/vrcxxxxxxb/?tag=VRChat");
+    await page.goto("/photo/vrcxxxxxxb/detail/?tag=VRChat");
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
     // The swipe listeners are in place once the photo area takes its
     // touch-action.
@@ -290,11 +291,11 @@ test.describe("phone", () => {
     };
 
     await swipe(300, -200);
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/\?tag=VRChat$/);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/detail\/\?tag=VRChat$/);
   });
 
   test("a swipe right is the previous photo", async ({ page }) => {
-    await page.goto("/photo/vrcxxxxxxb/?tag=VRChat");
+    await page.goto("/photo/vrcxxxxxxb/detail/?tag=VRChat");
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
     const area = page.getByTestId("overlay-box").locator("..");
     await expect
@@ -324,11 +325,11 @@ test.describe("phone", () => {
       touchPoints: [],
       timestamp: at(8),
     });
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\/\?tag=VRChat$/);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\/detail\/\?tag=VRChat$/);
   });
 
   test("the photo comes first, then its details", async ({ page }) => {
-    await page.goto("/photo/vrcxxxxxxa/");
+    await page.goto("/photo/vrcxxxxxxa/detail/");
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
     const photo = await page.getByTestId("overlay-box").boundingBox();
     const info = await page.getByTestId("info-taken").boundingBox();

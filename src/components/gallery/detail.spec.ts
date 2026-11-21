@@ -33,8 +33,8 @@ describe("photoContext", () => {
     expect(ctx("bbbbbbbbbb")).toMatchObject({
       camera: null,
       backHref: "/",
-      prevHref: "/photo/cccccccccc/",
-      nextHref: "/photo/aaaaaaaaaa/",
+      prevHref: "/photo/cccccccccc/detail/",
+      nextHref: "/photo/aaaaaaaaaa/detail/",
     });
     expect(ctx("cccccccccc").prevHref).toBeNull();
   });
@@ -43,13 +43,13 @@ describe("photoContext", () => {
     expect(ctx("cccccccccc", "tag=night")).toMatchObject({
       backHref: "/?tag=night",
       prevHref: null,
-      nextHref: "/photo/aaaaaaaaaa/?tag=night",
+      nextHref: "/photo/aaaaaaaaaa/detail/?tag=night",
     });
     expect(ctx("aaaaaaaaaa", "camera=cam&sort=old")).toMatchObject({
       camera: "cam",
       backHref: "/camera/cam/?sort=old",
       prevHref: null,
-      nextHref: "/photo/cccccccccc/?camera=cam&sort=old",
+      nextHref: "/photo/cccccccccc/detail/?camera=cam&sort=old",
     });
   });
 
@@ -92,8 +92,8 @@ describe("photoContext", () => {
 
   it("browses everything when the photo is outside the filter", () => {
     expect(ctx("bbbbbbbbbb", "tag=night")).toMatchObject({
-      prevHref: "/photo/cccccccccc/?tag=night",
-      nextHref: "/photo/aaaaaaaaaa/?tag=night",
+      prevHref: "/photo/cccccccccc/detail/?tag=night",
+      nextHref: "/photo/aaaaaaaaaa/detail/?tag=night",
     });
   });
 });

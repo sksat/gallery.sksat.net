@@ -11,7 +11,7 @@ export const GALLERY_ORDER = [
 
 /**
  * Open a photo in the gallery's overlay: load a list and click its tile
- * (the overlay has no URL of its own to load: its URL is the photo page's).
+ * (loading the photo URL shows the same, but this goes through the list).
  * `list` is the list's URL and `order` its photos in display order.
  */
 export const openInOverlay = async (

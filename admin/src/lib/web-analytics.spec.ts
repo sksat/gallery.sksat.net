@@ -257,6 +257,10 @@ describe("photo paths", () => {
     ["/photo/", null],
     ["/photo/AAAAAAAAA3/", null],
     ["/photo/aaaaaaaaa3/x", null],
+    ["/photo/aaaaaaaaa3/detail/", "aaaaaaaaa3"],
+    ["/photo/aaaaaaaaa3/detail", "aaaaaaaaa3"],
+    ["/photo/aaaaaaaaa3/detail/x", null],
+    ["/photo/12/detail/", null],
     ["/camera/x/", null],
   ])("%s", (path, id) => expect(parsePhotoPath(path)).toBe(id));
 
@@ -274,6 +278,18 @@ describe("photo paths", () => {
     expect(photoCounts(pages, "zzzzzzzzzz")).toEqual({
       pageViews: 0,
       visits: 0,
+    });
+  });
+
+  it("adds the photo's detail page to it", () => {
+    const withDetail = [
+      ...pages,
+      { path: "/photo/aaaaaaaaa3/detail/", pageViews: 3, visits: 2 },
+      { path: "/photo/aaaaaaaaa3/detail", pageViews: 1, visits: 1 },
+    ];
+    expect(photoCounts(withDetail, "aaaaaaaaa3")).toEqual({
+      pageViews: 12,
+      visits: 7,
     });
   });
 
