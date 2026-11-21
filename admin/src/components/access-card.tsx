@@ -136,6 +136,8 @@ const RangeTabs = component$<{ range: AccessRange }>(({ range }) => (
         prefetch="js"
         key={r}
         href={r === "7d" ? "/" : `/?range=${r}`}
+        // Changing the range redraws the card in place: keep the scroll.
+        scroll={false}
         aria-current={r === range ? "page" : undefined}
         class={[
           "inline-flex h-11 min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium sm:h-8",
