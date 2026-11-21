@@ -1,14 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { imagesSettled } from "./images";
+
 /** Every thumbnail has loaded (they are lazy). */
-const imagesLoaded = (page: Page) =>
-  expect
-    .poll(() =>
-      page.$$eval("main img", (imgs) =>
-        imgs.every((i) => (i as HTMLImageElement).complete),
-      ),
-    )
-    .toBe(true);
+const imagesLoaded = (page: Page) => imagesSettled(page, "main img");
 
 const shots = [
   { name: "calendar-month", path: "/calendar/2023/12/", days: "calendar-day" },

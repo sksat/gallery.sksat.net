@@ -1,5 +1,7 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 
+import { imagesSettled } from "./images";
+
 // Fixture: e2e/fixture.sql (see public/test-media/README.md).
 
 /** Wait until lazy-loaded images are painted, then go back to the top. */
@@ -20,10 +22,10 @@ const loaded = async (page: Page, images: Locator, count: number) => {
 // public photos.
 const cameraPage = async (page: Page) => {
   await page.goto("/camera/virtuallens2/");
-  await expect(page.getByTestId("gallery-image")).toHaveCount(2, {
-    timeout: 10000,
-  });
+  await loaded(page, page.getByTestId("gallery-image"), 2);
   await loaded(page, page.getByTestId("camera-header").locator("img"), 3);
+  // The tiles have their photos' shapes.
+  await imagesSettled(page, "[data-testid=gallery-image]");
 };
 
 // /camera/: VirtualLens2 and PENTAX SP cards.
