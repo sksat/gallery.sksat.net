@@ -19,10 +19,5 @@ allowBuilds:
   workerd: true
 
 overrides:
-  # vitest 3.x only allows tinypool ^1, which has known vulnerabilities.
-  "vitest>tinypool": "^2.1.2"
   # vite-imagetools (via qwik-city) only allows sharp ^0.34 (libvips CVEs).
   "vite-imagetools>sharp": "^0.35.5"
-minimumReleaseAgeExclude:
-  # Renovate security update: vitest@4.1.11
-  - vitest@4.1.11
