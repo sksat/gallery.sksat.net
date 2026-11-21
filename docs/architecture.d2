@@ -1,0 +1,74 @@
+# System overview. Render: d2 --layout elk docs/architecture.d2 docs/architecture.svg
+# Bindings come from wrangler.jsonc (root, admin/, workers/api/, workers/image/).
+direction: up
+
+*.style.font-size: 26
+*.*.style.font-size: 26
+*.*.*.style.font-size: 26
+(** -> **)[*].style.font-size: 22
+(** <-> **)[*].style.font-size: 22
+
+# Every arrow points the way the data moves. Its kind: HTTP with a person,
+# a call between services (service binding, RPC), or stored data.
+classes: {
+  request: {style: {stroke: "#5b5a56"; stroke-width: 3}}
+  call: {style: {stroke: "#2a78d6"; stroke-width: 3}}
+  data: {style: {stroke: "#eb6834"; stroke-width: 3; stroke-dash: 5}}
+}
+
+visitor: Visitor {shape: person}
+owner: Owner {shape: person}
+
+cf: Cloudflare {
+  access: "Cloudflare\nAccess" {shape: hexagon}
+
+  gallery: "gallery\n(Pages)"
+  admin: "admin\n(Pages)"
+  api: API Worker
+  image: image Worker
+
+  transform: "Cloudflare Image\nTransformations"
+
+  d1: Cloudflare D1 {
+    meta: photo metadata {shape: cylinder}
+  }
+
+  r2: Cloudflare R2 {
+    resized: resized images {shape: cylinder}
+  }
+
+  # The Cache API of each data centre (caches.default).
+  cache: Cloudflare cache {
+    answers: "API answers\n(per content version)" {shape: cylinder}
+    images: "served images" {shape: cylinder}
+  }
+  api <-> cache.answers {class: data}
+  image <-> cache.images {class: data}
+
+  access <-> admin {class: request}
+  gallery <- api: photo list {class: call}
+  admin <- image: thumbnails {class: call}
+  image <- api: "public photo\ninfo" {class: call}
+  image <- transform: "resized images\n(once)" {class: call}
+  api <- d1.meta: read {class: data}
+  admin <-> d1.meta: read / write {class: data}
+  image <-> r2.resized: "store / serve" {class: data}
+  admin -> r2.resized: "store\n(browser fallback)" {class: data}
+}
+
+# Backblaze's red.
+b2: Backblaze B2 {
+  style: {fill: "#fde8e9"; stroke: "#e21e29"; stroke-width: 2}
+  originals: original images {
+    shape: cylinder
+    style: {fill: "#ffffff"; stroke: "#e21e29"}
+  }
+}
+
+visitor <- cf.gallery: pages {class: request}
+visitor <- cf.image: images {class: request}
+owner <-> cf.access: admin {class: request}
+owner -> b2.originals: upload {class: data}
+cf.transform <- b2.originals: read {class: data}
+cf.image <- b2.originals: read {class: data}
+cf.admin -> b2.originals: delete {class: data}

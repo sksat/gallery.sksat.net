@@ -106,7 +106,7 @@ admin/
     └── routes/                 # dashboard, media, tag, setting, camera, calendar, map, thumb, api
 ```
 
-The routes and features are described in [CLAUDE.md](CLAUDE.md).
+The constraints that the code does not show (bindings, Access, D1 rows read) are in [CLAUDE.md](CLAUDE.md).
 
 ## Environment Variables
 
