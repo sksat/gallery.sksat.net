@@ -591,7 +591,7 @@ export const creatorToolFromXmp = (xmp: string): string | null =>
   xmpValue(xmp, "xmp:CreatorTool");
 
 /**
- * Who took a VRChat screenshot, by its XMP: vrc:AuthorID with the display
+ * Who took a VRChat photo, by its XMP: vrc:AuthorID with the display
  * name in xmp:Author (VRChat since 2025-08), or the user id alone in
  * xmp:Author (before). Null when neither is there.
  */

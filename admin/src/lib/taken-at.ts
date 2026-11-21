@@ -25,7 +25,7 @@ import { VRCHAT_NAME_RE } from "./upload-rules";
 
 export { DEFAULT_OFFSET, exifDateToIso } from "./photo-meta";
 
-/** Taken-at time from a VRChat screenshot's file name, else null. */
+/** Taken-at time from a VRChat photo's file name, else null. */
 export const vrchatTakenAt = (fileName: string): string | null => {
   const m = VRCHAT_NAME_RE.exec(fileName);
   if (!m) return null;
