@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { imagesSettled } from "./images";
+
 // The map's own drawing (the WebGL canvas: the stub style's background and
 // the areas, which GPUs antialias differently) is hidden, not masked: a mask
 // would cover the DOM markers and popup above it, which are what is compared
@@ -13,13 +15,7 @@ const ready = async (page: Page) => {
     { timeout: 20_000 },
   );
   await expect(page.getByTestId("map-marker")).toHaveCount(2);
-  await expect
-    .poll(() =>
-      page.$$eval("main img", (imgs) =>
-        imgs.every((i) => (i as HTMLImageElement).complete),
-      ),
-    )
-    .toBe(true);
+  await imagesSettled(page, "main img");
 };
 
 for (const [label, viewport] of [

@@ -22,6 +22,25 @@ export const uploadedKeys = async (page: Page): Promise<string[]> => {
   return ((await res.json()) as { key: string }[]).map((u) => u.key);
 };
 
+/**
+ * The drop zone and the upload buttons of `dir`, once the zone listens.
+ * The URL changes before the page of a navigation is on screen, and the
+ * zone's native listeners are attached by a visible task after that: a
+ * file picked or dropped earlier goes to the folder shown before, or is
+ * not seen at all.
+ */
+export const dropZoneOf = async (page: Page, dir: string) => {
+  const zone = page.getByTestId("drop-zone");
+  await expect(zone).toHaveAttribute("data-dir", dir);
+  await expect(zone).toHaveAttribute("data-ready", "");
+  for (const input of await page
+    .locator("[data-testid=upload-input], [data-testid=upload-folder-input]")
+    .all()) {
+    await expect(input).toHaveAttribute("data-dir", dir);
+  }
+  return zone;
+};
+
 /** A new folder under /mock with the given files uploaded into it. */
 export const folderWith = async (page: Page, name: string, files: string[]) => {
   await page.goto("/media/?view=files&dir=/mock");
@@ -29,6 +48,7 @@ export const folderWith = async (page: Page, name: string, files: string[]) => {
   await page.getByLabel("Folder name").fill(name);
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(new RegExp(`dir=/mock/${name}$`));
+  await dropZoneOf(page, `/mock/${name}`);
   await page
     .getByTestId("upload-input")
     .setInputFiles(files.map((f) => png(f, `${name}/${f}`)));

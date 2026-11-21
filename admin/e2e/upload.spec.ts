@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { dropZoneOf } from "./files-helpers";
 
 // Uploads from the Files view into a fake bucket (e2e/fake-b2.mjs on
 // PORT+2, which checks the presigned PUTs). Named to run last: uploaded
@@ -40,6 +41,7 @@ const newFolder = async (page: Page, parent: string, name: string) => {
   await page.getByLabel("Folder name").fill(name);
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(new RegExp(`dir=${parent}/${name}$`));
+  await dropZoneOf(page, `${parent}/${name}`);
 };
 
 /** Hold every PUT to the bucket until the returned function is called. */
@@ -1051,7 +1053,7 @@ test("drop files on a folder to upload them into it", async ({ page }) => {
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(new RegExp(`dir=${parent}/sub$`));
   await page.goBack();
-  const zone = page.getByTestId("drop-zone");
+  const zone = await dropZoneOf(page, parent);
   const sub = page.getByTestId("folder-tile").filter({ hasText: "sub" });
   await expect(sub).toHaveCount(1);
 
@@ -1070,7 +1072,9 @@ test("drop files on a folder to upload them into it", async ({ page }) => {
   await expect(page.getByTestId("upload-dest")).toHaveText(`${parent}/sub へ`);
   expect(await uploadedKeys(page)).toContain(`${parent}/sub/on-tile.png`);
   await expect(page.getByTestId("file-tile")).toHaveCount(0);
+  // Gone before the next drop, or its "done" passes for the next one's.
   await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(rows(page)).toHaveCount(0);
 
   // On a folder in the tree.
   const tree = page.getByRole("navigation", { name: "Folders" });
@@ -1084,6 +1088,7 @@ test("drop files on a folder to upload them into it", async ({ page }) => {
   await expect(rows(page)).toHaveAttribute("data-status", "done");
   expect(await uploadedKeys(page)).toContain(`${parent}/sub/on-tree.png`);
   await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(rows(page)).toHaveCount(0);
 
   // Anywhere else: the open folder.
   const dt3 = await pngTransfer(page, "on-space.png", seedOf(13));
@@ -1125,14 +1130,10 @@ test("drop files on a folder to upload them into it", async ({ page }) => {
     .getByRole("navigation", { name: "Folder path" })
     .locator(`[data-drop="${parent}"]`);
   const dt4 = await pngTransfer(page, "on-crumb.png", seedOf(14));
-  // The zone listens once it is visible, a moment after the load.
-  await expect(async () => {
-    await crumb.dispatchEvent("dragenter", { dataTransfer: dt4 });
-    await crumb.dispatchEvent("dragover", { dataTransfer: dt4 });
-    await expect(crumb).toHaveAttribute("data-drop-over", "", {
-      timeout: 500,
-    });
-  }).toPass();
+  await dropZoneOf(page, `${parent}/sub`);
+  await crumb.dispatchEvent("dragenter", { dataTransfer: dt4 });
+  await crumb.dispatchEvent("dragover", { dataTransfer: dt4 });
+  await expect(crumb).toHaveAttribute("data-drop-over", "");
   await crumb.dispatchEvent("drop", { dataTransfer: dt4 });
   await expect(rows(page)).toHaveAttribute("data-status", "done");
   await expect(page.getByTestId("upload-dest")).toHaveText(`${parent} へ`);

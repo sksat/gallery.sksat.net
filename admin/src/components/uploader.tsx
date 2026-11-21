@@ -278,6 +278,8 @@ export const UploadButton = component$<{
       accept={UPLOAD_ACCEPT}
       aria-label={label ?? "Upload photos"}
       data-testid="upload-input"
+      // The folder its handler uploads into (rendered with it).
+      data-dir={dir}
       class="sr-only"
       onChange$={(_, el) => {
         const files = Array.from(el.files ?? []).map((f): PickedFile => ({
@@ -371,6 +373,7 @@ export const UploadFolderButton = component$<{
         {...{ webkitdirectory: true }}
         aria-label="Upload a folder"
         data-testid="upload-folder-input"
+        data-dir={dir}
         class="sr-only"
         onChange$={(_, el) => {
           const files = Array.from(el.files ?? [])
@@ -582,7 +585,10 @@ export const DropZone = component$<{
     document.addEventListener("dragstart", dragStart, true);
     window.addEventListener("dragover", swallow);
     window.addEventListener("drop", swallow);
+    // Listening (for tests: a drop dispatched before this is lost).
+    el.dataset.ready = "";
     cleanup(() => {
+      delete el.dataset.ready;
       mark(null);
       el.removeEventListener("dragenter", enter);
       el.removeEventListener("dragleave", leave);

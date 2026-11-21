@@ -39,6 +39,8 @@ export default defineConfig({
         VITE_API_BASE_URL: `${apiOrigin}/api`,
         // A map style with no tiles: tests never reach the tile server.
         VITE_MAP_STYLE_URL: `${origin}/test-media/map-style.json`,
+        // No dev-only outlines of layout shifts in screenshots (vite.config.ts).
+        QWIK_IMAGE_DEV_TOOLS: "false",
       },
     },
   ],

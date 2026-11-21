@@ -1,21 +1,17 @@
 import { test, expect, type Page } from "@playwright/test";
 
 import { openInOverlay } from "../open-photo";
+import { imagesSettled } from "./images";
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
 /**
  * The header illustration and the tiles have loaded (not lazy images
- * below the fold, which would never start).
+ * below the fold, which would never start), and the tiles have their
+ * photos' shapes.
  */
 const imagesLoaded = (page: Page) =>
-  expect
-    .poll(() =>
-      page.$$eval("header img, [data-testid=gallery-image]", (imgs) =>
-        imgs.every((i) => (i as HTMLImageElement).complete),
-      ),
-    )
-    .toBe(true);
+  imagesSettled(page, "header img, [data-testid=gallery-image]");
 
 test("home: no tag selected", async ({ page }) => {
   await page.goto("/");
@@ -41,6 +37,8 @@ const openPhoto = async (page: Page, id = "vrcxxxxxxa") => {
   await openInOverlay(page, id);
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible({ timeout: 10000 });
+  // The grid shows through the backdrop.
+  await imagesLoaded(page);
   // Wait until the full-size image (stacked over the thumbnail) has loaded.
   await expect
     .poll(() =>

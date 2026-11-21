@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { dropZoneOf } from "./files-helpers";
 
 // Resized copies made in the browser, the alternative to the image
 // Worker's Image Transformations (src/lib/resized.ts,
@@ -76,6 +77,7 @@ test("an upload gets its resized copies from the file in hand", async ({
   await page.getByLabel("Folder name").fill("resized");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(/dir=\/mock\/resized$/);
+  await dropZoneOf(page, "/mock/resized");
   const sources: string[] = [];
   page.on("request", (r) => {
     if (r.url().includes("/source")) sources.push(r.url());
@@ -211,12 +213,14 @@ test.describe("a photo waiting for its copies", () => {
     page,
     baseURL,
   }) => {
-    await page.goto("/");
-    expect((await thumb(page, "h240", key)).status).toBe(404);
+    // Before any page is open: every admin page runs the maker, and one
+    // opened before the reset would find nothing waiting and remember that
+    // for the tab (or claim the photo itself, before `sources` listens).
     const reset = await page.request.post(`${baseURL}/e2e/resized/?id=2`, {
       headers: { origin: baseURL! },
     });
     expect(reset.ok()).toBe(true);
+    expect((await page.request.get(`/thumb/h240${key}`)).status()).toBe(404);
     const sources: string[] = [];
     page.on("request", (r) => {
       if (r.url().includes("/source")) sources.push(r.url());
