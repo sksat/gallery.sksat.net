@@ -147,7 +147,7 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
       class="mx-auto flex max-w-7xl flex-col gap-6 px-3 py-4 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-8 lg:px-6"
     >
       <h1 id="photo-detail-title" class="sr-only">
-        {info.taken ? `${info.taken.text} の写真` : "写真"}
+        {info.taken?.text ?? "写真"}
       </h1>
       <div class="flex min-w-0 flex-col gap-3">
         <div class="flex items-center justify-between gap-3">
