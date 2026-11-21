@@ -15,10 +15,19 @@ import { pickTakenAt } from "./taken-at";
 import { COPY_READ_FAILED, makeDisplayCopy } from "./display-copy";
 import {
   checkUploadLimits,
+  isVideoType,
   MAX_UPLOAD_BYTES,
   needsDisplayCopy,
+  NOT_ACCEPTED,
   uploadContentType,
 } from "./upload";
+import {
+  prepareVideo,
+  putVideo,
+  sentParts,
+  type PutResult,
+  type Transport,
+} from "./video-client";
 import {
   UploadError,
   type InitResult,
@@ -47,7 +56,8 @@ const hex = (buf: ArrayBuffer) =>
 
 export const prepareFile = async (f: PickedFile): Promise<Prepared> => {
   const contentType = uploadContentType(f.name, f.type);
-  if (!contentType) throw new UploadError("PNG / JPEG ではありません", false);
+  if (!contentType) throw new UploadError(NOT_ACCEPTED, false);
+  if (isVideoType(contentType)) return prepareVideo(f);
   const refused = checkUploadLimits({ size: f.size });
   if (refused) throw new UploadError(refused, false);
   let original: Awaited<ReturnType<typeof readOriginal>>;
@@ -173,37 +183,47 @@ export const initUploadRequest = (
 };
 
 export const completeUploadRequest = async (id: number): Promise<void> => {
-  await api("POST", `/api/upload/${id}`);
+  // A video's original sent in parts: their ETags (video-client.ts).
+  const parts = sentParts.get(id);
+  await api("POST", `/api/upload/${id}`, parts ? { parts } : undefined);
+  sentParts.delete(id);
   // A new photo: the background reader looks again (it may need reading).
   markUnread();
 };
 
-/** PUT the file to the presigned URL, reporting bytes sent. */
-export const putFile = (
-  init: Extract<InitResult, { status: "upload" }>,
-  f: PickedFile,
+/**
+ * PUT `body` with XHR (fetch has no upload progress); the response text
+ * and ETag (B2's CORS rule exposes it).
+ */
+export const xhrPut = (
+  url: string,
+  headers: Record<string, string>,
+  body: Blob,
   onProgress: (loaded: number) => void,
-): Promise<void> => putBlob(init, f.blob, onProgress);
-
-/** PUT `blob` to a presigned URL, reporting bytes sent. */
-const putBlob = (
-  target: PutTarget,
-  blob: Blob,
-  onProgress: (loaded: number) => void,
-): Promise<void> =>
+): Promise<PutResult> =>
   new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", target.url);
-    for (const [k, v] of Object.entries(target.headers)) {
+    xhr.open("PUT", url);
+    for (const [k, v] of Object.entries(headers)) {
       xhr.setRequestHeader(k, v);
     }
     xhr.upload.onprogress = (e) => onProgress(e.loaded);
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({
+          text: xhr.responseText,
+          etag: xhr.getResponseHeader("ETag"),
+        });
+      } else {
+        let error: string | undefined;
+        try {
+          error = (JSON.parse(xhr.responseText) as { error?: string }).error;
+        } catch {
+          // The bucket's XML, or nothing.
+        }
         reject(
           new UploadError(
-            `アップロード先が HTTP ${xhr.status} を返しました`,
+            error ?? `アップロード先が HTTP ${xhr.status} を返しました`,
             retryableStatus(xhr.status),
           ),
         );
@@ -211,8 +231,39 @@ const putBlob = (
     };
     xhr.onerror = () => reject(new UploadError("ネットワークエラー", true));
     xhr.ontimeout = () => reject(new UploadError("タイムアウト", true));
-    xhr.send(blob);
+    xhr.send(body);
   });
+
+export const transport: Transport = { put: xhrPut, api };
+
+/** PUT the file to the presigned URL (a video: all its objects). */
+export const putFile = async (
+  init: Extract<InitResult, { status: "upload" }>,
+  f: PickedFile,
+  onProgress: (loaded: number) => void,
+  prepared: Prepared,
+): Promise<void> => {
+  if (init.video) {
+    // Three uploads in one bar: scaled to the file's size.
+    await putVideo(init.id, init.video, f.blob, prepared, transport, (s, t) =>
+      onProgress(t === 0 ? 0 : Math.floor((s / t) * f.size)),
+    );
+    return;
+  }
+  if (!init.url || !init.headers) {
+    throw new UploadError("アップロード先がありません", false);
+  }
+  await xhrPut(init.url, init.headers, f.blob, onProgress);
+};
+
+/** PUT `blob` to a presigned PUT target, reporting bytes sent. */
+const putBlob = async (
+  target: PutTarget,
+  blob: Blob,
+  onProgress: (loaded: number) => void,
+): Promise<void> => {
+  await xhrPut(target.url, target.headers, blob, onProgress);
+};
 
 /**
  * A camera picture's checks before it is sent: a PNG / JPEG within the

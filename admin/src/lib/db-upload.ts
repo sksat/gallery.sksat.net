@@ -37,6 +37,7 @@ export const NOT_COMPLETE =
 /** displayKey in SQL, from the photo `m`'s public id and the hash `?3`. */
 const DISPLAY_KEY_SQL = `'${DISPLAY_DIR}' || m.public_id || '-' || substr(?3, 1, 16) || '.jpg'`;
 import type { MediaPlatform, Visibility } from "./types";
+import { playContentType } from "./video";
 
 /** media columns (0005) for metadata read from the file itself. */
 export const metaColumns = (meta: StoredMeta) => ({
@@ -83,6 +84,8 @@ export type InitOutcome =
        * row (role display), uploading until the completion (displayKey).
        */
       display?: string;
+      /** A video's keys and multipart upload. */
+      video?: VideoUpload;
     }
   /** This photo (same SHA-256) is already uploaded, at `file`. */
   | { kind: "exists"; id: number; file: string }
@@ -99,6 +102,93 @@ type Existing = {
 };
 
 const EXISTING_COLUMNS = "id, file, path, status, sha256, trashed_at";
+
+/**
+ * A video's copies (video.ts), keys chosen by the caller for a new row:
+ * its poster (B2) and playback copy (R2), media_file rows made from the
+ * original.
+ */
+export type VideoKeys = { posterKey: string; playKey: string };
+
+/** What initUpload returns for a video. */
+export type VideoUpload = {
+  /** Where this try's poster goes; null when the browser made none. */
+  posterKey: string | null;
+  playKey: string;
+  /** The original's B2 multipart upload in progress, if any. */
+  uploadId: string | null;
+};
+
+/** A video upload's copies as stored (media_file rows besides the original). */
+type CopyRow = {
+  id: number;
+  role: string;
+  object_key: string;
+  status: string;
+  sha256: string | null;
+};
+
+/**
+ * Statements that give an uploading video `mediaId` (any row with that
+ * original key: `?`-bound by key) this try's poster and playback copy:
+ * media_file rows made from the original, `uploading` until the upload
+ * completes. An earlier try's poster is replaced (its object, if any, is
+ * left: unreferenced and never served); its playback copy is kept, and
+ * the copy is sent to it again.
+ */
+const copyStatements = (
+  db: D1Database,
+  originalKey: string,
+  copies: {
+    poster: { key: string; sha256: string } | null;
+    play: { key: string; size: number; mime: string } | null;
+  },
+) => {
+  const original = `(SELECT f.id FROM media_file f JOIN media m ON m.id = f.media_id
+                     WHERE m.file = ?1 AND f.role = 'original')`;
+  const media = "(SELECT id FROM media WHERE file = ?1)";
+  return [
+    // An earlier try's poster (this try may bring another frame, or none).
+    db
+      .prepare(
+        `DELETE FROM media_file WHERE media_id = ${media}
+           AND role = 'poster' AND status = 'uploading'`,
+      )
+      .bind(originalKey),
+    ...(copies.poster
+      ? [
+          db
+            .prepare(
+              // OR IGNORE: these bytes are already some other file (the
+              // same JPEG uploaded as a photo): the video goes on without a
+              // poster rather than failing; one can be made later.
+              `INSERT OR IGNORE INTO media_file (media_id, role, storage, object_key,
+                 source_file_id, status, sha256, mime_type)
+               VALUES (${media}, 'poster', 'b2', ?2, ${original}, 'uploading',
+                 ?3, 'image/jpeg')`,
+            )
+            .bind(originalKey, copies.poster.key, copies.poster.sha256),
+        ]
+      : []),
+    ...(copies.play
+      ? [
+          db
+            .prepare(
+              `INSERT INTO media_file (media_id, role, storage, object_key,
+                 source_file_id, status, size, mime_type)
+               VALUES (${media}, 'play', 'r2', ?2, ${original}, 'uploading',
+                 ?3, ?4)`,
+            )
+            .bind(
+              originalKey,
+              copies.play.key,
+              copies.play.size,
+              copies.play.mime,
+            ),
+        ]
+      : []),
+  ];
+};
 
 /** The photo whose file has the upload's hash, and that file's role. */
 type BySha = Existing & { role: string; file_status: string };
@@ -218,6 +308,8 @@ export type NewRow = {
   /** Private unless a rule says otherwise. */
   visibility?: Visibility;
   metadataVisibility?: MetadataOverrides;
+  /** A video's copies (required for a video). */
+  video?: VideoKeys;
 };
 
 /**
@@ -233,6 +325,9 @@ export const initUpload = async (
   init: UploadInit,
   row: NewRow,
 ): Promise<InitOutcome> => {
+  if (init.kind === "video" && !row.video) {
+    throw new Error("initUpload: a video needs its keys");
+  }
   const candidates = numberedPaths(init.file);
   const [bySha, ...byName] = await db.batch<Existing>(
     initLookups(init.sha256, init.file).map((q) =>
@@ -260,6 +355,9 @@ export const initUpload = async (
     }
     if (same.status === "ready") {
       return { kind: "exists", id: same.id, file: same.path };
+    }
+    if (init.kind === "video" && row.video) {
+      return resumeVideo(db, init, same, row.video);
     }
     const resumed = {
       kind: "upload" as const,
@@ -348,7 +446,8 @@ export const initUpload = async (
         `INSERT INTO media (public_id, file, path, platform, timestamp, tags, visibility, status, size, sha256,
            exif, latitude, longitude, location_source, world_id, world_name, photographer_id, metadata_read_at,
            metadata_source, file_exif, digitized_at, camera_id, digitized_with,
-           metadata_visibility, width, height, photographer_name, vrcx)
+           metadata_visibility, width, height, photographer_name, vrcx,
+           kind, duration_ms, video_codec)
          VALUES (?1, ?2, ?2, ?3, ?4, ?24, ?25, 'uploading', ?5, ?6,
            ?7, ?8, ?9, ?10, ?11, ?12, ?13,
            CASE WHEN ?14 THEN MAX(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?16) END, ?15,
@@ -356,7 +455,7 @@ export const initUpload = async (
            CASE WHEN ?26 IS NOT NULL THEN ?26
                 WHEN ?19 = 'camera' THEN ${deviceId} END,
            CASE WHEN ?19 = 'digitizer' THEN ${deviceId} END,
-           ?27, ?28, ?29, ?30, ?31) RETURNING id`,
+           ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34) RETURNING id`,
       )
       .bind(
         row.publicId,
@@ -389,11 +488,41 @@ export const initUpload = async (
         row.metadataVisibility && Object.keys(row.metadataVisibility).length > 0
           ? JSON.stringify(row.metadataVisibility)
           : null,
-        size?.width ?? null,
-        size?.height ?? null,
+        // A video's size from its container (its header gives none).
+        size?.width ?? init.video?.width ?? null,
+        size?.height ?? init.video?.height ?? null,
         meta.photographer_name,
         meta.vrcx,
+        init.kind ?? "image",
+        init.video?.durationMs ?? null,
+        init.video?.codec ?? null,
       );
+    // A video's poster and playback copy (media_file rows made from the
+    // original), and the original's type (the trigger knows images only).
+    const posterSha = init.video?.posterSha256 ?? null;
+    const posterKey = row.video && posterSha ? row.video.posterKey : null;
+    const videoStatements = row.video
+      ? [
+          db
+            .prepare(
+              `UPDATE media_file SET mime_type = ?2
+               WHERE media_id = (SELECT id FROM media WHERE file = ?1)
+                 AND role = 'original'`,
+            )
+            .bind(file, init.contentType),
+          ...copyStatements(db, file, {
+            poster:
+              posterKey && posterSha
+                ? { key: posterKey, sha256: posterSha }
+                : null,
+            play: {
+              key: row.video.playKey,
+              size: init.size,
+              mime: playContentType(init.contentType),
+            },
+          }),
+        ]
+      : [];
     // What wrote the file, on the original's media_file row (0013; the
     // trigger created it with the INSERT): what the reader would write.
     const creatorTool =
@@ -422,7 +551,12 @@ export const initUpload = async (
       ...(device?.create ? [ensureDeviceStatement(db, device)] : []),
       insert,
       ...(tool ? [tool] : []),
+      // A display copy (an image over the resize limits) and a video's
+      // copies never come together: either is last, where `display` and
+      // `kept` read it.
       ...(copy ? [copy] : []),
+      ...videoStatements,
+      ...(posterKey ? [posterKeptStatement(db, posterKey)] : []),
     ]);
     const inserted = out[device?.create ? 1 : 0].results?.[0];
     if (!inserted) throw new Error("INSERT INTO media returned no row");
@@ -434,6 +568,15 @@ export const initUpload = async (
       file,
       resumed: false,
       ...(display ? { display } : {}),
+      ...(row.video
+        ? {
+            video: {
+              posterKey: posterKey && kept(out) ? posterKey : null,
+              playKey: row.video.playKey,
+              uploadId: null,
+            },
+          }
+        : {}),
     };
   } catch (err) {
     // Lost a race with another upload of the same path or photo; the
@@ -447,6 +590,82 @@ export const initUpload = async (
     }
     throw err;
   }
+};
+
+/**
+ * Whether the poster row was made (the last statement of a batch, after
+ * copyStatements): its INSERT is ignored when another file has the same
+ * bytes (a frame identical to an earlier upload's poster), and then the
+ * browser is not asked to send it.
+ */
+const posterKeptStatement = (db: D1Database, key: string) =>
+  db
+    .prepare(
+      "SELECT 1 AS kept FROM media_file WHERE storage = 'b2' AND object_key = ?",
+    )
+    .bind(key);
+
+const kept = (out: D1Result<unknown>[]): boolean =>
+  (out[out.length - 1].results ?? []).length > 0;
+
+/**
+ * Resume an uploading video: its playback copy keeps its key (one is made
+ * if the row has none), the poster is this try's, and the original's
+ * multipart upload, if any, comes back to be resumed.
+ */
+const resumeVideo = async (
+  db: D1Database,
+  init: UploadInit,
+  same: Existing,
+  keys: VideoKeys,
+): Promise<InitOutcome> => {
+  const [files, original] = await db.batch([
+    db
+      .prepare(
+        `SELECT id, role, object_key, status, sha256 FROM media_file
+         WHERE media_id = ? AND role IN ('poster', 'play') ORDER BY id`,
+      )
+      .bind(same.id),
+    db
+      .prepare(
+        `SELECT upload_id FROM media_file
+         WHERE media_id = ? AND role = 'original'`,
+      )
+      .bind(same.id),
+  ]);
+  const copies = (files.results ?? []) as CopyRow[];
+  const play = copies.filter((c) => c.role === "play").at(-1);
+  const posterSha = init.video?.posterSha256 ?? null;
+  const posterKey = posterSha ? keys.posterKey : null;
+  const out = await db.batch([
+    ...copyStatements(db, same.file, {
+      poster:
+        posterKey && posterSha ? { key: posterKey, sha256: posterSha } : null,
+      play: play
+        ? null
+        : {
+            key: keys.playKey,
+            size: init.size,
+            mime: playContentType(init.contentType),
+          },
+    }),
+    ...(posterKey ? [posterKeptStatement(db, posterKey)] : []),
+  ]);
+  return {
+    kind: "upload",
+    id: same.id,
+    file: same.file,
+    resumed: true,
+    video: {
+      posterKey: posterKey && kept(out) ? posterKey : null,
+      playKey: play?.object_key ?? keys.playKey,
+      uploadId:
+        (
+          (original.results ?? [])[0] as
+            { upload_id: string | null } | undefined
+        )?.upload_id ?? null,
+    },
+  };
 };
 
 /** "/a/IMG.jpg" → stem "/a/IMG", ext ".jpg" (ext "" without a dot). */
@@ -496,10 +715,26 @@ export type ObjectStat = { size: number; sha256: string | null };
 export type CompleteOutcome =
   | { kind: "ready" }
   | { kind: "not-found" }
-  /** The bucket has no file at the row's path. */
-  | { kind: "missing" }
+  /** The bucket has no file at the row's path (or a video's part / copy). */
+  | { kind: "missing"; message?: string }
   /** The file in the bucket is not the one that was announced. */
   | { kind: "mismatch"; message: string };
+
+/** How completeUpload checks a video's other objects (injected). */
+export type VideoChecks = {
+  /**
+   * Complete the original's multipart upload (b2-multipart.ts): "done",
+   * "gone" when there is no such upload any more (completed by an earlier
+   * try whose answer was lost: the stat decides), or the parts missing.
+   */
+  finishMultipart(
+    file: string,
+    uploadId: string,
+    size: number,
+  ): Promise<"done" | "gone" | { missing: number[] }>;
+  /** The playback copy's size in R2, or null when it is not there. */
+  playSize(key: string): Promise<number | null>;
+};
 
 /**
  * Mark an upload ready once the bucket has the announced file: `stat`
@@ -511,25 +746,95 @@ export const completeUpload = async (
   db: D1Database,
   id: number,
   stat: (file: string) => Promise<ObjectStat | null>,
+  video?: VideoChecks,
 ): Promise<CompleteOutcome> => {
   // The photo's original (media_file, 0013; the same values as media's
   // columns, which the trigger keeps in step).
   const row = await db
     .prepare(
-      `SELECT f.object_key AS file, f.status, f.size, f.sha256, m.visibility
+      `SELECT f.id AS file_id, f.object_key AS file, f.status, f.size,
+         f.sha256, f.upload_id, m.visibility, m.kind
        FROM media_file f JOIN media m ON m.id = f.media_id
        WHERE f.media_id = ? AND f.role = 'original' AND f.storage = 'b2'`,
     )
     .bind(id)
     .first<{
+      file_id: number;
       file: string;
       status: string;
       size: number | null;
       sha256: string | null;
+      upload_id: string | null;
       visibility: string;
+      kind: string;
     }>();
   if (!row) return { kind: "not-found" };
   if (row.status === "ready") return { kind: "ready" };
+  /** A video's poster and playback copy as checked below (their ids). */
+  let checkedCopies: number[] = [];
+  if (row.kind === "video") {
+    if (!video) throw new Error("completeUpload: a video needs its checks");
+    const copies = ((
+      await db
+        .prepare(
+          `SELECT id, role, object_key, status, sha256 FROM media_file
+           WHERE media_id = ? AND role IN ('poster', 'play') ORDER BY id`,
+        )
+        .bind(id)
+        .all<CopyRow>()
+    ).results ?? []) as CopyRow[];
+    const poster = copies.filter((c) => c.role === "poster").at(-1);
+    const play = copies.filter((c) => c.role === "play").at(-1);
+    if (row.size === null || !play) {
+      return { kind: "mismatch", message: "動画の情報が足りません" };
+    }
+    if (row.upload_id !== null) {
+      // The original went up in parts: put them together first.
+      const finished = await video.finishMultipart(
+        row.file,
+        row.upload_id,
+        row.size,
+      );
+      if (finished !== "done" && finished !== "gone") {
+        return {
+          kind: "missing",
+          // No list: the parts could not be checked (another try sends
+          // them all again).
+          message:
+            finished.missing.length === 0
+              ? "アップロードし直してください"
+              : `B2 にないパートがあります (${finished.missing.slice(0, 5).join(", ")}${finished.missing.length > 5 ? " …" : ""})`,
+        };
+      }
+      await db
+        .prepare(
+          "UPDATE media_file SET upload_id = NULL WHERE id = ? AND upload_id = ?",
+        )
+        .bind(row.file_id, row.upload_id)
+        .run();
+    }
+    if (poster) {
+      const p = await stat(poster.object_key);
+      if (!p) return { kind: "missing", message: "B2 にポスターがありません" };
+      if (poster.sha256 !== null && p.sha256 !== poster.sha256) {
+        return {
+          kind: "mismatch",
+          message: "ポスターの中身が違います (SHA-256 が一致しません)",
+        };
+      }
+    }
+    checkedCopies = poster ? [poster.id, play.id] : [play.id];
+    const playSize = await video.playSize(play.object_key);
+    if (playSize === null) {
+      return { kind: "missing", message: "再生用のコピーがありません" };
+    }
+    if (playSize !== row.size) {
+      return {
+        kind: "mismatch",
+        message: `再生用のコピーの大きさが違います：${sizeMismatch(playSize, row.size).replace(/^B2/, "R2")}です。`,
+      };
+    }
+  }
   const object = await stat(row.file);
   if (!object) return { kind: "missing" };
   if (row.size !== null && object.size !== row.size) {
@@ -597,15 +902,36 @@ export const completeUpload = async (
         `UPDATE media SET status = 'ready',
            uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE id = ? AND status = 'uploading'
+         WHERE id = ?1 AND status = 'uploading'
            AND NOT EXISTS (SELECT 1 FROM media_file d
              WHERE d.media_id = media.id AND d.role = 'display'
-               AND d.status <> 'ready')`,
+               AND d.status <> 'ready')
+           AND NOT EXISTS (SELECT 1 FROM media_file v
+             WHERE v.media_id = media.id AND v.role IN ('poster', 'play')
+               AND v.status = 'uploading'
+               AND v.id NOT IN (SELECT value FROM json_each(?2)))`,
       )
       // The trigger (0013) marks the original's media_file row ready in
-      // the same statement and clears its multipart upload id.
-      .bind(id),
+      // the same statement and clears its multipart upload id. A video
+      // only while its copies are the ones checked (a resume may have
+      // replaced the poster meanwhile: the next try checks that one).
+      .bind(id, JSON.stringify(checkedCopies)),
     db.prepare("SELECT status FROM media WHERE id = ?").bind(id),
+    // A video's poster and playback copy, checked above, with it.
+    ...(row.kind === "video"
+      ? [
+          db
+            .prepare(
+              `UPDATE media_file SET status = 'ready', upload_id = NULL,
+                 uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               WHERE media_id = ?1 AND role IN ('poster', 'play')
+                 AND status = 'uploading'
+                 AND id IN (SELECT value FROM json_each(?2))
+                 AND EXISTS (SELECT 1 FROM media WHERE id = ?1 AND status = 'ready')`,
+            )
+            .bind(id, JSON.stringify(checkedCopies)),
+        ]
+      : []),
     // Made public or unlisted by an upload rule: the API shows it once it
     // is ready (with its tags and camera), so the content version moves in
     // the same batch. A private one changes nothing the API answers.
@@ -637,27 +963,129 @@ export const completeUpload = async (
 export const deleteIncompleteUpload = async (
   db: D1Database,
   id: number,
-  removeObject: (key: string) => Promise<void>,
-): Promise<boolean> => {
-  // One batch: the copies' keys and the row (its files go with it), only
-  // while it is still uploading.
-  const [copies, deleted] = await db.batch<{ key: string }>([
+): Promise<DeletedUpload | null> => {
+  // What it may have left in the buckets (a video's copies and multipart
+  // upload), read in the same batch as the delete, whose ON DELETE
+  // CASCADE takes the media_file rows with it.
+  const [files, deleted] = await db.batch([
     db
       .prepare(
-        `SELECT f.object_key AS key FROM media_file f
-         JOIN media m ON m.id = f.media_id
-         WHERE f.media_id = ? AND m.status = 'uploading'
-           AND f.role = 'display' AND f.storage = 'b2'`,
+        `SELECT f.role, f.storage, f.object_key AS key, f.upload_id, m.kind
+         FROM media_file f JOIN media m ON m.id = f.media_id
+         WHERE f.media_id = ?1 AND m.status = 'uploading' ORDER BY f.id`,
       )
       .bind(id),
     db
-      .prepare("DELETE FROM media WHERE id = ? AND status = 'uploading'")
+      .prepare(
+        "DELETE FROM media WHERE id = ? AND status = 'uploading' RETURNING file",
+      )
       .bind(id),
   ]);
-  if ((deleted.meta.changes ?? 0) === 0) return false;
-  for (const c of copies.results ?? []) await removeObject(c.key);
-  return true;
+  const row = (deleted.results ?? [])[0] as { file: string } | undefined;
+  if (!row) return null;
+  const rows = (files.results ?? []) as {
+    role: string;
+    storage: string;
+    key: string;
+    upload_id: string | null;
+    kind: string;
+  }[];
+  return {
+    file: row.file,
+    video: rows.some((r) => r.kind === "video"),
+    upload_id: rows.find((r) => r.role === "original")?.upload_id ?? null,
+    copies: rows
+      .filter((r) => r.role !== "original")
+      .map((r) => ({
+        storage: r.storage === "r2" ? "r2" : "b2",
+        key: r.key,
+        upload_id: r.upload_id,
+      })),
+  };
 };
+
+/** What a deleted upload may have left in the buckets (a video's). */
+export type DeletedUpload = {
+  file: string;
+  /**
+   * A video: its original, possibly whole in B2 already (a multipart
+   * upload completed before the copies were), is deleted too.
+   */
+  video: boolean;
+  /** The original's unfinished multipart upload. */
+  upload_id: string | null;
+  /** Its copies' objects (a video's poster and playback copy, with an
+   * unfinished R2 multipart upload). */
+  copies: { storage: "b2" | "r2"; key: string; upload_id: string | null }[];
+};
+
+/** Remember the original's B2 multipart upload (only while uploading). */
+export const setUploadId = async (
+  db: D1Database,
+  id: number,
+  uploadId: string,
+): Promise<void> => {
+  await db
+    .prepare(
+      `UPDATE media_file SET upload_id = ?
+       WHERE media_id = ? AND role = 'original' AND status = 'uploading'`,
+    )
+    .bind(uploadId, id)
+    .run();
+};
+
+/** An uploading video as the part and copy routes need it. */
+export type UploadRow = {
+  id: number;
+  file: string;
+  size: number | null;
+  /** The original's multipart upload, if any. */
+  upload_id: string | null;
+  /** The playback copy's media_file.object_key. */
+  play_key: string | null;
+  /** Its R2 multipart upload in progress, if any. */
+  play_upload_id: string | null;
+  content_type: string;
+};
+
+/**
+ * Remember (or forget, null) the R2 multipart upload of an uploading
+ * video's playback copy, on its media_file row.
+ */
+export const setPlayUploadId = async (
+  db: D1Database,
+  id: number,
+  uploadId: string | null,
+): Promise<void> => {
+  await db
+    .prepare(
+      `UPDATE media_file SET upload_id = ?
+       WHERE media_id = ? AND role = 'play' AND status = 'uploading'`,
+    )
+    .bind(uploadId, id)
+    .run();
+};
+
+/** The `uploading` video `id`, or null. */
+export const getVideoUpload = async (
+  db: D1Database,
+  id: number,
+): Promise<UploadRow | null> =>
+  db
+    .prepare(
+      `SELECT m.id, m.file, m.size, o.upload_id,
+         p.object_key AS play_key, p.upload_id AS play_upload_id,
+         p.mime_type AS content_type
+       FROM media m
+       JOIN media_file o ON o.media_id = m.id AND o.role = 'original'
+       LEFT JOIN media_file p ON p.id = (
+         SELECT x.id FROM media_file x
+         WHERE x.media_id = m.id AND x.role = 'play'
+         ORDER BY x.id DESC LIMIT 1)
+       WHERE m.id = ? AND m.kind = 'video' AND m.status = 'uploading'`,
+    )
+    .bind(id)
+    .first<UploadRow>();
 
 export type IncompleteUpload = {
   id: number;

@@ -3,14 +3,18 @@ import { describe, expect, it } from "vitest";
 import {
   completeUpload,
   deleteIncompleteUpload,
+  getVideoUpload,
   initLookups,
   initUpload,
   listIncompleteUploads,
   NOT_COMPLETE,
   numberedPaths,
   numberedRange,
+  setPlayUploadId,
+  setUploadId,
   sizeMismatch,
   type ObjectStat,
+  type VideoChecks,
 } from "./db-upload";
 
 describe("sizeMismatch", () => {
@@ -646,42 +650,30 @@ describe("incomplete uploads", () => {
     expect(list.map((u) => [u.id, u.file, u.size])).toEqual([
       [2, "/up/a.png", 10],
     ]);
-    const removed: string[] = [];
-    const remove = async (key: string) => void removed.push(key);
-    expect(await deleteIncompleteUpload(db, 1, remove)).toBe(false);
-    expect(await deleteIncompleteUpload(db, 2, remove)).toBe(true);
+    expect(await deleteIncompleteUpload(db, 1)).toBeNull();
+    expect(await deleteIncompleteUpload(db, 2)).toMatchObject({
+      file: expect.any(String),
+    });
     expect(await listIncompleteUploads(db)).toEqual([]);
-    // No display copy: nothing to remove from the bucket.
-    expect(removed).toEqual([]);
   });
 
-  it("take their display copy's object with them, once the row is gone", async () => {
+  it("give their display copy's object to delete, once the row is gone", async () => {
     const { raw, db } = setup();
     await initUpload(db, init({ display: DISPLAY }), row);
-    const removed: string[] = [];
-    const remove = async (key: string) => {
-      // The row is already gone: a completion now finds nothing.
-      expect(await listIncompleteUploads(db)).toEqual([]);
-      removed.push(key);
-    };
-    expect(await deleteIncompleteUpload(db, 2, remove)).toBe(true);
-    expect(removed).toEqual([COPY]);
+    // The caller deletes the objects after the row (removeUploadLeftovers),
+    // so a completion running meanwhile finds nothing.
+    expect(await deleteIncompleteUpload(db, 2)).toEqual({
+      file: "/up/a.png",
+      video: false,
+      upload_id: null,
+      copies: [{ storage: "b2", key: COPY, upload_id: null }],
+    });
+    expect(await listIncompleteUploads(db)).toEqual([]);
     expect(
       raw
         .prepare("SELECT COUNT(*) AS n FROM media_file WHERE media_id = 2")
         .get(),
     ).toEqual({ n: 0 });
-    // A failed deletion is reported (the object is left over).
-    await initUpload(
-      db,
-      init({ file: "/up/b.png", sha256: SHA_B, display: DISPLAY }),
-      id(1),
-    );
-    await expect(
-      deleteIncompleteUpload(db, 3, async () => {
-        throw new Error("削除の権限がありません");
-      }),
-    ).rejects.toThrow("削除の権限がありません");
   });
 
   it("keep the photo uploading when the copy changes during the check", async () => {
@@ -718,11 +710,7 @@ describe("incomplete uploads", () => {
         [COPY]: { size: DISPLAY.size, sha256: DISPLAY.sha256 },
       }),
     );
-    const removed: string[] = [];
-    expect(
-      await deleteIncompleteUpload(db, 2, async (k) => void removed.push(k)),
-    ).toBe(false);
-    expect(removed).toEqual([]);
+    expect(await deleteIncompleteUpload(db, 2)).toBeNull();
   });
 });
 
@@ -832,5 +820,261 @@ describe("display copies (media_file role display)", () => {
         .prepare("SELECT uploaded_at FROM media_file WHERE role = 'display'")
         .get()?.uploaded_at,
     ).toMatch(/^\d{4}-/);
+  });
+});
+
+describe("video uploads (0017)", () => {
+  const POSTER = "/.poster/22222222222222222222.jpg";
+  const PLAY = "/v/33333333333333333333.mp4";
+  const SHA_P = "c".repeat(64);
+  const videoInit = (posterSha256: string | null) =>
+    init({
+      file: "/up/clip.mp4",
+      size: 20,
+      contentType: "video/mp4",
+      kind: "video",
+      video: {
+        width: 320,
+        height: 180,
+        durationMs: 2000,
+        codec: "avc1.640028",
+        poster: posterSha256 !== null,
+        posterSha256,
+      },
+    });
+  const videoRow = { ...row, video: { posterKey: POSTER, playKey: PLAY } };
+  const checks = (over: Partial<VideoChecks> = {}): VideoChecks => ({
+    finishMultipart: async () => "done",
+    playSize: async () => 20,
+    ...over,
+  });
+  const ORIGINAL = { "/up/clip.mp4": { size: 20, sha256: SHA_A } };
+  const B2 = bucket({ ...ORIGINAL, [POSTER]: { size: 5, sha256: SHA_P } });
+  const files = (raw: DatabaseSync) =>
+    raw
+      .prepare(
+        `SELECT role, storage, object_key, source_file_id, status, size, sha256,
+           mime_type, upload_id FROM media_file WHERE media_id = 2 ORDER BY id`,
+      )
+      .all();
+
+  it("stores the video's description, its poster and playback copy as files", async () => {
+    const { db, raw } = setup();
+    expect(await initUpload(db, videoInit(SHA_P), videoRow)).toEqual({
+      kind: "upload",
+      id: 2,
+      file: "/up/clip.mp4",
+      resumed: false,
+      video: { posterKey: POSTER, playKey: PLAY, uploadId: null },
+    });
+    expect(
+      raw
+        .prepare(
+          "SELECT kind, width, height, duration_ms, video_codec FROM media WHERE id = 2",
+        )
+        .get(),
+    ).toEqual({
+      kind: "video",
+      width: 320,
+      height: 180,
+      duration_ms: 2000,
+      video_codec: "avc1.640028",
+    });
+    const [original, poster, play] = files(raw) as {
+      source_file_id: number | null;
+    }[];
+    expect(original).toMatchObject({
+      role: "original",
+      mime_type: "video/mp4",
+      status: "uploading",
+    });
+    const originalId = (
+      raw
+        .prepare(
+          "SELECT id FROM media_file WHERE media_id = 2 AND role = 'original'",
+        )
+        .get() as { id: number }
+    ).id;
+    expect(poster).toEqual({
+      role: "poster",
+      storage: "b2",
+      object_key: POSTER,
+      source_file_id: originalId,
+      status: "uploading",
+      size: null,
+      sha256: SHA_P,
+      mime_type: "image/jpeg",
+      upload_id: null,
+    });
+    expect(play).toMatchObject({
+      role: "play",
+      storage: "r2",
+      object_key: PLAY,
+      source_file_id: originalId,
+      size: 20,
+      mime_type: "video/mp4",
+    });
+  });
+
+  it("goes on without a poster whose bytes another file has", async () => {
+    const { db, raw } = setup();
+    await initUpload(db, videoInit(SHA_P), videoRow);
+    // Another video whose frame came out the same: no poster asked for.
+    const other = await initUpload(
+      db,
+      { ...videoInit(SHA_P), file: "/up/other.webm", sha256: SHA_B },
+      {
+        ...row,
+        publicId: "abcdefghj2",
+        video: {
+          posterKey: "/.poster/66666666666666666666.jpg",
+          playKey: "/v/77777777777777777777.webm",
+        },
+      },
+    );
+    expect(other).toMatchObject({
+      kind: "upload",
+      resumed: false,
+      video: { posterKey: null, playKey: "/v/77777777777777777777.webm" },
+    });
+    expect(
+      raw
+        .prepare("SELECT COUNT(*) AS n FROM media_file WHERE role = 'poster'")
+        .get(),
+    ).toEqual({ n: 1 });
+  });
+
+  it("resumes with its copy's key, this try's poster and its multipart upload", async () => {
+    const { db, raw } = setup();
+    await initUpload(db, videoInit(SHA_P), videoRow);
+    await setUploadId(db, 2, "mp1");
+    // This try drew no poster: the earlier one goes; the copy keeps its key.
+    expect(
+      await initUpload(db, videoInit(null), {
+        ...row,
+        video: {
+          posterKey: "/.poster/44444444444444444444.jpg",
+          playKey: "/v/55555555555555555555.mp4",
+        },
+      }),
+    ).toEqual({
+      kind: "upload",
+      id: 2,
+      file: "/up/clip.mp4",
+      resumed: true,
+      video: { posterKey: null, playKey: PLAY, uploadId: "mp1" },
+    });
+    expect((files(raw) as { role: string }[]).map((f) => f.role)).toEqual([
+      "original",
+      "play",
+    ]);
+  });
+
+  it("is ready only with its parts put together, its poster and its copy", async () => {
+    const { db, raw } = setup();
+    await initUpload(db, videoInit(SHA_P), videoRow);
+    await setUploadId(db, 2, "mp1");
+    expect(
+      await completeUpload(
+        db,
+        2,
+        B2,
+        checks({ finishMultipart: async () => ({ missing: [2] }) }),
+      ),
+    ).toEqual({ kind: "missing", message: "B2 にないパートがあります (2)" });
+    expect(await completeUpload(db, 2, bucket(ORIGINAL), checks())).toEqual({
+      kind: "missing",
+      message: "B2 にポスターがありません",
+    });
+    // That try put the parts together: no upload id any more.
+    expect(
+      raw
+        .prepare(
+          "SELECT upload_id FROM media_file WHERE media_id = 2 AND role = 'original'",
+        )
+        .get(),
+    ).toEqual({ upload_id: null });
+    expect(
+      await completeUpload(
+        db,
+        2,
+        bucket({ ...ORIGINAL, [POSTER]: { size: 5, sha256: SHA_B } }),
+        checks(),
+      ),
+    ).toMatchObject({ kind: "mismatch" });
+    expect(
+      await completeUpload(db, 2, B2, checks({ playSize: async () => null })),
+    ).toEqual({ kind: "missing", message: "再生用のコピーがありません" });
+    expect(
+      await completeUpload(db, 2, B2, checks({ playSize: async () => 19 })),
+    ).toMatchObject({ kind: "mismatch" });
+    expect(await completeUpload(db, 2, B2, checks())).toEqual({
+      kind: "ready",
+    });
+    expect((files(raw) as { status: string }[]).map((f) => f.status)).toEqual([
+      "ready",
+      "ready",
+      "ready",
+    ]);
+  });
+
+  it("stays uploading when a resume replaces the poster during the check", async () => {
+    const { db, raw } = setup();
+    await initUpload(db, videoInit(SHA_P), videoRow);
+    const NEW_POSTER = "/.poster/44444444444444444444.jpg";
+    const resuming = checks({
+      // While the copy is checked, a resume swaps in another poster.
+      playSize: async () => {
+        raw.exec(`DELETE FROM media_file WHERE role = 'poster';
+          INSERT INTO media_file (media_id, role, object_key, source_file_id, status, sha256)
+            SELECT 2, 'poster', '${NEW_POSTER}', id, 'uploading', '${"d".repeat(64)}'
+            FROM media_file WHERE media_id = 2 AND role = 'original'`);
+        return 20;
+      },
+    });
+    expect(await completeUpload(db, 2, B2, resuming)).toMatchObject({
+      kind: "mismatch",
+    });
+    expect(
+      raw.prepare("SELECT status FROM media WHERE id = 2").get(),
+    ).toEqual({ status: "uploading" });
+    expect(
+      raw
+        .prepare("SELECT status FROM media_file WHERE role = 'poster'")
+        .all(),
+    ).toEqual([{ status: "uploading" }]);
+  });
+
+  it("deleting an incomplete video says what it left in the buckets", async () => {
+    const { db, raw } = setup();
+    await initUpload(db, videoInit(SHA_P), videoRow);
+    await setUploadId(db, 2, "mp1");
+    await setPlayUploadId(db, 2, "r2up");
+    expect(await deleteIncompleteUpload(db, 2)).toEqual({
+      file: "/up/clip.mp4",
+      video: true,
+      upload_id: "mp1",
+      copies: [
+        { storage: "b2", key: POSTER, upload_id: null },
+        { storage: "r2", key: PLAY, upload_id: "r2up" },
+      ],
+    });
+    expect(files(raw)).toEqual([]);
+  });
+
+  it("finds an uploading video for the part and copy routes", async () => {
+    const { db } = setup();
+    await initUpload(db, videoInit(SHA_P), videoRow);
+    await setUploadId(db, 2, "mp1");
+    expect(await getVideoUpload(db, 2)).toEqual({
+      id: 2,
+      file: "/up/clip.mp4",
+      size: 20,
+      upload_id: "mp1",
+      play_key: PLAY,
+      play_upload_id: null,
+      content_type: "video/mp4",
+    });
+    expect(await getVideoUpload(db, 1)).toBeNull();
   });
 });

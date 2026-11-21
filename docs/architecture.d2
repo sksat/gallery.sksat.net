@@ -35,6 +35,7 @@ cf: Cloudflare {
 
   r2: Cloudflare R2 {
     resized: resized images {shape: cylinder}
+    videos: "video playback\ncopies" {shape: cylinder}
   }
 
   # The Cache API of each data centre (caches.default).
@@ -54,12 +55,13 @@ cf: Cloudflare {
   admin <-> d1.meta: read / write {class: data}
   image <-> r2.resized: "store / serve" {class: data}
   admin -> r2.resized: "store\n(browser fallback)" {class: data}
+  admin -> r2.videos: "store\n(metadata removed)" {class: data}
 }
 
 # Backblaze's red.
 b2: Backblaze B2 {
   style: {fill: "#fde8e9"; stroke: "#e21e29"; stroke-width: 2}
-  originals: original images {
+  originals: "original images\nand videos" {
     shape: cylinder
     style: {fill: "#ffffff"; stroke: "#e21e29"}
   }

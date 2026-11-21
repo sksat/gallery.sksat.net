@@ -22,6 +22,8 @@ import {
 } from "~/components/ui";
 import { getUploadConfig } from "~/lib/b2";
 import { deleteAllVersions } from "~/lib/b2-delete";
+import { thumbVideo } from "~/lib/types";
+import { r2Key } from "~/lib/video";
 import {
   listTrash,
   purgeItems,
@@ -91,12 +93,13 @@ export const useRestore = routeAction$(async (data, { platform, fail }) => {
 
 /**
  * Photos deleted per request: each costs a few B2 requests (list, then a
- * DELETE per version, for each of its files), and a Pages request may make
- * only 50 subrequests on the Free plan. The page sends larger selections
- * in turns. (Photos have one file each until retouched versions can be
- * added; then this counts files, not photos.)
+ * DELETE per version, for each of its files; an R2 object is one delete),
+ * and a Pages request may make only 50 subrequests on the Free plan. A
+ * video has three files (its original and poster in B2, its playback copy
+ * in R2), so about twice a photo's. The page sends larger selections in
+ * turns.
  */
-const PURGE_CHUNK = 10;
+const PURGE_CHUNK = 6;
 
 export const usePurge = routeAction$(async (data, { platform, fail }) => {
   const config = getUploadConfig(platform);
@@ -109,16 +112,19 @@ export const usePurge = routeAction$(async (data, { platform, fail }) => {
   if (picked.length > PURGE_CHUNK) {
     return fail(400, { message: `一度に ${PURGE_CHUNK} 件までです` });
   }
-  // B2 only: a photo with a file in R2 (no binding yet) stays in the
-  // trash, untouched (purgeItems). Its resized copies go from MEDIA_CACHE.
+  // B2 and, with the binding, R2 (a video's playback copy); a photo with
+  // an object in a storage that cannot be reached stays in the trash,
+  // untouched (purgeItems). Its resized copies go from MEDIA_CACHE too.
+  const bucket = getMediaCache(platform);
   const r = await purgeItems(
     db,
     picked,
     async (o) => {
-      await deleteAllVersions(config, o.key);
+      if (o.storage === "r2") await bucket!.delete(r2Key(o.key));
+      else await deleteAllVersions(config, o.key);
     },
-    ["b2"],
-    getMediaCache(platform),
+    bucket ? ["b2", "r2"] : ["b2"],
+    bucket,
   );
   // A camera picture with a deleted row's file can be served by path again.
   if (r.deleted.length > 0) await contentChanged(db);
@@ -276,6 +282,7 @@ export default component$(() => {
                   />
                   <Thumb
                     file={r.file}
+                    video={thumbVideo(r)}
                     platform={r.platform}
                     imageBase={imageBase}
                     variant="list"

@@ -1,4 +1,5 @@
 import { component$ } from "@builder.io/qwik";
+import { formatDuration } from "@shared/video/format";
 import {
   LIST_CANDIDATES,
   dimensionsFromFile,
@@ -8,7 +9,7 @@ import {
   THUMB_EXACT,
 } from "~/lib/images";
 import { platformOf } from "~/lib/platform";
-import type { MediaPlatform } from "~/lib/types";
+import type { MediaPlatform, ThumbVideo } from "~/lib/types";
 import { usePlatformList } from "~/routes/layout";
 import { ProgressivePreview } from "./preview";
 
@@ -41,11 +42,53 @@ type Props = {
   large?: boolean;
   /** Box size/rounding; the aspect ratio is fixed here. */
   class?: string;
+  /**
+   * A video (thumbVideo(row)): a play mark with its length over the
+   * thumbnail, which /thumb makes from its poster (none: the extension).
+   */
+  video?: ThumbVideo | null;
 };
 
+/** The play mark and length over a video's thumbnail. */
+export const VideoBadge = component$<{
+  durationMs: number | null;
+  size: "list" | "preview";
+}>(({ durationMs, size }) => (
+  <span
+    data-testid="video-badge"
+    class={[
+      "pointer-events-none absolute right-1 bottom-1 flex items-center gap-1 rounded bg-black/70 font-medium text-white tabular-nums",
+      size === "preview" ? "px-2 py-1 text-sm" : "px-1 py-0.5 text-[10px]",
+    ]}
+  >
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      class={size === "preview" ? "h-4 w-4" : "h-3 w-3"}
+      fill="currentColor"
+    >
+      <path d="M4 2.5v11l9-5.5z" />
+    </svg>
+    <span class="sr-only">動画</span>
+    {durationMs !== null && <span>{formatDuration(durationMs)}</span>}
+  </span>
+));
+
 export const Thumb = component$<Props>(
-  ({ file, platform, imageBase, variant, exact, large, class: boxClass }) => {
+  ({
+    file,
+    platform,
+    imageBase,
+    variant,
+    exact,
+    large,
+    class: boxClass,
+    video,
+  }) => {
     const box = ["relative aspect-video shrink-0 overflow-hidden", boxClass];
+    const badge = video ? (
+      <VideoBadge durationMs={video.durationMs} size={variant} />
+    ) : null;
     const ext = (
       <span
         class={[
@@ -81,10 +124,24 @@ export const Thumb = component$<Props>(
               </span>
             )}
           </span>
+          {badge}
         </div>
       );
     }
     if (variant === "preview") {
+      if (badge) {
+        return (
+          <div class={box}>
+            <ProgressivePreview
+              file={file}
+              imageBase={imageBase}
+              placeholder={fileExtension(file) || "IMG"}
+              class="absolute inset-0"
+            />
+            {badge}
+          </div>
+        );
+      }
       return (
         <ProgressivePreview
           file={file}
@@ -125,6 +182,7 @@ export const Thumb = component$<Props>(
         >
           {ext}
         </span>
+        {badge}
       </div>
     );
   },

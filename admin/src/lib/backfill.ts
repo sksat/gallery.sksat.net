@@ -165,6 +165,8 @@ type ClaimedRow = SourcedRow & {
   /** The claim as written (the guard of every later write). */
   metadata_read_at: string;
   updated_at: string;
+  /** 0013 (absent in old test tables). */
+  kind?: string;
 };
 
 /**
@@ -195,7 +197,7 @@ export const backfillBatch = async (
            RETURNING id, file, platform, timestamp, exif, latitude, longitude,
                      location_source, world_id, world_name, photographer_id,
                      photographer_name, vrcx, metadata_source, file_exif, digitized_at,
-                     metadata_read_at, updated_at`,
+                     metadata_read_at, updated_at, kind`,
         )
         .bind(...unreadArgs(nowMs), CLAIM + iso(nowMs), limit)
         .all<ClaimedRow>()
@@ -219,7 +221,12 @@ export const backfillBatch = async (
   const results = await Promise.all(
     claimed.map(async (row) => {
       try {
-        const head = await read(row.file, { offset: 0, length: HEAD_BYTES });
+        // A video's metadata is read by the browser at upload
+        // (video-meta.ts), not here: nothing to read, like a missing file.
+        const head =
+          row.kind === "video"
+            ? null
+            : await read(row.file, { offset: 0, length: HEAD_BYTES });
         let tail: Uint8Array | undefined;
         if (head && head.size > head.bytes.length && needsTail(head.bytes)) {
           tail = (await read(row.file, { suffix: TAIL_BYTES }))?.bytes;

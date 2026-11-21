@@ -1,3 +1,4 @@
+import { formatDuration } from "@shared/video/format";
 import { $, component$, useSignal, useTask$, type QRL } from "@builder.io/qwik";
 import {
   Form,
@@ -1316,6 +1317,15 @@ export default component$(() => {
         viewerOpen={viewerOpen}
         onApply$={applyPending}
         onUndo$={undoPending}
+        video={
+          row.kind === "video"
+            ? {
+                hasPoster: row.has_poster === true,
+                durationMs: row.duration_ms,
+                playUrl: `/play/${row.id}/`,
+              }
+            : null
+        }
       />
 
       <div class={[card, "p-5 text-sm"]}>
@@ -1334,6 +1344,20 @@ export default component$(() => {
               <span class={muted}>(none)</span>
             )}
           </dd>
+          {row.kind === "video" && (
+            <>
+              <dt class={["font-medium", muted]}>動画</dt>
+              <dd data-testid="video-info" class="tabular-nums">
+                {[
+                  row.duration_ms !== null && formatDuration(row.duration_ms),
+                  row.width && row.height && `${row.width} × ${row.height}`,
+                  row.video_codec,
+                ]
+                  .filter(Boolean)
+                  .join("・") || <span class={muted}>(不明)</span>}
+              </dd>
+            </>
+          )}
           <dt class={["font-medium", muted]}>Public URL</dt>
           <dd class="min-w-0 break-all">
             {/* Private photos have no working public URL; show it as text. */}

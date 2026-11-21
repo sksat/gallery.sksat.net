@@ -295,6 +295,36 @@ describe("the claim", () => {
     expect(photos[0].source.id).toBe(51);
   });
 
+  it("makes a video's copies from its poster, and none without one (0017)", async () => {
+    const { raw, db } = await setup();
+    raw.exec(`
+      INSERT INTO media (id, public_id, file, platform, visibility, kind)
+        VALUES (40, 'vvvvvvvvv2', '/v/a.mp4', 'Real', 'public', 'video');
+    `);
+    // No poster: nothing to make, and no daily retry.
+    expect((await claimResized(db, { ids: [40], nowMs: NOW })).photos).toEqual(
+      [],
+    );
+    expect(stateOf(raw, 40)).toMatch(/^\d/);
+    // A poster that becomes ready puts it back to waiting.
+    raw.exec(`
+      INSERT INTO media_file (id, media_id, role, object_key, source_file_id, status)
+        VALUES (41, 40, 'poster', '/.poster/p.jpg', ${originalOf(raw, 40)}, 'uploading');
+    `);
+    expect(stateOf(raw, 40)).toMatch(/^\d/);
+    raw.exec("UPDATE media_file SET status = 'ready' WHERE id = 41");
+    expect(stateOf(raw, 40)).toBeNull();
+    const { photos } = await claimResized(db, { ids: [40], nowMs: NOW });
+    expect(photos[0].source).toEqual({
+      id: 41,
+      storage: "b2",
+      key: "/.poster/p.jpg",
+      role: "poster",
+    });
+    raw.exec("DELETE FROM media_file WHERE id = 41");
+    expect(stateOf(raw, 40)).toBeNull();
+  });
+
   it("is finished only while it holds", async () => {
     const { raw, db } = await setup();
     const [p] = (await claimResized(db, { ids: [2], nowMs: NOW })).photos;

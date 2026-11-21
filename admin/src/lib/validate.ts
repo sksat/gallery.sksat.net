@@ -604,6 +604,28 @@ const PHOTO_PICTURE_NAME_ERROR = {
   error: "<数字>.photo.jpg は使えない名前です（名前を変えてください）",
 };
 
+const VIDEO_EXT_RE = /\.(mp4|mov|webm)$/i;
+
+/** What a media path's extension says it is, or null for neither. */
+export const mediaKindOfPath = (path: string): "image" | "video" | null =>
+  IMAGE_EXT_RE.test(path) ? "image" : VIDEO_EXT_RE.test(path) ? "video" : null;
+
+/**
+ * A media row's path (media.file / media.path): validateImageFile's rules,
+ * but a video's extension (mp4 / mov / webm) is accepted too. Camera
+ * pictures stay images only (validateImageFile).
+ */
+export const validateMediaFile = (
+  input: unknown,
+): { ok: true; file: string } | { ok: false; error: string } => {
+  if (typeof input === "string" && VIDEO_EXT_RE.test(input.trim())) {
+    // The same path rules, checked on the name as if it were an image.
+    const v = validateImageFile(input.trim().replace(VIDEO_EXT_RE, ".png"));
+    return v.ok ? { ok: true, file: input.trim() } : v;
+  }
+  return validateImageFile(input);
+};
+
 export type ValidateCameraImageResult =
   | { ok: true; image: { file: string; caption: string | null } }
   | { ok: false; error: string };

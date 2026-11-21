@@ -24,6 +24,26 @@ const plan = (moves: Parameters<typeof planMoves>[1], t = tree) => {
   return r.plan;
 };
 
+describe("planMoves of a video", () => {
+  const withVideo: Tree = {
+    photos: [...tree.photos, { id: 9, path: "/Real/clip.mp4" }],
+    folders: [],
+  };
+  it("renames it, but never into a photo's extension or back", () => {
+    expect(
+      plan([{ kind: "photo", id: 9, to: "/Real/trip.MOV" }], withVideo),
+    ).toMatchObject({
+      photos: [{ id: 9, from: "/Real/clip.mp4", to: "/Real/trip.MOV" }],
+    });
+    expect(
+      planMoves(withVideo, [{ kind: "photo", id: 9, to: "/Real/clip.png" }]),
+    ).toEqual({ ok: false, error: "/Real/clip.png は拡張子の種類が違います" });
+    expect(
+      planMoves(withVideo, [{ kind: "photo", id: 4, to: "/Real/x.mp4" }]).ok,
+    ).toBe(false);
+  });
+});
+
 describe("planMoves", () => {
   it("moves photos into another folder and keeps their old folder", () => {
     expect(

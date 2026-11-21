@@ -10,6 +10,8 @@ import {
 import { useLocation, useNavigate } from "@builder.io/qwik-city";
 import { overlayClass } from "@shared/overlay/styles";
 import { splitPath } from "~/lib/format";
+import { transport } from "~/lib/upload-client";
+import { frameToJpeg, replacePoster } from "~/lib/video-client";
 import { LIST_CANDIDATES, imageUrl, srcSet } from "~/lib/images";
 import type { Neighbors } from "~/lib/neighbors";
 import { OVERLAY_BOX_WIDTH_RATIO, pickOverlayPreset } from "~/lib/progress";
@@ -31,7 +33,12 @@ import {
   togglePending,
   type Pending,
 } from "~/lib/review-pending";
-import { VISIBILITIES, type MediaPlatform, type Visibility } from "~/lib/types";
+import {
+  VISIBILITIES,
+  type MediaPlatform,
+  type ThumbVideo,
+  type Visibility,
+} from "~/lib/types";
 import { FullscreenImage } from "./fullscreen-image";
 import { Thumb } from "./thumb";
 import {
@@ -71,6 +78,8 @@ type Props = {
     (changes: { id: number; visibility: Visibility }[]) => Promise<ApplyResult>
   >;
   onUndo$: QRL<(changes: UndoChange[]) => Promise<ApplyResult>>;
+  /** A video: played on the page from `playUrl`; thumbnails from its poster. */
+  video?: (ThumbVideo & { playUrl: string; hasPoster: boolean }) | null;
 };
 
 /** How long a choice shows before the viewer moves on. */
@@ -93,6 +102,43 @@ type Notice = { text: string; tone: "ok" | "error"; undo?: UndoChange[] };
 export const PhotoPreview = component$<Props>((props) => {
   const dialog = useSignal<HTMLDialogElement>();
   const trigger = useSignal<HTMLButtonElement>();
+  const videoEl = useSignal<HTMLVideoElement>();
+  const posterBusy = useSignal(false);
+  const posterNote = useSignal<string | null>(null);
+  /** The frame the player shows becomes the video's poster. */
+  const makePoster = $(async () => {
+    const el = videoEl.value;
+    if (!el || posterBusy.value) return;
+    posterBusy.value = true;
+    posterNote.value = "ポスターを作っています…";
+    try {
+      // A frame must be decoded: without one, show the first second.
+      if (el.readyState < 2) {
+        await new Promise<void>((resolve, reject) => {
+          el.addEventListener("seeked", () => resolve(), { once: true });
+          el.addEventListener("error", () => reject(new Error("decode")), {
+            once: true,
+          });
+          el.currentTime = Math.min(1, (el.duration || 2) / 2);
+        });
+      }
+      const jpeg = await frameToJpeg(el);
+      if (!jpeg) {
+        posterNote.value = "このブラウザでは動画の場面を取り出せません";
+        return;
+      }
+      await replacePoster(props.id, jpeg, transport);
+      posterNote.value = "ポスターを付けました";
+      await nav(loc.url.href, { forceReload: true });
+    } catch (err) {
+      posterNote.value =
+        err instanceof Error && err.message !== "decode"
+          ? err.message
+          : "このブラウザでは動画を読めません";
+    } finally {
+      posterBusy.value = false;
+    }
+  });
   const open = useSignal(false);
   const busy = useSignal(false);
   const pending = useSignal<Pending>({});
@@ -388,11 +434,57 @@ export const PhotoPreview = component$<Props>((props) => {
     />
   );
 
+  const video = props.video ?? null;
   return (
     <>
+      {video && (
+        // A video plays on the page (its copy, /play/<id>); the viewer
+        // below still steps through the list with the poster.
+        <div class="flex flex-col gap-2">
+          <video
+            ref={videoEl}
+            data-testid="admin-video"
+            controls
+            preload="metadata"
+            playsInline
+            src={video.playUrl}
+            poster={
+              // /thumb resolves a video's file to its poster.
+              video.hasPoster && props.imageBase
+                ? imageUrl(props.imageBase, props.file, "w1200")
+                : undefined
+            }
+            class={[boxClass, "w-full bg-black"]}
+          />
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <button
+              ref={trigger}
+              type="button"
+              onClick$={openViewer}
+              class="text-sky-700 underline dark:text-sky-300"
+            >
+              全画面で順に見る
+            </button>
+            <button
+              type="button"
+              disabled={posterBusy.value}
+              onClick$={makePoster}
+              class="text-sky-700 underline disabled:opacity-50 dark:text-sky-300"
+            >
+              {video.hasPoster ? "この場面をポスターにする" : "ポスターを作る"}
+            </button>
+            {posterNote.value && (
+              <span role="status" class="text-zinc-600 dark:text-zinc-300">
+                {posterNote.value}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       <button
-        ref={trigger}
+        ref={video ? undefined : trigger}
         type="button"
+        hidden={video !== null}
         aria-label="写真を全画面で表示"
         aria-haspopup="dialog"
         onClick$={openViewer}
@@ -401,13 +493,15 @@ export const PhotoPreview = component$<Props>((props) => {
         onTouchEnd$={swipeEnd}
         class="block w-full cursor-zoom-in rounded-xl"
       >
-        <Thumb
-          file={props.file}
-          platform={props.platform}
-          imageBase={props.imageBase}
-          variant="preview"
-          class={boxClass}
-        />
+        {!video && (
+          <Thumb
+            file={props.file}
+            platform={props.platform}
+            imageBase={props.imageBase}
+            variant="preview"
+            class={boxClass}
+          />
+        )}
       </button>
       {/* On the page: the same bar, while the viewer is closed. */}
       {!open.value && (
@@ -505,12 +599,23 @@ export const PhotoPreview = component$<Props>((props) => {
               )}
             </span>
           </div>
-          <FullscreenImage
-            file={props.file}
-            imageBase={props.imageBase}
-            open={open.value}
-            boxClass="max-h-[calc(100dvh-14rem)]"
-          />
+          {video && !video.hasPoster ? (
+            // Nothing to show but what it is (the edit page can make a
+            // poster from its player).
+            <div
+              data-testid="viewer-no-poster"
+              class="grid aspect-video w-full max-w-4xl place-items-center rounded-xl bg-zinc-800 text-sm text-white/80"
+            >
+              動画（ポスターなし）
+            </div>
+          ) : (
+            <FullscreenImage
+              file={props.file}
+              imageBase={props.imageBase}
+              open={open.value}
+              boxClass="max-h-[calc(100dvh-14rem)]"
+            />
+          )}
           <div
             stoppropagation:click
             class="flex w-full max-w-4xl flex-col items-center gap-2"

@@ -55,7 +55,12 @@ import {
   type SelKey,
 } from "~/lib/selection";
 import { formatDecimalBytes } from "~/lib/storage";
-import { VISIBILITIES, type MediaPlatform, type Visibility } from "~/lib/types";
+import {
+  thumbVideo,
+  VISIBILITIES,
+  type MediaPlatform,
+  type Visibility,
+} from "~/lib/types";
 import { ContextMenu, type MenuItem } from "./context-menu";
 import { CameraGlyph, CameraOverlay } from "./camera-label";
 import { PlatformBadge } from "./platform-badge";
@@ -107,6 +112,9 @@ export type FileTile = {
   camera_name: string | null;
   /** Its tags (which tag fields a bulk change offers). */
   tags: string[];
+  /** 0017: a video shows a play mark with its length. */
+  kind: "image" | "video";
+  duration_ms: number | null;
 };
 
 type Props = {
@@ -1608,6 +1616,7 @@ export const FileBrowser = component$<Props>(
                         <>
                           <Thumb
                             file={f.file}
+                            video={thumbVideo(f)}
                             platform={f.platform}
                             imageBase={imageBase}
                             variant="list"
@@ -1678,6 +1687,7 @@ export const FileBrowser = component$<Props>(
                           <span class="relative block">
                             <Thumb
                               file={f.file}
+                              video={thumbVideo(f)}
                               platform={f.platform}
                               imageBase={imageBase}
                               variant="list"
