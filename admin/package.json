@@ -42,7 +42,7 @@
     "@tailwindcss/vite": "^4.3.5",
     "@types/node": "^22.0.0",
     "ignore": "^7.0.0",
-    "maplibre-gl": "6.16.0",
+    "maplibre-gl": "6.19.0",
     "tailwindcss": "^4.3.5",
     "tsx": "^4.23.15",
     "typescript": "^5.3.2",
