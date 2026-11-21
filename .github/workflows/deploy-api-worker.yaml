@@ -24,6 +24,8 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # The deploy secrets live in this environment, which only main can use.
+    environment: production
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
