@@ -50,14 +50,31 @@ const fakeBucket = () => {
     delete: vi.fn(async (keys: string | string[]) => {
       for (const k of [keys].flat()) objects.delete(k);
     }),
-    list: vi.fn(async ({ prefix, limit = 1000 }: { prefix: string; limit?: number }) => ({
-      objects: [...objects.keys()]
-        .filter((k) => k.startsWith(prefix))
-        .sort()
-        .slice(0, limit)
-        .map((key) => ({ key, customMetadata: objects.get(key)!.meta })),
-      truncated: false,
-    })),
+    // Pages of at most 3 (whatever `limit` asks), the cursor being the
+    // index of the next, so paging is exercised.
+    list: vi.fn(
+      async ({
+        prefix,
+        limit = 1000,
+        cursor,
+      }: {
+        prefix: string;
+        limit?: number;
+        cursor?: string;
+      }) => {
+        const keys = [...objects.keys()]
+          .filter((k) => k.startsWith(prefix))
+          .sort();
+        const from = Number(cursor ?? 0);
+        const size = Math.min(limit, 3);
+        const page = keys
+          .slice(from, from + size)
+          .map((key) => ({ key, customMetadata: objects.get(key)!.meta }));
+        return from + size < keys.length
+          ? { objects: page, truncated: true, cursor: String(from + size) }
+          : { objects: page, truncated: false };
+      },
+    ),
   };
   return bucket;
 };
@@ -234,6 +251,20 @@ describe("fillCopies", () => {
     expect(bucket.objects.get("og-wanted/8f4pau5wqb")?.meta).toEqual({
       "for-browser": "1",
     });
+  });
+
+  it("reaches a request past pages of ones left to the browser", async () => {
+    const { env, bucket } = envWith([]);
+    for (const id of ["2222222222", "3333333333", "4444444444", "5555555555"]) {
+      bucket.objects.set(`og-wanted/${id}`, {
+        body: new Uint8Array(),
+        meta: { "for-browser": "1" },
+      });
+    }
+    bucket.objects.set("og-wanted/8f4pau5wqb", { body: new Uint8Array() });
+    expect(await fillCopies(env, NOW)).toBe(1);
+    expect(bucket.objects.has("og-wanted/8f4pau5wqb")).toBe(false);
+    expect(bucket.objects.get(KEY("og"))?.meta?.caption).toContain("JST");
   });
 
   it("leaves a card it cannot draw to the browser, and passes over it after", async () => {

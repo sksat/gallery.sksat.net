@@ -60,6 +60,9 @@ export const RUN_PHOTOS = 5;
 /** og card requests looked at per run. */
 export const RUN_CARDS = 10;
 
+/** Listings of card requests read per run at most (1,000 each). */
+export const CARD_PAGES = 5;
+
 /** Where today's count of transformations is kept (UTC date). */
 export const dayKey = (nowMs: number): string =>
   `state/transforms/${new Date(nowMs).toISOString().slice(0, 10)}`;
@@ -269,16 +272,26 @@ export const remakeCards = async (
 ): Promise<{ transforms: number; stop: boolean }> => {
   let transforms = 0;
   let tried = 0;
-  // Up to 1,000 requests in one listing (one Class A operation), with
-  // their metadata: the ones left to the browser are passed over.
-  const listed = await bucket.list({
-    prefix: CARD_WANTED_PREFIX,
-    limit: 1000,
-    include: ["customMetadata"],
-  } as R2ListOptions);
+  // The requests with their metadata, 1,000 a listing (one Class A
+  // operation each); the ones left to the browser are passed over, and
+  // later pages are read until there is work (at most CARD_PAGES).
+  const pending: R2Object[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < CARD_PAGES; page++) {
+    const listed = await bucket.list({
+      prefix: CARD_WANTED_PREFIX,
+      limit: 1000,
+      include: ["customMetadata"],
+      ...(cursor ? { cursor } : {}),
+    } as R2ListOptions);
+    pending.push(
+      ...listed.objects.filter((o) => !o.customMetadata?.[CARD_FOR_BROWSER]),
+    );
+    cursor = listed.truncated ? listed.cursor : undefined;
+    if (!cursor || pending.length >= RUN_CARDS) break;
+  }
   const origin = env.PUBLIC_ORIGIN ?? "https://gallery.sksat.net";
-  for (const o of listed.objects) {
-    if (o.customMetadata?.[CARD_FOR_BROWSER]) continue;
+  for (const o of pending) {
     if (tried >= RUN_CARDS || transforms + 1 > budget) break;
     tried++;
     const publicId = o.key.slice(CARD_WANTED_PREFIX.length);
