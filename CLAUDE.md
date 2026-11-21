@@ -1,172 +1,87 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Photo gallery for gallery.sksat.net on Cloudflare. This repo holds four deployables and their shared code:
 
-## Project Overview
+- `src/`: the public gallery (Qwik City on Pages). It reads everything through the API Worker.
+- `workers/api/`: read-only JSON API over the admin's D1 (`/api/*`, plus RPC methods for the image Worker).
+- `workers/image/`: serves resized photos and og cards at `/img/*`, and the admin's thumbnails over RPC (`AdminImage`).
+- `admin/`: the admin app, a separate pnpm project that owns the D1 schema (`admin/migrations/`). See [admin/CLAUDE.md](admin/CLAUDE.md).
+- `shared/`: code used by both apps (`@shared/*`). Keep it plain TS: a Qwik component there would resolve the root's Qwik from the admin and could bundle two copies. The gallery never imports from `admin/`, nor the admin from `src/`.
 
-This is a photo/image gallery web application built with **Qwik** and **QwikCity**, designed for deployment on **Cloudflare Pages**. It displays photos from two categories: "Real" (real-world photos) and "VRChat" (VRChat screenshots). Images are served from an S3-compatible storage (resized by the image Worker); metadata lives in the admin's D1 and is read through the API Worker.
+How they connect: [docs/architecture.d2](docs/architecture.d2) (rendered as `docs/architecture.svg`; re-render with `d2 --layout elk docs/architecture.d2 docs/architecture.svg` when bindings change).
 
-## Essential Commands
+## Motivation and design intent
 
-This project uses **pnpm** 12 as the package manager (pinned via `packageManager` in `package.json`; `admin/` pins the same version). If your `pnpm` is a different major, run it as `npx -y pnpm@<that version>`. pnpm settings live in `pnpm-workspace.yaml` (root and `admin/` each have one), not in `package.json`. pnpm refuses packages published less than 3 days ago (`minimumReleaseAge: 4320` in both workspace files, equal to `minimumReleaseAge` in `renovate.json`; keep the three in sync); if an install fails on a just-released version, wait rather than lowering it.
+- A personal gallery of photos: taken in the real world, scanned from film and other analog originals, and taken in VRChat and other virtual platforms. They are all photos; do not call the VRChat ones screenshots.
+- The owner decides, per photo, whether it is shown at all (private by default) and how much of its metadata is public (the place and the scanner are hidden by default). Publishing too much is the failure that cannot be undone, so every public path goes through one projection and private data fails closed.
+- It should run at near zero cost on Cloudflare's free tiers for years while the library grows. Costs that scale with the number of photos every month (e.g. transforming every photo again each month) are design bugs; prefer doing work once and storing the result. When a choice has a cost, show the estimate (a chart in the PR) before deciding.
+- D1 is the single source of truth, written only by the admin; the public side only reads, through the API Worker. There is no publish step: a change is live within about a minute.
+- The admin is a tool the owner uses on a phone as much as on a desktop, often for batches of photos.
 
-### Development
+## How we work
 
-```bash
-pnpm start          # Start dev server with SSR (opens browser)
-pnpm dev            # Start dev server without opening browser
-pnpm run dev.debug  # Start dev server with Node inspector for debugging
-```
+- Make the UI intuitive by following common conventions (a desktop file manager's selection, undo in a toast) rather than adding explanatory text or modes. Every change can be undone; prefer undo to confirmation dialogs, except for deletions that cannot be undone.
+- Error messages state a cause only when the code knows it; otherwise keep them short and neutral, followed by what the user can do.
+- Keep compatibility shims (old URL forms, aliases) only as long as a deploy needs them, except redirects for links that were shared.
+- Names in URLs, tables and API paths are singular (`camera`, `photo`; `media` is a mass noun).
+- UI text is Japanese and written plainly: 「デフォルト」 rather than 「既定」, no coined terms.
+- Keep this file to what the code does not tell you: intent, rules and outside constraints. Do not add descriptions of how features work; the code and its tests say that.
 
-### Building
+## Hard rules
 
-```bash
-pnpm run build             # Full production build (client + server + types)
-pnpm run build.client      # Build client only
-pnpm run build.server      # Build Cloudflare Pages server adapter
-pnpm run build.types       # Type check only (no emit)
-```
+- Do not write to the production D1 or apply migrations to it from a dev session. The admin is the only writer, and migrations are applied on purpose by the owner.
+- Do not bypass git hooks (`--no-verify`, `--no-gpg-sign`).
+- Do not blindly accept snapshot updates. Open the diff and confirm the change is intended.
+- Never point tests at the production API, B2 or S3 URLs.
 
-### Preview & Deployment
+## Things the code does not tell you
 
-```bash
-pnpm preview    # Preview production build locally
-pnpm serve      # Preview with Wrangler (Cloudflare Pages simulation)
-pnpm deploy     # Deploy to Cloudflare Pages
-```
+### Owned outside this repo
 
-### Code Quality
+- Worker shells, their routes (`gallery.sksat.net/api/*`, `/img/*`) and the R2 bucket are managed by external Terraform. Never add `routes` to a Worker's `wrangler.jsonc` (cron `triggers` may live there).
+- Pages build watch paths are set in the Cloudflare dashboard: the gallery project skips pushes that only touch `admin/*`; the admin project builds only when `admin/*` or `shared/*` changes. If you add another directory both apps import, it must be added to the admin's watch paths too.
+- Pages bindings come only from each `wrangler.jsonc` (with `pages_build_output_dir` set, dashboard bindings are ignored).
+- `main` is protected: changes land through PRs with passing CI. The Workers deploy from `main` via `.github/workflows/deploy-*-worker.yaml`; the Pages projects deploy through the Git integration.
 
-```bash
-pnpm lint       # ESLint on src/**/*.ts*
-pnpm fmt        # Format code with Prettier
-pnpm run fmt.check  # Check formatting
-```
+### Deploy ordering
 
-### Testing
+- A migration must be applied to production D1 before any code that reads its columns is merged, since the admin and both Workers deploy automatically from `main` and nothing applies migrations for you. The API Worker's queries read admin tables directly (`workers/api/src/query.ts`).
+- A Worker RPC method or binding target must be deployed before the code that calls it (e.g. a new `AdminImage` method before the admin uses it).
 
-```bash
-pnpm test                # Vitest watch mode (pure functions in src/**/*.spec.ts)
-pnpm run test.coverage   # Vitest with coverage report
-pnpm run test.e2e        # Playwright E2E (e2e/*.spec.ts)
-pnpm run test.vrt        # Visual regression (e2e/vrt/*.vrt.spec.ts, toHaveScreenshot)
-pnpm run test.vrt.update # Regenerate VRT baselines (commit the diff)
-```
+### Cloudflare Free plan limits (the design follows from these)
 
-## Architecture
+- **D1: 5M rows read per day.** Every row or index entry a query visits counts. The API Worker therefore keeps every answer in the Cache API per content version (`workers/api/src/last-good.ts`) and reads D1 only after the admin bumps the `setting` row `content_version`. Any admin write that changes what the API answers must bump it (`contentChanged`, or `contentVersionStatement` inside the same batch).
+- **Workers: 10 ms CPU, 128 MB, 50 subrequests.** The image Worker never decodes images: resizing is done by Image Transformations (`cf.image`), EXIF is inserted by editing the container only, and bodies are streamed.
+- **Image Transformations: 5,000 unique transformations per month**, then error 9422. Only the presets in `workers/image/src/request.ts` exist; never add one per call site. Resized copies are made once and stored in R2 (`shared/resized/`) so they are not counted again each month. Transformations are cached and counted by source URL and `cf.cacheKey` is Enterprise-only, so the presigned B2 GET URL is kept stable over a 6-day window (`workers/image/src/origin.ts`); do not sign per request.
 
-### Routing & File Structure
+### Privacy invariants
 
-- **File-based routing**: Routes defined in `src/routes/` directory
-- **Layout system**: `src/routes/layout.tsx` provides shared layout (Header/Footer) with caching configuration
-- **Dynamic routes**: `/photo/[imageId]/` is the photo's URL (`imageId` is the photo's public id; old numeric URLs are gone): its canonical, shared URL, which shows the list carried in its query (the whole gallery without one; `?camera=<slug>` for a camera's) with the photo open in the overlay, exactly as a click on its tile does. `/photo/[imageId]/detail/` is its detail page: the photo large, all its public metadata, its camera, its day (`MiniCalendar`) and place (`MiniMap`), and previous / next and a back link within the list carried in its query (`src/components/gallery/photo-detail.tsx`, `detail.ts`). Both load the photo in `src/routes/photo/[imageId]/layout.tsx` (404 for a private one, 503 when the API fails) and have the same head (`photoHead`: the photo's og card, `noindex` when unlisted, and the photo's URL as `canonical` and `og:url` of both, so the detail page is not a second page of the photo for search), `/camera/` (list of cameras with photos) and `/camera/[slug]/` for a camera's details and its photos (route paths are singular; see `src/components/gallery/cameras.ts`), and `/calendar/` (the newest month with photos), `/calendar/<yyyy>/` (the year, days shaded by count) and `/calendar/<yyyy>/<mm>/` (a month, each day with its first photo). The calendar is counted from the same `/api/media` list the layout loads (no extra API call), by each photo's public date in its own offset, cut to its `taken_at` level: month-only photos count in the month but on no day, year-only ones only in the year, hidden ones nowhere (`shared/calendar/calendar.ts`, shared with the admin; `src/components/gallery/calendar.ts`). A day opens the gallery with `?date=YYYY-MM-DD` (or `YYYY-MM` / `YYYY`), which the overlay and the photo page keep (`/photo/<id>/?date=…`). `/map/` places the public photos whose position is public (`location` from the API, already rounded to its level and rounded again by `parseLocation`; photos on a virtual platform such as VRChat never): exact ones as pins, coarser ones as an area (a circle the size of the rounding cell, `shared/map/map.ts`) with a ring marker; markers are DOM buttons merged per zoom by `clusterByGrid`, a click opens the photos' popup, and the list under the map is the keyboard way in. `?photo=<public_id>` opens on that photo's place. `MiniMap` (`src/components/map/mini-map.tsx`) is the small map for a photo's page
-- **Map library and tiles**: MapLibre GL JS (pinned exact in `package.json`), loaded only by the map components' visible tasks (`src/components/map/maplibre.ts`: the library, its worker and its CSS are separate chunks; the CSS is imported `?inline` and put in a `<style>`, because Qwik lists every CSS asset of the build, `?url` ones too, in every page's head), with OpenFreeMap's dark style (`https://tiles.openfreemap.org/styles/dark`: free, no key, no registration, no request limit, commercial use allowed; MapLibre shows the sources' attribution, © OpenMapTiles / Data from OpenStreetMap). Not OpenStreetMap's own tile servers: their usage policy does not cover an app's map. `VITE_MAP_STYLE_URL` overrides the style; tests set it to `public/test-media/map-style.json` (a background only, no tiles), and the map E2E fails on any request that leaves 127.0.0.1. VRT hides the WebGL canvas (`style`), so markers, popups and the list are what is compared
-- **Path alias**: `~/` maps to `./src/` (configured in tsconfig.json)
+- Which metadata of a photo is public is decided in one place, `projectPhoto` (`workers/api/src/query.ts`, levels in `metadata.ts`; the admin has a copy checked by a test). Served images get EXIF built only from that projection; never pass an original's metadata through.
+- Private photos, unfinished uploads and trashed photos never leave the API Worker or the public `/img/*` handler. Unlisted photos open only by their own URL and never join a list.
+- Private photos must never enter a shared cache: `AdminImage` (reachable only through the admin's `IMAGES` service binding, and it verifies the Access JWT itself) never uses `caches.default`, and its file fallback (`X-Image-Fallback: original`) exists only there.
+- The B2 bucket is private. Only the image Worker reads originals (read-only key); the admin only signs the browser's uploads and deletes objects.
+- If an Access application is added to the admin, add its AUD to `ACCESS_AUD` in both `admin/wrangler.jsonc` and `workers/image/wrangler.jsonc`.
 
-### Core Components
+### External services
 
-**Gallery Component** (`src/components/gallery/gallery.tsx`)
+- Map tiles come from OpenFreeMap (no key, no limit). Never use OpenStreetMap's own tile servers: their usage policy does not cover an app's map. MapLibre GL JS is loaded only from the map components' visible tasks.
 
-- Main UI component managing photo display and navigation
-- Reads the photo and camera lists from `useGalleryIndex` (the layout's route loader, which asks the API Worker; `src/lib/api.ts`)
-- State management: tag filter (AND/OR; the photo's platform (the API's `platform` key, one of the admin's `platform` rows such as Real / VRChat / Neos VR, shown by its `platform_name`) is treated as one more tag, see `tags.ts`), selected image overlay
-- Keyboard navigation: Arrow keys to browse within the filtered photos when an image is selected
-- Grid layout: justified rows that keep each photo's aspect ratio (`src/components/gallery/tile.ts`): a tile's basis is the row height (`--row-h`, stepping with the width) times its ratio (`--ar`), its `flex-grow` that ratio and its `aspect-ratio` too, so a row's tiles widen by one factor, stay one height and are not cropped; a filler with a huge grow keeps the last row at the row height. The ratio comes from the API's `width` / `height` (as displayed, after the EXIF orientation; admin migration `0016_media_size.sql`; null while an edit is the shown file, and never taken from a VRChat file name, which describes the original), else 3:2 until the image loads and then its natural size (`onLoad$`, plus a visible task for images that loaded before resuming)
-- URL history: the filter lives in the query (`?tag=a&tag=b&mode=or`, replaceState); selecting an image pushes the photo's URL, `/photo/<id>/?<list query>` (with `camera=<slug>` from a camera page; `photoUrl`), over the list (`/` or `/camera/<slug>/`) and marks that entry in `history.state`; ←/→ and swipes replace it with the next photo's (keeping its mark), and closing goes `history.back()` to the list entry (`galleryStateFromUrl` reads either URL back on popstate). A photo URL loaded as it is (a shared link, a reload in a new tab) has no list entry under it: closing replaces it with the list URL (an unknown `?camera=` dropped). So Cloudflare Web Analytics, which records SPA path changes but not query strings, counts each overlay view as `/photo/<id>/`, and a reload or a shared URL opens the same overlay over the same list. There is no `?photo=` on a list any more (the map's `?photo=` is its own). The overlay is the quick viewer (info panel, share, ←/→ and swipes); its 詳細 button (a plain link) or Enter loads the detail page, `/photo/<id>/detail/?<list query>` (`photoDetailUrl`), as a new entry, so Back from it returns to the overlay. Share always copies `/photo/<id>/`. Web Analytics counts both paths; the admin adds `/photo/<id>/detail` to the photo's views (`parsePhotoPath`, `classifyPath`)
-- Visibility: lists contain public photos only. An unlisted photo opens only by its own URLs (`/photo/<id>/` and `/photo/<id>/detail/`, both `noindex`, no previous / next); it never joins the grid, the tag counts, the sort or the arrow-key order. Its photo URL shows it in the overlay over the whole gallery (the route passes the photo to `Gallery`, since no list has it), and closing goes to the gallery. Private photos are 404 on both.
+## Tooling
 
-**Media Data Flow**
+- pnpm 12, pinned by `packageManager` (root and `admin/`); with a different major, run `npx -y pnpm@<version>`. Settings live in `pnpm-workspace.yaml`.
+- `minimumReleaseAge` is 4320 in both `pnpm-workspace.yaml` files and in `renovate.json`; keep the three in sync. If an install fails on a just-released version, wait; never lower it or exclude the package.
 
-1. The admin's D1 (`gallery-admin`) is the source of truth; the API Worker (`workers/api`) serves `/api/media`, `/api/media/<public_id>`, `/api/camera`, `/api/camera/<slug>`
-2. Route loaders reach it through the Pages service binding `API` (root `wrangler.jsonc`), or `VITE_API_BASE_URL` without one (dev, tests)
-3. Images are addressed by public id at the image Worker (`/img/<public_id>?size=<preset>`); without `VITE_IMAGE_BASE_URL` (dev, tests) the originals under `VITE_S3_BASE_URL` are used
-4. A photo's files (its original, retouched versions, display copies; admin migration `0013_media_file.sql`, `media_file`) never appear in the API's answers: the image Worker resizes the file the photo shows (`media.active_file_id`, NULL = the original) or that file's display copy, which only its RPC lookups resolve
+## Tests
 
-### Environment Configuration
-
-- `.env.local`: Development (local media serving; the production API by default)
-- `.env.production`: Production (S3, image Worker and API base URLs)
-- Variables: `VITE_S3_BASE_URL` (originals), `VITE_IMAGE_BASE_URL` (image Worker; optional), `VITE_API_BASE_URL` (API Worker, when there is no `API` binding)
-- Root `wrangler.jsonc` holds the Pages project's runtime bindings (`API` → `gallery-api`); with `pages_build_output_dir` set, Pages ignores bindings set in the dashboard
-
-### Deployment (Cloudflare Pages)
-
-- Adapter: `@builder.io/qwik-city/adapters/cloudflare-pages`
-- Entry point: `src/entry.cloudflare-pages.tsx`
-- Build config: `adapters/cloudflare-pages/vite.config.ts`
-- Output: `dist/` directory
-- Routing: Auto-generated `_routes.json` for SSR/static file handling
-- Build watch paths (set in the Cloudflare dashboard, not in the repo): `gallery-sksat-net` skips pushes that only touch `admin/*`, and `admin-gallery-sksat-net` builds only when `admin/*` or `shared/*` changes.
-- Shared code: code used by both the gallery and admin lives in `shared/` (imported as `@shared/*`, a tsconfig path in both apps; admin's Vite allows `../shared` in dev, and both apps' CSS has `@source` on it so Tailwind classes there are generated). Keep it plain TS (no Qwik components: a `.tsx` there would resolve the root's Qwik from admin and could bundle two copies). Its tests (`shared/**/*.spec.ts`) run in the root Vitest. Nothing else is shared: the gallery does not import from `admin/` nor admin from `src/`. If another shared directory is added, add it to the admin project's watch paths too, or a change there will not redeploy admin.
-- `shared/overlay/`: the photo overlay's download-with-progress, preset choice and class strings, used by the gallery's `PhotoOverlay` and the admin's full-screen preview so both look and load the same.
-
-### Image Worker (`workers/image/`)
-
-- Serves resized photos at `gallery.sksat.net/img/<public_id>?size=<preset>`: it resolves the id through the API Worker's `photo` RPC (`API` service binding to `gallery-api`; its answers are kept per content version like the HTTP ones), so private photos get 404. A photo, by id or by path, is resized from the RPC's `source` (`{ storage, key }`): the file the photo shows (its original or a retouched version, admin `media_file`) or that file's newest ready display copy; the original when an older API gives none. Only `b2` can be fetched (an `r2` source is a 503 until there is a binding), and the edge cache keys on that key, so switching the shown file changes the cache entry. `/img/<path>?size=<preset>` serves a public photo by its display path when its file name level is `path` (so it follows a move; the old path of a moved photo is 404) and a camera picture by its bucket path (the API's `pathAccess` RPC); unlisted and private photos are therefore not reachable through their guessable paths. Routing (`parseImageUrl`, `request.ts`): one segment of 10 public-id letters is an id, anything else must be a path with an image extension; `size` is optional (`w1200`) and the only query parameter (anything else, an unknown size or a card size on a path is 400); `og` only by id, `og-site` by id or for a camera picture by path (the camera page's card). The old path form `/img/<preset>/<path>` is gone (404), and so is the old id form `/img/<preset>/<public_id>`. The edge cache keys on the bucket key, size, output format (and an `og` caption, or the digest of a resized photo's EXIF), so an id and a path share an entry; after a move or a level change, browsers may keep a copy for up to the 1 h `max-age`. The public `fetch` handler has no trusted-caller branch: the admin's thumbnails (private photos included) come from a separate named RPC entrypoint, `AdminImage.image(accessJwt, file, preset, accept)` (the admin passes the key of the file to resize, resolved from its own D1), reachable only through a service binding that names it (the admin's `IMAGES`), and which itself verifies the admin request's Cloudflare Access JWT (`workers/image/src/admin-auth.ts`, `ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` vars, same values as the admin's) before serving anything. When a resize fails there (any status but 404, e.g. 429 / error 9422 once the month's transformations are used up), the large presets (w1200…w3840, the admin's edit-page photo and full-screen viewer) answer with the file itself, streamed whatever its size through the presigned GET, with its content type, `Cache-Control: private, max-age=300` and `X-Image-Fallback: original` (`workers/image/src/fallback.ts`); thumbnails (h240/h480) keep failing. The public handler never does this (a file carries its full EXIF/XMP): a failed resize there is an error, also a 2xx whose `Cf-Resized` says `err=`. The same entrypoint's `stat(accessJwt, file)` reads an original's first byte (a ranged GET with a timeout, not a HEAD, which hung in production; size from Content-Range, ETag, `x-amz-meta-sha256`; `workers/image/src/stat.ts`) so the admin can check an upload, whose own key cannot read. `bytes(accessJwt, file, range)` returns up to 256 KiB of an original (`{ offset, length }` or the last `{ suffix }` bytes; `workers/image/src/bytes.ts`) for the admin's metadata backfill. The Worker shell and that route are managed by Terraform outside this repo; do not add `routes` to `workers/image/wrangler.jsonc`. It fetches the original from B2 with `cf.image`, so Cloudflare Image Transformations does the resize; the Worker itself cannot decode the 8K PNGs within 128MB / 10ms CPU (Free plan).
-- Originals: with the secrets `B2_KEY_ID` / `B2_APPLICATION_KEY` (a read-only B2 application key for the bucket) the Worker fetches them through S3 SigV4 presigned GET URLs (`workers/image/src/origin.ts`, `aws4fetch`), so the bucket can be private; without them it uses the public bucket URL (`ORIGIN_BASE_URL`). Image Transformations caches (and counts) resized images by source URL, and `cf.cacheKey` is Enterprise-only (ignored), so the presigned URL is kept stable: signed at the start of a 6-day window with a 7-day expiry. Do not sign per request. Each new window is a new source URL, so if unique transformations are counted by source URL, each (file, preset) can count up to ~6 times a month rather than once. Nothing else (gallery, admin) loads originals from B2 in production.
-- Edge cache: a Worker response is never cached by the CDN, so the public handler stores its finished images in `caches.default` (`workers/image/src/cache.ts`), keyed by preset + file + negotiated format (+ caption for `og`), after the access check; `X-Image-Cache: HIT|MISS` tells which. Errors, failed transforms and captionless og cards are not stored. `AdminImage` never uses it (private photos must not enter a shared cache).
-- Only the presets in `workers/image/src/request.ts` exist. Each distinct (file, preset) counts toward the free tier of 5,000 unique transformations per month; past it, new ones fail with error 9422 (no charge). Do not add a preset per call site — reuse the existing ones.
-- Resized copies: Image Transformations counts unique transformations per month, so resizing on demand counted every photo × preset again each month (and each new presign window may count again) and the free 5,000 ran out. A photo's resize presets (`h240` … `w3840`, `shared/resized/resized.ts` `RESIZED_PRESETS`, checked against `PRESETS`) and its two cards are therefore made once and kept in the R2 bucket `gallery-media-cache` (binding `MEDIA_CACHE` in the Worker and the admin; created by Terraform outside this repo, no public URL). They are made by this Worker with Image Transformations (`src/fill.ts`: the public handler's own `render`, `src/render.ts`, so the look is the same; WebP resizes, presets the photo already fits stored as empty aliases without a transformation, JPEG cards, `og` with its caption metadata): its cron (`scheduled`, `triggers.crons` every 5 minutes in `wrangler.jsonc`, which unlike `routes` may live here) takes up to `RUN_PHOTOS` (5) photos and the `og-wanted/` markers within `RUN_TRANSFORMS` (40 transformations a run, under the Free plan's 50 subrequests; a photo takes at most 8 and is started only when they fit; bodies are streamed into R2 through `FixedLengthStream`, never decoded, for the 10 ms CPU), and `AdminImage.makeCopies(accessJwt, id)` makes a photo just uploaded at once (the admin calls it when an upload completes). `RESIZE_DAILY_CAP` (a var, transformations per UTC day, "" for none; counted in the bucket, one record per run under `state/transforms/<date>/`, so overlapping runs never overwrite each other's count) spreads the first backfill. Which photos: the shared claim (`shared/resized/claim.ts`, `media.resized_at`, admin migration 0018) through the API Worker's `claimCopies` / `finishCopies` RPCs (this Worker has no D1 binding); a quota or outage answer finishes the claim as `failed` (again in a day), a file Image Transformations refuses as `browser`, and an `og` caption it will not draw leaves the copies made and its `og-wanted/` marker with the custom metadata `for-browser` (`CARD_FOR_BROWSER`: passed over by the cron, drawn by the admin's browser whatever the setting) (left to the admin's browser, the other maker, see `admin/CLAUDE.md`), and with the `setting` row `resize_maker` = browser this Worker makes none (`copiesMaker`). The public handler, after the API said the photo may be shown, reads `img/<public_id><source key>/<preset>` (`resizedKey`, the source being the API's `source`; `src/stored.ts`) and serves it (WebP, or JPEG from a browser maker that cannot encode WebP, whatever the Accept header; `X-Image-Source: stored`), with the public EXIF embedded and the edge cache as before; an empty object whose custom metadata `same-as` names another preset is that preset's image (a photo smaller than both boxes is stored once; one step only). Only without a copy (not made yet, an R2 error) does it fall back to Image Transformations, as do camera pictures. The cards are stored too (`og` and `og-site` by public id, 1200×630 JPEG): `og-site` as stored; `og` only while the R2 custom metadata `caption` (`cardCaptionValue`) is the caption `captionFor` gives now, so a card made before a metadata change (or a field hidden since) is never served. When it is missing or stale the Worker leaves an empty marker `og-wanted/<public_id>` (a HEAD first, so a busy card costs a read, not a write) for the cron (or the browser maker) to make it again, and answers with Image Transformations, or, when that fails too (the quota), with the stored `og-site` card (`max-age=300`, not kept in the edge cache). `AdminImage.caption(accessJwt, publicId)` tells the browser maker the caption to draw (null for a photo with no public card), and `AdminImage.object(accessJwt, file)` streams it a whole original (a short-lived URL of its own, `Cache-Control: private, no-store`). A camera picture's `og-site` card by path still uses Image Transformations. Serving reads nothing in D1, so writing copies changes no API answer. A request whose `If-None-Match` matches the final ETag gets a 304. The admin side is in `admin/CLAUDE.md` (**Resized copies**).
-- The card presets make og:image (chosen in `src/components/ogp.ts`): a 1200×630 JPEG crop with `public/og-badge.png` drawn on top via `cf.image.draw`. `og` (photo pages) also draws the photo's date/camera/tags as `draw` text entries; the Worker gets the photo from the API (public and unlisted photos only) and builds the ASCII-only caption in `workers/image/src/caption.ts`. Cloudflare rasterizes the text, so the Worker itself does no text rendering. `og-site` (top page, and camera pages when the camera has a picture) has just the badge. When a card's transformation fails (e.g. the monthly free transformations are used up), the public handler answers the site's card instead of 502: `workers/image/src/og-fallback.jpg` (the badge on the site background, 1200×630, bundled into the Worker as a Data module), `Cache-Control: public, max-age=300`, `X-Image-Fallback: site-card`, never stored in the edge cache; never the photo. Other presets still answer 502. Regenerate the badge, the caption shade, the font subset and that card with `workers/image/og-assets.sh`.
-- Resized photos carry the photo's public metadata as EXIF, and nothing else: Image Transformations strips the original's (`metadata: "none"`), then `src/public-exif.ts` builds tags from the API's projected photo (camera, time at its precision, exposure, rounded GPS, world name as ImageDescription; for a photo digitised from an analog original, its スキャン日時 as DateTimeDigitized and its スキャン機材 as a UserComment line "Scanned with: …", each only at its level, so Make/Model stay the shooting camera; never Orientation; nothing at all when the photo's `embed_exif` is false, the photo's choice or the site's `setting` row `embed_exif`) and `src/exif-embed.ts` inserts them by editing the container only (JPEG APP1; WebP → VP8X + EXIF chunk), without decoding pixels. AVIF is not edited, so a photo with any public EXIF is negotiated to WebP/JPEG. The edge cache keys on a digest of the EXIF; browsers may keep an older copy for its 1 h max-age. A photo gets the same EXIF by public id and by display path; og cards and camera pictures get none.
-- Deployed from `main` by `.github/workflows/deploy-image-worker.yaml` with a Workers Scripts:Edit-only token (secrets `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_APP_DEPLOY_TOKEN` of the `production` environment, which only `main` may deploy from; the API Worker's workflow uses the same). `main` is protected by a ruleset: changes land through pull requests whose CI jobs pass, with no force push or deletion. Manual deploy: `pnpm run deploy.image`. If an Access application is added to the admin, add its AUD to `ACCESS_AUD` in both `admin/wrangler.jsonc` and `workers/image/wrangler.jsonc`.
-
-### API Worker (`workers/api/`)
-
-- Read-only JSON API over the admin's D1 database (`gallery-admin`), served at `gallery.sksat.net/api/*` (Worker shell `gallery-api` and route managed by Terraform outside this repo; no `routes` in `wrangler.jsonc`, `workers_dev = false`). The schema belongs to `admin/migrations`; this Worker only runs SELECTs, except for one column: the resized copies' claim, `media.resized_at` (admin migration 0018), which its RPCs `claimCopies` / `finishCopies` set for the image Worker's cron (`src/copies.ts`, through `shared/resized/claim.ts`, the same claim the admin's browser maker takes; RPC only, never over HTTP). `claimCopies` takes every listed photo, private ones too (their copies serve the admin's thumbnails), and gives each with its file to resize and, when it may be shown, its projected public metadata for the `og` caption. 0018 must be applied to D1 before this Worker is deployed.
-- `GET /api/media` (public photos), `/api/media/<public_id>` (public or unlisted), `/api/camera`, `/api/camera/<slug>`. Private photos, photos whose upload has not completed (`status <> 'ready'`) and photos in the admin's trash (`trashed_at`) are never returned; these filters live in the SQL in `workers/api/src/query.ts`, so admin migrations (`0004_upload.sql`, `0005_path_trash.sql`, `0009_file_exif.sql`, `0010_tag_field.sql`, `0011_camera_tag.sql`, `0013_media_file.sql` and `0016_media_size.sql`, whose columns and tables its SELECTs read) must be applied to D1 before this Worker is deployed. Cameras are listed only when a public photo uses them (opened by slug when a public or unlisted one does). Answers are kept per content version (below) and cached for 10 s in browsers.
-- Answers are kept per content version (`workers/api/src/last-good.ts`), so D1 is read only after the admin changed something. The admin rewrites the `setting` row `content_version` after every change to what the API answers (`admin/src/lib/last-good.ts` `contentChanged`; a new admin action of that kind must call it too). Every answer, HTTP and RPC, 404s and nulls included, is kept in the data centre's Cache API under that version for 30 days and built on first request from the same targeted query as before (the list once per version per data centre); an entry older than a day is built again while D1 answers, which bounds a lost version bump. The version itself is read from D1 (one row) at most once a minute per data centre (an isolate memo plus a 60 s Cache API entry), so an unchanged gallery costs about 1,440 rows a day per active data centre. When D1 fails (e.g. the Free plan's daily row-read limit), answers come from the newest version this data centre has seen, with `X-Stale: d1-error`; what was never built answers 503 + `Retry-After` (the RPCs throw), and D1 is retried after 30 s. Answers of an older version are never served once a newer one was seen (a slower read of an older version cannot replace the newer one), so a photo hidden in the admin disappears within about a minute (plus the 10 s browser cache) in every data centre that answers a request in that time, outage or not; a data centre with no traffic between the change and an outage still falls back to the older version. `Cache-Control` stays `max-age=10, s-maxage=60` for clients. Building `/api/media` costs about 10 ms of Worker CPU at 2,000 photos and 27 ms at 5,000 (once per version per data centre); answering from the cache, a few ms.
-- How much of each photo's metadata is public is decided in one place, `projectPhoto` (`workers/api/src/query.ts`, levels in `metadata.ts`): every field has ordered levels (file name `path` / `name` / `hidden`; taken at `second` … `year` / `hidden`, cut down in the photo's own offset, with `timestamp_precision`; camera `model` / `manufacturer` / `hidden`; tags `public` / `hidden`; location `exact` (5 decimals) / `city` / `prefecture` / `country` (only a position rounded to 2 / 1 / 0 decimals for now, no place name until reverse geocoding) / `hidden`, the default; world `link` (id + name, for https://vrchat.com/home/world/<id>) / `name` / `hidden`; exif `all` / `basic` (f_number, exposure_time, iso, focal_length_mm; the default) / `hidden`, from the normalized `media.exif` object, `ExifJSON` in `metadata.ts`; digitizer (`media.digitized_with`, the camera row an analog original was digitised with) `model` / `manufacturer` / `hidden`, the default; digitized_at like taken_at, hidden by default; `media.photographer_id` / `photographer_name`, `media.vrcx` (the instance and the players VRCX recorded) and `media.file_exif`, the file's own EXIF, are never returned). Each photo's `media.metadata_visibility` overrides the site default in the `setting` row `metadata_visibility`; an unknown value counts as hidden. Hidden fields are `null` (tags `[]`). Only tags marked public in the `tag` table are ever returned. A photo's tags are its own plus the ones its camera passes on (admin migration 0011, `camera_tag.propagate`), merged in projectPhoto from one small context query, so the gallery's tag filter, counts and calendar see them too. `file` (the bucket key) is given only at `path` and while the photo has not been moved; `path` / `name` carry the display path and name. Cameras are listed or opened only through photos that show them at `model` (`levelSql`), as their camera or their digitizer; a camera page lists the photos digitised with it apart (スキャンした写真, `src/components/gallery/digitized-list.tsx`). Each photo also carries `embed_exif` (for the image Worker), and its platform as `platform` (the key, which never changes), `platform_name` and `platform_kind` from the admin's `platform` table (admin migration `0014_platform.sql`, which must be applied before this Worker is deployed; read whole in the context batch, not joined per photo); a `virtual` platform's photos (VRChat, …), and any whose key has no row, never get a `location`. Each also carries its pixel size as displayed, `width` / `height` (admin migration `0016_media_size.sql`; both null when unknown, and while an edit is the active file, whose size may differ; not metadata to hide, so given at every level). `tag_fields` (admin migration 0010) lists the values of the fields of the tags a photo shows (`[{ tag, label, value }]`, by tag then field order): only public tags' fields (the context batch reads them, one small query; the list stays one media query, the values being a column), only when the photo's tags level lets tags out, and only fields whose level on the photo (`media.tag_value_visibility`, else the field's `visibility`) is shown; values are read again by their field's type (`shared/tag-field/tag-field.ts`, also bundled into this Worker, so its deploy workflow watches it). The gallery shows them under the tag's name in the info panel and on the photo page.
-- Other Workers can call its RPC methods through a service binding (not reachable over HTTP): `pathAccess(path)` (what `/img/<path>` shows: a public photo whose display path it is and whose file name level is `path`, with its bucket key, or a camera picture by its bucket path (admin migration `0019`: a picture's own file is never a photo's file, which triggers keep so), or a photo chosen as a camera picture at `/camera/<slug>/<camera_image id>.photo.jpg` while the photo is public or unlisted, ready and not in the trash, with the file the photo shows in `file` / `source` (`PHOTO_PICTURE_SQL`; never embedded with EXIF); `/api/camera` lists those pictures at that path under the same condition, `CAMERA_IMAGES_SQL`; migration 0019 must be applied before this Worker is deployed) and `photo(publicId)` (a public or unlisted photo, projected, but with its original's bucket key in `file`). Both add `source`, the file to resize (admin migration `0013`: `media.active_file_id` or the original, then its newest ready `display` copy), found by a few index steps for that one photo (`SOURCE_JOINS` in `query.ts`); `/api/media` and `/api/media/<id>` never read `media_file` (`media-file.spec.ts` checks the query plans; `admin/scripts/bench-queries.ts` prints the rows read before and after 0013). Migration 0013 must be applied before this Worker is deployed.
-- Tests: `workers/api/src/*.spec.ts` run the queries on node:sqlite with the admin migrations applied. Deployed from `main` by `.github/workflows/deploy-api-worker.yaml` (`pnpm run deploy.api`).
-
-### Styling
-
-- **Tailwind CSS** configured (scans `src/**/*.{js,ts,jsx,tsx,mdx}`)
-- **CSS Modules** are not used for the gallery (Qwik SSR + Tailwind v4 issues); prefer Tailwind utilities
-- Global styles in `src/routes/styles.css`
-
-### Key Qwik Patterns
-
-- **Server-side rendering (SSR)** by default
-- **Resumability**: Uses `component$`, `$()`, and `useResource$` for optimal loading
-- **Route loaders**: `routeLoader$()` for server-side data (see `layout.tsx`)
-- **Request handlers**: `onGet` for cache control configuration
-
-## Important Notes
-
-- FlexSearch is imported but minimally used (placeholder implementation in `index.tsx`)
-- Image overlay: Click outside image to close, arrow keys to navigate between images
-- Caching strategy in layout: 5-second max-age, 7-day stale-while-revalidate
-- TypeScript strict mode enabled
-- Node.js >= 20.19.0 required (see `package.json` engines)
-
-## Development Workflow
-
-The default loop is **failing test → minimal implementation → green → refactor**. Recommended, not enforced — pre-commit hooks are intentionally not configured.
-
-### Test layer selection
-
-| What changed                                                  | Where to add the test                                   |
-| ------------------------------------------------------------- | ------------------------------------------------------- |
-| Pure function (data transform, navigation logic, URL parsing) | `src/**/*.spec.ts` (Vitest)                             |
-| User flow across components / routing / keyboard              | `e2e/*.spec.ts` (Playwright)                            |
-| Visual layout / styling / regression of look                  | `e2e/vrt/*.vrt.spec.ts` (Playwright `toHaveScreenshot`) |
-
-Pure functions live in `src/components/gallery/logic.ts`, `tags.ts` and `types.ts`. Add new pure logic there before reaching for component-level state — it keeps Vitest as the fast feedback loop.
-
-### Fixture rules
-
-- E2E and VRT read the photos from a local API Worker on a D1 seeded with the admin migrations and `e2e/fixture.sql` (`e2e/start-api-server.sh`, started by `playwright.config.ts`), and the images from `public/test-media/` via `VITE_S3_BASE_URL=http://127.0.0.1:5174/test-media/`. Never point tests at the production API or S3 URL.
-- Fixture timestamps are fixed ISO strings (`2023-12-0X`). When adding a media entry, use a deterministic timestamp; do not use `new Date().toISOString()`.
-- Do not call `Date.now()` / `Math.random()` / external `fetch` from code under test without injection — pass them as arguments or mock at the boundary.
-- See [public/test-media/README.md](public/test-media/README.md) for the canonical fixture inventory.
+- Preferred loop: a failing test first, then the minimal change. Pre-commit hooks are intentionally not configured.
+- Pure logic goes in `*.spec.ts` next to it (Vitest; `shared/` and `workers/` tests run in the root Vitest). User flows go in `e2e/*.spec.ts`, look in `e2e/vrt/*.vrt.spec.ts`.
+- E2E and VRT read photos from a local API Worker on a D1 seeded with the admin migrations and `e2e/fixture.sql` (`e2e/start-api-server.sh`), and images from `public/test-media/`. The map style is a local stub, and the map E2E fails on any request that leaves 127.0.0.1.
+- Fixture timestamps are fixed strings. Do not call `Date.now()`, `Math.random()` or external `fetch` from code under test without injection.
+- For dynamic content in VRT, use `mask` rather than disabling the assertion.
 
 ### VRT baselines
 
-Baselines are committed under `e2e/vrt/<spec>.ts-snapshots/` (Playwright's default path) and are platform-sensitive. **Always regenerate on Linux/Chromium** — running `npm run test.vrt.update` on macOS or arch-mismatched hosts produces baselines CI cannot match.
-
-To regenerate locally, use the official Playwright Docker image (matches the CI runner):
+Baselines are platform-sensitive (sub-pixel font rendering). Always regenerate them in the Playwright Docker image that CI uses, never on the host:
 
 ```bash
 docker run --rm -it \
@@ -176,25 +91,4 @@ docker run --rm -it \
   bash -c "npm install -g \"\$(node -p 'require(\"./package.json\").packageManager')\" && pnpm install --frozen-lockfile && pnpm run test.vrt.update"
 ```
 
-Keep the image tag in sync with `@playwright/test` in `package.json`. Then commit the regenerated PNGs.
-
-- CI failure → download the `vrt-diff` artifact to inspect the diff PNG
-- For dynamic content, use `mask: [page.locator(...)]` in the `toHaveScreenshot` call rather than disabling assertions
-
-### chrome-devtools MCP usage
-
-`.mcp.json` configures the chrome-devtools MCP server. Use it for the cases where automated tests are not enough:
-
-1. Inspecting a VRT diff visually (`navigate_page` → `take_screenshot`)
-2. Verifying CSS/layout changes that are not yet covered by VRT baselines
-3. Checking console errors after a non-trivial frontend change (`list_console_messages`)
-
-It is not a replacement for Vitest / Playwright — prefer adding a deterministic test when the failure mode is reproducible.
-
-### Hard rules
-
-- Do not write to the production D1 (`gallery-admin`) or apply migrations to it from a dev session; the admin is the only writer, and migrations are applied on purpose by the owner.
-- Do not bypass git hooks (`--no-verify`, `--no-gpg-sign`).
-- Do not blindly accept snapshot updates. Open the diff first and confirm the change is intentional.
-
-> **Future work**: [mizchi/vrt](https://github.com/mizchi/vrt) (multi-layer pixel + computed-style + a11y diff with AI-driven CSS fix suggestions) is the longer-term VRT target. It currently requires Node 24+ and pnpm-based source build, so this repo uses Playwright `toHaveScreenshot` until upstream ships a runnable npm release.
+Keep the image tag in sync with `@playwright/test` in `package.json` (root and `admin/`). Use `podman` if you are not in the docker group. On a CI failure, download the `vrt-diff` artifact.
