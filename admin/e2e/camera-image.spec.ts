@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { dropZoneOf } from "./files-helpers";
 
 // A camera's pictures on its page: uploaded into the fake bucket
 // (e2e/fake-b2.mjs on PORT+2) under /camera/<slug>/, made the default,
@@ -144,7 +145,7 @@ test("upload pictures, make one the default, reorder, take off and delete", asyn
 
 test("drop files on the pictures to upload them", async ({ page }) => {
   const slug = await newCamera(page, "E2E Drop");
-  const zone = page.getByTestId("drop-zone");
+  const zone = await dropZoneOf(page, `/camera/${slug}/`);
   const dt = await page.evaluateHandle(() => {
     const d = new DataTransfer();
     const bytes = new Uint8Array(2048).fill(42);
