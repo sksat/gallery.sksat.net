@@ -1,7 +1,5 @@
 import {
-  $,
   component$,
-  sync$,
   useComputed$,
   useSignal,
   type QRL,
@@ -25,10 +23,8 @@ interface PhotoOverlayProps {
    * a camera picture.
    */
   info?: MediaInfo;
-  /** The photo's own page (/photo/<id>/ with the list it is in). */
+  /** The photo's detail page (/photo/<id>/detail/ with the list it is in). */
   detailHref?: string;
-  /** Open that page (a plain click on its button); none: follow the link. */
-  onDetail$?: QRL<() => void>;
   /** The info panel's tags with their gallery URLs. */
   tagLinks?: TagLink[];
   /** Filter the gallery by a tag from the info panel. */
@@ -40,8 +36,9 @@ interface PhotoOverlayProps {
 }
 
 /**
- * Full-screen view of one photo, over the list: the quick viewer. Its own
- * page (/photo/<id>/) is one tap away with the page button.
+ * Full-screen view of one photo, over the list: the quick viewer, at the
+ * photo's URL (/photo/<id>/). Its detail page (/photo/<id>/detail/) is one
+ * tap away with the page button.
  */
 export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
   const backdrop = useSignal<HTMLElement>();
@@ -84,23 +81,8 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
           data-testid="detail-link"
           aria-label="写真のページを開く"
           title="写真のページ (Enter)"
+          // Not a tap outside the photo (which closes the overlay).
           stoppropagation:click
-          // A plain click goes through `onDetail$`; one that opens a new
-          // tab or window keeps the browser's own behaviour.
-          onClick$={
-            props.onDetail$ && [
-              sync$((e: MouseEvent) => {
-                if (
-                  e.button === 0 &&
-                  !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)
-                )
-                  e.preventDefault();
-              }),
-              $((e: MouseEvent) => {
-                if (e.defaultPrevented) props.onDetail$?.();
-              }),
-            ]
-          }
           // `!`: the site's unlayered `a { color }` would win otherwise;
           // this is a button like its neighbours, not a text link. Above
           // the open info sheet, like the ⓘ and share buttons.

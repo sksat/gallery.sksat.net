@@ -26,22 +26,38 @@ test("top page: site card with the newest photo", async ({ page }) => {
   expect(await meta(page, "twitter:card")).toBe("summary_large_image");
 });
 
-test("photo page: card describing the photo", async ({ page }) => {
-  await page.goto("/photo/vrcxxxxxxa");
+// The photo's URL (the overlay over the list) and its detail page: the
+// same card, both naming the photo's URL.
+for (const path of ["/photo/vrcxxxxxxa/", "/photo/vrcxxxxxxa/detail/"]) {
+  test(`photo: card describing the photo at ${path}`, async ({ page }) => {
+    await page.goto(`${path}?tag=VRChat`);
 
-  const title = "2023年12月2日 @ Fixture World 📷 VirtualLens2 | sksat gallery";
-  await expect(page).toHaveTitle(title);
-  expect(await meta(page, "og:type")).toBe("article");
-  expect(await meta(page, "og:url")).toBe(
-    "https://gallery.sksat.net/photo/vrcxxxxxxa/",
-  );
-  expect(await meta(page, "og:title")).toBe(title);
-  // The camera's display name.
-  expect(await meta(page, "og:description")).toBe(
-    // In the photo's own offset (the fixture's is UTC), as everywhere.
-    "2023年12月2日 00:00 撮影。タグ: VRChat。カメラ: VirtualLens2。",
-  );
-  expect(await meta(page, "og:image")).toMatch(/\/test-media\/+mock\/vrchat1\.png$/);
-  expect(await meta(page, "og:image:alt")).toBe("2023年12月2日 @ Fixture World 📷 VirtualLens2");
-  expect(await meta(page, "twitter:card")).toBe("summary_large_image");
-});
+    const title =
+      "2023年12月2日 @ Fixture World 📷 VirtualLens2 | sksat gallery";
+    await expect(page).toHaveTitle(title);
+    expect(await meta(page, "og:type")).toBe("article");
+    expect(await meta(page, "og:url")).toBe(
+      "https://gallery.sksat.net/photo/vrcxxxxxxa/",
+    );
+    // One canonical URL, the photo's, without the list's query.
+    const canonical = page.locator('head link[rel="canonical"]');
+    await expect(canonical).toHaveCount(1);
+    await expect(canonical).toHaveAttribute(
+      "href",
+      `${new URL(page.url()).origin}/photo/vrcxxxxxxa/`,
+    );
+    expect(await meta(page, "og:title")).toBe(title);
+    // The camera's display name.
+    expect(await meta(page, "og:description")).toBe(
+      // In the photo's own offset (the fixture's is UTC), as everywhere.
+      "2023年12月2日 00:00 撮影。タグ: VRChat。カメラ: VirtualLens2。",
+    );
+    expect(await meta(page, "og:image")).toMatch(
+      /\/test-media\/+mock\/vrchat1\.png$/,
+    );
+    expect(await meta(page, "og:image:alt")).toBe(
+      "2023年12月2日 @ Fixture World 📷 VirtualLens2",
+    );
+    expect(await meta(page, "twitter:card")).toBe("summary_large_image");
+  });
+}

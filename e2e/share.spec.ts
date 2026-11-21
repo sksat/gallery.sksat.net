@@ -64,14 +64,17 @@ test.describe("without a share sheet", () => {
       `${origin}/photo/vrcxxxxxxa/`,
     );
 
-    await page.goto("/photo/vrcxxxxxxa/?camera=virtuallens2&tag=VRChat");
-    await page.getByRole("button", { name: "リンクをコピー" }).click();
-    await expect(page.getByTestId("share-status")).toHaveText(
-      "リンクをコピーしました",
-    );
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-      `${origin}/photo/vrcxxxxxxa/`,
-    );
+    // The photo URL loaded as it is, and the detail page.
+    for (const path of ["/photo/vrcxxxxxxa/", "/photo/vrcxxxxxxa/detail/"]) {
+      await page.goto(`${path}?camera=virtuallens2&tag=VRChat`);
+      await page.getByRole("button", { name: "リンクをコピー" }).click();
+      await expect(page.getByTestId("share-status")).toHaveText(
+        "リンクをコピーしました",
+      );
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+        `${origin}/photo/vrcxxxxxxa/`,
+      );
+    }
   });
 
   test("shows the URL to copy when the clipboard is unavailable", async ({

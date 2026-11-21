@@ -239,8 +239,9 @@ test.describe("desktop", () => {
   test("is in the server-rendered page of the overlay's URL", async ({
     request,
   }) => {
-    // A reload of an open photo loads its page, with the same facts.
+    // A reload of an open photo renders the overlay with its info.
     const html = await (await request.get("/photo/vrcxxxxxxa/")).text();
+    expect(html).toContain('data-testid="overlay"');
     expect(html).toContain('data-testid="info-exposure"');
     expect(html).toContain("f/2.8 · 1/250 s · ISO 100 · 35 mm");
     expect(html).toContain("Fixture World");

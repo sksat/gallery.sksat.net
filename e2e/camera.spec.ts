@@ -103,8 +103,20 @@ test("camera: photos open and close within the camera page", async ({
   await overlay.click({ position: { x: 5, y: 5 } });
   await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
 
-  // A reloaded overlay URL is the photo's page, back to the camera.
+  // The overlay's URL loaded as it is shows the same: the photo over the
+  // camera's list, and closing it leaves the camera page.
   await page.goto("/photo/vrcxxxxxxc/?camera=virtuallens2");
+  await expect(overlay).toBeVisible({ timeout: 10000 });
+  await expect(images).toHaveCount(2);
+  await expect(page.getByTestId("camera-header")).toContainText(
+    "VirtualLens2",
+  );
+  await overlay.click({ position: { x: 5, y: 5 } });
+  await expect(overlay).toHaveCount(0);
+  await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
+
+  // Its detail page goes back to the camera.
+  await page.goto("/photo/vrcxxxxxxc/detail/?camera=virtuallens2");
   await expect(page.getByTestId("back-link")).toHaveAttribute(
     "href",
     "/camera/virtuallens2/",
@@ -220,7 +232,7 @@ test("camera list: site link, cards and navigation to a camera", async ({
 test("camera: an unknown ?camera= on a photo link is ignored", async ({
   page,
 }) => {
-  await page.goto("/photo/reaxxxxxxb?camera=no-such-camera");
+  await page.goto("/photo/reaxxxxxxb/detail/?camera=no-such-camera");
   await expect(page.getByTestId("photo-detail")).toBeVisible({
     timeout: 10000,
   });
@@ -228,8 +240,18 @@ test("camera: an unknown ?camera= on a photo link is ignored", async ({
   await expect(page.getByTestId("back-link")).toHaveAttribute("href", "/");
   await expect(page.getByTestId("next-link")).toHaveAttribute(
     "href",
-    "/photo/vrcxxxxxxa/",
+    "/photo/vrcxxxxxxa/detail/",
   );
+
+  // The photo URL opens it over every photo.
+  await page.goto("/photo/reaxxxxxxb/?camera=no-such-camera");
+  await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+  await expect(page.getByTestId("camera-header")).toHaveCount(0);
+  // Closing it goes to the gallery, not to a camera page that is not.
+  await page.getByTestId("overlay").click({ position: { x: 5, y: 5 } });
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
 });
 
 test("camera: an unknown slug is a 404", async ({ page }) => {

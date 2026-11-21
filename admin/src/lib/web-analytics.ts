@@ -313,16 +313,20 @@ export const fetchAccess = async (
 };
 
 /**
- * The public id of a photo page, /photo/<public_id> with or without the
- * trailing slash; null for any other path (including old /photo/<N>
- * URLs).
+ * The public id of a photo's pages, /photo/<public_id> (the photo, open
+ * over the list) and /photo/<public_id>/detail (its detail page), with or
+ * without the trailing slash; null for any other path (including old
+ * /photo/<N> URLs).
  */
 export const parsePhotoPath = (path: string): string | null => {
-  const m = /^\/photo\/([^/?#]+)\/?$/.exec(path);
+  const m = /^\/photo\/([^/?#]+)(?:\/detail)?\/?$/.exec(path);
   return m && PUBLIC_ID_RE.test(m[1]) ? m[1] : null;
 };
 
-/** Page views and visits of one photo, adding up both forms of its path. */
+/**
+ * Page views and visits of one photo, adding up its pages and both forms
+ * of their paths.
+ */
 export const photoCounts = (
   pages: AccessStats["pages"],
   publicId: string,
