@@ -113,3 +113,9 @@ VRT のベースライン画像はフォントの違いで変わるので、CI �
 - **gallery と admin**: Cloudflare Pages の Git 連携で、`main` へのマージで本番に、PR でプレビューにデプロイされます。admin は `admin/` か `shared/` が変わったときだけビルドします。
 - **API Worker と画像 Worker**: `main` へのマージでその Worker のファイルが変わっていれば、GitHub Actions (`.github/workflows/deploy-*-worker.yaml`) がデプロイします。手動なら `pnpm run deploy.api` / `pnpm run deploy.image` です。
 - **D1 のマイグレーション**: `admin/migrations/` に追加し、本番への適用 (`admin/` で `pnpm db.migrate.remote`) は管理者が手で行います。admin や API Worker は `main` へのマージで自動的にデプロイされるので、新しい列を使う変更は、マイグレーションを本番に適用してからマージします。
+
+## ライセンス
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+イラストとアイコンの画像 (`src/media/` と、それを使った画像) は対象外です。
