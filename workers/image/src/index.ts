@@ -59,6 +59,13 @@ import { statObject, statUrl, type ObjectStat } from "./stat";
 import { fillCopies, makeCopiesNow, type CopiesApi } from "./fill";
 import { render } from "./render";
 import { storedCopy, wantCard } from "./stored";
+import { serveVideo } from "../../../shared/video/range";
+import {
+  parseVideoUrl,
+  playObjectKey,
+  VIDEO_CACHE_CONTROL,
+  type FileSource,
+} from "./video";
 import {
   isCardPreset,
   notModified,
@@ -67,6 +74,7 @@ import {
   parseImageUrl,
   PUBLIC_ID_RE,
   parseObjectPath,
+  isVideoKey,
   transformFailed,
   transformOptions,
   variesByAccept,
@@ -75,9 +83,6 @@ import {
   type TransformOptions,
 } from "./request";
 
-/** Where a file is (the API's FileSource; admin migration 0013). */
-type FileSource = { storage: "b2" | "r2"; key: string };
-
 /**
  * A photo as the API's RPCs return it (workers/api/src/query.ts
  * ImagePhoto): `file` is the original's bucket key, `source` the file to
@@ -85,7 +90,15 @@ type FileSource = { storage: "b2" | "r2"; key: string };
  * from before media_file has no `source`: the original then.
  */
 type Photo = CaptionSource &
-  PublicMeta & { id: string; file: string; source?: FileSource };
+  PublicMeta & {
+    id: string;
+    file: string;
+    source?: FileSource;
+    /** A video (admin 0017): its images are its poster (`source`). */
+    kind?: "image" | "video";
+    /** A video's playback copy (R2), from the RPCs only. */
+    play?: FileSource | null;
+  };
 
 /**
  * The API's getPathAccess (workers/api/src/query.ts). A camera picture's
@@ -112,8 +125,10 @@ interface Env extends OriginEnv {
   ACCESS_AUD?: string;
   /**
    * The resized copies and cards, made once (fill.ts, or the admin's
-   * browser; R2 bucket gallery-media-cache). Unbound: every image goes
-   * through Image Transformations, as before.
+   * browser; R2 bucket gallery-media-cache, under `img/`), and videos'
+   * playback copies under `v/` (written by the admin, served at /video).
+   * Unbound: every image goes through Image Transformations, as before,
+   * and /video answers 503.
    */
   MEDIA_CACHE?: R2Bucket;
   /** The public site's origin, where the card assets are (fill.ts). */
@@ -128,15 +143,19 @@ const plain = (status: number, body: string) =>
 /**
  * The bucket key to resize for a photo: its `source` (the original when
  * the API gives none), held to the same shape as a requested bucket path,
- * as it goes into the origin URL. Null when it is not a usable B2 key; a
- * file in R2 cannot be served yet (no R2 binding).
+ * as it goes into the origin URL. Null when it is not a usable B2 key (a
+ * video's playback copy in R2 is served by /video, never resized).
  */
 const sourceKey = (photo: {
   file: string;
   source?: FileSource;
+  kind?: string;
 }): string | null => {
   const source = photo.source ?? { storage: "b2", key: photo.file };
   if (source.storage !== "b2" || typeof source.key !== "string") return null;
+  // A video's own file is never an image source (its poster is): stated
+  // here rather than left to the extension check below.
+  if (photo.kind === "video" && source.key === photo.file) return null;
   return parseFilePath(source.key);
 };
 
@@ -153,11 +172,14 @@ const sourceKey = (photo: {
 const photoById = async (
   env: Env,
   id: string,
-): Promise<(Photo & { key: string }) | null> => {
+): Promise<(Photo & { key: string | null }) | null> => {
   const photo = await env.API.photo(id);
   if (!photo) return null;
   const key = sourceKey(photo);
-  if (!key) throw new Error(`API returned no usable file for ${id}`);
+  // A video without a poster: its source is the video, which is no image.
+  if (!key && photo.kind !== "video") {
+    throw new Error(`API returned no usable file for ${id}`);
+  }
   return { ...photo, key };
 };
 
@@ -266,6 +288,44 @@ const sourceFallback = async (
   return transformError(res.status === 404 ? 404 : transformStatus);
 };
 
+/**
+ * GET/HEAD /video/<public_id>: a public or unlisted video's playback copy
+ * from R2, with Range support (players seek with it). The access check is
+ * the API's photo RPC, whose answers the API keeps per content version, so
+ * the many range requests of one playback do not reach D1; a video made
+ * private stops being served within about a minute.
+ */
+const serveVideoRequest = async (
+  request: Request,
+  url: URL,
+  env: Env,
+): Promise<Response> => {
+  const parsed = parseVideoUrl(url);
+  if (!parsed) return plain(404, "Not Found");
+  if ("status" in parsed) return plain(400, "Bad Request");
+  if (!env.MEDIA_CACHE) return plain(503, "Service Unavailable");
+  let photo: Photo | null;
+  try {
+    photo = await env.API.photo(parsed.id);
+  } catch (err) {
+    console.error(`video lookup for ${parsed.id} failed:`, err);
+    return plain(503, "Service Unavailable");
+  }
+  const key = photo?.kind === "video" ? playObjectKey(photo.play) : null;
+  if (!key) {
+    return new Response("Not Found", {
+      status: 404,
+      headers: { "Cache-Control": "public, max-age=60" },
+    });
+  }
+  try {
+    return await serveVideo(env.MEDIA_CACHE, key, request, VIDEO_CACHE_CONTROL);
+  } catch (err) {
+    console.error(`video ${parsed.id} from R2 failed:`, err);
+    return plain(502, "Video unavailable");
+  }
+};
+
 /** The public route: public (and, by id, unlisted) photos only. */
 export default {
   async fetch(
@@ -281,6 +341,9 @@ export default {
     }
 
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/video/")) {
+      return serveVideoRequest(request, url, env);
+    }
     const parsed = parseImageUrl(url);
     if (!parsed) return plain(404, "Not Found");
     if ("status" in parsed) return plain(400, "Bad Request");
@@ -306,7 +369,8 @@ export default {
         console.error(`photo lookup for ${parsed.id} failed:`, err);
         return plain(503, "Service Unavailable");
       }
-      if (!photo) return notFound();
+      // A video without a poster has no image.
+      if (!photo || photo.key === null) return notFound();
       file = photo.key;
       if (parsed.preset === "og") caption = captionFor(photo);
       meta = photo;
@@ -331,9 +395,13 @@ export default {
       }
       // A camera picture gets no EXIF (`meta` stays null), also when it is
       // a photo.
-      const checked = sourceKey(
-        access.kind === "photo" ? access.photo : access,
-      );
+      const named = access.kind === "photo" ? access.photo : access;
+      const checked = sourceKey(named);
+      // A video chosen as a camera picture before it has a poster: no
+      // image of it, as by its public id.
+      if (!checked && isVideoKey(named.source?.key ?? named.file)) {
+        return notFound();
+      }
       if (!checked) {
         console.error(`API returned no usable file for ${parsed.path}`);
         return plain(503, "Service Unavailable");

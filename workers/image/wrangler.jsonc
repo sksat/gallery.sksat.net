@@ -18,10 +18,12 @@
   "services": [{ "binding": "API", "service": "gallery-api" }],
   // The resized copies and cards, made once (src/fill.ts, or the admin's
   // browser) and served first (src/stored.ts, after the API said the photo
-  // may be shown; ../../shared/resized/resized.ts). The bucket is created
-  // by Terraform outside this repo and must exist before this Worker is
-  // deployed. It has no public URL: nothing but this Worker and the admin
-  // reaches it.
+  // may be shown; ../../shared/resized/resized.ts) under img/, and videos'
+  // playback copies under v/, which the admin writes and this serves at
+  // /video/<public_id> (src/video.ts, after the same check). The bucket is
+  // created by Terraform outside this repo and must exist before this
+  // Worker is deployed. It has no public URL: nothing but this Worker and
+  // the admin reaches it.
   "r2_buckets": [
     { "binding": "MEDIA_CACHE", "bucket_name": "gallery-media-cache" },
   ],

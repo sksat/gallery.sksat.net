@@ -13,6 +13,7 @@ import { ProgressiveImage } from "./progressive-image";
 import { ShareButton } from "./share-button";
 import type { MediaInfo } from "./types";
 import { SWIPE_CLICK_MS, useSwipe } from "./use-swipe";
+import { VideoPlayer } from "./video-player";
 
 interface PhotoOverlayProps {
   /** A photo (by public id) or a camera picture (by bucket path). */
@@ -68,11 +69,22 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
       }}
       class={overlayClass.backdrop}
     >
-      <ProgressiveImage
-        src={props.src}
-        boxRef={box}
-        boxClass={overlayClass.box}
-      />
+      {props.info?.kind === "video" && typeof props.src !== "string" ? (
+        <VideoPlayer
+          // A new player per video (its error state is its own).
+          key={props.src.id}
+          src={props.src}
+          boxRef={box}
+          boxClass={overlayClass.box}
+          label="動画"
+        />
+      ) : (
+        <ProgressiveImage
+          src={props.src}
+          boxRef={box}
+          boxClass={overlayClass.box}
+        />
+      )}
       {props.info && <ShareButton photoId={props.info.id} />}
       {props.detailHref && (
         // Plain <a>: see the note in components/layout/header.tsx.

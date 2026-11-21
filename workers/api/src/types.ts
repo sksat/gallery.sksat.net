@@ -110,6 +110,13 @@ export type MediaItemJSON = {
    * Empty when there are none, or the tags are hidden.
    */
   tag_fields: PublicTagField[];
+  /**
+   * A photo or a video (admin migration 0017). A video plays from
+   * /video/<id> (the image Worker); its images (/img/<id>) are its poster.
+   */
+  kind: "image" | "video";
+  /** A video's length; null for photos. */
+  duration_ms: number | null;
 };
 
 /** A platform's kind (admin migration 0014). */

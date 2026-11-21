@@ -55,8 +55,13 @@ const drag = async (
 const shown = (page: Page, summary: string) =>
   expect(page.getByTestId("info-summary")).toHaveText(summary);
 
-const open = async (page: Page, id: string) => {
-  await openInOverlay(page, id);
+const open = async (
+  page: Page,
+  id: string,
+  list?: string,
+  order?: string[],
+) => {
+  await openInOverlay(page, id, list, order);
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
   // Resumed: the info panel's visible task has run.
   await expect(page.getByTestId("info-toggle")).toHaveAttribute(
@@ -126,10 +131,11 @@ test("a tap outside still closes after a drag", async ({ page }) => {
 test("no step past the last photo, and the photo springs back", async ({
   page,
 }) => {
-  await open(page, "reaxxxxxxa");
+  // The last of the Real photos (the undated video is after it on /).
+  await open(page, "reaxxxxxxa", "/?tag=Real", ["reaxxxxxxb", "reaxxxxxxa"]);
   await drag(page, { x: 300, y: 400, dx: -200, dy: 0 });
   await page.waitForTimeout(400);
-  await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\/$/);
+  await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\/\?tag=Real$/);
   await expect(page.getByTestId("overlay")).toBeVisible();
   await expect(page.getByTestId("overlay-box")).not.toHaveAttribute(
     "style",

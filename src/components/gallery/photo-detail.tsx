@@ -15,6 +15,7 @@ import { MiniCalendar } from "./mini-calendar";
 import { photoInfo } from "./photo-info";
 import { PhotoInfoList } from "./photo-info-list";
 import { ProgressiveImage } from "./progressive-image";
+import { VideoPlayer } from "./video-player";
 import { ShareButton } from "./share-button";
 import { DEFAULT_TAG_MODE, mediaTags } from "./tags";
 import { transformMediaInfo, type MediaInfoJSON } from "./types";
@@ -118,6 +119,8 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
   const onKeyDown = $((e: KeyboardEvent) => {
     if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
     if (isTextTarget(e.target)) return;
+    // A focused video player seeks with the arrows itself.
+    if (e.target instanceof Element && e.target.closest("video")) return;
     if (e.key === "ArrowLeft") go("prev");
     else if (e.key === "ArrowRight") go("next");
   });
@@ -158,16 +161,26 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
           ref={area}
           class="relative flex flex-col items-center gap-3 overflow-hidden"
         >
-          <ProgressiveImage
-            src={{ id: photo.id, file: photo.file }}
-            boxRef={box}
-            // The photo's aspect ratio at the column's width (at most most
-            // of the screen tall), set before it loads so nothing shifts;
-            // 3:2 when its size is not known.
-            boxClass="relative max-h-[min(75vh,60rem)] w-full"
-            boxStyle={{ aspectRatio: aspect }}
-            alt={info.taken ? `${info.taken.text} の写真` : "写真"}
-          />
+          {photo.kind === "video" ? (
+            <VideoPlayer
+              src={{ id: photo.id, file: photo.file, kind: "video" }}
+              boxRef={box}
+              boxClass="relative max-h-[min(75vh,60rem)] w-full"
+              boxStyle={{ aspectRatio: aspect }}
+              label={info.taken ? `${info.taken.text} の動画` : "動画"}
+            />
+          ) : (
+            <ProgressiveImage
+              src={{ id: photo.id, file: photo.file }}
+              boxRef={box}
+              // The photo's aspect ratio at the column's width (at most
+              // most of the screen tall), set before it loads so nothing
+              // shifts; 3:2 when its size is not known.
+              boxClass="relative max-h-[min(75vh,60rem)] w-full"
+              boxStyle={{ aspectRatio: aspect }}
+              alt={info.taken ? `${info.taken.text} の写真` : "写真"}
+            />
+          )}
           {ctx.prevHref && (
             <a
               href={ctx.prevHref}

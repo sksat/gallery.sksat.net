@@ -4,7 +4,7 @@ Photo gallery for gallery.sksat.net on Cloudflare. This repo holds four deployab
 
 - `src/`: the public gallery (Qwik City on Pages). It reads everything through the API Worker.
 - `workers/api/`: read-only JSON API over the admin's D1 (`/api/*`, plus RPC methods for the image Worker).
-- `workers/image/`: serves resized photos and og cards at `/img/*`, and the admin's thumbnails over RPC (`AdminImage`).
+- `workers/image/`: serves resized photos and og cards at `/img/*`, videos' playback copies at `/video/*`, and the admin's thumbnails over RPC (`AdminImage`).
 - `admin/`: the admin app, a separate pnpm project that owns the D1 schema (`admin/migrations/`). See [admin/CLAUDE.md](admin/CLAUDE.md).
 - `shared/`: code used by both apps (`@shared/*`). Keep it plain TS: a Qwik component there would resolve the root's Qwik from the admin and could bundle two copies. The gallery never imports from `admin/`, nor the admin from `src/`.
 
@@ -38,7 +38,7 @@ How they connect: [docs/architecture.d2](docs/architecture.d2) (rendered as `doc
 
 ### Owned outside this repo
 
-- Worker shells, their routes (`gallery.sksat.net/api/*`, `/img/*`) and the R2 bucket are managed by external Terraform. Never add `routes` to a Worker's `wrangler.jsonc` (cron `triggers` may live there).
+- Worker shells, their routes (`gallery.sksat.net/api/*`, `/img/*`, `/video/*`) and the R2 bucket are managed by external Terraform. Never add `routes` to a Worker's `wrangler.jsonc` (cron `triggers` may live there).
 - Pages build watch paths are set in the Cloudflare dashboard: the gallery project skips pushes that only touch `admin/*`; the admin project builds only when `admin/*` or `shared/*` changes. If you add another directory both apps import, it must be added to the admin's watch paths too.
 - Pages bindings come only from each `wrangler.jsonc` (with `pages_build_output_dir` set, dashboard bindings are ignored).
 - `main` is protected: changes land through PRs with passing CI. The Workers deploy from `main` via `.github/workflows/deploy-*-worker.yaml`; the Pages projects deploy through the Git integration.
@@ -57,9 +57,10 @@ How they connect: [docs/architecture.d2](docs/architecture.d2) (rendered as `doc
 ### Privacy invariants
 
 - Which metadata of a photo is public is decided in one place, `projectPhoto` (`workers/api/src/query.ts`, levels in `metadata.ts`; the admin has a copy checked by a test). Served images get EXIF built only from that projection; never pass an original's metadata through.
-- Private photos, unfinished uploads and trashed photos never leave the API Worker or the public `/img/*` handler. Unlisted photos open only by their own URL and never join a list.
+- Private photos, unfinished uploads and trashed photos never leave the API Worker or the public `/img/*` and `/video/*` handlers. Unlisted photos open only by their own URL and never join a list.
 - Private photos must never enter a shared cache: `AdminImage` (reachable only through the admin's `IMAGES` service binding, and it verifies the Access JWT itself) never uses `caches.default`, and its file fallback (`X-Image-Fallback: original`) exists only there.
 - The B2 bucket is private. Only the image Worker reads originals (read-only key); the admin only signs the browser's uploads and deletes objects.
+- A video's original is never served: it may carry GPS, the device and times. Only its playback copy (the original with that metadata zeroed by the admin, in R2 under `v/`) is, and only after the API's `photo` RPC said the video may be shown. The R2 bucket holds resized copies under `img/` too; keep the two prefixes apart.
 - If an Access application is added to the admin, add its AUD to `ACCESS_AUD` in both `admin/wrangler.jsonc` and `workers/image/wrangler.jsonc`.
 
 ### External services

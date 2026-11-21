@@ -6,7 +6,7 @@ The photo and camera metadata live in [`e2e/fixture.sql`](../../e2e/fixture.sql)
 
 ## Inventory
 
-Seven photos with fixed timestamps and public ids.
+Seven photos with fixed timestamps and public ids, and a public video.
 
 | public id    | file                 | platform | timestamp                   | camera         | tags          | visibility |
 | ------------ | -------------------- | -------- | --------------------------- | -------------- | ------------- | ---------- |
@@ -17,6 +17,9 @@ Seven photos with fixed timestamps and public ids.
 | `vrcxxxxxxc` | `/mock/vrchat3.png`  | Neos VR  | `2023-12-05T00:00:00Z`      | `virtuallens2` | VRChat, draft | public     |
 | `unxxxxxxxx` | `/mock/unlisted.png` | VRChat   | `2023-12-06T00:00:00Z`      | `virtuallens2` | VRChat, night | unlisted   |
 | `pvxxxxxxxx` | `/mock/private.png`  | Real     | `2023-12-07T00:00:00Z`      | —              | secret        | private    |
+| `vdxxxxxxxa` | `/mock/clip.webm`    | VRChat   | —                           | —              | —             | public     |
+
+The video (`kind` video, 320×180, 2 s; admin migrations 0016 and 0017) has a poster and a playback copy as `media_file` rows, none of which is ever fetched: without the image Worker its tile is a grey stand-in, and `e2e/video.spec.ts` answers `/video/vdxxxxxxxa` with `admin/e2e/fixtures/clip.webm`. Undated, it is the last tile in either date order and in no calendar.
 
 Metadata visibility (`media.metadata_visibility` over the site default, which hides file names): every file name is public with its folder except `reaxxxxxxb`'s, so the API leaves its `file` out and without the image Worker the gallery shows a grey stand-in for it; `vrcxxxxxxb` shows only the date it was taken (2023/12/04 in its +09:00). The tags film, VRChat and night are public; `draft` and `secret` are private and never returned.
 
@@ -26,7 +29,7 @@ Positions (the map; hidden by default): `reaxxxxxxa` at its exact position (Toky
 
 Platforms are the admin's `platform` rows: Real and VRChat (from migration 0014) and `Neos-VR`, named "Neos VR" (virtual), which the fixture adds for `vrcxxxxxxc`; that photo keeps its `VRChat` tag.
 
-Only the five public photos are listed. The gallery treats the platform (by name) as one more tag, so the tag counts are **VRChat 3**, **Real 2**, **night 2**, **film 1**, **Neos VR 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = `reaxxxxxxb`, `Real` OR `night` = three photos. The unlisted and the private photo are the newest and carry tags of their own, so a leak into a list, a count or the top page's card shows up in the tests.
+Only the five public photos and the video are listed. The gallery treats the platform (by name) as one more tag, so the tag counts are **VRChat 4** (the video too), **Real 2**, **night 2**, **film 1**, **Neos VR 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = `reaxxxxxxb`, `Real` OR `night` = three photos. The unlisted and the private photo are the newest and carry tags of their own, so a leak into a list, a count or the top page's card shows up in the tests.
 
 Pixel sizes (`media.width` / `height`, the grid's layout; `e2e/grid-layout.spec.ts`): `mock/real1.png` is a 60x80 portrait gradient and `reaxxxxxxa` has that size, so its tile is 3:4; `mock/vrchat{1,2,3}.png` are 64x36 (16:9) gradients, with that size on `vrcxxxxxxa` and `vrcxxxxxxb` and none on `vrcxxxxxxc`, whose tile is 3:2 until the image loads and then 16:9. `reaxxxxxxb` has no size either and shows the grey 1x1 stand-in, so its tile ends up square. The other files are 1x1.
 

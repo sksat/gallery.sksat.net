@@ -1,6 +1,7 @@
 // What the photo info panel (info-panel.tsx) shows, as plain values. Every
 // function reads only what the API returned for the photo: a field it left
 // out (null) stays out, and nothing is guessed from another field.
+import { formatDuration } from "@shared/video/format";
 import { mapHrefFor, placeLabel } from "../map/places";
 import { cameraHref, cameraLabel, cameraSlug } from "./cameras";
 import { mediaTags } from "./tags";
@@ -123,6 +124,8 @@ export type PhotoInfo = {
   tagFields: TagFieldGroup[];
   /** The display path, else the file name. */
   file: string | null;
+  /** A video's length ("1:05"); null for photos. */
+  duration: string | null;
 };
 
 export type TagFieldGroup = {
@@ -171,6 +174,10 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
     tags: mediaTags(m),
     tagFields: groupTagFields(m.tag_fields),
     file: m.path ?? m.name ?? null,
+    duration:
+      m.kind === "video" && m.duration_ms != null
+        ? formatDuration(m.duration_ms)
+        : null,
   };
 };
 
@@ -187,7 +194,8 @@ export const hasDetails = (info: PhotoInfo): boolean =>
     info.world ||
     info.location ||
     info.tagFields.length > 0 ||
-    info.file,
+    info.file ||
+    info.duration,
   );
 
 /**

@@ -8,19 +8,33 @@ test.use({ viewport: { width: 1280, height: 800 } });
  * The header illustration and the tiles have loaded (not lazy images
  * below the fold, which would never start).
  */
-const imagesLoaded = (page: Page) =>
-  expect
+const imagesLoaded = async (page: Page) => {
+  await expect
     .poll(() =>
       page.$$eval("header img, [data-testid=gallery-image]", (imgs) =>
         imgs.every((i) => (i as HTMLImageElement).complete),
       ),
     )
     .toBe(true);
+  // ...and the tiles of unknown size have taken their image's shape (after
+  // its load event, a moment later), so the rows are laid out for good.
+  await expect
+    .poll(() =>
+      page.$$eval("[data-unsized]", (imgs) =>
+        (imgs as HTMLImageElement[]).every((i) => {
+          const r = i.getBoundingClientRect();
+          const want = i.naturalWidth / i.naturalHeight;
+          return i.naturalWidth > 0 && Math.abs(r.width / r.height / want - 1) < 0.03;
+        }),
+      ),
+    )
+    .toBe(true);
+};
 
 test("home: no tag selected", async ({ page }) => {
   await page.goto("/");
   const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(5, { timeout: 10000 });
+  await expect(images).toHaveCount(6, { timeout: 10000 });
   await imagesLoaded(page);
   await expect(page).toHaveScreenshot("home-all.png", { fullPage: true });
 });
@@ -108,6 +122,35 @@ test("photo overlay: a tag's fields", async ({ page }) => {
   await expect(page.getByTestId("info-tag-fields")).toBeVisible();
   await settled(page);
   await expect(page).toHaveScreenshot("photo-real1-tag-fields.png");
+});
+
+// The fixture's video (vdxxxxxxxa): its player before play (a grey poster
+// without the image Worker), and 長さ in the list.
+test("video page", async ({ page }) => {
+  await page.goto("/photo/vdxxxxxxxa/detail/");
+  const detail = page.getByTestId("photo-detail");
+  await expect(detail).toBeVisible({ timeout: 10000 });
+  await expect(detail.getByTestId("video-player")).toBeVisible();
+  await expect(detail.getByTestId("info-duration")).toBeVisible();
+  // The page's height settles once its parts below the player are in.
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => document.fonts.ready);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const before = document.documentElement.scrollHeight;
+        await new Promise((r) => setTimeout(r, 300));
+        return document.documentElement.scrollHeight === before;
+      }),
+    )
+    .toBe(true);
+  // The player's own controls (and a spinner Chromium may show while it
+  // settles) are the browser's: masked, its box and the page around it
+  // compared.
+  await expect(page).toHaveScreenshot("video-page.png", {
+    fullPage: true,
+    mask: [page.getByTestId("video-player")],
+  });
 });
 
 test.describe("phone", () => {

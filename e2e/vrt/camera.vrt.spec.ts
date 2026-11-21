@@ -24,6 +24,21 @@ const cameraPage = async (page: Page) => {
     timeout: 10000,
   });
   await loaded(page, page.getByTestId("camera-header").locator("img"), 3);
+  // The photos of unknown size have taken their image's shape (after its
+  // load event, a moment later), so the rows are laid out for good.
+  await expect
+    .poll(() =>
+      page.$$eval("[data-unsized]", (imgs) =>
+        (imgs as HTMLImageElement[]).every((i) => {
+          const r = i.getBoundingClientRect();
+          const want = i.naturalWidth / i.naturalHeight;
+          return (
+            i.naturalWidth > 0 && Math.abs(r.width / r.height / want - 1) < 0.03
+          );
+        }),
+      ),
+    )
+    .toBe(true);
 };
 
 // /camera/: VirtualLens2 and PENTAX SP cards.

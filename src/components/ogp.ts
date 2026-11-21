@@ -82,11 +82,13 @@ export const ogImage = (
         { ...dimensionsFromFile(src.file), ...photoSize(src) }),
 });
 
-const photoSource = ({ id, file, width, height }: MediaInfoJSON) => ({
+/** A video's card is made from its poster (the image Worker picks it). */
+const photoSource = ({ id, file, width, height, kind }: MediaInfoJSON) => ({
   id,
   file,
   width,
   height,
+  kind,
 });
 
 /**
@@ -142,6 +144,7 @@ export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
     [taken?.day, m.world?.name && `@ ${m.world.name}`, camera && `📷 ${camera}`]
       .filter(Boolean)
       .join(" ") || null;
+  const noun = m.kind === "video" ? "動画" : "写真";
   const description = [
     taken && `${taken.full} 撮影。`,
     tags.length > 0 && `タグ: ${tags.join(", ")}。`,
@@ -152,7 +155,7 @@ export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
 
   return {
     title: subject ? `${subject} | ${SITE_NAME}` : SITE_NAME,
-    description: description || `${SITE_NAME} の写真です。`,
+    description: description || `${SITE_NAME} の${noun}です。`,
     // Qwik City redirects /photo/<id> to the trailing-slash form.
     url: `${SITE_URL}/photo/${m.id}/`,
     type: "article",

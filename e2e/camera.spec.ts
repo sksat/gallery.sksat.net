@@ -14,7 +14,7 @@ test("camera: the caption links a photo to its camera page", async ({
 }) => {
   await page.goto("/");
   const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(5, { timeout: 10000 });
+  await expect(images).toHaveCount(6, { timeout: 10000 });
 
   // The caption (and its link) only takes clicks while the tile is hovered.
   const tile = page
@@ -175,7 +175,7 @@ test("camera: the back link returns to every photo", async ({ page }) => {
   await page.goto("/camera/pentax-sp/");
   await page.getByRole("link", { name: "すべての写真" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5, {
+  await expect(page.getByTestId("gallery-image")).toHaveCount(6, {
     timeout: 10000,
   });
   await expect(page.getByTestId("camera-header")).toHaveCount(0);
@@ -246,12 +246,12 @@ test("camera: an unknown ?camera= on a photo link is ignored", async ({
   // The photo URL opens it over every photo.
   await page.goto("/photo/reaxxxxxxb/?camera=no-such-camera");
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(6);
   await expect(page.getByTestId("camera-header")).toHaveCount(0);
   // Closing it goes to the gallery, not to a camera page that is not.
   await page.getByTestId("overlay").click({ position: { x: 5, y: 5 } });
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(6);
 });
 
 test("camera: an unknown slug is a 404", async ({ page }) => {
