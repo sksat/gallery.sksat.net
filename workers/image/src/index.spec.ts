@@ -21,6 +21,12 @@ vi.mock("./admin-auth", () => ({
   verifyAdminToken: async () => ({ ok: true }),
 }));
 
+// wrangler bundles it as bytes (a Data module); Vite would give a URL.
+const { SITE_CARD } = vi.hoisted(() => ({
+  SITE_CARD: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+}));
+vi.mock("./og-fallback.jpg", () => ({ default: SITE_CARD.slice().buffer }));
+
 const { default: worker, AdminImage } = await import("./index");
 const { CACHE_STATUS_HEADER } = await import("./cache");
 
@@ -632,6 +638,54 @@ describe("when resizing fails (e.g. the monthly transformations are used up)", (
     expect((await admin.image("jwt", FILE, "w1920", AVIF)).status).toBe(502);
   });
 
+  it("a card answers the site's card instead, briefly and not stored", async () => {
+    for (const transform of [quota, errOk]) {
+      failWith(transform);
+      for (const path of [
+        `/img/${ID}?size=og`,
+        `/img/${ID}?size=og-site`,
+        "/img/camera/vl2/front.png?size=og-site",
+      ]) {
+        const res = await worker.fetch(
+          new Request(`https://gallery.sksat.net${path}`),
+          {
+            ...env,
+            API: {
+              ...env.API,
+              pathAccess: async () => ({
+                kind: "camera-image" as const,
+                file: "/camera/vl2/front.png",
+              }),
+            },
+          } as never,
+          ctx,
+        );
+        expect(res.status, path).toBe(200);
+        expect(res.headers.get("Content-Type")).toBe("image/jpeg");
+        expect(res.headers.get("Cache-Control")).toBe("public, max-age=300");
+        expect(res.headers.get("X-Image-Fallback")).toBe("site-card");
+        expect(new Uint8Array(await res.arrayBuffer())).toEqual(SITE_CARD);
+      }
+      await Promise.all(pending);
+      expect(plainGets).toEqual([]);
+      expect(cacheDefault.put).not.toHaveBeenCalled();
+    }
+    // HEAD too.
+    const head = await get(`/img/${ID}?size=og`, "HEAD");
+    expect(head.status).toBe(200);
+    expect(head.headers.get("Content-Type")).toBe("image/jpeg");
+  });
+
+  it("a card that is made is still the real one, stored", async () => {
+    const res = await get(`/img/${ID}?size=og`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("resized");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(res.headers.get("X-Image-Fallback")).toBeNull();
+    await Promise.all(pending);
+    expect(cacheDefault.put).toHaveBeenCalledTimes(1);
+  });
+
   it("a public HEAD answers an error too", async () => {
     for (const transform of [quota, errOk]) {
       failWith(transform);
@@ -639,5 +693,24 @@ describe("when resizing fails (e.g. the monthly transformations are used up)", (
       expect(res.status).toBe(502);
       expect(plainGets).toEqual([]);
     }
+  });
+});
+
+describe("the site's card (og-fallback.jpg)", () => {
+  // X's summary_large_image: JPG/PNG/WEBP/GIF under 5 MB, at least 300x157
+  // (2:1 shown; 1200x630 like the made cards).
+  it("is a 1200x630 JPEG well under 5 MB", () => {
+    const bytes = readFileSync(new URL("./og-fallback.jpg", import.meta.url));
+    expect(bytes.length).toBeLessThan(5 * 1024 * 1024);
+    expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xd8]);
+    // The frame header (SOF0..SOF2) has the height and width.
+    let at = 2;
+    while (bytes[at + 1] < 0xc0 || bytes[at + 1] > 0xc2) {
+      at += 2 + bytes.readUInt16BE(at + 2);
+      expect(at).toBeLessThan(bytes.length);
+    }
+    expect([bytes.readUInt16BE(at + 7), bytes.readUInt16BE(at + 5)]).toEqual([
+      1200, 630,
+    ]);
   });
 });

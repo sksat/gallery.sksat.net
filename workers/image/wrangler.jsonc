@@ -11,6 +11,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
   "workers_dev": false,
+  // src/og-fallback.jpg is bundled as bytes (an ArrayBuffer import): the
+  // card served when a card transformation fails (src/index.ts).
+  "rules": [{ "type": "Data", "globs": ["**/*.jpg"], "fallthrough": true }],
   // Photo metadata (workers/api). Requires the gallery-api Worker to exist.
   "services": [{ "binding": "API", "service": "gallery-api" }],
   "vars": {
