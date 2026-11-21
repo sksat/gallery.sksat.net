@@ -5,6 +5,7 @@
  * by Pillow (fixtures/make-fixtures.py).
  */
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import exifr from "exifr";
 import { describe, expect, it } from "vitest";
 import { embedExif, embedJpeg, embedWebp } from "./exif-embed";
@@ -19,7 +20,7 @@ import {
 } from "./public-exif";
 
 const fixture = (name: string) =>
-  new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
+  new Uint8Array(readFileSync(join(import.meta.dirname, "fixtures", name)));
 
 /** Every tag exifr finds, by its tag number (no value translation). */
 const readTiff = async (tiff: Uint8Array) =>

@@ -3,6 +3,7 @@
  * edge cache. The admin's private images must never reach it.
  */
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import exifr from "exifr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -315,7 +316,7 @@ describe("paths", () => {
 
 describe("public EXIF", () => {
   const webp = new Uint8Array(
-    readFileSync(new URL("./fixtures/lossy.webp", import.meta.url)),
+    readFileSync(join(import.meta.dirname, "fixtures/lossy.webp")),
   );
   const withMeta = {
     ...photo,
@@ -708,7 +709,7 @@ describe("the site's card (og-fallback.jpg)", () => {
   // X's summary_large_image: JPG/PNG/WEBP/GIF under 5 MB, at least 300x157
   // (2:1 shown; 1200x630 like the made cards).
   it("is a 1200x630 JPEG well under 5 MB", () => {
-    const bytes = readFileSync(new URL("./og-fallback.jpg", import.meta.url));
+    const bytes = readFileSync(join(import.meta.dirname, "og-fallback.jpg"));
     expect(bytes.length).toBeLessThan(5 * 1024 * 1024);
     expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xd8]);
     // The frame header (SOF0..SOF2) has the height and width.
@@ -767,7 +768,7 @@ const fakeBucket = (
 
 describe("stored copies (MEDIA_CACHE)", () => {
   const webp = new Uint8Array(
-    readFileSync(new URL("./fixtures/lossy.webp", import.meta.url)),
+    readFileSync(join(import.meta.dirname, "fixtures/lossy.webp")),
   );
   const KEY = (preset: string) => `img/${ID}${FILE}/${preset}`;
   const withDerived = (bucket: unknown, p: unknown = photo) => ({
@@ -881,7 +882,7 @@ describe("stored copies (MEDIA_CACHE)", () => {
 
   describe("cards", () => {
     const jpeg = new Uint8Array(
-      readFileSync(new URL("./fixtures/plain.jpg", import.meta.url)),
+      readFileSync(join(import.meta.dirname, "fixtures/plain.jpg")),
     );
     const withMeta = {
       ...photo,
