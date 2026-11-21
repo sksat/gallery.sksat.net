@@ -95,7 +95,14 @@ describe("photoOgp", () => {
     expect(ogp.image?.alt).toBe("2023年12月16日 @ Re․Aurora 📷 VirtualLens2");
     const undatedWorld = { ...undated, world: { id: null, name: "Re․Aurora" } };
     expect(photoOgp(worker, undatedWorld).title).toBe(
-      "Re․Aurora | sksat gallery",
+      "@ Re․Aurora | sksat gallery",
+    );
+    const undatedBoth = { ...undatedWorld, camera: vrchat.camera };
+    expect(photoOgp(worker, undatedBoth).title).toBe(
+      "@ Re․Aurora 📷 VirtualLens2 | sksat gallery",
+    );
+    expect(photoOgp(worker, undatedBoth).image?.alt).toBe(
+      "@ Re․Aurora 📷 VirtualLens2",
     );
     // An id alone (no name) is not a title.
     const idOnly = { ...vrchat, world: { id: "wrld_x", name: null } };

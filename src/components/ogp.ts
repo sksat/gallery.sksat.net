@@ -139,10 +139,7 @@ export const photoOgp = (bases: ImageBases, m: MediaInfoJSON): Ogp => {
   // day "@" its VRChat world, then "📷" its camera (or maker); with none of
   // them, the title is just the site's name.
   const subject =
-    [
-      [taken?.day, m.world?.name].filter(Boolean).join(" @ "),
-      camera && `📷 ${camera}`,
-    ]
+    [taken?.day, m.world?.name && `@ ${m.world.name}`, camera && `📷 ${camera}`]
       .filter(Boolean)
       .join(" ") || null;
   const description = [
