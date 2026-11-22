@@ -101,6 +101,19 @@ import {
   trashItems,
 } from "~/lib/db-ops";
 import { undoMoves, type Move } from "~/lib/file-ops";
+import { getUploadConfig } from "~/lib/b2";
+import {
+  deleteIncompleteEdit,
+  FileChangeError,
+  listIncompleteEdits,
+  listPhotoFiles,
+  restoreEdits,
+  setShownFile,
+  trashEdit,
+  type PhotoFile,
+} from "~/lib/db-retouch";
+import { PhotoFiles } from "~/components/photo-files";
+import { DropZone, useUploader } from "~/components/uploader";
 import { VISIBILITIES, type MediaRow, type Visibility } from "~/lib/types";
 import {
   parseCameraIdInput,
@@ -125,6 +138,12 @@ type MediaLoaderResult =
       tagFields: TagFieldDef[];
       /** Tags it has only through its camera (0011), in order. */
       inheritedTags: string[];
+      /** Its original and retouched versions (0013 / 0020). */
+      files: PhotoFile[];
+      /** Retouched versions whose upload never completed. */
+      incompleteEdits: { id: number; key: string; size: number | null }[];
+      /** B2 upload settings exist: files can be added. */
+      canUpload: boolean;
     }
   | { kind: "missing-binding" }
   | { kind: "bad-request" }
@@ -163,14 +182,23 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
       await passedOnBy(db, row.camera_id),
     );
     const allTags = [...row.tags, ...inheritedTags];
-    const [cameras, neighbors, defaults, rowPublicTags, tagFields] =
-      await Promise.all([
-        listCameraOptions(db),
-        getNeighbors(db, list, row, MAX_BULK_IDS),
-        getSiteDefaults(db),
-        publicTags(db, allTags),
-        fieldsOfTags(db, allTags),
-      ]);
+    const [
+      cameras,
+      neighbors,
+      defaults,
+      rowPublicTags,
+      tagFields,
+      files,
+      incompleteEdits,
+    ] = await Promise.all([
+      listCameraOptions(db),
+      getNeighbors(db, list, row, MAX_BULK_IDS),
+      getSiteDefaults(db),
+      publicTags(db, allTags),
+      fieldsOfTags(db, allTags),
+      listPhotoFiles(db, id),
+      listIncompleteEdits(db, id),
+    ]);
     return {
       kind: "ok",
       row,
@@ -181,6 +209,9 @@ export const useMedia = routeLoader$<MediaLoaderResult>(
       publicTags: rowPublicTags,
       tagFields,
       inheritedTags,
+      files,
+      incompleteEdits,
+      canUpload: getUploadConfig(platform) !== null,
     };
   },
 );
@@ -583,6 +614,69 @@ export const useTrashPhoto = routeAction$(
   },
   zod$({ restore: z.string().max(5).optional() }),
 );
+
+/**
+ * Show another of the photo's files on the public site (db-retouch.ts);
+ * returns the one shown before, for undo.
+ */
+export const useShowFile = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = actionId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    try {
+      const r = await setShownFile(getDB(platform), id, data.fileId);
+      return { ok: true, previous: r.previous, undo: data.undo === true };
+    } catch (err) {
+      if (err instanceof FileChangeError) {
+        return fail(409, { message: err.message });
+      }
+      throw err;
+    }
+  },
+  zod$({ fileId: z.number().int().positive(), undo: z.boolean().optional() }),
+);
+
+/** Put a retouched version in the trash, or take it out (undo). */
+export const useTrashFile = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = actionId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    const db = getDB(platform);
+    if (data.restore === true) {
+      await restoreEdits(db, [data.fileId]);
+      return { ok: true, fileId: data.fileId, restored: true };
+    }
+    try {
+      if (!(await trashEdit(db, id, data.fileId))) {
+        return fail(404, { message: "このファイルはもうありません" });
+      }
+    } catch (err) {
+      if (err instanceof FileChangeError) {
+        return fail(409, { message: err.message });
+      }
+      throw err;
+    }
+    return { ok: true, fileId: data.fileId, restored: false };
+  },
+  zod$({
+    fileId: z.number().int().positive(),
+    restore: z.boolean().optional(),
+  }),
+);
+
+/** Forget an upload of a retouched version that never completed. */
+export const useDeleteIncompleteEdit = routeAction$(
+  async (data, { platform, params, fail }) => {
+    const id = actionId(params.id);
+    if (id === null) return fail(400, { message: "invalid id" });
+    await deleteIncompleteEdit(getDB(platform), id, data.fileId);
+    return { ok: true };
+  },
+  zod$({ fileId: z.number().int().positive() }),
+);
+
+/** Reload the page data (after files were added). */
+export const useRefreshFiles = routeAction$(() => ({ ok: true }));
 
 /** What each visibility means on the public site. */
 const VISIBILITY_HELP: Record<Visibility, string> = {
@@ -1114,7 +1208,100 @@ export default component$(() => {
         ? { tone: "success", message: `${v.restored} に戻しました。` }
         : { tone: "success", message: "ゴミ箱に入れました。" };
   });
+  // The photo's files: which one the site shows, removing and adding one.
+  const showFile = useShowFile();
+  const trashFile = useTrashFile();
+  const deleteIncompleteFile = useDeleteIncompleteEdit();
+  const refreshFiles = useRefreshFiles();
+  const uploader = useUploader(
+    $(() => refreshFiles.submit()),
+    media.value.kind === "ok" ? { editOf: media.value.row.id } : undefined,
+  );
+  /** The last change of the files, for its toast's 元に戻す. */
+  const lastFileChange = useSignal<{
+    undo: { kind: "show"; fileId: number } | { kind: "trash"; fileId: number };
+    toast: ToastState;
+  } | null>(null);
+  const fileToast = $(
+    (
+      t: ToastState,
+      undo?: NonNullable<typeof lastFileChange.value>["undo"],
+    ) => {
+      toast.value = t;
+      lastFileChange.value = undo ? { undo, toast: t } : null;
+    },
+  );
+  // Another toast (another action) takes over the 元に戻す.
+  useTask$(({ track }) => {
+    const t = track(() => toast.value);
+    if (t && lastFileChange.value && t !== lastFileChange.value.toast) {
+      lastFileChange.value = null;
+    }
+  });
+  const onShowFile = $(async (fileId: number) => {
+    const { value } = await showFile.submit({ fileId });
+    if (value.failed) {
+      await fileToast({
+        tone: "error",
+        message: value.message ?? "変えられませんでした",
+      });
+      return;
+    }
+    await fileToast(
+      {
+        tone: "success",
+        message: "公開サイトに表示するファイルを変えました。",
+        actionLabel: "元に戻す",
+      },
+      { kind: "show", fileId: value.previous },
+    );
+  });
+  const onTrashFile = $(async (fileId: number) => {
+    const { value } = await trashFile.submit({ fileId });
+    if (value.failed) {
+      await fileToast({
+        tone: "error",
+        message: value.message ?? "失敗しました",
+      });
+      return;
+    }
+    await fileToast(
+      {
+        tone: "success",
+        message: "ゴミ箱に入れました。",
+        actionLabel: "元に戻す",
+      },
+      { kind: "trash", fileId },
+    );
+  });
+  const onDeleteIncompleteFile = $(async (fileId: number) => {
+    const { value } = await deleteIncompleteFile.submit({ fileId });
+    if (value.failed) {
+      await fileToast({
+        tone: "error",
+        message: value.message ?? "削除できませんでした",
+      });
+    }
+  });
   const undoLastMove = $(async () => {
+    const change = lastFileChange.value;
+    lastFileChange.value = null;
+    if (change) {
+      const { value } =
+        change.undo.kind === "show"
+          ? await showFile.submit({ fileId: change.undo.fileId, undo: true })
+          : await trashFile.submit({
+              fileId: change.undo.fileId,
+              restore: true,
+            });
+      toast.value = value.failed
+        ? {
+            tone: "error",
+            message: `元に戻せませんでした: ${value.message ?? ""}`,
+          }
+        : { tone: "success", message: "元に戻しました。" };
+      return;
+    }
     const moves = lastMove.value;
     if (!moves || moves.length === 0) return;
     lastMove.value = null;
@@ -1417,6 +1604,21 @@ export default component$(() => {
         </button>
       </div>
 
+      <PhotoFiles
+        key={row.id}
+        files={media.value.files}
+        incomplete={media.value.incompleteEdits}
+        photoFile={row.file}
+        platform={row.platform}
+        imageBase={previewBase}
+        uploader={uploader}
+        dir={dir}
+        canUpload={media.value.canUpload && !row.trashed_at}
+        onShow$={onShowFile}
+        onTrash$={onTrashFile}
+        onDeleteIncomplete$={onDeleteIncompleteFile}
+      />
+
       <Form
         // A fresh form (and dirty state) per photo when prev/next reuse
         // this component.
@@ -1580,6 +1782,18 @@ export default component$(() => {
       {/* Keyed: prev/next start closed, on the other photo's file. */}
       <FileMetadata key={row.id} id={row.id} file={row.file} />
       <Toast toast={toast} onAction$={undoLastMove} />
+      {/* A file dropped anywhere on the page is added as a retouched
+            version. */}
+      <DropZone
+        page
+        uploader={uploader}
+        dir={dir}
+        enabled={media.value.canUpload && !row.trashed_at}
+        label="ここにドロップしてレタッチ版を追加"
+        onProblem$={(message) => {
+          toast.value = { tone: "error", message };
+        }}
+      />
     </div>
   );
 });

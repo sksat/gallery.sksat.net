@@ -106,6 +106,9 @@ import {
   UploadPanel,
   useUploader,
 } from "~/components/uploader";
+import { findRetouchPairs } from "~/lib/retouch-match";
+import { mergeRequest, unmergeRequest } from "~/lib/upload-client";
+import type { UploadItem } from "~/lib/upload-queue";
 import {
   FileBrowser,
   type FileTile,
@@ -174,6 +177,8 @@ type FilesData = {
   uploadEnabled: boolean;
   /** Uploads into `dir` that never completed. */
   incomplete: IncompleteUpload[];
+  /** Pairs of photos where one looks like a retouch of the other. */
+  retouchCandidates: number;
   /** The site's metadata levels (what デフォルト means in a bulk change). */
   siteDefaults: MetadataLevels;
   /** Cameras to pick in a bulk change. */
@@ -288,6 +293,9 @@ export const useMediaList = routeLoader$<MediaListResult>(
           siteDefaults: await getSiteDefaults(db),
           cameras,
           tagFields: await listTagFields(db),
+          // From the rows in hand (no other read): the photos that look
+          // like a retouch of another, unfiltered only.
+          retouchCandidates: filtered ? 0 : findRetouchPairs(rows).length,
         },
       };
     }
@@ -1258,6 +1266,45 @@ export default component$(() => {
   const setUploadedVisibility = $((ids: number[], v: Visibility) =>
     bulk.submit({ ids: ids.map(String), visibility: v }),
   );
+  // An uploaded photo made a retouched version of the photo of its name
+  // (the panel's offer): the toast's 元に戻す brings it back.
+  const mergedUploads = useSignal<number[]>([]);
+  const lastMerge = useSignal<{
+    alias: string;
+    id: number;
+    toast: ToastState;
+  } | null>(null);
+  // Another toast (another action) takes over the 元に戻す.
+  useTask$(({ track }) => {
+    const t = track(() => toast.value);
+    if (t && lastMerge.value && t !== lastMerge.value.toast) {
+      lastMerge.value = null;
+    }
+  });
+  const makeRetouch = $(async (item: UploadItem) => {
+    if (!item.similar || item.mediaId === null) return;
+    const id = item.mediaId;
+    try {
+      const { alias } = await mergeRequest(item.similar.id, id);
+      mergedUploads.value = [...mergedUploads.value, id];
+      const name = item.similar.path.slice(
+        item.similar.path.lastIndexOf("/") + 1,
+      );
+      const t: ToastState = {
+        tone: "success",
+        message: `${name} のレタッチ版にしました。`,
+        actionLabel: "元に戻す",
+      };
+      lastMerge.value = { alias, id, toast: t };
+      toast.value = t;
+      await uploader.refresh();
+    } catch (err) {
+      toast.value = {
+        tone: "error",
+        message: err instanceof Error ? err.message : "できませんでした",
+      };
+    }
+  });
   const newFolderOpen = useSignal(false);
   const nav = useNavigate();
   const loc = useLocation();
@@ -1411,6 +1458,22 @@ export default component$(() => {
       : { tone: "success", message: "元に戻しました。" };
   });
   const undo = $(async () => {
+    const merge = lastMerge.value;
+    lastMerge.value = null;
+    if (merge) {
+      try {
+        await unmergeRequest(merge.alias);
+        mergedUploads.value = mergedUploads.value.filter((x) => x !== merge.id);
+        toast.value = { tone: "success", message: "元に戻しました。" };
+        await uploader.refresh();
+      } catch (err) {
+        toast.value = {
+          tone: "error",
+          message: `元に戻せませんでした: ${err instanceof Error ? err.message : ""}`,
+        };
+      }
+      return;
+    }
     const folderUndo = lastFolderUndo.value;
     if (folderUndo) {
       lastFolderUndo.value = null;
@@ -2101,6 +2164,18 @@ export default component$(() => {
                     >
                       ゴミ箱
                     </Link>
+                    {files.retouchCandidates > 0 && (
+                      <Link
+                        prefetch="js"
+                        href="/media/retouch/"
+                        class={[
+                          buttonSecondary,
+                          "min-w-fit whitespace-nowrap max-sm:flex-1",
+                        ]}
+                      >
+                        レタッチ版の候補 ({files.retouchCandidates})
+                      </Link>
+                    )}
                     <button
                       type="button"
                       onClick$={() => (newFolderOpen.value = true)}
@@ -2128,6 +2203,9 @@ export default component$(() => {
                 <UploadPanel
                   uploader={uploader}
                   onSetVisibility$={setUploadedVisibility}
+                  onMakeRetouch$={makeRetouch}
+                  merged={mergedUploads.value}
+                  imageBase={imageBase}
                 />
                 <IncompleteUploads
                   rows={files.incomplete}

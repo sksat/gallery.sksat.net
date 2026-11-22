@@ -1,6 +1,7 @@
 import type { RequestHandler } from "@builder.io/qwik-city";
 import { withErrorHandler } from "~/lib/api";
 import { getUploadConfig, presignPut, putHeaders } from "~/lib/b2";
+import { findSimilarPhoto } from "~/lib/db-merge";
 import { ensureTags } from "~/lib/db-meta";
 import { initUpload } from "~/lib/db-upload";
 import { decideUpload } from "~/lib/db-upload-rules";
@@ -23,6 +24,8 @@ import { DISPLAY_CONTENT_TYPE, validateUploadInit } from "~/lib/upload";
  *     a new row. With `display` in the body (an original over the resize
  *     limits), `display: { file, url, headers }` is the display copy's
  *     PUT (a media_file row, role display), made before the complete.
+ *     `similar`: a photo in the folder of the same name, or of the name
+ *     without retouch suffixes, that a new photo may be a retouch of.
  * 200 { status: "exists", id, file } — the same photo is already uploaded.
  * 409 { error } — no free name; 503 when uploads are not configured or
  *     another upload got the name first (retry).
@@ -88,6 +91,17 @@ export const onPost: RequestHandler = withErrorHandler(
         headers: h,
       };
     }
+    // A photo this one may be a retouched version of (the panel offers to
+    // make it one). Only a hint: without it the upload goes on.
+    const similar = outcome.resumed
+      ? null
+      : await findSimilarPhoto(db, init.file, outcome.id, {
+          timestamp: init.timestamp,
+          creatorTool: init.hints?.creatorTool ?? null,
+        }).catch((err: unknown) => {
+          console.error("POST /api/upload: similar photo lookup failed:", err);
+          return null;
+        });
     json(200, {
       status: "upload",
       id: outcome.id,
@@ -97,6 +111,7 @@ export const onPost: RequestHandler = withErrorHandler(
       // What the rules set on the new row (a resumed row keeps its own).
       ...(outcome.resumed ? {} : { applied: decided.applied }),
       ...(display ? { display } : {}),
+      ...(similar ? { similar } : {}),
     });
   },
 );

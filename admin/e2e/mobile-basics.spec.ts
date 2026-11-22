@@ -26,7 +26,7 @@ test("form controls use 16px text on phones", async ({ page }) => {
   const sizes = await page
     // Fields that take typing (iOS zooms into those under 16px).
     .locator(
-      "main input:not([type=radio]):not([type=checkbox]):not([type=hidden]), main select",
+      "main input:not([type=radio]):not([type=checkbox]):not([type=hidden]):not([type=file]), main select",
     )
     .evaluateAll((els) =>
       els.map((el) => parseFloat(getComputedStyle(el).fontSize)),

@@ -192,6 +192,25 @@ describe("getMedia", () => {
     expect(await getMedia(db, "aaaaaaaaa5")).toBeNull();
     expect(await getMedia(db, "zzzzzzzzzz")).toBeNull();
   });
+
+  it("answers the photo a merged photo went into, while it may be opened", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `INSERT INTO media_alias (public_id, media_id, redirect) VALUES
+         ('bbbbbbbbb2', 1, 1), ('bbbbbbbbb3', 3, 1), ('bbbbbbbbb4', 4, 1),
+         ('bbbbbbbbb5', 1, 0)`,
+    );
+    // A private photo's id (merged): never a link.
+    expect(await getMedia(db, "bbbbbbbbb5")).toBeNull();
+    expect(await getPhotoForImage(db, "bbbbbbbbb5")).toBeNull();
+    expect((await getMedia(db, "bbbbbbbbb2"))?.id).toBe("aaaaaaaaa2");
+    expect((await getPhotoForImage(db, "bbbbbbbbb2"))?.id).toBe("aaaaaaaaa2");
+    expect((await getMedia(db, "bbbbbbbbb3"))?.id).toBe("aaaaaaaaa4");
+    // Into a private photo: nothing.
+    expect(await getMedia(db, "bbbbbbbbb4")).toBeNull();
+    expect(await getPhotoForImage(db, "bbbbbbbbb4")).toBeNull();
+  });
 });
 
 describe("getPathAccess", () => {

@@ -38,6 +38,17 @@ export const usePhotoPage = routeLoader$<PhotoPage>(async (event) => {
   if (photo === null) {
     throw event.error(404, "Image not found");
   }
+  // A photo merged into another one (a retouch of it): the API answers
+  // that photo for the old id, and its shared links lead there. Not a 301,
+  // which browsers keep for good: a merge can be undone. The page there
+  // names its own URL as canonical.
+  if (photo.id !== raw) {
+    const { pathname, search } = event.url;
+    throw event.redirect(
+      302,
+      pathname.replace(`/photo/${raw}/`, `/photo/${photo.id}/`) + search,
+    );
+  }
   const { media } = await event.resolveValue(useGalleryIndex);
   return {
     photo,

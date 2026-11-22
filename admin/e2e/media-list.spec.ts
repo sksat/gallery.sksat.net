@@ -112,7 +112,8 @@ test("thumbnails: when off, placeholders and no image requests", async ({
   await expect(page.locator("main img")).toHaveCount(0);
 
   await page.goto("/media/2/");
-  await expect(page.getByTestId("thumb-placeholder")).toHaveCount(1);
+  // The preview and its file in ファイル.
+  await expect(page.getByTestId("thumb-placeholder")).toHaveCount(2);
   await expect(page.getByText("Preview off")).toBeVisible();
   expect(imageRequests).toEqual([]);
 });

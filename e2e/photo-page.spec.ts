@@ -247,6 +247,20 @@ test.describe("desktop", () => {
     expect(html).toContain('href="/?tag=VRChat"');
     expect(html).toContain("Name Only World");
   });
+
+  test("a merged photo's links lead to the photo it went into", async ({
+    page,
+    request,
+  }) => {
+    const res = await request.get("/photo/mrgxxxxxxa/?tag=VRChat", {
+      maxRedirects: 0,
+    });
+    expect(res.status()).toBe(302);
+    expect(res.headers().location).toBe("/photo/vrcxxxxxxb/?tag=VRChat");
+    await page.goto("/photo/mrgxxxxxxa/detail/?tag=VRChat");
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/detail\/\?tag=VRChat$/);
+    await expect(detail(page)).toBeVisible();
+  });
 });
 
 test.describe("phone", () => {

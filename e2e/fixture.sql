@@ -120,3 +120,7 @@ UPDATE media SET tag_values = '{"4":"draft memo"}' WHERE id IN (5, 7);
 --   16:9; reaxxxxxxb's grey 1 × 1 stand-in square).
 UPDATE media SET width = 60, height = 80 WHERE id = 1;
 UPDATE media SET width = 64, height = 36 WHERE id IN (2, 4);
+-- A photo merged into vrcxxxxxxb as a retouched version of it (admin
+-- migration 0020): its public id redirects there.
+INSERT INTO media_alias (public_id, media_id)
+  SELECT 'mrgxxxxxxa', id FROM media WHERE public_id = 'vrcxxxxxxb';

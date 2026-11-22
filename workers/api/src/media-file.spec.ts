@@ -5,10 +5,12 @@ import {
   CAMERA_IMAGE_SQL,
   getPathAccess,
   getPhotoForImage,
+  IMAGE_BY_ALIAS_SQL,
   IMAGE_BY_ID_SQL,
   IMAGE_BY_PATH_SQL,
   LIST_SQL,
   listPublicMedia,
+  MEDIA_BY_ALIAS_SQL,
   MEDIA_BY_ID_SQL,
   PHOTO_PICTURE_SQL,
 } from "./query";
@@ -151,6 +153,18 @@ describe("query plans", () => {
     expect(plan(MEDIA_BY_ID_SQL, "aaaaaaaaa2").join("\n")).not.toMatch(
       /media_file/,
     );
+    expect(plan(MEDIA_BY_ALIAS_SQL, "aaaaaaaaa2").join("\n")).not.toMatch(
+      /media_file/,
+    );
+  });
+
+  it("finds a merged photo's alias by its key", () => {
+    for (const sql of [MEDIA_BY_ALIAS_SQL, IMAGE_BY_ALIAS_SQL]) {
+      const text = plan(sql, "aaaaaaaaa2").join("\n");
+      expect(text).toMatch(/SEARCH a USING INDEX sqlite_autoindex_media_alias_1/);
+      expect(text).toMatch(/SEARCH m USING INTEGER PRIMARY KEY/);
+      expect(text).not.toMatch(/\bSCAN\b|TEMP B-TREE/);
+    }
   });
 
   it("finds a photo's file in a few index steps", () => {

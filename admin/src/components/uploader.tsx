@@ -26,6 +26,7 @@ import {
   browserDeps,
   cameraPictureDeps,
   completeUploadRequest,
+  editFileDeps,
   type PickedFile,
 } from "~/lib/upload-client";
 import {
@@ -39,6 +40,7 @@ import {
 import { createBatchMeter, type BatchView } from "~/lib/upload-progress";
 import { dirOf } from "~/lib/folders";
 import type { Visibility } from "~/lib/types";
+import { Thumb } from "./thumb";
 import { buttonPrimary, buttonSecondary, card, muted, tagChip } from "./ui";
 
 // Uploading photos into the open folder of the Files view: a button that
@@ -152,8 +154,11 @@ const useRefreshBeforeLinks = (refresh: QRL<() => unknown>) => {
  */
 export const useUploader = (
   pageRefresh: QRL<() => unknown>,
-  /** Upload pictures of this camera instead of photos. */
-  cameraId?: number,
+  /**
+   * Upload pictures of this camera, or retouched versions of this photo,
+   * instead of photos.
+   */
+  target?: { cameraId: number } | { editOf: number },
 ): Uploader => {
   const refresh = useRefreshBeforeLinks(pageRefresh);
   const items = useSignal<UploadItem[]>([]);
@@ -164,7 +169,15 @@ export const useUploader = (
   const view = useSignal<BatchView | null>(null);
   const queue = useSignal<NoSerialize<UploadQueue<PickedFile>>>();
 
+  /** What the queue uploads for (a page reused for another photo). */
+  const queueFor = useSignal("");
   const add = $((dir: string, files: PickedFile[]) => {
+    const forKey = JSON.stringify(target ?? null);
+    if (queue.value && queueFor.value !== forKey) {
+      queue.value.clearFinished();
+      queue.value = undefined;
+    }
+    queueFor.value = forKey;
     if (!queue.value) {
       const onChange = (next: UploadItem[]) => {
         items.value = next;
@@ -172,9 +185,11 @@ export const useUploader = (
       };
       queue.value = noSerialize(
         createUploadQueue(
-          cameraId === undefined
+          target === undefined
             ? browserDeps(onChange, concurrencyFor())
-            : cameraPictureDeps(cameraId, onChange),
+            : "cameraId" in target
+              ? cameraPictureDeps(target.cameraId, onChange)
+              : editFileDeps(target.editOf, onChange),
         ),
       );
     }
@@ -410,15 +425,22 @@ export const DropZone = component$<{
   onProblem$: QRL<(message: string) => void>;
   /** The overlay's words (default: "ここにドロップして <dir> にアップロード"). */
   label?: string;
-}>(({ uploader, dir, enabled, onProblem$, label }) => {
+  /**
+   * The whole page is the area (the zone itself wraps nothing; the overlay
+   * covers the viewport).
+   */
+  page?: boolean;
+}>(({ uploader, dir, enabled, onProblem$, label, page }) => {
   const ref = useSignal<HTMLElement>();
   const over = useSignal(false);
   /** The folder the drag is over, or null for the open folder. */
   const folder = useSignal<string | null>(null);
   // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(({ cleanup }) => {
-    const el = ref.value;
-    if (!el || !enabled) return;
+    const zone = ref.value;
+    if (!zone || !enabled) return;
+    /** Where drags are taken. */
+    const el = page ? document.documentElement : zone;
     let depth = 0;
     // Firefox may aim a drag event at a text node.
     const elementOf = (e: DragEvent) => {
@@ -525,7 +547,7 @@ export const DropZone = component$<{
     const drop = (e: DragEvent) => {
       if (!isUpload(e)) return;
       e.preventDefault();
-      const target = folderAt(e)?.dataset.drop || el.dataset.dir || "/";
+      const target = folderAt(e)?.dataset.drop || zone.dataset.dir || "/";
       reset();
       // Read everything now: the DataTransfer is emptied after the event.
       const { entries, loose, unread, types, items } = readDrop(e.dataTransfer);
@@ -586,9 +608,9 @@ export const DropZone = component$<{
     window.addEventListener("dragover", swallow);
     window.addEventListener("drop", swallow);
     // Listening (for tests: a drop dispatched before this is lost).
-    el.dataset.ready = "";
+    zone.dataset.ready = "";
     cleanup(() => {
-      delete el.dataset.ready;
+      delete zone.dataset.ready;
       mark(null);
       el.removeEventListener("dragenter", enter);
       el.removeEventListener("dragleave", leave);
@@ -607,7 +629,10 @@ export const DropZone = component$<{
       {over.value && folder.value === null && (
         <div
           aria-hidden="true"
-          class="pointer-events-none absolute inset-0 z-20 rounded-xl border-2 border-dashed border-sky-500 bg-sky-50/80 text-base font-semibold text-sky-800 dark:bg-sky-950/70 dark:text-sky-200"
+          class={[
+            "pointer-events-none inset-0 rounded-xl border-2 border-dashed border-sky-500 bg-sky-50/80 text-base font-semibold text-sky-800 dark:bg-sky-950/70 dark:text-sky-200",
+            page ? "fixed z-50" : "absolute z-20",
+          ]}
         >
           {/* Sticky: stays in view over a long folder. */}
           <p class="sticky top-1/2 py-24 text-center">
@@ -829,10 +854,19 @@ type PanelProps = {
    * Without it (camera pictures) the panel offers none.
    */
   onSetVisibility$?: QRL<(ids: number[], visibility: Visibility) => void>;
+  /**
+   * Make an uploaded photo a retouched version of the photo it may be one
+   * of (UploadItem.similar). Without it the panel offers none.
+   */
+  onMakeRetouch$?: QRL<(item: UploadItem) => void>;
+  /** Uploaded photos made retouched versions so far (their media ids). */
+  merged?: number[];
+  /** For the similar photo's thumbnail. */
+  imageBase?: string | null;
 };
 
 export const UploadPanel = component$<PanelProps>(
-  ({ uploader, onSetVisibility$ }) => {
+  ({ uploader, onSetVisibility$, onMakeRetouch$, merged, imageBase }) => {
     const list = uploader.items.value;
     if (list.length === 0) return null;
     const { count, active, progress } = summarize(list);
@@ -843,7 +877,12 @@ export const UploadPanel = component$<PanelProps>(
     const uploadedIds = [
       ...new Set(
         list
-          .filter((i) => i.status === "done" && i.mediaId !== null)
+          .filter(
+            (i) =>
+              i.status === "done" &&
+              i.mediaId !== null &&
+              !merged?.includes(i.mediaId),
+          )
           .map((i) => i.mediaId as number),
       ),
     ];
@@ -1041,6 +1080,17 @@ export const UploadPanel = component$<PanelProps>(
                   ))}
                 </ul>
               )}
+              {onMakeRetouch$ &&
+                it.similar &&
+                it.status === "done" &&
+                it.mediaId !== null && (
+                  <SimilarRow
+                    item={it}
+                    merged={merged?.includes(it.mediaId) ?? false}
+                    imageBase={imageBase ?? null}
+                    onMake$={onMakeRetouch$}
+                  />
+                )}
             </li>
           ))}
         </ul>
@@ -1048,3 +1098,67 @@ export const UploadPanel = component$<PanelProps>(
     );
   },
 );
+
+/**
+ * Under an uploaded photo: the photo of the same (or plainer) name it may
+ * be a retouch of, and making it one.
+ */
+const SimilarRow = component$<{
+  item: UploadItem;
+  merged: boolean;
+  imageBase: string | null;
+  onMake$: QRL<(item: UploadItem) => void>;
+}>(({ item, merged, imageBase, onMake$ }) => {
+  const busy = useSignal(false);
+  const similar = item.similar;
+  if (!similar) return null;
+  const name = similar.path.slice(similar.path.lastIndexOf("/") + 1);
+  const shared = [
+    similar.signals.sameTime && "撮影日時が同じ",
+    similar.signals.tool,
+  ].filter((s): s is string => !!s);
+  return (
+    <div
+      data-testid="upload-similar"
+      class="flex items-center gap-3 rounded-lg bg-zinc-50 p-2 dark:bg-zinc-800/50"
+    >
+      <Thumb
+        file={similar.file}
+        platform={similar.platform}
+        imageBase={imageBase}
+        variant="list"
+        class="w-16 rounded"
+      />
+      <span class="min-w-0 flex-1 text-xs">
+        <span class="block truncate font-medium" title={similar.path}>
+          {name}
+        </span>
+        {shared.length > 0 && (
+          <span class={["block truncate", muted]}>{shared.join(" · ")}</span>
+        )}
+      </span>
+      {merged ? (
+        <span class="shrink-0 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+          レタッチ版にしました
+        </span>
+      ) : (
+        <button
+          type="button"
+          disabled={busy.value}
+          aria-label={`${item.name} を ${name} のレタッチ版にする`}
+          onClick$={async () => {
+            busy.value = true;
+            try {
+              await onMake$(item);
+            } finally {
+              busy.value = false;
+            }
+          }}
+          class={[buttonSecondary, "shrink-0"]}
+        >
+          レタッチ版にする
+        </button>
+      )}
+    </div>
+  );
+});
