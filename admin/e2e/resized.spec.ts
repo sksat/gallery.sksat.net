@@ -170,8 +170,10 @@ test("an og card the image Worker asks for is drawn again with its caption", asy
       { headers: { origin: baseURL! } },
     );
     expect(asked.ok()).toBe(true);
-    // A new tab: the maker looks for waiting work again.
-    const fresh = await (await browser.newContext()).newPage();
+    // A new tab: the maker looks for waiting work again. In `context`, so
+    // it is closed with it below: a tab left open keeps its maker, which
+    // would make the next spec's copies before that spec's page does.
+    const fresh = await context.newPage();
     await fresh.goto("/media/");
     await expect
       .poll(async () => (await bytes()) !== before, { timeout: 15_000 })
