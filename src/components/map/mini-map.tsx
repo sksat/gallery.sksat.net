@@ -86,7 +86,7 @@ export const MiniMap = component$<{
     <div
       data-testid="mini-map"
       // A card like the calendar's next to it on the photo page.
-      class="relative h-44 w-full overflow-hidden rounded-xl bg-white/[0.04] ring-1 ring-white/10 sm:h-auto sm:min-h-44 lg:h-44"
+      class="relative h-44 w-full overflow-hidden rounded-2xl bg-white/[0.04] ring-1 ring-white/10 sm:h-auto sm:min-h-44 lg:h-44"
     >
       {/* A picture of the place: its marker and controls are inert (the
           link over it is the one thing to focus or tap). */}

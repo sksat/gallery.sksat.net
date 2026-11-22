@@ -1,13 +1,6 @@
-import {
-  $,
-  component$,
-  Fragment,
-  Slot,
-  sync$,
-  type QRL,
-} from "@builder.io/qwik";
+import { $, component$, Slot, sync$, type QRL } from "@builder.io/qwik";
 
-import type { PhotoInfo } from "./photo-info";
+import { splitTaken, type ExposureSpec, type PhotoInfo } from "./photo-info";
 
 export type TagLink = { tag: string; href: string };
 
@@ -46,11 +39,7 @@ const DETAIL = "mt-0.5 text-sm text-white/65";
 
 /** 24×24 stroke icons, one per kind of row. */
 const ICON = {
-  calendar: "M5 5h14v15H5zM5 10h14M9 3v4M15 3v4",
   camera: "M4 8h3l2-3h6l2 3h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
-  // An aperture.
-  exposure:
-    "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16 3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94",
   // A scanner's frame.
   scan: "M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10",
   world:
@@ -60,6 +49,24 @@ const ICON = {
   tag: "M3 3h8l10 10-8 8L3 11zM7.5 7.5h.01",
   file: "M14 3H6v18h12V7zM14 3v4h4",
 } as const;
+
+const Icon = component$<{ icon: keyof typeof ICON; size?: number }>(
+  ({ icon, size = 18 }) => (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d={ICON[icon]} />
+    </svg>
+  ),
+);
 
 /**
  * One row: the kind's icon (its name for screen readers and as a tooltip)
@@ -72,25 +79,154 @@ const Row = component$<{ icon: keyof typeof ICON; label: string; id: string }>(
       class="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3"
     >
       <dt title={props.label} class="pt-px text-white/45">
-        <svg
-          viewBox="0 0 24 24"
-          width="18"
-          height="18"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.75"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d={ICON[props.icon]} />
-        </svg>
+        <Icon icon={props.icon} />
         <span class="sr-only">{props.label}</span>
       </dt>
       <Slot />
     </div>
   ),
 );
+
+interface PhotoTitleProps {
+  info: PhotoInfo;
+  /** The heading's level: 1 on the photo page, 2 in the overlay. */
+  level: 1 | 2;
+  id: string;
+}
+
+/**
+ * The photo's title block: its date as the heading (the time set lighter),
+ * and where it was taken under it: the VRChat world, or the place on the
+ * map. Without a public date the heading is for screen readers only.
+ */
+export const PhotoTitle = component$<PhotoTitleProps>((props) => {
+  const { taken, world, location } = props.info;
+  const page = props.level === 1;
+  const parts = taken ? splitTaken(taken.text) : null;
+  // `!`: the site's unlayered h2 rule would win otherwise.
+  const headingClass = [
+    "!m-0 leading-none !font-semibold tracking-tight tabular-nums",
+    page ? "!text-4xl sm:!text-5xl" : "!text-[1.75rem]",
+    taken ? "" : "sr-only",
+  ];
+  const heading =
+    taken && parts ? (
+      <time dateTime={taken.datetime}>
+        {parts.date}
+        {parts.time && " "}
+        {parts.time && (
+          <span
+            class={[
+              "font-normal text-white/55",
+              page ? "ml-1.5 text-[0.6em]" : "ml-1 text-[0.65em]",
+            ]}
+          >
+            {parts.time}
+          </span>
+        )}
+      </time>
+    ) : (
+      "写真"
+    );
+  const H = page ? "h1" : "h2";
+  return (
+    <div class="flex flex-col gap-3">
+      <H
+        id={props.id}
+        data-testid={taken ? "info-taken" : undefined}
+        class={headingClass}
+      >
+        {heading}
+      </H>
+      {(world || location) && (
+        <dl
+          class={[
+            "flex flex-wrap gap-x-5 gap-y-1.5",
+            page ? "text-lg" : "text-[0.9375rem]",
+          ]}
+        >
+          {world && (
+            <div data-testid="info-world" class="flex items-center gap-2">
+              <dt title="ワールド" class="text-white/45">
+                <Icon icon="world" size={page ? 20 : 17} />
+                <span class="sr-only">ワールド</span>
+              </dt>
+              <dd>
+                {world.href ? (
+                  <a
+                    href={world.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class={LINK}
+                  >
+                    {world.name}
+                    <External />
+                  </a>
+                ) : (
+                  world.name
+                )}
+              </dd>
+            </div>
+          )}
+          {location && (
+            <div data-testid="info-location" class="flex items-center gap-2">
+              <dt title="撮影場所" class="text-white/45">
+                <Icon icon="place" size={page ? 20 : 17} />
+                <span class="sr-only">撮影場所</span>
+              </dt>
+              <dd>
+                {/* Plain <a>: see the note in components/layout/header.tsx. */}
+                <a href={location.href} class={[LINK, "tabular-nums"]}>
+                  {location.label}
+                </a>
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </div>
+  );
+});
+
+/**
+ * How the photo was exposed, as a camera's readout: one cell per setting,
+ * its value large and its name small above it.
+ */
+export const ExposureSpecs = component$<{
+  specs: ExposureSpec[];
+  /** Larger, on the photo page. */
+  large?: boolean;
+}>((props) => (
+  <dl
+    data-testid="info-exposure"
+    aria-label="撮影設定"
+    class="grid divide-x divide-white/10 overflow-hidden rounded-xl bg-white/[0.06] ring-1 ring-white/10 ring-inset"
+    style={{
+      gridTemplateColumns: `repeat(${props.specs.length}, minmax(0, 1fr))`,
+    }}
+  >
+    {props.specs.map((s) => (
+      <div
+        key={s.label}
+        class={[
+          "flex flex-col gap-1",
+          props.large ? "px-4 py-3" : "px-2.5 py-2",
+        ]}
+      >
+        <dt class="text-[0.6875rem] leading-none text-white/50">{s.label}</dt>
+        <dd
+          data-testid="info-exposure-value"
+          class={[
+            "leading-tight font-semibold whitespace-nowrap tabular-nums",
+            props.large ? "text-xl" : "text-[0.9375rem]",
+          ]}
+        >
+          {s.value}
+        </dd>
+      </div>
+    ))}
+  </dl>
+));
 
 interface PhotoInfoListProps {
   info: PhotoInfo;
@@ -104,22 +240,17 @@ interface PhotoInfoListProps {
 }
 
 /**
- * A photo's metadata as a description list, exactly as photoInfo() gives
- * it (only what the API returned): the overlay's info panel and the photo
- * page show the same list. One row per kind, marked by an icon, with the
- * main value first and its details under it.
+ * The rest of a photo's metadata, after its title and exposure, as a
+ * description list, exactly as photoInfo() gives it (only what the API
+ * returned): the camera, what it was scanned with, its tags and their
+ * fields, and its file name. One row per kind, marked by an icon, with
+ * the main value first and its details under it. The overlay's info and
+ * the photo page show the same list.
  */
 export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
   const i = props.info;
   return (
     <dl class="grid gap-y-4 text-[0.9375rem] leading-snug text-white [&_dd]:break-words">
-      {i.taken && (
-        <Row icon="calendar" label="撮影日時" id="info-taken">
-          <dd class="tabular-nums">
-            <time dateTime={i.taken.datetime}>{i.taken.text}</time>
-          </dd>
-        </Row>
-      )}
       {(i.camera || i.body || i.lens) && (
         <Row icon="camera" label="カメラ" id="info-camera">
           {i.camera && (
@@ -148,20 +279,6 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
           )}
         </Row>
       )}
-      {i.exposure && (
-        <Row icon="exposure" label="撮影設定" id="info-exposure">
-          {/* Each value apart, like a camera's own readout. */}
-          <dd class="flex flex-wrap gap-x-3.5 gap-y-0.5 tabular-nums">
-            {i.exposure.map((part, n) => (
-              <Fragment key={part}>
-                {/* Read apart, too. */}
-                {n > 0 && <span class="sr-only">, </span>}
-                <span data-testid="info-exposure-value">{part}</span>
-              </Fragment>
-            ))}
-          </dd>
-        </Row>
-      )}
       {i.digitizer && (
         <Row icon="scan" label="スキャン機材" id="info-digitizer">
           <dd>
@@ -188,35 +305,6 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
         <Row icon="scan" label="スキャン日時" id="info-digitized">
           <dd class="tabular-nums">
             <time dateTime={i.digitized.datetime}>{i.digitized.text}</time>
-          </dd>
-        </Row>
-      )}
-      {i.world && (
-        <Row icon="world" label="ワールド" id="info-world">
-          <dd>
-            {i.world.href ? (
-              <a
-                href={i.world.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                class={LINK}
-              >
-                {i.world.name}
-                <External />
-              </a>
-            ) : (
-              i.world.name
-            )}
-          </dd>
-        </Row>
-      )}
-      {i.location && (
-        <Row icon="place" label="撮影場所" id="info-location">
-          <dd>
-            {/* Plain <a>: see the note in components/layout/header.tsx. */}
-            <a href={i.location.href} class={[LINK, "tabular-nums"]}>
-              {i.location.label}
-            </a>
           </dd>
         </Row>
       )}
@@ -249,7 +337,7 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
                     }),
                   ]
                 }
-                class="rounded-full bg-white/[0.07] px-2.5 py-1 text-[0.8125rem] leading-none !text-white/90 ring-1 ring-white/15 ring-inset hover:bg-white/15 hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                class="rounded-full bg-white/[0.07] px-3 py-1.5 text-[0.8125rem] leading-none !text-white/90 ring-1 ring-white/15 ring-inset hover:bg-white/15 hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
               >
                 {tag}
               </a>

@@ -49,7 +49,7 @@ test.describe("desktop", () => {
     await expect(p.getByTestId("info-exposure-value")).toHaveText([
       "f/2.8",
       "1/250 s",
-      "ISO 100",
+      "100",
       "35 mm",
     ]);
     await expect(
@@ -98,7 +98,7 @@ test.describe("desktop", () => {
     await expect(p.getByTestId("info-exposure-value")).toHaveText([
       "f/5.6",
       "1/1000 s",
-      "ISO 200",
+      "200",
       "18.3 mm",
     ]);
     await expect(p.getByTestId("info-file")).toHaveCount(0);
@@ -245,7 +245,7 @@ test.describe("desktop", () => {
     expect(html).toContain('data-testid="overlay"');
     expect(html).toContain('data-testid="info-exposure"');
     expect(html).toContain('aria-expanded="true"');
-    for (const part of ["f/2.8", "1/250 s", "ISO 100", "35 mm"]) {
+    for (const part of ["f/2.8", "1/250 s", "35 mm", "シャッター"]) {
       expect(html).toContain(part);
     }
     expect(html).toContain("Fixture World");

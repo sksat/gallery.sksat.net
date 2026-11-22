@@ -16,8 +16,7 @@ const resumed = (page: Page) =>
   expect
     .poll(() =>
       page
-        .getByTestId("overlay-box")
-        .locator("..")
+        .getByTestId("photo-area")
         .evaluate((el: HTMLElement) => el.style.touchAction),
     )
     .toBe("pan-y pinch-zoom");
@@ -149,7 +148,7 @@ test.describe("desktop", () => {
     await expect(d.getByTestId("info-exposure-value")).toHaveText([
       "f/2.8",
       "1/250 s",
-      "ISO 100",
+      "100",
       "35 mm",
     ]);
     await expect(
@@ -228,7 +227,10 @@ test.describe("desktop", () => {
       "href",
       "/map/?photo=reaxxxxxxa",
     );
-    await expect(detail(page).getByTestId("info-location")).toHaveCount(0);
+    // The title names the place too, linking to the same map.
+    await expect(
+      detail(page).getByTestId("info-location").getByRole("link"),
+    ).toHaveAttribute("href", "/map/?photo=reaxxxxxxa");
     // reaxxxxxxb only to the city.
     await page.goto("/photo/reaxxxxxxb/detail/");
     await expect(
@@ -265,7 +267,7 @@ test.describe("phone", () => {
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
     // The swipe listeners are in place once the photo area takes its
     // touch-action.
-    const area = page.getByTestId("overlay-box").locator("..");
+    const area = page.getByTestId("photo-area");
     await expect
       .poll(() => area.evaluate((el: HTMLElement) => el.style.touchAction))
       .toBe("pan-y pinch-zoom");
@@ -305,7 +307,7 @@ test.describe("phone", () => {
   test("a swipe right is the previous photo", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxb/detail/?tag=VRChat");
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
-    const area = page.getByTestId("overlay-box").locator("..");
+    const area = page.getByTestId("photo-area");
     await expect
       .poll(() => area.evaluate((el: HTMLElement) => el.style.touchAction))
       .toBe("pan-y pinch-zoom");

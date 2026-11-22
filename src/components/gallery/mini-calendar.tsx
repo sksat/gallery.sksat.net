@@ -30,7 +30,7 @@ export const MiniCalendar = component$<{
   const dayClass =
     "mx-auto grid size-7 place-items-center rounded-full bg-[var(--color-accent)] font-semibold text-[var(--color-bg)]";
   // A card like the camera's and the map's on the photo page.
-  const card = "rounded-xl bg-white/[0.04] ring-1 ring-white/10 ring-inset";
+  const card = "rounded-2xl bg-white/[0.04] ring-1 ring-white/10 ring-inset";
   const key = takenDateKey(timestamp, precision);
   const p = parseDateKey(key);
   if (!p || key === null) return null;

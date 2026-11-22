@@ -143,12 +143,16 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
 
   // Narrow screens: the photo stays centred on the first screen, at most
   // as tall as leaves a peek of the info at its foot, and the info starts
-  // right under the photo (from its shape; 3:2 until its size is known).
+  // right under the photo (from its shape; at that most when its size is
+  // not known, rather than a guessed shape).
   const size = props.info ? photoSize(props.info) : {};
-  const ratio = "width" in size ? size.width / size.height : 3 / 2;
+  const most = "100dvh - 2 * var(--peek)";
   const layout = {
-    "--peek": "4.5rem",
-    "--photo-h": `min(90vw / ${ratio}, 100dvh - 2 * var(--peek))`,
+    "--peek": "5rem",
+    "--photo-h":
+      "width" in size
+        ? `min(90vw * ${size.height / size.width}, ${most})`
+        : `calc(${most})`,
     "--info-top": "calc(var(--photo-h) / 2 - 50dvh)",
   };
 
@@ -179,8 +183,11 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
           <ProgressiveImage
             src={props.src}
             boxRef={box}
+            // The same box with the info shown or hidden, so hiding it (or
+            // the stored choice applied after a reload) never moves the
+            // photo.
             boxClass={
-              open
+              hasInfo
                 ? "relative flex h-(--photo-h) w-[90vw] items-center justify-center lg:h-[85vh]"
                 : overlayClass.box
             }
