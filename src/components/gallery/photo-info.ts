@@ -56,8 +56,10 @@ export const exposureSpecs = (
 export const splitTaken = (
   text: string,
 ): { date: string; time: string | null } => {
-  const [date, time] = text.split(" ");
-  return { date, time: time ?? null };
+  const at = text.indexOf(" ");
+  return at === -1
+    ? { date: text, time: null }
+    : { date: text.slice(0, at), time: text.slice(at + 1) };
 };
 
 /**

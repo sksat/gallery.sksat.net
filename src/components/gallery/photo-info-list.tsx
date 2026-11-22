@@ -78,7 +78,7 @@ const Row = component$<{ icon: keyof typeof ICON; label: string; id: string }>(
       data-testid={props.id}
       class="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3"
     >
-      <dt title={props.label} class="pt-px text-white/45">
+      <dt title={props.label} class="pt-px text-white/55">
         <Icon icon={props.icon} />
         <span class="sr-only">{props.label}</span>
       </dt>
@@ -125,8 +125,10 @@ export const PhotoTitle = component$<PhotoTitleProps>((props) => {
           </span>
         )}
       </time>
-    ) : (
+    ) : page ? (
       "写真"
+    ) : (
+      "写真の情報"
     );
   const H = page ? "h1" : "h2";
   return (
@@ -147,7 +149,7 @@ export const PhotoTitle = component$<PhotoTitleProps>((props) => {
         >
           {world && (
             <div data-testid="info-world" class="flex items-center gap-2">
-              <dt title="ワールド" class="text-white/45">
+              <dt title="ワールド" class="text-white/55">
                 <Icon icon="world" size={page ? 20 : 17} />
                 <span class="sr-only">ワールド</span>
               </dt>
@@ -170,7 +172,7 @@ export const PhotoTitle = component$<PhotoTitleProps>((props) => {
           )}
           {location && (
             <div data-testid="info-location" class="flex items-center gap-2">
-              <dt title="撮影場所" class="text-white/45">
+              <dt title="撮影場所" class="text-white/55">
                 <Icon icon="place" size={page ? 20 : 17} />
                 <span class="sr-only">撮影場所</span>
               </dt>
@@ -200,25 +202,32 @@ export const ExposureSpecs = component$<{
   <dl
     data-testid="info-exposure"
     aria-label="撮影設定"
-    class="grid divide-x divide-white/10 overflow-hidden rounded-xl bg-white/[0.06] ring-1 ring-white/10 ring-inset"
+    // Two by two where it is narrow (the overlay's card, phones); on the
+    // photo page from sm, all in one row.
+    class={[
+      "grid grid-cols-2 gap-1.5",
+      props.large && "sm:grid-cols-(--readout-cols)",
+    ]}
     style={{
-      gridTemplateColumns: `repeat(${props.specs.length}, minmax(0, 1fr))`,
+      "--readout-cols": `repeat(${props.specs.length}, minmax(0, 1fr))`,
     }}
   >
     {props.specs.map((s) => (
       <div
         key={s.label}
         class={[
-          "flex flex-col gap-1",
-          props.large ? "px-4 py-3" : "px-2.5 py-2",
+          "flex min-w-0 flex-col gap-1 rounded-lg bg-white/[0.07] ring-1 ring-white/10 ring-inset",
+          props.large ? "px-3.5 py-3" : "px-3 py-2",
         ]}
       >
-        <dt class="text-[0.6875rem] leading-none text-white/50">{s.label}</dt>
+        <dt class="text-[0.6875rem] leading-none whitespace-nowrap text-white/65">
+          {s.label}
+        </dt>
         <dd
           data-testid="info-exposure-value"
           class={[
-            "leading-tight font-semibold whitespace-nowrap tabular-nums",
-            props.large ? "text-xl" : "text-[0.9375rem]",
+            "leading-tight font-semibold break-words tabular-nums",
+            props.large ? "text-xl" : "text-base",
           ]}
         >
           {s.value}
