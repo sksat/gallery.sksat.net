@@ -19,11 +19,10 @@ h2 {
   }
 }
 
-/* The header's title on phones: small enough to stay clear of the face in
-   the illustration (header.tsx). */
+/* The header's title on phones, under its icon (header.tsx). */
 @media screen and (max-width: 639px) {
   .site-title {
-    font-size: 1.75rem;
+    line-height: 1.1;
   }
 }
 

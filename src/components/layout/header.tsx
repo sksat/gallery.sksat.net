@@ -9,23 +9,25 @@ import HeaderSksat from "~/media/sksat-header.png?jsx";
 // first line (SiteNav, components/layout/site-nav.tsx).
 export default component$(() => (
   <header class="relative h-32 overflow-hidden">
+    {/* The face in the illustration is on the left; below xl it would sit
+        under the centred title. There the image is drawn wider and moved
+        left by the same amount, so the face sits beside the title (cut at
+        the left edge on the narrowest phones). */}
     <HeaderSksat
-      class="absolute inset-0 z-0 h-full w-full object-cover"
+      class="absolute top-0 bottom-0 left-[-28%] z-0 h-full w-[128%] max-w-none object-cover min-[390px]:left-[-17%] min-[390px]:w-[117%] sm:left-[-9%] sm:w-[109%] md:left-[-8%] md:w-[108%] xl:left-0 xl:w-full"
       style="object-position: 0% 50%;"
       alt="生活(@m2__z)さんに描いていただいたイラスト: https://skeb.jp/@m2__z/works/12"
     />
-    {/* The face in the illustration is on the left and the image is
-        cropped from its left edge, so below xl the face sits where a
-        centred title would: keep the title to the right there. */}
-    <div class="relative z-10 flex h-full items-center justify-end pr-4 xl:justify-center xl:pr-0">
+    {/* On phones the icon sits above the title. */}
+    <div class="relative z-10 flex h-full items-center justify-center">
       <div>
         {/* A plain <a>, not <Link>: the gallery rewrites the URL with
             history.pushState/replaceState, which Qwik City's SPA router does
             not track. Keeping the router inactive avoids it acting on a
             stale URL (e.g. a <Link> to "/" being ignored as "same page"). */}
-        <a href="/" title="" class="flex items-center">
+        <a href="/" title="" class="flex flex-col items-center sm:flex-row">
           <LogoSksat
-            class="mr-2 h-10 w-10 [image-rendering:pixelated] sm:mr-3 sm:h-14 sm:w-14"
+            class="mb-1 h-10 w-10 [image-rendering:pixelated] sm:mr-3 sm:mb-0 sm:h-14 sm:w-14"
             alt=""
           />
           <h2
