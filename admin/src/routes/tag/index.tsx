@@ -523,6 +523,7 @@ export default component$(() => {
                   <span class="min-w-0 flex-1">
                     {editing.value === t.name ? (
                       <form
+                        class="py-1"
                         preventdefault:submit
                         onSubmit$={(_, form) =>
                           saveName(
