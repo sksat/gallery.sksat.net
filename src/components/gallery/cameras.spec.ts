@@ -5,8 +5,10 @@ import {
   cameraSlug,
   cameraSlugFromPath,
   camerasFromMedia,
+  cameraPreviews,
   cameraSummaries,
   digitizedWith,
+  PREVIEW_PHOTOS,
   findCamera,
   isImagePath,
   parseCameras,
@@ -342,5 +344,42 @@ describe("cameraSummaries", () => {
     expect(
       list.find((s) => s.camera.slug === "pentax-sp")?.camera,
     ).toMatchObject({ name: "PENTAX SP", manufacturer: "Asahi", images: [] });
+  });
+
+  it("gives each camera's card: its numbers, picture and newest photos", () => {
+    const more = [
+      ...media,
+      at("vxxxxxxxxd", vl2, "2023-12-04T00:00:00Z"),
+      at("vxxxxxxxxe", vl2, "2023-12-03T00:00:00Z"),
+      // Digitised with the SP: on its card too.
+      { ...at("dxxxxxxxxx", a1, "2023-12-06T00:00:00Z"), digitizer: sp },
+    ];
+    const cards = cameraPreviews(more, published);
+    expect(Object.keys(cards).sort()).toEqual([
+      "a1",
+      "pentax-sp",
+      "virtuallens2",
+    ]);
+    expect(cards["pentax-sp"]).toEqual({
+      name: "PENTAX SP",
+      manufacturer: "Asahi",
+      kind: "film",
+      count: 2,
+      picture: "/cameras/sp.png",
+      recent: [
+        { id: "dxxxxxxxxx", file: "/dxxxxxxxxx.png" },
+        { id: "spxxxxxxxx", file: "/spxxxxxxxx.png" },
+      ],
+    });
+    // The newest PREVIEW_PHOTOS, undated last; no picture of its own.
+    expect(cards.virtuallens2.count).toBe(5);
+    expect(cards.virtuallens2.picture).toBeNull();
+    expect(cards.virtuallens2.recent.map((r) => r.id)).toEqual([
+      "vxxxxxxxxb",
+      "vxxxxxxxxd",
+      "vxxxxxxxxe",
+      "vxxxxxxxxa",
+    ]);
+    expect(PREVIEW_PHOTOS).toBe(4);
   });
 });

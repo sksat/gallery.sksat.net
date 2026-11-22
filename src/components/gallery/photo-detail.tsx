@@ -1,11 +1,23 @@
-import { $, component$, useComputed$, useSignal } from "@builder.io/qwik";
+import {
+  $,
+  component$,
+  useComputed$,
+  useContextProvider,
+  useSignal,
+} from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
 
 import { useGalleryIndex } from "~/routes/layout";
 import { takenDateKey } from "@shared/calendar/calendar";
 import type { SwipeDirection } from "@shared/gestures/swipe";
 import { Manufacturer } from "./camera-header";
-import { CAMERA_KIND_LABELS, cameraHref, findCamera } from "./cameras";
+import { CAMERA_PREVIEWS } from "./camera-link";
+import {
+  CAMERA_KIND_LABELS,
+  cameraHref,
+  cameraPreviews,
+  findCamera,
+} from "./cameras";
 import { photoContext } from "./detail";
 import { imageUrl, photoSize } from "./images";
 import { isTextTarget } from "./keys";
@@ -93,6 +105,14 @@ const StepLink = component$<{ dir: "prev" | "next"; href: string }>(
 export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
   const location = useLocation();
   const index = useGalleryIndex();
+  // Its スキャン機材 link previews the device (camera-link.tsx).
+  const cameraCards = useComputed$(() =>
+    cameraPreviews(
+      index.value.media.map(transformMediaInfo),
+      index.value.cameras,
+    ),
+  );
+  useContextProvider(CAMERA_PREVIEWS, cameraCards);
 
   const page = useComputed$(() => {
     const media = index.value.media.map(transformMediaInfo);

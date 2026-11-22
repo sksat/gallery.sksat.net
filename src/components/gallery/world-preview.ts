@@ -1,6 +1,6 @@
-// The preview card of a photo's VRChat world (world-preview.tsx): what the
-// API answers (workers/api/src/world-route.ts WorldCard) and where the
-// card goes on screen.
+// The preview card of a photo's VRChat world (world-link.tsx): what the
+// API answers (workers/api/src/world-route.ts WorldCard). Where the card
+// goes on screen: shared/preview/position.ts.
 
 export type WorldCard = {
   name: string;
@@ -39,29 +39,3 @@ export const worldImageUrl = (
   imageBase
     ? `${imageBase.replace(/\/$/, "")}/world/${encodeURIComponent(photoId)}`
     : null;
-
-type Rect = { top: number; bottom: number; left: number };
-
-/** Space kept between the card and the screen's edges or the link (px). */
-const GAP = 8;
-
-/**
- * Where the card (`width` × `height`) goes for a link at `link`, in a
- * `viewport`: under the link, its left edge at the link's, kept on screen;
- * above the link when it does not fit under it but does above.
- */
-export const cardPosition = (
-  link: Rect,
-  card: { width: number; height: number },
-  viewport: { width: number; height: number },
-): { top: number; left: number } => {
-  const left = Math.max(
-    GAP,
-    Math.min(link.left, viewport.width - card.width - GAP),
-  );
-  const below = link.bottom + GAP;
-  const above = link.top - GAP - card.height;
-  const top =
-    below + card.height > viewport.height - GAP && above >= GAP ? above : below;
-  return { top, left };
-};

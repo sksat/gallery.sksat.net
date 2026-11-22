@@ -2,12 +2,14 @@ import {
   component$,
   $,
   useComputed$,
+  useContextProvider,
   useSignal,
   useStore,
   useVisibleTask$,
 } from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
 
+import { CAMERA_PREVIEWS } from "./camera-link";
 import { useGalleryIndex } from "~/routes/layout";
 import {
   transformMediaInfo,
@@ -28,6 +30,7 @@ import { SiteNav } from "../layout/site-nav";
 import {
   cameraHref,
   cameraLabel,
+  cameraPreviews,
   cameraSlug,
   digitizedWith,
   findCamera,
@@ -43,7 +46,7 @@ import {
   tileStyle,
 } from "./tile";
 import { PhotoOverlay } from "./photo-overlay";
-import { OPEN_PREVIEW } from "./world-link";
+import { OPEN_PREVIEW } from "./hover-card";
 import { SORT_LABELS, sortMedia, type SortKind, type SortOrder } from "./sort";
 import {
   DEFAULT_TAG_MODE,
@@ -121,6 +124,14 @@ export default component$<GalleryProps>((props) => {
   const location = useLocation();
   // Loaded by the layout for every page (public photos and cameras only).
   const index = useGalleryIndex();
+  // The overlay's camera links preview their camera (camera-link.tsx).
+  const cameraCards = useComputed$(() =>
+    cameraPreviews(
+      index.value.media.map(transformMediaInfo),
+      index.value.cameras,
+    ),
+  );
+  useContextProvider(CAMERA_PREVIEWS, cameraCards);
   const state = useStore<GalleryState>(galleryStateFromUrl(location.url));
   // Aspect ratios of loaded photos whose size the API did not give.
   const natural = useStore<Record<string, number>>({});
@@ -304,7 +315,7 @@ export default component$<GalleryProps>((props) => {
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       step(event.key === "ArrowRight" ? "next" : "prev");
     } else if (event.key === "Escape" && !event.isComposing) {
-      // An open world preview takes this Esc (world-link.tsx).
+      // An open preview card takes this Esc (hover-card.tsx).
       if (!document.querySelector(`[${OPEN_PREVIEW}]`)) closeImage();
     } else if (
       event.key === "Enter" &&
