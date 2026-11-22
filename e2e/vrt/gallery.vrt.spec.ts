@@ -82,27 +82,26 @@ test("photo page", async ({ page }) => {
   await expect(page).toHaveScreenshot("photo-page.png", { fullPage: true });
 });
 
-test("photo overlay: summary", async ({ page }) => {
+test("photo overlay", async ({ page }) => {
   await openPhoto(page);
   await settled(page);
   await expect(page).toHaveScreenshot("photo-1.png");
 });
 
-test("photo overlay: info panel open", async ({ page }) => {
+test("photo overlay: info hidden", async ({ page }) => {
   await openPhoto(page);
-  await page.getByTestId("info-summary").click();
+  await page.getByTestId("info-toggle").click();
   await expect(page.getByTestId("info-toggle")).toHaveAttribute(
     "aria-expanded",
-    "true",
+    "false",
   );
-  await settled(page);
-  await expect(page).toHaveScreenshot("photo-1-info-open.png");
+  await expect(page.getByTestId("info-panel")).toBeHidden();
+  await expect(page).toHaveScreenshot("photo-1-info-hidden.png");
 });
 
 // reaxxxxxxa: its film tag's fields under the tag.
 test("photo overlay: a tag's fields", async ({ page }) => {
   await openPhoto(page, "reaxxxxxxa");
-  await page.getByTestId("info-summary").click();
   await expect(page.getByTestId("info-tag-fields")).toBeVisible();
   await settled(page);
   await expect(page).toHaveScreenshot("photo-real1-tag-fields.png");
@@ -118,26 +117,14 @@ test.describe("phone", () => {
     });
   });
 
-  test("photo overlay: summary", async ({ page }) => {
+  test("photo overlay", async ({ page }) => {
     await openPhoto(page);
     await settled(page);
     await expect(page).toHaveScreenshot("photo-1-phone.png");
   });
 
-  test("photo overlay: info sheet", async ({ page }) => {
-    await openPhoto(page);
-    await page.getByTestId("info-summary").click();
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    await settled(page);
-    await expect(page).toHaveScreenshot("photo-1-phone-info.png");
-  });
-
   test("photo overlay: a tag's fields", async ({ page }) => {
     await openPhoto(page, "reaxxxxxxa");
-    await page.getByTestId("info-summary").click();
     await expect(page.getByTestId("info-tag-fields")).toBeVisible();
     await settled(page);
     await expect(page).toHaveScreenshot("photo-real1-tag-fields-phone.png");

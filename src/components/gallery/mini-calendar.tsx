@@ -26,8 +26,11 @@ export const MiniCalendar = component$<{
   precision?: Precision | null;
   linkDay?: boolean;
 }>(({ timestamp, precision, linkDay = true }) => {
+  // The photo's day: a filled circle in the accent colour.
   const dayClass =
-    "rounded bg-[var(--color-accent)] py-0.5 font-semibold text-[var(--color-bg)]";
+    "mx-auto grid size-7 place-items-center rounded-full bg-[var(--color-accent)] font-semibold text-[var(--color-bg)]";
+  // A card like the camera's and the map's on the photo page.
+  const card = "rounded-xl bg-white/[0.04] ring-1 ring-white/10 ring-inset";
   const key = takenDateKey(timestamp, precision);
   const p = parseDateKey(key);
   if (!p || key === null) return null;
@@ -37,7 +40,10 @@ export const MiniCalendar = component$<{
       <a
         href={calendarHref(p.year)}
         data-testid="mini-calendar"
-        class="text-sm underline underline-offset-4"
+        class={[
+          "block px-4 py-3 text-sm !text-white hover:bg-white/[0.08]",
+          card,
+        ]}
       >
         {p.year}年のカレンダー
       </a>
@@ -45,8 +51,8 @@ export const MiniCalendar = component$<{
   }
   const { year, month, day } = p;
   return (
-    <figure data-testid="mini-calendar" class="w-56 text-xs">
-      <figcaption class="mb-1 text-sm font-semibold">
+    <figure data-testid="mini-calendar" class={["p-4 text-[0.8125rem]", card]}>
+      <figcaption class="mb-2 text-[0.9375rem] font-semibold">
         <a
           href={calendarHref(year, month)}
           style={{ color: "inherit" }}
@@ -55,9 +61,9 @@ export const MiniCalendar = component$<{
           {year}年{month}月
         </a>
       </figcaption>
-      <div class="grid grid-cols-7 gap-0.5 text-center tabular-nums">
+      <div class="grid grid-cols-7 gap-y-0.5 text-center leading-7 tabular-nums">
         {WEEKDAYS.map((d) => (
-          <span key={d} aria-hidden="true" class="opacity-60">
+          <span key={d} aria-hidden="true" class="text-xs text-white/45">
             {d}
           </span>
         ))}
@@ -85,7 +91,7 @@ export const MiniCalendar = component$<{
                 </span>
               )
             ) : (
-              <span key={d} aria-hidden="true" class="py-0.5 opacity-50">
+              <span key={d} aria-hidden="true" class="text-white/55">
                 {d}
               </span>
             ),

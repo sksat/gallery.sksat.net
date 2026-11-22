@@ -20,12 +20,12 @@ const short = (n: number, digits: number) => {
 };
 
 /**
- * How the photo was exposed, as one line: 「f/2.8 · 1/250 s · ISO 100 ·
- * 35 mm」, with only the values the API gave. Null when there are none.
+ * How the photo was exposed, value by value: 「f/2.8」「1/250 s」「ISO 100」
+ * 「35 mm」, with only the values the API gave. Null when there are none.
  */
-export const exposureLine = (
+export const exposureParts = (
   exif: MediaExif | null | undefined,
-): string | null => {
+): string[] | null => {
   if (!exif) return null;
   const parts = [
     exif.f_number !== undefined && `f/${short(exif.f_number, 2)}`,
@@ -34,7 +34,7 @@ export const exposureLine = (
     exif.focal_length_mm !== undefined &&
       `${short(exif.focal_length_mm, 1)} mm`,
   ].filter((p): p is string => typeof p === "string");
-  return parts.length > 0 ? parts.join(" · ") : null;
+  return parts.length > 0 ? parts : null;
 };
 
 /**
@@ -115,7 +115,7 @@ export type PhotoInfo = {
   /** The EXIF body, when it is not already the camera row. */
   body: string | null;
   lens: string | null;
-  exposure: string | null;
+  exposure: string[] | null;
   world: { name: string; href: string | null } | null;
   location: { label: string; href: string } | null;
   tags: string[];
@@ -165,7 +165,7 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
     // then, too).
     body: m.camera && body !== null && body !== camera?.label ? body : null,
     lens: m.exif?.lens ?? null,
-    exposure: exposureLine(m.exif),
+    exposure: exposureParts(m.exif),
     world,
     location: placeOf(m.id, m.location),
     tags: mediaTags(m),
@@ -173,6 +173,14 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
     file: m.path ?? m.name ?? null,
   };
 };
+
+/** The overlay's info: shown or hidden, the viewer's last choice. */
+export const INFO_SHOWN_KEY = "gallery.photo-info";
+export const INFO_HIDDEN = "hidden";
+
+/** Whether the overlay shows its info, from the stored choice (shown by default). */
+export const infoShownFrom = (stored: string | null): boolean =>
+  stored !== INFO_HIDDEN;
 
 /** Whether the panel has anything besides the tags to show. */
 export const hasDetails = (info: PhotoInfo): boolean =>
@@ -189,14 +197,3 @@ export const hasDetails = (info: PhotoInfo): boolean =>
     info.tagFields.length > 0 ||
     info.file,
   );
-
-/**
- * The one-line summary at the overlay's bottom edge:
- * 「2023/12/16 23:12 · VirtualLens2 · Home」 (what of it is public).
- */
-export const infoSummary = (info: PhotoInfo): string | null => {
-  const parts = [info.taken?.text, info.camera?.label, info.world?.name].filter(
-    (p): p is string => Boolean(p),
-  );
-  return parts.length > 0 ? parts.join(" · ") : null;
-};

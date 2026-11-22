@@ -79,7 +79,7 @@ test.describe("desktop", () => {
     await page.keyboard.press("i");
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
-      "true",
+      "false",
     );
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(
@@ -124,7 +124,7 @@ test.describe("desktop", () => {
   }) => {
     await openInOverlay(page, "vrcxxxxxxa");
     const tag = page.getByTestId("info-tag");
-    await page.getByTestId("info-toggle").click();
+    // The info is shown from the start.
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -138,12 +138,20 @@ test.describe("desktop", () => {
   test("everything public about the photo", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxa/detail/");
     const d = detail(page);
-    await expect(d.getByTestId("info-taken")).toHaveText(
-      "撮影日時2023/12/02 00:00",
+    // The date heads the page.
+    await expect(d.getByRole("heading", { level: 1 })).toHaveText(
+      "2023/12/02 00:00",
     );
-    await expect(d.getByTestId("info-exposure")).toHaveText(
-      "撮影設定f/2.8 · 1/250 s · ISO 100 · 35 mm",
+    await expect(d.getByTestId("info-taken").locator("time")).toHaveAttribute(
+      "datetime",
+      "2023-12-02T00:00Z",
     );
+    await expect(d.getByTestId("info-exposure-value")).toHaveText([
+      "f/2.8",
+      "1/250 s",
+      "ISO 100",
+      "35 mm",
+    ]);
     await expect(
       d.getByTestId("info-world").getByRole("link", { name: "Fixture World" }),
     ).toHaveAttribute("href", /vrchat\.com\/home\/world\/wrld_0123abcd/);
@@ -181,7 +189,7 @@ test.describe("desktop", () => {
   test("hidden fields are absent", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxb/detail/");
     const d = detail(page);
-    await expect(d.getByTestId("info-taken")).toHaveText("撮影日時2023/12/04");
+    await expect(d.getByTestId("info-taken")).toHaveText("2023/12/04");
     // Maker only: no camera page, so no card.
     await expect(d.getByTestId("info-camera")).toHaveText("カメラRICOH");
     await expect(d.getByTestId("camera-card")).toHaveCount(0);
