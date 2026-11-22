@@ -41,4 +41,6 @@ The admin app for gallery.sksat.net: a separate Qwik City project on Pages with 
 - E2E runs against a real local D1 seeded from `e2e/fixture.sql`, started by `e2e/start-test-server.sh` (which seeds before wrangler opens the file), with fakes on loopback for B2 (`e2e/fake-b2.mjs`) and the GraphQL API (`e2e/fake-graphql.mjs`). Never point tests at production.
 - The fixture marks every photo's metadata read and its copies made, so the background reader and resize maker stay idle unless a test uploads.
 - E2E runs serially on one shared D1, and many specs assert counts of fixture rows. A spec that adds rows should work in its own folders (`e2e/files-helpers.ts`) or clean up after itself. The Firefox project needs `pnpm exec playwright install firefox`.
+- CI runs the spec groups in `playwright.config.ts` (`ADMIN_E2E_GROUP`) as separate jobs, each on a fresh D1; a spec not listed falls into `rest`. Rebalance the groups from the CI job times when one gets much longer than the others.
+- Test servers run side by side need `ADMIN_E2E_PORT`s at least 10 apart (each uses its port to +3, and +4000 / +4001).
 - VRT baselines: run the Docker command from the root CLAUDE.md in `admin/` (CI's `admin-e2e` job uses the same image).
