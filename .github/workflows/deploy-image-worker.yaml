@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "workers/image/**"
+      # Bundled into the Worker (resized copies' keys and claims).
+      - "shared/resized/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/deploy-image-worker.yaml"
