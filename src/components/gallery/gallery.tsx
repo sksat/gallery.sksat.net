@@ -111,8 +111,8 @@ const listUrl = (s: GalleryState, camera: string | null) =>
  * its query, so a reload or a shared link opens the same, and Cloudflare
  * Web Analytics (which records the path, not the query) counts the view.
  */
-const overlayUrl = (s: GalleryState, imageId: string) =>
-  photoUrl(imageId, s.filter, s.sort, s.camera, s.date);
+const overlayUrl = (s: GalleryState, camera: string | null, imageId: string) =>
+  photoUrl(imageId, s.filter, s.sort, camera, s.date);
 
 const isOverlayEntry = () =>
   (window.history.state as Record<string, unknown> | null)?.[OVERLAY_ENTRY] ===
@@ -227,6 +227,33 @@ export default component$<GalleryProps>((props) => {
     };
   });
 
+  // An unknown `?camera=` filters nothing: take it out of the address too,
+  // so the URL says what the page shows. Only a loaded URL can have one
+  // (the select and the entries this page writes never do).
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(() => {
+    const loaded = galleryStateFromUrl(location.url).camera;
+    if (
+      props.camera ||
+      loaded === null ||
+      // Changed since (the select): known.
+      state.camera !== loaded ||
+      findCamera(
+        index.value.cameras,
+        index.value.media.map(transformMediaInfo),
+        loaded,
+      ) !== null
+    )
+      return;
+    state.camera = null;
+    const id = state.selectedImageId;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      id === null ? listUrl(state, null) : overlayUrl(state, null, id),
+    );
+  });
+
   // Filter and sort changes replace the history entry instead of pushing
   // one, so Back leaves the gallery rather than undoing each click. They
   // are behind the overlay, so the list is what is shown.
@@ -256,7 +283,7 @@ export default component$<GalleryProps>((props) => {
     window.history.pushState(
       { [OVERLAY_ENTRY]: true },
       "",
-      overlayUrl(state, imageId),
+      overlayUrl(state, view.value.camera, imageId),
     );
   });
 
@@ -300,7 +327,7 @@ export default component$<GalleryProps>((props) => {
     window.history.replaceState(
       window.history.state,
       "",
-      overlayUrl(state, imageId),
+      overlayUrl(state, view.value.camera, imageId),
     );
   });
 

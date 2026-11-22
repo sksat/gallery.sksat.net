@@ -250,10 +250,27 @@ test("camera: an unknown ?camera= on a photo link is ignored", async ({
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
   await expect(page.getByTestId("gallery-image")).toHaveCount(5);
   await expect(page.getByTestId("camera-header")).toHaveCount(0);
-  // Closing it goes to the gallery, not to a camera page that is not.
+  // It leaves the address, and closing goes to the whole gallery.
+  await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\/$/);
   await page.getByTestId("overlay").click({ position: { x: 5, y: 5 } });
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByTestId("gallery-image")).toHaveCount(5);
+
+  // On the gallery, too.
+  await page.goto("/?camera=no-such-camera&tag=night");
+  await expect(page).toHaveURL(/\/\?tag=night$/);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(2);
+});
+
+test("camera filter: combines with a calendar date", async ({ page }) => {
+  await page.goto("/?camera=virtuallens2&date=2023-12-05");
+  await expect(page.getByTestId("gallery-image")).toHaveCount(1, {
+    timeout: 10000,
+  });
+  await expect(page.getByTestId("date-heading")).toBeVisible();
+  await expect(page.getByTestId("camera-select")).toHaveValue("virtuallens2");
+  await page.getByTestId("camera-select").selectOption("");
+  await expect(page).toHaveURL(/\/\?date=2023-12-05$/);
 });
 
 test("camera filter: picks a camera on the gallery, with tags, in the URL", async ({
