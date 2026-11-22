@@ -82,17 +82,17 @@ test("photo page", async ({ page }) => {
   await expect(page).toHaveScreenshot("photo-page.png", { fullPage: true });
 });
 
-// The info under the photo, its details open.
+// The info under the photo, in one row.
 test("photo overlay", async ({ page }) => {
   await openPhoto(page);
   await settled(page);
   await expect(page).toHaveScreenshot("photo-1.png");
 });
 
-// Closed to the summary line.
-test("photo overlay: details closed", async ({ page }) => {
+// The info hidden.
+test("photo overlay: info hidden", async ({ page }) => {
   await openPhoto(page);
-  await page.getByTestId("info-summary").click();
+  await page.getByTestId("info-toggle").click();
   await expect(page.getByTestId("info-toggle")).toHaveAttribute(
     "aria-expanded",
     "false",

@@ -9,7 +9,6 @@ import {
   INFO_HIDDEN,
   INFO_SHOWN,
   infoChoiceFrom,
-  infoSummary,
   placeOf,
   photoInfo,
   worldHref,
@@ -94,30 +93,6 @@ describe("infoChoiceFrom", () => {
     expect(infoChoiceFrom(INFO_HIDDEN)).toBe(false);
     expect(infoChoiceFrom(null)).toBeNull();
     expect(infoChoiceFrom("something else")).toBeNull();
-  });
-});
-
-describe("infoSummary", () => {
-  it("is where, the camera and the exposure, on one line", () => {
-    const i = info({
-      camera: {
-        slug: "virtuallens2",
-        name: "VirtualLens2",
-        manufacturer: "logilabo",
-        model: "VirtualLens2",
-      },
-      world: { id: null, name: "Home" },
-      exif: { f_number: 1.4, exposure_time: "1/120", iso: 199 },
-    });
-    expect(infoSummary(i)).toBe("Home · VirtualLens2 · f/1.4 1/120 s ISO 199");
-    expect(
-      infoSummary(
-        info({
-          location: { latitude: 35.7, longitude: 139.8, precision: "city" },
-        }),
-      ),
-    ).toBe(placeLabel(35.7, 139.8, "city"));
-    expect(infoSummary(info({}))).toBeNull();
   });
 });
 

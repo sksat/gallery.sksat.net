@@ -13,14 +13,12 @@ import type { SwipeDirection } from "@shared/gestures/swipe";
 import { photoSize, type ImageSource } from "./images";
 import { InfoPanel, type TagLink } from "./info-panel";
 import { isTextTarget } from "./keys";
-import { TakenText } from "./photo-info-list";
 import {
   hasDetails,
   INFO_HIDDEN,
   INFO_SHOWN,
   INFO_SHOWN_KEY,
   infoChoiceFrom,
-  infoSummary,
   photoInfo,
 } from "./photo-info";
 import { ProgressiveImage } from "./progressive-image";
@@ -76,10 +74,9 @@ interface PhotoOverlayProps {
 /**
  * Full-screen view of one photo, over the list: the quick viewer, at the
  * photo's URL (/photo/<id>/). The photo stays centred and nothing covers
- * it. Its info is one block under the photo (at the bottom left on wide
- * screens): a summary line (date · place · camera · exposure) and the
- * details under it. The details are open until the viewer closes them
- * to the summary (the ⓘ button, `i` or the summary line; remembered). Its
+ * it. Its info is one row under the photo (at the bottom left on wide
+ * screens), each value once, wrapping where it runs out of width; shown
+ * until the viewer hides it (the ⓘ button or `i`; remembered). Its
  * detail page (/photo/<id>/detail/) is one tap away with the page button.
  */
 export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
@@ -96,15 +93,15 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     onStep$: props.onStep$,
   });
 
-  // The details open (the default) or closed to their summary line, the
-  // viewer's choice. In the browser (stepping to the next photo makes a
-  // new overlay) the stored choice from the start.
+  // The info shown (the default) or hidden, the viewer's choice. In the
+  // browser (stepping to the next photo makes a new overlay) the stored
+  // choice from the start.
   const choice = useSignal<boolean | null>(
     isBrowser ? storedInfoChoice() : null,
   );
   // Server-rendered and not yet resumed: until then stylesheet rules
-  // (global.css) follow a stored choice to close them, so they do not
-  // show for a moment.
+  // (global.css) follow a stored choice to hide it, so it does not show
+  // for a moment.
   const resumed = useSignal(isBrowser);
   // A visible task is intended: the stored choice is only known in the
   // browser, and a server-rendered overlay has to follow it.
@@ -118,8 +115,6 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     props.info ? photoInfo(props.info) : undefined,
   );
   const i = info.value;
-  const taken = i?.taken ?? null;
-  const summary = i ? infoSummary(i) : null;
   const hasInfo =
     i !== undefined &&
     props.onTag$ !== undefined &&
@@ -128,7 +123,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
 
   const setShown = $((value: boolean) => {
     // Closing (by `i`) with the focus inside: hand it to the ⓘ button
-    // rather than lose it with the details.
+    // rather than lose it with the row.
     const panel = document.getElementById("photo-info");
     if (!value && panel?.contains(document.activeElement)) {
       toggle.value?.focus();
@@ -158,11 +153,6 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
   const most = "100dvh - 2 * var(--peek)";
   const layout = {
     "--peek": "5rem",
-    // Wide screens: the band under the photo for its info, the same for
-    // every photo and whether the details are open or not, so opening or
-    // closing them never moves the photo.
-    // Less on a short screen, where the details scroll in it.
-    "--band": "min(9rem, 28vh)",
     "--photo-h":
       "width" in size
         ? `min(90vw * ${size.height / size.width}, ${most})`
@@ -185,27 +175,31 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
       }}
       class={overlayClass.backdrop}
     >
-      {/* The photo centred, and its info never over it: one block, its
-          summary line (with the date) first and the details under it.
-          Narrow: right under the photo, the overlay scrolling to it. Wide:
-          at the bottom left, in a band under the photo. */}
+      {/* The photo centred, and its info never over it: one row that
+          wraps. Narrow: right under the photo, the overlay scrolling to it.
+          Wide: at the bottom left, in a band under the photo as tall as the
+          row (kept while it is hidden, so hiding it never moves the
+          photo). */}
       <div
         data-info-pending={resumed.value ? undefined : ""}
         style={layout}
-        class="absolute inset-0 overflow-y-auto overscroll-contain lg:overflow-hidden"
+        class={[
+          "absolute inset-0 overflow-y-auto overscroll-contain lg:overflow-hidden",
+          hasInfo && "lg:grid lg:grid-rows-[minmax(0,1fr)_auto]",
+        ]}
       >
         <div
           class={[
             "flex h-dvh flex-col items-center justify-center gap-3",
             // Wide: the photo centred in the room above the info's band.
-            hasInfo && "lg:pt-4 lg:pb-[calc(var(--band)+1.5rem)]",
+            hasInfo && "lg:h-auto lg:min-h-0 lg:pt-4 lg:pb-3",
           ]}
         >
           <ProgressiveImage
             src={props.src}
             boxRef={box}
-            // The same box with the details open or closed, so closing
-            // them (or the stored choice applied after a reload) never
+            // The same box with the info shown or hidden, so hiding
+            // it (or the stored choice applied after a reload) never
             // moves the photo.
             boxClass={
               hasInfo
@@ -215,67 +209,12 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
           />
         </div>
         {hasInfo && (
-          <div
-            data-info-block
-            // Its clicks are its own (a click outside closes the overlay).
-            stoppropagation:click
-            class={[
-              // One translucent block, the same on every screen.
-              "flex flex-col overflow-hidden rounded-[1.25rem] bg-black/70 text-sm text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md",
-              // Narrow: right under the photo (--info-top), as wide as
-              // reads well; room under it for the corner's buttons.
-              "relative mx-auto mt-(--info-top) mb-20 w-fit max-w-[min(100%-1.5rem,36rem)]",
-              // Wide: at the bottom left, in the band under the photo,
-              // clear of the buttons; open, it grows up from where its
-              // summary line was.
-              "lg:absolute lg:bottom-3 lg:left-3 lg:m-0 lg:max-h-(--band) lg:max-w-[min(100vw-11rem,72rem)]",
-            ]}
-          >
-            {/* The summary on one line, the date first (else just its
-                name). It opens and closes the details, and stays where it
-                is either way. */}
-            {
-              <button
-                type="button"
-                data-testid="info-summary"
-                aria-controls="photo-info"
-                // Known once resumed (before, a stored choice may close
-                // them in CSS).
-                aria-expanded={
-                  resumed.value ? (open ? "true" : "false") : undefined
-                }
-                title={
-                  [taken?.text, summary].filter(Boolean).join(" · ") ||
-                  "写真の情報"
-                }
-                onClick$={() => setShown(!open)}
-                class="flex shrink-0 px-4 py-2.5 text-left hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
-              >
-                <span class="truncate">
-                  {taken && (
-                    <span
-                      data-testid="info-taken"
-                      class="font-semibold tabular-nums"
-                    >
-                      <span class="sr-only">撮影日時 </span>
-                      <TakenText taken={taken} />
-                      {summary && <span class="text-white/50"> · </span>}
-                    </span>
-                  )}
-                  {summary && <span class="text-white/85">{summary}</span>}
-                  {!taken && !summary && (
-                    <span class="text-white/85">写真の情報</span>
-                  )}
-                </span>
-              </button>
-            }
-            <InfoPanel
-              info={i}
-              visibility={open ? "flex" : "hidden"}
-              tagLinks={props.tagLinks ?? []}
-              onTag$={props.onTag$!}
-            />
-          </div>
+          <InfoPanel
+            info={i}
+            shown={open}
+            tagLinks={props.tagLinks ?? []}
+            onTag$={props.onTag$!}
+          />
         )}
       </div>
 

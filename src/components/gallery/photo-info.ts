@@ -203,32 +203,16 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
 };
 
 /**
- * The overlay's info: its details open or closed (to a one-line summary),
- * the viewer's last choice. Without one, the screen's default
- * (photo-overlay.tsx).
+ * The overlay's info: shown or hidden, the viewer's last choice. Without
+ * one, shown (photo-overlay.tsx).
  */
 export const INFO_SHOWN_KEY = "gallery.photo-info";
 export const INFO_SHOWN = "shown";
 export const INFO_HIDDEN = "hidden";
 
-/** The stored choice: open, closed, or none made. */
+/** The stored choice: shown, hidden, or none made. */
 export const infoChoiceFrom = (stored: string | null): boolean | null =>
   stored === INFO_SHOWN ? true : stored === INFO_HIDDEN ? false : null;
-
-/**
- * The one-line summary of a photo's info, after its date (the first line
- * of the overlay's info): where (the world, else the place), the camera
- * and the exposure — 「rainshelter · VirtualLens2 · f/1.4 1/120 s」.
- * Null when there is none of them.
- */
-export const infoSummary = (info: PhotoInfo): string | null => {
-  const parts = [
-    info.world?.name ?? info.location?.label,
-    info.camera?.label,
-    info.exposure?.map((s) => s.value).join(" "),
-  ].filter((p): p is string => Boolean(p));
-  return parts.length > 0 ? parts.join(" · ") : null;
-};
 
 /** Whether the panel has anything besides the tags to show. */
 export const hasDetails = (info: PhotoInfo): boolean =>

@@ -15,7 +15,7 @@ const panel = (page: Page) => page.getByTestId("info-panel");
 
 const openPhoto = openInOverlay;
 
-/** The details are shown (as they are until the viewer closes them). */
+/** The info is shown (as it is until the viewer hides it). */
 const expectShown = async (page: Page) => {
   await expect(page.getByTestId("info-toggle")).toHaveAttribute(
     "aria-expanded",
@@ -31,8 +31,8 @@ test.describe("desktop", () => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
     await expectShown(page);
-    // The date heads the summary line, the details' first line.
-    const date = page.getByTestId("info-taken").locator("time");
+    // The date heads the row.
+    const date = p.getByTestId("info-taken").locator("time");
     await expect(date).toBeVisible();
     await expect(date).toHaveText("2023/12/02 00:00");
     await expect(date).toHaveAttribute("datetime", "2023-12-02T00:00Z");
@@ -147,48 +147,45 @@ test.describe("desktop", () => {
     page,
   }) => {
     const photo = page.getByTestId("overlay-box");
-    // 16:9 and 3:4 alike: the block at the bottom left under the photo.
+    // 16:9 and 3:4 alike: the row at the bottom left under the photo.
     for (const id of ["vrcxxxxxxa", "reaxxxxxxa"]) {
       await openPhoto(page, id);
       await expectShown(page);
       const box = (await photo.boundingBox())!;
-      const block = (await page
-        .getByTestId("info-summary")
-        .locator("..")
-        .boundingBox())!;
+      const block = (await panel(page).boundingBox())!;
       expect(box.x + box.width / 2).toBeCloseTo(640, 0);
       expect(block.y).toBeGreaterThanOrEqual(box.y + box.height);
       expect(block.x).toBeLessThan(20);
+      // Wrapped or not, all of it on the screen.
+      expect(block.y + block.height).toBeLessThanOrEqual(800);
     }
 
-    // Closed, the photo stays where it was.
+    // Hidden, the photo stays where it was.
     const shown = await photo.boundingBox();
     await page.getByTestId("info-toggle").click();
     await expect(panel(page)).toBeHidden();
     expect(await photo.boundingBox()).toEqual(shown);
   });
 
-  test("i, the button and the summary close and open the details, remembered", async ({
+  test("i and the button hide and show the info, remembered", async ({
     page,
   }) => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
     const toggle = page.getByTestId("info-toggle");
-    const summary = page.getByTestId("info-summary");
 
-    // Open at first, under the summary line, which stays when they close.
+    // Shown at first, each value once.
     await expectShown(page);
-    await expect(summary).toHaveText(
-      "撮影日時 2023/12/02 00:00 · Fixture World · VirtualLens2 · f/2.8 1/250 s ISO 100 35 mm",
-    );
-    await summary.click();
+    await expect(page.getByTestId("info-taken")).toHaveCount(1);
+    for (const value of ["Fixture World", "VirtualLens2", "f/2.8"]) {
+      await expect(page.getByTestId("overlay").getByText(value)).toHaveCount(1);
+    }
+    await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(p).toBeHidden();
-    await expect(summary).toBeVisible();
-    await expect(summary).toHaveAttribute("aria-expanded", "false");
-    await summary.click();
+    await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(summary).toBeVisible();
+    await expect(p).toBeInViewport();
 
     // Open, it stays open on the next photo.
     await page.keyboard.press("ArrowRight");
@@ -272,7 +269,7 @@ test.describe("desktop", () => {
     await expect(page.getByTestId("overlay")).toBeVisible();
   });
 
-  test("without JS the details show, under the photo", async ({ browser }) => {
+  test("without JS the info shows, under the photo", async ({ browser }) => {
     const context = await browser.newContext({
       javaScriptEnabled: false,
       viewport: { width: 1280, height: 800 },
@@ -280,7 +277,6 @@ test.describe("desktop", () => {
     const page = await context.newPage();
     await page.goto("/photo/vrcxxxxxxa/");
     await expect(panel(page)).toBeVisible();
-    await expect(page.getByTestId("info-summary")).toBeVisible();
     const box = (await page.getByTestId("overlay-box").boundingBox())!;
     const info = (await panel(page).boundingBox())!;
     expect(info.y).toBeGreaterThanOrEqual(box.y + box.height);
@@ -290,12 +286,10 @@ test.describe("desktop", () => {
   test("is in the server-rendered page of the overlay's URL", async ({
     request,
   }) => {
-    // A reload of an open photo renders the overlay with its info: the
-    // details and the summary, the screen's width choosing between them.
+    // A reload of an open photo renders the overlay with its info.
     const html = await (await request.get("/photo/vrcxxxxxxa/")).text();
     expect(html).toContain('data-testid="overlay"');
     expect(html).toContain('data-testid="info-exposure"');
-    expect(html).toContain('data-testid="info-summary"');
     for (const part of ["f/2.8", "1/250 s", "35 mm", "シャッター"]) {
       expect(html).toContain(part);
     }
@@ -313,10 +307,7 @@ test.describe("short wide screen", () => {
     await openPhoto(page, "reaxxxxxxa");
     await expectShown(page);
     const box = (await page.getByTestId("overlay-box").boundingBox())!;
-    const block = (await page
-      .getByTestId("info-summary")
-      .locator("..")
-      .boundingBox())!;
+    const block = (await panel(page).boundingBox())!;
     expect(box.height).toBeGreaterThan(480 * 0.55);
     expect(block.y).toBeGreaterThanOrEqual(box.y + box.height);
     expect(block.y + block.height).toBeLessThanOrEqual(480);
@@ -333,7 +324,7 @@ test.describe("phone", () => {
       await openPhoto(page, id);
       await expectShown(page);
       const photo = (await page.getByTestId("overlay-box").boundingBox())!;
-      // Its first line: the summary, headed by the date.
+      // The row, headed by the date.
       const date = (await page.getByTestId("info-taken").boundingBox())!;
       // The photo in the middle of the first screen (the progress bar
       // under it is in the centring too).

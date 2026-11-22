@@ -74,26 +74,34 @@ const Icon = component$<{ icon: keyof typeof ICON; size?: number }>(
 
 /**
  * One row: the kind's icon (its name for screen readers and as a tooltip)
- * and the values beside it.
+ * and the values beside it, under one another, or (`row`: an item of the
+ * overlay's one-line info) side by side.
  */
-const Row = component$<{ icon: keyof typeof ICON; label: string; id: string }>(
-  (props) => (
-    <div
-      data-testid={props.id}
-      class="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3"
-    >
-      <dt title={props.label} class="pt-px text-white/55">
-        <Icon icon={props.icon} />
-        <span class="sr-only">{props.label}</span>
-      </dt>
-      <Slot />
-    </div>
-  ),
-);
+const Row = component$<{
+  icon: keyof typeof ICON;
+  label: string;
+  id: string;
+  row?: boolean;
+}>((props) => (
+  <div
+    data-testid={props.id}
+    class={
+      props.row
+        ? "flex flex-wrap items-center gap-x-2 gap-y-0.5"
+        : "grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3"
+    }
+  >
+    <dt title={props.label} class={["text-white/55", !props.row && "pt-px"]}>
+      <Icon icon={props.icon} />
+      <span class="sr-only">{props.label}</span>
+    </dt>
+    <Slot />
+  </div>
+));
 
 /**
- * When a photo was taken, as the overlay's summary line and the photo
- * page's title show it: the date, and the time (at its public precision)
+ * When a photo was taken, as the overlay's info and the photo page's
+ * title show it: the date, and the time (at its public precision)
  * lighter.
  */
 export const TakenText = component$<{ taken: TakenAt }>(({ taken }) => {
@@ -111,8 +119,8 @@ interface PhotoTitleProps {
   info: PhotoInfo;
   /** Larger, on the photo page. */
   large?: boolean;
-  /** A heading (for screen readers) with this id: the overlay's info. */
-  headingId?: string;
+  /** Its items among the overlay's one-line info (no box of its own). */
+  inline?: boolean;
 }
 
 /**
@@ -123,61 +131,59 @@ interface PhotoTitleProps {
 export const PhotoTitle = component$<PhotoTitleProps>((props) => {
   const { world, location } = props.info;
   const page = props.large === true;
+  if (!world && !location) return null;
+  const items = (
+    <>
+      {world && (
+        <div data-testid="info-world" class="flex items-center gap-2">
+          <dt title="ワールド" class="text-white/55">
+            <Icon icon="world" size={page ? 20 : 17} />
+            <span class="sr-only">ワールド</span>
+          </dt>
+          <dd>
+            {world.href ? (
+              <a
+                href={world.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                class={LINK}
+              >
+                {world.name}
+                <External />
+              </a>
+            ) : (
+              world.name
+            )}
+          </dd>
+        </div>
+      )}
+      {location && (
+        <div data-testid="info-location" class="flex items-center gap-2">
+          <dt title="撮影場所" class="text-white/55">
+            <Icon icon="place" size={page ? 20 : 17} />
+            <span class="sr-only">撮影場所</span>
+          </dt>
+          <dd>
+            {/* Plain <a>: see the note in components/layout/header.tsx. */}
+            <a href={location.href} class={[LINK, "tabular-nums"]}>
+              {location.label}
+            </a>
+          </dd>
+        </div>
+      )}
+    </>
+  );
+  // In the one-line info, items of its list.
+  if (props.inline) return items;
   return (
-    <div class="flex flex-col gap-3 empty:hidden">
-      {props.headingId && (
-        // `!`: the site's unlayered h2 rule would win otherwise.
-        <h2 id={props.headingId} class="sr-only !m-0">
-          写真の情報
-        </h2>
-      )}
-      {(world || location) && (
-        <dl
-          class={[
-            "flex flex-wrap gap-x-5 gap-y-1.5",
-            page ? "text-lg" : "text-[0.9375rem]",
-          ]}
-        >
-          {world && (
-            <div data-testid="info-world" class="flex items-center gap-2">
-              <dt title="ワールド" class="text-white/55">
-                <Icon icon="world" size={page ? 20 : 17} />
-                <span class="sr-only">ワールド</span>
-              </dt>
-              <dd>
-                {world.href ? (
-                  <a
-                    href={world.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class={LINK}
-                  >
-                    {world.name}
-                    <External />
-                  </a>
-                ) : (
-                  world.name
-                )}
-              </dd>
-            </div>
-          )}
-          {location && (
-            <div data-testid="info-location" class="flex items-center gap-2">
-              <dt title="撮影場所" class="text-white/55">
-                <Icon icon="place" size={page ? 20 : 17} />
-                <span class="sr-only">撮影場所</span>
-              </dt>
-              <dd>
-                {/* Plain <a>: see the note in components/layout/header.tsx. */}
-                <a href={location.href} class={[LINK, "tabular-nums"]}>
-                  {location.label}
-                </a>
-              </dd>
-            </div>
-          )}
-        </dl>
-      )}
-    </div>
+    <dl
+      class={[
+        "flex flex-wrap gap-x-5 gap-y-1.5",
+        page ? "text-lg" : "text-[0.9375rem]",
+      ]}
+    >
+      {items}
+    </dl>
   );
 });
 
@@ -189,21 +195,19 @@ export const ExposureSpecs = component$<{
   specs: ExposureSpec[];
   /** Larger, on the photo page. */
   large?: boolean;
-}>((props) => (
-  <div
-    data-testid="info-exposure"
-    class="grid grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-x-3"
-  >
-    <span title="撮影設定" class="text-white/55">
-      <Icon icon="exposure" />
-    </span>
-    {/* One line, the values apart by thin rules, as a camera shows them;
-        their names for screen readers. */}
+  /**
+   * An item of the overlay's one-line info (a dt and a dd in its list).
+   */
+  row?: boolean;
+}>((props) => {
+  // One line, the values apart by thin rules, as a camera shows them;
+  // their names for screen readers.
+  const values = (
     <dl
       aria-label="撮影設定"
       class={[
         "flex flex-wrap items-center gap-y-1 leading-snug tabular-nums",
-        props.large ? "text-lg" : "text-[0.9375rem]",
+        !props.row && (props.large ? "text-lg" : "text-[0.9375rem]"),
       ]}
     >
       {props.specs.map((s, n) => (
@@ -220,8 +224,30 @@ export const ExposureSpecs = component$<{
         </div>
       ))}
     </dl>
-  </div>
-));
+  );
+  if (props.row) {
+    return (
+      <div data-testid="info-exposure" class="flex items-center gap-x-2">
+        <dt title="撮影設定" class="text-white/55">
+          <Icon icon="exposure" />
+          <span class="sr-only">撮影設定</span>
+        </dt>
+        <dd>{values}</dd>
+      </div>
+    );
+  }
+  return (
+    <div
+      data-testid="info-exposure"
+      class="grid grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-x-3"
+    >
+      <span title="撮影設定" class="text-white/55">
+        <Icon icon="exposure" />
+      </span>
+      {values}
+    </div>
+  );
+});
 
 interface PhotoInfoListProps {
   info: PhotoInfo;
@@ -232,7 +258,7 @@ interface PhotoInfoListProps {
    * are plain links (the photo page).
    */
   onTag$?: QRL<(tag: string) => void>;
-  /** Its rows side by side on wide screens (the overlay's strip). */
+  /** Its items among the overlay's one-line info (no list box of its own). */
   inline?: boolean;
 }
 
@@ -241,21 +267,19 @@ interface PhotoInfoListProps {
  * description list, exactly as photoInfo() gives it (only what the API
  * returned): the camera, what it was scanned with, its tags and their
  * fields, and its file name. One row per kind, marked by an icon, with
- * the main value first and its details under it. The overlay's info and
- * the photo page show the same list.
+ * the main value first and its details under it (beside it in the
+ * overlay's one-line info). The overlay and the photo page show the same
+ * list.
  */
 export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
   const i = props.info;
-  return (
-    <dl
-      class={[
-        "grid gap-y-4 text-[0.9375rem] leading-snug text-white [&_dd]:break-words",
-        props.inline &&
-          "lg:flex lg:flex-wrap lg:items-start lg:gap-x-8 lg:gap-y-3 lg:[&>*]:max-w-80",
-      ]}
-    >
+  const row = props.inline === true;
+  // A line under a row's main value; beside it in the one-line info.
+  const detail = row ? "text-white/60" : DETAIL;
+  const items = (
+    <>
       {(i.camera || i.body || i.lens) && (
-        <Row icon="camera" label="カメラ" id="info-camera">
+        <Row icon="camera" label="カメラ" id="info-camera" row={row}>
           {i.camera && (
             <dd>
               {i.camera.href ? (
@@ -270,20 +294,22 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
           {/* Under the camera's name, or on their own (the photo page
               shows the camera in a card). */}
           {i.body && (
-            <dd class={["col-start-2", i.camera && DETAIL]}>{i.body}</dd>
+            <dd class={["col-start-2", i.camera && detail]}>{i.body}</dd>
           )}
           {i.lens && (
             <dd
               data-testid="info-lens"
-              class={["col-start-2", (i.camera || i.body) && DETAIL]}
+              class={["col-start-2", (i.camera || i.body) && detail]}
             >
               {i.lens}
             </dd>
           )}
         </Row>
       )}
+      {/* In the one-line info, how it was exposed after the camera. */}
+      {row && i.exposure && <ExposureSpecs specs={i.exposure} row />}
       {i.digitizer && (
-        <Row icon="scan" label="スキャン機材" id="info-digitizer">
+        <Row icon="scan" label="スキャン機材" id="info-digitizer" row={row}>
           <dd>
             {i.digitizer.href ? (
               <a href={i.digitizer.href} class={LINK}>
@@ -296,7 +322,7 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
           {i.digitized && (
             <dd
               data-testid="info-digitized"
-              class={["col-start-2 tabular-nums", DETAIL]}
+              class={["col-start-2 tabular-nums", detail]}
             >
               <span class="sr-only">スキャン日時 </span>
               <time dateTime={i.digitized.datetime}>{i.digitized.text}</time>
@@ -305,15 +331,15 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
         </Row>
       )}
       {!i.digitizer && i.digitized && (
-        <Row icon="scan" label="スキャン日時" id="info-digitized">
+        <Row icon="scan" label="スキャン日時" id="info-digitized" row={row}>
           <dd class="tabular-nums">
             <time dateTime={i.digitized.datetime}>{i.digitized.text}</time>
           </dd>
         </Row>
       )}
       {i.tags.length > 0 && (
-        <Row icon="tag" label="タグ" id="info-tags">
-          <dd class="-mt-0.5 flex flex-wrap gap-1.5">
+        <Row icon="tag" label="タグ" id="info-tags" row={row}>
+          <dd class={["flex flex-wrap gap-1.5", !row && "-mt-0.5"]}>
             {props.tagLinks.map(({ tag, href }) => (
               <a
                 key={tag}
@@ -353,11 +379,21 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
         <div
           key={g.tag}
           data-testid="info-tag-fields"
-          class="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3"
+          class={
+            row
+              ? "flex items-baseline gap-x-2"
+              : "grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3"
+          }
         >
           <dt class="col-start-2 text-sm text-white/55">{g.tag}</dt>
           <dd class="col-start-2">
-            <dl class="mt-1 grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1">
+            <dl
+              class={
+                row
+                  ? "flex flex-wrap items-baseline gap-x-2"
+                  : "mt-1 grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1"
+              }
+            >
               {g.fields.map((f) => (
                 <div key={f.label} class="contents">
                   <dt class="text-sm text-white/55">{f.label}</dt>
@@ -369,10 +405,19 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
         </div>
       ))}
       {i.file && (
-        <Row icon="file" label="ファイル名" id="info-file">
-          <dd class="pt-0.5 font-mono text-xs text-white/65">{i.file}</dd>
+        <Row icon="file" label="ファイル名" id="info-file" row={row}>
+          <dd class={["font-mono text-xs text-white/65", !row && "pt-0.5"]}>
+            {i.file}
+          </dd>
         </Row>
       )}
+    </>
+  );
+  // In the one-line info, items of its list.
+  if (row) return items;
+  return (
+    <dl class="grid gap-y-4 text-[0.9375rem] leading-snug text-white [&_dd]:break-words">
+      {items}
     </dl>
   );
 });

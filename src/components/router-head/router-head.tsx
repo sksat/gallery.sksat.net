@@ -12,8 +12,8 @@ import {
 const CF_BEACON_TOKEN: string | undefined = import.meta.env
   .VITE_CF_BEACON_TOKEN;
 
-// Marks <html> with the viewer's choice to open or close the photo
-// overlay's details, before the page paints (see global.css).
+// Marks <html> with the viewer's choice to show or hide the photo
+// overlay's info, before the page paints (see global.css).
 const INFO_CHOICE_SCRIPT = `try{var c=localStorage.getItem(${JSON.stringify(INFO_SHOWN_KEY)});if(c===${JSON.stringify(INFO_SHOWN)}||c===${JSON.stringify(INFO_HIDDEN)})document.documentElement.dataset.photoInfo=c}catch(e){}`;
 
 /**
