@@ -54,7 +54,7 @@ export type RenameResult =
   | {
       ok: false;
       error: string;
-      code: "same" | "missing" | "exists" | "fields";
+      code: "same" | "missing" | "exists" | "fields" | "conflict";
     };
 
 type RawTagRow = {
@@ -140,6 +140,42 @@ const setRules = (
        WHERE key = ?1 AND value = ?2`,
     )
     .bind(UPLOAD_RULES_KEY, prev, JSON.stringify(next));
+
+// The guarded writes (photos, rules) change nothing where a row changed
+// after the read. Each is followed by this check, which fails the batch
+// (malformed JSON; a D1 batch is a transaction, so nothing is written)
+// unless the write changed `n` rows: either every place is rewritten or
+// none is.
+const CONFLICT_MARK = "malformed JSON";
+const changed = (db: D1Database, n: number): D1PreparedStatement =>
+  db
+    .prepare(
+      "SELECT json(CASE WHEN changes() = ?1 THEN '0' ELSE '!' END) AS ok",
+    )
+    .bind(n);
+
+/** Run the batch; false when a check failed (nothing was written). */
+const commit = async (
+  db: D1Database,
+  stmts: D1PreparedStatement[],
+): Promise<boolean> => {
+  try {
+    await db.batch(stmts);
+    return true;
+  } catch (err) {
+    if (
+      String(err instanceof Error ? err.message : err).includes(CONFLICT_MARK)
+    )
+      return false;
+    throw err;
+  }
+};
+
+const CONFLICT = {
+  ok: false as const,
+  code: "conflict" as const,
+  error: "ほかの変更と重なりました。もう一度試してください",
+};
 
 /**
  * Rename the tag `from` to `to` everywhere. When `to` is a tag already
@@ -282,6 +318,7 @@ export const renameTag = async (
         ruleRaw,
         mapRuleTags(rules, (_, t) => renameInList(t, from, to)),
       ),
+      changed(db, 1),
     );
   }
   if (fromPhotos.length > 0) {
@@ -297,10 +334,11 @@ export const renameTag = async (
             ] as const,
         ),
       ),
+      changed(db, fromPhotos.length),
     );
   }
   stmts.push(contentVersionStatement(db));
-  await db.batch(stmts);
+  if (!(await commit(db, stmts))) return CONFLICT;
 
   return {
     ok: true,
@@ -343,7 +381,8 @@ export const unrenameTag = async (
   r: TagRename,
 ): Promise<{ ok: true } | { ok: false; error: string }> => {
   const ids = r.photos.map((p) => p.id);
-  const [fromNow, ruleRow, mediaRows] = await db.batch<unknown>([
+  const camIds = [...new Set(r.cameras.map((c) => c.cameraId))];
+  const [fromNow, ruleRow, mediaRows, camRows] = await db.batch<unknown>([
     db
       .prepare("SELECT id FROM tag WHERE name = ?1 AND id IS NOT ?2")
       .bind(r.from, r.toHadRow || !r.fromRow ? null : r.fromRow.id),
@@ -355,6 +394,12 @@ export const unrenameTag = async (
         "SELECT id, tags FROM media WHERE id IN (SELECT value FROM json_each(?))",
       )
       .bind(JSON.stringify(ids)),
+    db
+      .prepare(
+        `SELECT camera_id, tag, propagate FROM camera_tag
+         WHERE tag IN (?1, ?2) AND camera_id IN (SELECT value FROM json_each(?3))`,
+      )
+      .bind(r.from, r.to, JSON.stringify(camIds)),
   ]);
   // Another tag took the old name meanwhile: it would be a merge.
   if (r.fromRow && (fromNow.results ?? []).length > 0) {
@@ -377,12 +422,14 @@ export const unrenameTag = async (
     );
     if (r.movedFields.length > 0) {
       stmts.push(
+        // Only those still on `to`.
         db
           .prepare(
             `UPDATE tag_field SET tag_id = ?1
-             WHERE id IN (SELECT value FROM json_each(?2))`,
+             WHERE id IN (SELECT value FROM json_each(?2))
+               AND tag_id = (SELECT id FROM tag WHERE name = ?3)`,
           )
-          .bind(r.fromRow.id, JSON.stringify(r.movedFields)),
+          .bind(r.fromRow.id, JSON.stringify(r.movedFields), r.to),
       );
     }
   } else if (r.fromRow) {
@@ -392,15 +439,48 @@ export const unrenameTag = async (
         .bind(r.fromRow.id, r.from, r.fromRow.public ? 1 : 0),
     );
   }
-  if (r.cameras.length > 0) {
-    const camIds = [...new Set(r.cameras.map((c) => c.cameraId))];
+  // Cameras: only the rename is taken back, so a change made to a camera's
+  // tags since stays. Renamed: `to` becomes `from` again (as it is now).
+  // Merged: `from` comes back as it was, and `to` gets its old
+  // propagate back if the merge changed it and nothing has since.
+  const now = (camRows.results ?? []) as {
+    camera_id: number;
+    tag: string;
+    propagate: number;
+  }[];
+  const nowRow = (cam: number, tag: string) =>
+    now.find((c) => c.camera_id === cam && c.tag === tag);
+  const renameBack: number[] = [];
+  const reinsert: CameraTagBefore[] = [];
+  const propagateBack: [number, number][] = [];
+  for (const cam of camIds) {
+    const bFrom = r.cameras.find((c) => c.cameraId === cam && c.tag === r.from);
+    const bTo = r.cameras.find((c) => c.cameraId === cam && c.tag === r.to);
+    if (!bFrom || nowRow(cam, r.from)) continue;
+    const cTo = nowRow(cam, r.to);
+    if (!bTo) {
+      if (cTo) renameBack.push(cam);
+      continue;
+    }
+    reinsert.push(bFrom);
+    const merged = bFrom.propagate || bTo.propagate ? 1 : 0;
+    const old = bTo.propagate ? 1 : 0;
+    if (cTo && cTo.propagate === merged && merged !== old) {
+      propagateBack.push([cam, old]);
+    }
+  }
+  if (renameBack.length > 0) {
     stmts.push(
       db
         .prepare(
-          `DELETE FROM camera_tag WHERE tag IN (?1, ?2)
-             AND camera_id IN (SELECT value FROM json_each(?3))`,
+          `UPDATE camera_tag SET tag = ?1
+           WHERE tag = ?2 AND camera_id IN (SELECT value FROM json_each(?3))`,
         )
-        .bind(r.from, r.to, JSON.stringify(camIds)),
+        .bind(r.from, r.to, JSON.stringify(renameBack)),
+    );
+  }
+  if (reinsert.length > 0) {
+    stmts.push(
       db
         .prepare(
           `INSERT INTO camera_tag (camera_id, tag, propagate, position, created_at)
@@ -409,11 +489,12 @@ export const unrenameTag = async (
                   json_extract(value, '$[4]')
            FROM json_each(?1)
            WHERE EXISTS (SELECT 1 FROM camera
-                         WHERE camera.id = json_extract(value, '$[0]'))`,
+                         WHERE camera.id = json_extract(value, '$[0]'))
+           ON CONFLICT DO NOTHING`,
         )
         .bind(
           JSON.stringify(
-            r.cameras.map((c) => [
+            reinsert.map((c) => [
               c.cameraId,
               c.tag,
               c.propagate ? 1 : 0,
@@ -422,6 +503,19 @@ export const unrenameTag = async (
             ]),
           ),
         ),
+    );
+  }
+  if (propagateBack.length > 0) {
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE camera_tag SET propagate = p.v
+           FROM (SELECT json_extract(value, '$[0]') AS cam,
+                        json_extract(value, '$[1]') AS v
+                 FROM json_each(?2)) AS p
+           WHERE camera_tag.tag = ?1 AND camera_tag.camera_id = p.cam`,
+        )
+        .bind(r.to, JSON.stringify(propagateBack)),
     );
   }
   const ruleRaw =
@@ -439,6 +533,7 @@ export const unrenameTag = async (
           return b ? unrenameInList(t, b, r.from, r.to) : t;
         }),
       ),
+      changed(db, 1),
     );
   }
   const before = new Map(r.photos.map((p) => [p.id, p.tags]));
@@ -451,8 +546,8 @@ export const unrenameTag = async (
     const next = unrenameInList(now, b, r.from, r.to);
     return next === now ? [] : [[m.id, m.tags, JSON.stringify(next)] as const];
   });
-  if (rows.length > 0) stmts.push(setTags(db, rows));
+  if (rows.length > 0) stmts.push(setTags(db, rows), changed(db, rows.length));
   stmts.push(contentVersionStatement(db));
-  await db.batch(stmts);
+  if (!(await commit(db, stmts))) return CONFLICT;
   return { ok: true };
 };

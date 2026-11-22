@@ -230,6 +230,62 @@ describe("renameTag", () => {
     });
   });
 
+  it("writes nothing when a photo changed between the read and the write", async () => {
+    const { raw, db } = setup();
+    const before = snapshot(raw);
+    let calls = 0;
+    // A D1 batch is a transaction (sqliteD1's is not), and an edit lands
+    // after the read batch.
+    const racing = {
+      prepare: db.prepare.bind(db),
+      batch: async (stmts: D1PreparedStatement[]) => {
+        if (calls++ === 1) {
+          raw.exec(`UPDATE media SET tags = '["旅","海","夏"]' WHERE id = 1`);
+        }
+        raw.exec("BEGIN");
+        try {
+          const out = await db.batch(stmts);
+          raw.exec("COMMIT");
+          return out;
+        } catch (err) {
+          raw.exec("ROLLBACK");
+          throw err;
+        }
+      },
+    } as unknown as D1Database;
+    expect(await renameTag(racing, "旅", "たび", false)).toMatchObject({
+      ok: false,
+      code: "conflict",
+    });
+    expect(snapshot(raw)).toEqual({
+      ...before,
+      tags: { ...before.tags, 1: ["旅", "海", "夏"] },
+    });
+    // Again: done.
+    expect((await renameTag(racing, "旅", "たび", false)).ok).toBe(true);
+    expect(tagsOf(raw)[1]).toEqual(["たび", "海", "夏"]);
+  });
+
+  it("keeps camera tag changes made after a merge when undoing", async () => {
+    const { raw, db } = setup();
+    const r = ok(await renameTag(db, "旅", "旅行", true));
+    // Camera 2's 旅行 (passed on by the merge) set back by hand.
+    raw.exec(
+      "UPDATE camera_tag SET propagate = 0 WHERE camera_id = 2 AND tag = '旅行'",
+    );
+    // Camera 1's (renamed) moved.
+    raw.exec(
+      "UPDATE camera_tag SET position = 5 WHERE camera_id = 1 AND tag = '旅行'",
+    );
+    expect(await unrenameTag(db, r)).toEqual({ ok: true });
+    expect(cameraTags(raw)).toEqual([
+      { camera_id: 1, tag: "フィルム", propagate: 0, position: 1 },
+      { camera_id: 1, tag: "旅", propagate: 1, position: 5 },
+      { camera_id: 2, tag: "旅行", propagate: 0, position: 0 },
+      { camera_id: 2, tag: "旅", propagate: 1, position: 1 },
+    ]);
+  });
+
   it("will not undo onto a tag that took the old name meanwhile", async () => {
     const { raw, db } = setup();
     const r = ok(await renameTag(db, "旅", "たび", false));

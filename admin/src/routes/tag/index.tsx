@@ -388,19 +388,20 @@ export default component$(() => {
     const to = typed.trim();
     if (to === "" || to === from) return;
     const list = data.value.kind === "ok" ? data.value.tags : [];
-    const target = list.find((t) => t.name === to);
-    if (target) {
-      const n = list.find((t) => t.name === from)?.count ?? 0;
-      if (
-        !confirm(
-          `『${to}』はもうあります。『${from}』（${n} 枚）を『${to}』にまとめますか？`,
-        )
-      ) {
-        return;
-      }
+    const n = list.find((t) => t.name === from)?.count ?? 0;
+    const ask = () =>
+      confirm(
+        `『${to}』はもうあります。『${from}』（${n} 枚）を『${to}』にまとめますか？`,
+      );
+    const listed = list.some((t) => t.name === to);
+    if (listed && !ask()) return;
+    let v = (await rename.submit({ from, to, merge: listed })).value;
+    // A name only elsewhere (a photo in the trash, an upload rule): asked
+    // when the server finds it.
+    if (v.failed && v.code === "exists") {
+      if (!ask()) return;
+      v = (await rename.submit({ from, to, merge: true })).value;
     }
-    const r = await rename.submit({ from, to, merge: !!target });
-    const v = r.value;
     if (v.failed) return failed(v.message);
     if (open.value === from) open.value = v.rename.to;
     await done(
