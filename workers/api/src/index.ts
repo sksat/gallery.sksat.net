@@ -27,17 +27,29 @@ import {
 } from "./copies";
 import { handleGet, rpcAnswer, type Context } from "./last-good";
 import { respond } from "./respond";
+import { parseWorldRoute, PUBLIC_ID_RE } from "./route";
+import type { PreviewContext } from "./world";
+import { handleWorldGet, photoWorldPreview, UNAVAILABLE } from "./world-route";
 
 export interface Env {
   DB: D1Database;
+  /** Where VRChat's world pages are; https://vrchat.com unless set (tests). */
+  VRCHAT_ORIGIN?: string;
 }
 
-// A plain function, not a method: every method of the entrypoint is
+// Plain functions, not methods: every method of the entrypoint is
 // callable over RPC.
 const context = (env: Env, ctx: ExecutionContext): Context => ({
   cache: caches.default,
   db: env.DB,
   waitUntil: (p) => ctx.waitUntil(p),
+});
+
+const previewContext = (env: Env, ctx: ExecutionContext): PreviewContext => ({
+  cache: caches.default,
+  fetch: (input, init) => fetch(input, init),
+  waitUntil: (p) => ctx.waitUntil(p),
+  origin: env.VRCHAT_ORIGIN || "https://vrchat.com",
 });
 
 export default class extends WorkerEntrypoint<Env> {
@@ -47,6 +59,15 @@ export default class extends WorkerEntrypoint<Env> {
         status: 405,
         headers: { Allow: "GET, HEAD" },
       });
+    }
+    const worldOf = parseWorldRoute(new URL(request.url).pathname);
+    if (worldOf) {
+      return handleWorldGet(
+        request,
+        worldOf,
+        context(this.env, this.ctx),
+        previewContext(this.env, this.ctx),
+      );
     }
     return handleGet(
       request,
@@ -106,6 +127,25 @@ export default class extends WorkerEntrypoint<Env> {
   /** Which maker the site uses for the copies (`setting` resize_maker). */
   async copiesMaker(): Promise<"worker" | "browser"> {
     return copiesMaker(this.env.DB);
+  }
+
+  /**
+   * The picture of a photo's VRChat world (an https URL on VRChat's file
+   * server), for the image Worker's /img/world/<public_id>: only for a
+   * public or unlisted photo whose world level shows the link. Null if
+   * there is none. Throws when the photo cannot be read.
+   */
+  async worldImage(publicId: string): Promise<string | null> {
+    if (typeof publicId !== "string" || !PUBLIC_ID_RE.test(publicId)) {
+      return null;
+    }
+    const got = await photoWorldPreview(
+      publicId,
+      context(this.env, this.ctx),
+      previewContext(this.env, this.ctx),
+    );
+    if (got === UNAVAILABLE) throw new Error("the photo cannot be read");
+    return typeof got === "object" && got !== null ? got.image : null;
   }
 
   async photo(publicId: string): Promise<ImagePhoto | null> {

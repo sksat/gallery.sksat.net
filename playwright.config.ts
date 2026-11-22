@@ -19,7 +19,8 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `bash e2e/start-api-server.sh ${apiPort}`,
+      // World pages from the dev server's fixture, not vrchat.com.
+      command: `bash e2e/start-api-server.sh ${apiPort} ${origin}/test-media/vrchat`,
       url: `${apiOrigin}/api/media`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

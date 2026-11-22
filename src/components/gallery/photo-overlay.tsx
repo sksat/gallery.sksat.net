@@ -130,6 +130,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
         {hasInfo && (
           <InfoPanel
             info={i}
+            photoId={props.info!.id}
             tagLinks={props.tagLinks ?? []}
             onTag$={props.onTag$!}
           />

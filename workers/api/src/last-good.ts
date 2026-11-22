@@ -228,7 +228,7 @@ export const answer = async (
 /** The answer for a route, from D1. Throws if D1 fails. */
 export type Respond = (route: Route) => Promise<Entry>;
 
-const unavailable = () =>
+export const unavailable = () =>
   new Response(JSON.stringify({ error: "service unavailable" }), {
     status: 503,
     headers: {

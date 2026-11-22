@@ -43,6 +43,7 @@ import {
   tileStyle,
 } from "./tile";
 import { PhotoOverlay } from "./photo-overlay";
+import { OPEN_PREVIEW } from "./world-link";
 import { SORT_LABELS, sortMedia, type SortKind, type SortOrder } from "./sort";
 import {
   DEFAULT_TAG_MODE,
@@ -303,7 +304,8 @@ export default component$<GalleryProps>((props) => {
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       step(event.key === "ArrowRight" ? "next" : "prev");
     } else if (event.key === "Escape" && !event.isComposing) {
-      closeImage();
+      // An open world preview takes this Esc (world-link.tsx).
+      if (!document.querySelector(`[${OPEN_PREVIEW}]`)) closeImage();
     } else if (
       event.key === "Enter" &&
       !event.shiftKey &&

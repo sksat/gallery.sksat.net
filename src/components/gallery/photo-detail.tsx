@@ -236,7 +236,7 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
       <div class="mx-auto max-w-6xl px-4 pt-8 sm:px-6 sm:pt-12">
         <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
           <div class="flex min-w-0 flex-col gap-8 sm:gap-10">
-            <PhotoTitle info={info} large />
+            <PhotoTitle info={info} photoId={photo.id} large />
             <div class="flex max-w-xl flex-col gap-4">
               {info.exposure && <ExposureSpecs specs={info.exposure} />}
               <PhotoInfoList info={info} tagLinks={tagLinks} />

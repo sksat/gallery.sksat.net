@@ -46,6 +46,18 @@ export const parseRoute = (pathname: string): Route | null => {
 };
 
 /**
+ * `/api/media/<public_id>/world`: the preview of the photo's VRChat world
+ * (world.ts). The photo's public id, or null for any other path.
+ */
+export const parseWorldRoute = (pathname: string): string | null => {
+  const m = /^\/api\/media\/([^/]+)\/world\/?$/.exec(pathname);
+  return m && PUBLIC_ID_RE.test(m[1]) ? m[1] : null;
+};
+
+/** Cache-Control of a world preview: an hour in browsers. */
+export const WORLD_CACHE_CONTROL = "public, max-age=3600";
+
+/**
  * Cache-Control for API responses: ten seconds in browsers (and a minute
  * in shared caches). The Worker itself keeps answers per content version
  * (last-good.ts), so a change in the admin (in particular hiding a photo)
