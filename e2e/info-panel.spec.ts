@@ -15,17 +15,12 @@ const panel = (page: Page) => page.getByTestId("info-panel");
 
 const openPhoto = openInOverlay;
 
-/**
- * The details are shown: opened from the summary where they start closed
- * (wide screens, until the viewer opened them once).
- */
+/** The details are shown (as they are until the viewer closes them). */
 const expectShown = async (page: Page) => {
-  const toggle = page.getByTestId("info-toggle");
-  await expect(toggle).toHaveAttribute("aria-expanded", /true|false/);
-  if ((await toggle.getAttribute("aria-expanded")) === "false") {
-    await page.getByTestId("info-summary").click();
-  }
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
   await expect(panel(page)).toBeInViewport();
 };
 
@@ -36,13 +31,11 @@ test.describe("desktop", () => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
     await expectShown(page);
-    // The date is at the top, above the photo.
+    // The date heads the summary line, the details' first line.
     const date = page.getByTestId("info-taken").locator("time");
+    await expect(date).toBeVisible();
     await expect(date).toHaveText("2023/12/02 00:00");
     await expect(date).toHaveAttribute("datetime", "2023-12-02T00:00Z");
-    expect((await date.boundingBox())!.y).toBeLessThan(
-      (await page.getByTestId("overlay-image").boundingBox())!.y,
-    );
     const camera = p.getByTestId("info-camera");
     await expect(camera.getByRole("link", { name: "VirtualLens2" })).toHaveAttribute(
       "href",
@@ -150,37 +143,32 @@ test.describe("desktop", () => {
     expect(await page.content()).not.toContain("draft memo");
   });
 
-  test("never over the photo, which stays centred", async ({ page }) => {
+  test("under the photo, which stays centred and where it is", async ({
+    page,
+  }) => {
     const photo = page.getByTestId("overlay-box");
+    // 16:9 and 3:4 alike: the block at the bottom left under the photo.
+    for (const id of ["vrcxxxxxxa", "reaxxxxxxa"]) {
+      await openPhoto(page, id);
+      await expectShown(page);
+      const box = (await photo.boundingBox())!;
+      const block = (await page
+        .getByTestId("info-summary")
+        .locator("..")
+        .boundingBox())!;
+      expect(box.x + box.width / 2).toBeCloseTo(640, 0);
+      expect(block.y).toBeGreaterThanOrEqual(box.y + box.height);
+      expect(block.x).toBeLessThan(20);
+    }
 
-    // 16:9: no room at its sides, so the info is under it.
-    await openPhoto(page, "vrcxxxxxxa");
-    await expectShown(page);
-    await expect(panel(page)).toHaveAttribute("data-wide", "below");
-    let box = (await photo.boundingBox())!;
-    let info = (await panel(page).boundingBox())!;
-    expect(box.x + box.width / 2).toBeCloseTo(640, 0);
-    expect(info.y).toBeGreaterThanOrEqual(box.y + box.height);
-
-    // 3:4: beside it, past the photo's right edge (the box is 90vw wide;
-    // the photo in it as tall as the box).
-    await openPhoto(page, "reaxxxxxxa");
-    await expectShown(page);
-    await expect(panel(page)).toHaveAttribute("data-wide", "side");
-    box = (await photo.boundingBox())!;
-    info = (await panel(page).boundingBox())!;
-    expect(box.x + box.width / 2).toBeCloseTo(640, 0);
-    expect(info.x).toBeGreaterThanOrEqual(640 + (box.height * 3) / 4 / 2);
-    expect(info.x + info.width).toBeLessThanOrEqual(1280);
-
-    // Hidden, the photo stays where it was.
+    // Closed, the photo stays where it was.
     const shown = await photo.boundingBox();
     await page.getByTestId("info-toggle").click();
     await expect(panel(page)).toBeHidden();
     expect(await photo.boundingBox()).toEqual(shown);
   });
 
-  test("a summary at first; i, the button and the summary open the details, remembered", async ({
+  test("i, the button and the summary close and open the details, remembered", async ({
     page,
   }) => {
     await openPhoto(page, "vrcxxxxxxa");
@@ -188,31 +176,19 @@ test.describe("desktop", () => {
     const toggle = page.getByTestId("info-toggle");
     const summary = page.getByTestId("info-summary");
 
-    // Closed at first on a wide screen: a one-line summary under the
-    // photo, never over it.
+    // Open at first, under the summary line, which stays when they close.
+    await expectShown(page);
+    await expect(summary).toHaveText(
+      "撮影日時 2023/12/02 00:00 · Fixture World · VirtualLens2 · f/2.8 1/250 s ISO 100 35 mm",
+    );
+    await summary.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(p).toBeHidden();
-    await expect(summary).toHaveText(
-      "Fixture World · VirtualLens2 · f/2.8 1/250 s ISO 100 35 mm",
-    );
-    const photo = (await page.getByTestId("overlay-box").boundingBox())!;
-    expect((await summary.boundingBox())!.y).toBeGreaterThanOrEqual(
-      photo.y + photo.height,
-    );
-
-    // Opened from the summary, the focus goes into the details.
-    await summary.focus();
-    await page.keyboard.press("Enter");
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(p).toBeInViewport();
-    await expect(p).toBeFocused();
-    await expect(summary).toBeHidden();
-    // Its × closes it to the summary again.
-    await p.getByTestId("info-close").click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(summary).toBeVisible();
+    await expect(summary).toHaveAttribute("aria-expanded", "false");
     await summary.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(summary).toBeVisible();
 
     // Open, it stays open on the next photo.
     await page.keyboard.press("ArrowRight");
@@ -223,6 +199,10 @@ test.describe("desktop", () => {
     );
     await page.keyboard.press("ArrowLeft");
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\//);
+    await expect(page.getByTestId("info-taken")).toHaveText(
+      /2023\/12\/02 00:00/,
+    );
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
 
     // Closed, it stays closed on the next photo, on reopening and on a
     // reload.
@@ -300,7 +280,7 @@ test.describe("desktop", () => {
     const page = await context.newPage();
     await page.goto("/photo/vrcxxxxxxa/");
     await expect(panel(page)).toBeVisible();
-    await expect(page.getByTestId("info-summary")).toBeHidden();
+    await expect(page.getByTestId("info-summary")).toBeVisible();
     const box = (await page.getByTestId("overlay-box").boundingBox())!;
     const info = (await panel(page).boundingBox())!;
     expect(info.y).toBeGreaterThanOrEqual(box.y + box.height);
@@ -324,29 +304,44 @@ test.describe("desktop", () => {
   });
 });
 
+test.describe("short wide screen", () => {
+  test.use({ viewport: { width: 1366, height: 480 } });
+
+  test("the photo keeps most of the height; the info never over it", async ({
+    page,
+  }) => {
+    await openPhoto(page, "reaxxxxxxa");
+    await expectShown(page);
+    const box = (await page.getByTestId("overlay-box").boundingBox())!;
+    const block = (await page
+      .getByTestId("info-summary")
+      .locator("..")
+      .boundingBox())!;
+    expect(box.height).toBeGreaterThan(480 * 0.55);
+    expect(block.y).toBeGreaterThanOrEqual(box.y + box.height);
+    expect(block.y + block.height).toBeLessThanOrEqual(480);
+  });
+});
+
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("the date above the centred photo, the info right under it", async ({
+  test("the info right under the centred photo, its date in view", async ({
     page,
   }) => {
     for (const id of ["vrcxxxxxxa", "reaxxxxxxa"]) {
       await openPhoto(page, id);
       await expectShown(page);
       const photo = (await page.getByTestId("overlay-box").boundingBox())!;
+      // Its first line: the summary, headed by the date.
       const date = (await page.getByTestId("info-taken").boundingBox())!;
-      // Its first line (the world or the place).
-      const first = (await panel(page)
-        .locator("[data-testid=info-world], [data-testid=info-location]")
-        .boundingBox())!;
       // The photo in the middle of the first screen (the progress bar
       // under it is in the centring too).
       expect(Math.abs(photo.y + photo.height / 2 - 844 / 2)).toBeLessThan(12);
-      // The date above it, and the info right under it, on the first
-      // screen (a tall photo leaves room for its first line).
-      expect(date.y + date.height).toBeLessThanOrEqual(photo.y);
-      expect(first.y).toBeGreaterThanOrEqual(photo.y + photo.height);
-      expect(first.y + first.height).toBeLessThan(844);
+      // The info right under it, its date on the first screen (a tall
+      // photo leaves room for it).
+      expect(date.y).toBeGreaterThanOrEqual(photo.y + photo.height);
+      expect(date.y + date.height).toBeLessThan(844);
     }
     // Landscape: the rest of the info is in view too.
     await openPhoto(page, "vrcxxxxxxa");

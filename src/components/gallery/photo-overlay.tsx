@@ -13,11 +13,6 @@ import type { SwipeDirection } from "@shared/gestures/swipe";
 import { photoSize, type ImageSource } from "./images";
 import { InfoPanel, type TagLink } from "./info-panel";
 import { isTextTarget } from "./keys";
-import {
-  SERVER_WIDE_INFO_PLACE,
-  wideInfoPlace,
-  type WideInfoPlace,
-} from "./overlay-layout";
 import { TakenText } from "./photo-info-list";
 import {
   hasDetails,
@@ -50,9 +45,6 @@ const storeInfoChoice = (open: boolean) => {
   }
 };
 
-/** Wide screens (Tailwind's lg), where the details start closed. */
-const WIDE_SCREEN = "(min-width: 64rem)";
-
 const ROUND =
   "rounded-full p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white";
 // `!` on the colour: the site's unlayered `a { color }` would win otherwise.
@@ -84,12 +76,11 @@ interface PhotoOverlayProps {
 /**
  * Full-screen view of one photo, over the list: the quick viewer, at the
  * photo's URL (/photo/<id>/). The photo stays centred and nothing covers
- * it: its date is above it, and its metadata in the room it leaves. On
- * wide screens a one-line summary at the bottom left opens the details
- * (a translucent sheet beside or under the photo); on narrow ones the
- * details follow the photo. The ⓘ button and `i` open and close them,
- * remembered. Its detail page (/photo/<id>/detail/) is one tap away with
- * the page button.
+ * it. Its info is one block under the photo (at the bottom left on wide
+ * screens): a summary line (date · place · camera · exposure) and the
+ * details under it. The details are open until the viewer closes them
+ * to the summary (the ⓘ button, `i` or the summary line; remembered). Its
+ * detail page (/photo/<id>/detail/) is one tap away with the page button.
  */
 export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
   const backdrop = useSignal<HTMLElement>();
@@ -105,17 +96,14 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     onStep$: props.onStep$,
   });
 
-  // The details open or closed, the viewer's choice; without one, closed
-  // on wide screens and open on narrow ones. In the browser (stepping to
-  // the next photo makes a new overlay) the stored choice from the start.
+  // The details open (the default) or closed to their summary line, the
+  // viewer's choice. In the browser (stepping to the next photo makes a
+  // new overlay) the stored choice from the start.
   const choice = useSignal<boolean | null>(
     isBrowser ? storedInfoChoice() : null,
   );
-  const wideScreen = useSignal(
-    isBrowser ? window.matchMedia(WIDE_SCREEN).matches : true,
-  );
   // Server-rendered and not yet resumed: until then stylesheet rules
-  // (global.css) follow the stored choice, so the other state does not
+  // (global.css) follow a stored choice to close them, so they do not
   // show for a moment.
   const resumed = useSignal(isBrowser);
   // A visible task is intended: the stored choice is only known in the
@@ -136,22 +124,11 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     i !== undefined &&
     props.onTag$ !== undefined &&
     (hasDetails(i) || i.tags.length > 0);
-  const open = hasInfo && (choice.value ?? !wideScreen.value);
-  // Before a choice, by the screen's width in CSS (right on the server).
-  const panelVisibility =
-    choice.value === null ? "flex lg:hidden" : choice.value ? "flex" : "hidden";
-  const summaryVisibility =
-    choice.value === null
-      ? "hidden lg:flex"
-      : choice.value || !summary
-        ? "hidden"
-        : "flex";
-  /** The details open on a wide screen (their room under the photo). */
-  const wideOpen = choice.value ?? false;
+  const open = hasInfo && (choice.value ?? true);
 
   const setShown = $((value: boolean) => {
-    // Closing (by `i` or ×) with the focus inside: hand it to the ⓘ
-    // button rather than lose it with the details.
+    // Closing (by `i`) with the focus inside: hand it to the ⓘ button
+    // rather than lose it with the details.
     const panel = document.getElementById("photo-info");
     if (!value && panel?.contains(document.activeElement)) {
       toggle.value?.focus();
@@ -179,38 +156,13 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
   // not known, rather than a guessed shape).
   const size = props.info ? photoSize(props.info) : {};
   const most = "100dvh - 2 * var(--peek)";
-  // Wide screens: the info beside the photo when it leaves room at its
-  // sides, else in a strip under it (overlay-layout.ts), never over it.
-  // Known at once in the browser (stepping makes a new overlay); a
-  // server-rendered one starts below, which fits any screen.
-  const ratio = "width" in size ? size.width / size.height : null;
-  const wide = useSignal<WideInfoPlace>(
-    isBrowser
-      ? wideInfoPlace(window.innerWidth, window.innerHeight, ratio)
-      : SERVER_WIDE_INFO_PLACE,
-  );
-  // A visible task is intended: the screen's size is only known in the
-  // browser, and the place follows it as the window is resized.
-  // eslint-disable-next-line qwik/no-use-visible-task
-  useVisibleTask$(({ cleanup }) => {
-    const update = () => {
-      wide.value = wideInfoPlace(window.innerWidth, window.innerHeight, ratio);
-      wideScreen.value = window.matchMedia(WIDE_SCREEN).matches;
-    };
-    update();
-    window.addEventListener("resize", update);
-    cleanup(() => window.removeEventListener("resize", update));
-  });
-  const below = wide.value === "below";
   const layout = {
     "--peek": "5rem",
-    // The strip under the photo on wide screens.
-    "--strip": "7rem",
-    // Half the photo's width as shown beside its info (90vw by the
-    // screen's height less 3.5rem above and 4rem below), so the info
-    // starts just past its edge.
-    "--photo-half-w":
-      ratio === null ? "45vw" : `min(45vw, (50vh - 3.75rem) * ${ratio})`,
+    // Wide screens: the band under the photo for its info, the same for
+    // every photo and whether the details are open or not, so opening or
+    // closing them never moves the photo.
+    // Less on a short screen, where the details scroll in it.
+    "--band": "min(9rem, 28vh)",
     "--photo-h":
       "width" in size
         ? `min(90vw * ${size.height / size.width}, ${most})`
@@ -233,47 +185,28 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
       }}
       class={overlayClass.backdrop}
     >
-      {/* The photo centred on the screen, and its info never over it.
-          Narrow: the info follows it, the overlay scrolling to it. Wide:
-          the summary in a band under it; the details beside it, or in a
-          strip under it (the photo then centred in the room above). */}
+      {/* The photo centred, and its info never over it: one block, its
+          summary line (with the date) first and the details under it.
+          Narrow: right under the photo, the overlay scrolling to it. Wide:
+          at the bottom left, in a band under the photo. */}
       <div
         data-info-pending={resumed.value ? undefined : ""}
         style={layout}
         class="absolute inset-0 overflow-y-auto overscroll-contain lg:overflow-hidden"
       >
-        {/* Without JS the details cannot be opened: show them (with
-            their room under a wide photo) instead of the summary. Server
-            only: a <noscript> made in the browser would apply. */}
-        {!isBrowser && (
-          <noscript>
-            <style>
-              {
-                "[data-info-summary]{display:none!important}#photo-info{display:flex!important}@media (min-width:64rem){[data-photo-stage][data-strip]{padding-bottom:calc(var(--strip) + 1.5rem)!important}}"
-              }
-            </style>
-          </noscript>
-        )}
         <div
-          data-photo-stage
-          data-strip={hasInfo && below ? "" : undefined}
           class={[
             "flex h-dvh flex-col items-center justify-center gap-3",
-            // Wide: room for the date above, and below for the summary, or
-            // for the details' strip while they are open (the photo then
-            // makes room for them; beside it, opening them moves nothing).
-            hasInfo &&
-              (below && wideOpen
-                ? "lg:pt-14 lg:pb-[calc(var(--strip)+1.5rem)]"
-                : "lg:pt-14 lg:pb-16"),
+            // Wide: the photo centred in the room above the info's band.
+            hasInfo && "lg:pt-4 lg:pb-[calc(var(--band)+1.5rem)]",
           ]}
         >
           <ProgressiveImage
             src={props.src}
             boxRef={box}
-            // The same box on narrow screens with the details open or
-            // closed, so closing them (or the stored choice applied after
-            // a reload) never moves the photo.
+            // The same box with the details open or closed, so closing
+            // them (or the stored choice applied after a reload) never
+            // moves the photo.
             boxClass={
               hasInfo
                 ? "relative flex h-(--photo-h) w-[90vw] items-center justify-center lg:h-auto lg:min-h-0 lg:flex-1"
@@ -282,63 +215,69 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
           />
         </div>
         {hasInfo && (
-          <InfoPanel
-            info={i}
-            wide={wide.value}
-            visibility={panelVisibility}
-            tagLinks={props.tagLinks ?? []}
-            onTag$={props.onTag$!}
-            onClose$={() => setShown(false)}
-          />
-        )}
-        {/* The details closed: their summary on one line, which opens
-            them. Wide: in the band under the photo, at the left. */}
-        {hasInfo && summary && (
-          <button
-            type="button"
-            data-testid="info-summary"
-            data-info-summary
-            aria-controls="photo-info"
-            // Known once resumed (before, CSS picks by the screen's width).
-            aria-expanded={
-              resumed.value ? (open ? "true" : "false") : undefined
-            }
-            title={summary}
+          <div
+            data-info-block
+            // Its clicks are its own (a click outside closes the overlay).
             stoppropagation:click
-            // The focus goes into the details it opens (it goes away).
-            onClick$={async () => {
-              await setShown(true);
-              const focus = (frames: number) => {
-                const panel = document.getElementById("photo-info");
-                if (panel && panel.offsetParent !== null) panel.focus();
-                else if (frames > 0)
-                  requestAnimationFrame(() => focus(frames - 1));
-              };
-              requestAnimationFrame(() => focus(30));
-            }}
             class={[
-              summaryVisibility,
-              "relative mx-auto mt-(--info-top) max-w-[calc(100%-2.5rem)] rounded-full bg-black/50 px-3.5 py-2 text-left text-sm text-white/90 hover:bg-black/70 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white",
-              "lg:absolute lg:bottom-3 lg:left-3 lg:m-0 lg:max-w-[calc(100%-10.25rem)]",
+              // One translucent block, the same on every screen.
+              "flex flex-col overflow-hidden rounded-[1.25rem] bg-black/70 text-sm text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md",
+              // Narrow: right under the photo (--info-top), as wide as
+              // reads well; room under it for the corner's buttons.
+              "relative mx-auto mt-(--info-top) mb-20 w-fit max-w-[min(100%-1.5rem,36rem)]",
+              // Wide: at the bottom left, in the band under the photo,
+              // clear of the buttons; open, it grows up from where its
+              // summary line was.
+              "lg:absolute lg:bottom-3 lg:left-3 lg:m-0 lg:max-h-(--band) lg:max-w-[min(100vw-11rem,72rem)]",
             ]}
           >
-            <span class="truncate">{summary}</span>
-          </button>
+            {/* The summary on one line, the date first (else just its
+                name). It opens and closes the details, and stays where it
+                is either way. */}
+            {
+              <button
+                type="button"
+                data-testid="info-summary"
+                aria-controls="photo-info"
+                // Known once resumed (before, a stored choice may close
+                // them in CSS).
+                aria-expanded={
+                  resumed.value ? (open ? "true" : "false") : undefined
+                }
+                title={
+                  [taken?.text, summary].filter(Boolean).join(" · ") ||
+                  "写真の情報"
+                }
+                onClick$={() => setShown(!open)}
+                class="flex shrink-0 px-4 py-2.5 text-left hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
+              >
+                <span class="truncate">
+                  {taken && (
+                    <span
+                      data-testid="info-taken"
+                      class="font-semibold tabular-nums"
+                    >
+                      <span class="sr-only">撮影日時 </span>
+                      <TakenText taken={taken} />
+                      {summary && <span class="text-white/50"> · </span>}
+                    </span>
+                  )}
+                  {summary && <span class="text-white/85">{summary}</span>}
+                  {!taken && !summary && (
+                    <span class="text-white/85">写真の情報</span>
+                  )}
+                </span>
+              </button>
+            }
+            <InfoPanel
+              info={i}
+              visibility={open ? "flex" : "hidden"}
+              tagLinks={props.tagLinks ?? []}
+              onTag$={props.onTag$!}
+            />
+          </div>
         )}
       </div>
-
-      {/* When it was taken, at the top above the photo: in view on every
-          screen without opening or scrolling anything. Taps go through it
-          (to the backdrop, which closes). */}
-      {hasInfo && taken && (
-        <p
-          data-testid="info-taken"
-          class="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-[0.9375rem] leading-tight font-semibold whitespace-nowrap text-white tabular-nums ring-1 ring-white/10 backdrop-blur-sm"
-        >
-          <span class="sr-only">撮影日時 </span>
-          <TakenText taken={taken} />
-        </p>
-      )}
 
       {/* The photo's buttons, at the bottom right corner (above the info,
           whose foot leaves room for them). Only the buttons take clicks

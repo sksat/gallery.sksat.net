@@ -40,25 +40,12 @@ body {
   line-height: inherit;
 }
 
-/* A server-rendered photo overlay shows its info's details or summary by
-   the screen's width; until it resumes, the viewer's stored choice (put
-   on <html> by router-head.tsx before the page paints) wins here, so the
-   other does not show for a moment (photo-overlay.tsx). */
-html[data-photo-info="hidden"] [data-info-pending] #photo-info,
-html[data-photo-info="shown"] [data-info-pending] [data-info-summary] {
+/* A server-rendered photo overlay shows its info's details; until it
+   resumes, the viewer's stored choice to close them (put on <html> by
+   router-head.tsx before the page paints) closes them here, so they do
+   not show for a moment (photo-overlay.tsx). */
+html[data-photo-info="hidden"] [data-info-pending] #photo-info {
   display: none;
-}
-html[data-photo-info="shown"] [data-info-pending] #photo-info,
-html[data-photo-info="hidden"] [data-info-pending] [data-info-summary] {
-  display: flex;
-}
-/* Open under a wide photo: their room under it. */
-@media (min-width: 64rem) {
-  html[data-photo-info="shown"]
-    [data-info-pending]
-    [data-photo-stage][data-strip] {
-    padding-bottom: calc(var(--strip) + 1.5rem);
-  }
 }
 
 /* Map markers and popups (src/components/map/render.ts): DOM elements

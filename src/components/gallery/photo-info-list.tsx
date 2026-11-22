@@ -92,8 +92,9 @@ const Row = component$<{ icon: keyof typeof ICON; label: string; id: string }>(
 );
 
 /**
- * When a photo was taken, as the overlay and the photo page show it above
- * the photo: the date, and the time (at its public precision) lighter.
+ * When a photo was taken, as the overlay's summary line and the photo
+ * page's title show it: the date, and the time (at its public precision)
+ * lighter.
  */
 export const TakenText = component$<{ taken: TakenAt }>(({ taken }) => {
   const { date, time } = splitTaken(taken.text);
@@ -116,7 +117,7 @@ interface PhotoTitleProps {
 
 /**
  * Where the photo was taken, at the head of its info: the VRChat world (a
- * link to its page), or the place on the map. Its date is above the photo
+ * link to its page), or the place on the map. Its date is apart
  * (TakenText).
  */
 export const PhotoTitle = component$<PhotoTitleProps>((props) => {

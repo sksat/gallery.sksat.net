@@ -123,8 +123,7 @@ test.describe("desktop", () => {
   }) => {
     await openInOverlay(page, "vrcxxxxxxa");
     const tag = page.getByTestId("info-tag");
-    // Its details open.
-    await page.getByTestId("info-summary").click();
+    // Its details are open.
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
       "true",

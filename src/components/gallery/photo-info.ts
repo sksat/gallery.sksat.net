@@ -216,9 +216,9 @@ export const infoChoiceFrom = (stored: string | null): boolean | null =>
   stored === INFO_SHOWN ? true : stored === INFO_HIDDEN ? false : null;
 
 /**
- * The one-line summary of a photo's info when its details are closed
- * (its date is above the photo): where (the world, else the place), the
- * camera and the exposure — 「rainshelter · VirtualLens2 · f/1.4 1/120 s」.
+ * The one-line summary of a photo's info, after its date (the first line
+ * of the overlay's info): where (the world, else the place), the camera
+ * and the exposure — 「rainshelter · VirtualLens2 · f/1.4 1/120 s」.
  * Null when there is none of them.
  */
 export const infoSummary = (info: PhotoInfo): string | null => {
