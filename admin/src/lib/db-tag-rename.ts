@@ -291,8 +291,13 @@ export const renameTag = async (
         .bind(fromRow.id, to, exists ? 1 : 0),
     );
   }
-  if (fromCams.size > 0) {
-    // A camera with both keeps `to` (its place), passing it on if either was.
+  {
+    // A camera with both keeps `to` (its place), passing it on if either
+    // was. Always run, with checks, so a camera tagged after the read
+    // fails the batch instead of being renamed outside the undo.
+    const both = cams.filter(
+      (c) => c.tag === to && fromCams.has(c.camera_id),
+    ).length;
     stmts.push(
       db
         .prepare(
@@ -306,9 +311,11 @@ export const renameTag = async (
              (SELECT camera_id FROM camera_tag WHERE tag = ?2)`,
         )
         .bind(from, to),
+      changed(db, both),
       db
         .prepare("UPDATE camera_tag SET tag = ?2 WHERE tag = ?1")
         .bind(from, to),
+      changed(db, fromCams.size - both),
     );
   }
   if (rules && ruleRaw !== null && fromRules.length > 0) {
@@ -396,7 +403,7 @@ export const unrenameTag = async (
       .bind(JSON.stringify(ids)),
     db
       .prepare(
-        `SELECT camera_id, tag, propagate FROM camera_tag
+        `SELECT camera_id, tag, propagate, created_at FROM camera_tag
          WHERE tag IN (?1, ?2) AND camera_id IN (SELECT value FROM json_each(?3))`,
       )
       .bind(r.from, r.to, JSON.stringify(camIds)),
@@ -447,6 +454,7 @@ export const unrenameTag = async (
     camera_id: number;
     tag: string;
     propagate: number;
+    created_at: string;
   }[];
   const nowRow = (cam: number, tag: string) =>
     now.find((c) => c.camera_id === cam && c.tag === tag);
@@ -459,7 +467,8 @@ export const unrenameTag = async (
     if (!bFrom || nowRow(cam, r.from)) continue;
     const cTo = nowRow(cam, r.to);
     if (!bTo) {
-      if (cTo) renameBack.push(cam);
+      // The renamed row itself (it keeps its created_at), not one added since.
+      if (cTo && cTo.created_at === bFrom.createdAt) renameBack.push(cam);
       continue;
     }
     reinsert.push(bFrom);

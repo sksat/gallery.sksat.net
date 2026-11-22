@@ -286,6 +286,23 @@ describe("renameTag", () => {
     ]);
   });
 
+  it("leaves a camera tag added again after the rename when undoing", async () => {
+    const { raw, db } = setup();
+    const r = ok(await renameTag(db, "旅", "たび", false));
+    raw.exec(`
+      DELETE FROM camera_tag WHERE camera_id = 1 AND tag = 'たび';
+      INSERT INTO camera_tag (camera_id, tag, propagate, position, created_at)
+        VALUES (1, 'たび', 0, 9, '2099-01-01T00:00:00.000Z');
+    `);
+    expect(await unrenameTag(db, r)).toEqual({ ok: true });
+    expect(cameraTags(raw)).toContainEqual({
+      camera_id: 1,
+      tag: "たび",
+      propagate: 0,
+      position: 9,
+    });
+  });
+
   it("will not undo onto a tag that took the old name meanwhile", async () => {
     const { raw, db } = setup();
     const r = ok(await renameTag(db, "旅", "たび", false));
