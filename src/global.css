@@ -47,9 +47,6 @@ body {
 html[data-photo-info="hidden"] [data-info-pending] #photo-info {
   display: none;
 }
-html[data-photo-info="hidden"] [data-info-pending] [data-photo-stage] {
-  margin-block: auto;
-}
 
 /* Map markers and popups (src/components/map/render.ts): DOM elements
    MapLibre positions, so plain classes rather than utilities. */

@@ -16,9 +16,11 @@ interface InfoPanelProps {
 }
 
 /**
- * The photo's metadata in the overlay, exactly as the API gave it: a
- * column beside the photo on wide screens, and under it on narrow ones
- * (the overlay scrolls), headed by the date. Shown until the viewer hides
+ * The photo's metadata in the overlay, exactly as the API gave it, headed
+ * by the date, never moving the photo from the centre: a translucent card
+ * at the top right on wide screens (over the photo only where a wide
+ * photo reaches it), and under the photo on narrow ones (the overlay
+ * scrolls to it; its date shows at the foot of the first screen). Shown until the viewer hides
  * it (the ⓘ button or `i`, in photo-overlay.tsx).
  *
  * Rendered on the server so the metadata is in the page without JS. It
@@ -37,11 +39,13 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
       stoppropagation:click
       class={[
         props.shown ? "" : "hidden",
-        // Narrow: under the photo, as wide as reads well; the foot leaves
-        // room for the buttons in the corner.
-        "mx-auto mb-auto w-full max-w-xl shrink-0 px-5 pt-5 pb-20 text-white",
-        // Wide: a column at the right edge, scrolling on its own.
-        "lg:m-0 lg:h-full lg:w-[22rem] lg:max-w-none lg:overflow-y-auto lg:overscroll-contain lg:border-l lg:border-white/10 lg:bg-black/80 lg:px-6 lg:pt-7 lg:pb-8",
+        // Narrow: right under the photo (photo-overlay.tsx sets
+        // --info-top), as wide as reads well; the foot leaves room for the
+        // buttons in the corner.
+        "relative mx-auto mt-(--info-top) w-full max-w-xl px-5 pt-3 pb-20 text-white",
+        // Wide: a translucent card at the top right, over the photo
+        // where the photo reaches it, scrolling on its own.
+        "lg:absolute lg:top-4 lg:right-4 lg:m-0 lg:max-h-[calc(100%-6rem)] lg:w-[21rem] lg:max-w-none lg:overflow-y-auto lg:overscroll-contain lg:rounded-2xl lg:bg-black/65 lg:px-6 lg:pt-6 lg:pb-6 lg:shadow-2xl lg:ring-1 lg:ring-white/10 lg:backdrop-blur-md",
       ]}
     >
       {/* The date heads it, as the photo's name would. `!`: the site's

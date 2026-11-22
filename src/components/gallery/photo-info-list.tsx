@@ -15,10 +15,31 @@ export type TagLink = { tag: string; href: string };
 const isModified = (e: MouseEvent) =>
   e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
 
-// `!`: the site's unlayered `a { color }` would win otherwise. White text
-// with a quiet underline, so the links do not outshine the photo.
+// The site's link colour, underlined, so a link never reads as a plain
+// value. `!`: the site's unlayered `a { color }` would win otherwise.
 const LINK =
-  "!text-white underline decoration-white/30 underline-offset-[0.2em] hover:decoration-white";
+  "!text-(--color-accent) !underline decoration-(--color-accent)/40 underline-offset-[0.2em] hover:decoration-(--color-accent)";
+
+/** After an off-site link's text: it leaves the gallery (a new tab). */
+const External = component$(() => (
+  <>
+    <svg
+      viewBox="0 0 24 24"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+      class="ml-1 inline-block align-[-0.05em]"
+    >
+      <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+    </svg>
+    <span class="sr-only">（外部サイト）</span>
+  </>
+));
 
 /** A line under a row's main value. */
 const DETAIL = "mt-0.5 text-sm text-white/65";
@@ -181,6 +202,7 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
                 class={LINK}
               >
                 {i.world.name}
+                <External />
               </a>
             ) : (
               i.world.name

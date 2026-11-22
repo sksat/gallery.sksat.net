@@ -140,23 +140,25 @@ test.describe("desktop", () => {
     expect(await page.content()).not.toContain("draft memo");
   });
 
-  test("shown beside the photo, which takes the whole screen without it", async ({
+  test("at the top right, the photo centred as without it", async ({
     page,
   }) => {
     await openPhoto(page, "vrcxxxxxxa");
     await expectShown(page);
     const photo = page.getByTestId("overlay-box");
-    const beside = await photo.boundingBox();
+    const shown = await photo.boundingBox();
     const info = await panel(page).boundingBox();
-    if (!beside || !info) throw new Error("missing");
-    // Side by side: the panel at the right edge, the photo left of it.
-    expect(beside.x + beside.width).toBeLessThanOrEqual(info.x);
-    expect(info.x + info.width).toBeCloseTo(1280, 0);
+    if (!shown || !info) throw new Error("missing");
+    // The photo box is 90vw wide and centred; the info at the top right.
+    expect(shown.width).toBeCloseTo(1280 * 0.9, 0);
+    expect(shown.x + shown.width / 2).toBeCloseTo(640, 0);
+    expect(info.x + info.width).toBeGreaterThan(1250);
+    expect(info.y).toBeLessThan(30);
 
-    // Hidden, the photo box is 90vw wide, as in the overlay without info.
+    // Hidden, the photo stays where it was.
     await page.getByTestId("info-toggle").click();
     await expect(panel(page)).toBeHidden();
-    expect((await photo.boundingBox())?.width).toBeCloseTo(1280 * 0.9, 0);
+    expect(await photo.boundingBox()).toEqual(shown);
   });
 
   test("toggles with i and the button, and remembers", async ({ page }) => {
@@ -254,18 +256,27 @@ test.describe("desktop", () => {
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("the info follows the photo, in view", async ({ page }) => {
+  test("the info follows the centred photo, its date in view", async ({
+    page,
+  }) => {
+    for (const id of ["vrcxxxxxxa", "reaxxxxxxa"]) {
+      await openPhoto(page, id);
+      await expectShown(page);
+      const photo = await page.getByTestId("overlay-box").boundingBox();
+      const date = await panel(page).getByTestId("info-taken").boundingBox();
+      if (!photo || !date) throw new Error("missing");
+      // The photo in the middle of the first screen (the progress bar
+      // under it is in the centring too).
+      expect(Math.abs(photo.y + photo.height / 2 - 844 / 2)).toBeLessThan(12);
+      // The date right under it, on the first screen (a tall photo
+      // leaves room for it).
+      expect(date.y).toBeGreaterThanOrEqual(photo.y + photo.height);
+      expect(date.y + date.height).toBeLessThan(844);
+    }
+    // Landscape: the rest of the info is in view too.
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
-    await expectShown(page);
-    const photo = await page.getByTestId("overlay-box").boundingBox();
-    const date = await p.getByTestId("info-taken").boundingBox();
-    if (!photo || !date) throw new Error("missing");
-    // Under the photo, which is the screen's width, and on screen.
-    expect(photo.width).toBeCloseTo(390, 0);
-    expect(date.y).toBeGreaterThanOrEqual(photo.y + photo.height);
-    expect(date.y + date.height).toBeLessThan(844);
-    await expect(p.getByTestId("info-exposure")).toBeVisible();
+    await expect(p.getByTestId("info-exposure")).toBeInViewport();
 
     // The button hides it; `i` too.
     await page.getByTestId("info-toggle").click();

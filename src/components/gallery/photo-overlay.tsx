@@ -73,8 +73,8 @@ interface PhotoOverlayProps {
 
 /**
  * Full-screen view of one photo, over the list: the quick viewer, at the
- * photo's URL (/photo/<id>/). Its metadata is shown beside the photo on
- * wide screens and under it on narrow ones, until the viewer hides it
+ * photo's URL (/photo/<id>/). The photo stays centred; its metadata is
+ * shown at the top right on wide screens and under it on narrow ones, until the viewer hides it
  * (remembered); its detail page (/photo/<id>/detail/) is one tap away
  * with the page button.
  */
@@ -141,10 +141,16 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     setShown(!shown.value);
   });
 
-  // The photo's shape, so that under the photo the info starts where the
-  // photo ends (3:2 until its size is known).
+  // Narrow screens: the photo stays centred on the first screen, at most
+  // as tall as leaves a peek of the info at its foot, and the info starts
+  // right under the photo (from its shape; 3:2 until its size is known).
   const size = props.info ? photoSize(props.info) : {};
-  const aspect = "width" in size ? `${size.width} / ${size.height}` : "3 / 2";
+  const ratio = "width" in size ? size.width / size.height : 3 / 2;
+  const layout = {
+    "--peek": "4.5rem",
+    "--photo-h": `min(90vw / ${ratio}, 100dvh - 2 * var(--peek))`,
+    "--info-top": "calc(var(--photo-h) / 2 - 50dvh)",
+  };
 
   // The look of the backdrop, photo and progress bar (shared/overlay) is
   // shared with the admin's full-screen preview.
@@ -161,32 +167,23 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
       }}
       class={overlayClass.backdrop}
     >
-      {/* Narrow: the photo, then its info, centred together when they fit
-          and scrolling when not. Wide: side by side. */}
+      {/* The photo centred on the screen, as without its info. Narrow:
+          the info follows it, the overlay scrolling to it. Wide: the info
+          at the right edge, over the photo where the photo reaches it. */}
       <div
         data-info-pending={resumed.value ? undefined : ""}
-        class="absolute inset-0 flex flex-col overflow-y-auto overscroll-contain lg:flex-row lg:overflow-hidden"
+        style={layout}
+        class="absolute inset-0 overflow-y-auto overscroll-contain lg:overflow-hidden"
       >
-        <div
-          data-photo-stage
-          class={[
-            "flex shrink-0 flex-col items-center justify-center gap-3",
-            open
-              ? "mt-auto pt-3 lg:mt-0 lg:h-full lg:min-w-0 lg:flex-1 lg:shrink lg:pt-0"
-              : "min-h-full w-full",
-          ]}
-        >
+        <div class="flex h-dvh flex-col items-center justify-center gap-3">
           <ProgressiveImage
             src={props.src}
             boxRef={box}
             boxClass={
               open
-                ? // Narrow: the screen's width, leaving the info's first
-                  // lines in view. Wide: the room beside the info.
-                  "relative w-full max-h-[calc(100dvh-10rem)] lg:h-[85vh] lg:max-h-none lg:w-[calc(100%-3rem)]"
+                ? "relative flex h-(--photo-h) w-[90vw] items-center justify-center lg:h-[85vh]"
                 : overlayClass.box
             }
-            boxStyle={open ? { aspectRatio: aspect } : undefined}
           />
         </div>
         {hasInfo && (
@@ -199,15 +196,11 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
         )}
       </div>
 
-      {/* The photo's buttons, at the bottom right of the photo's side.
-          Only the buttons take clicks (and keep them from the overlay,
-          which closes on click); the rest of the corner still closes it. */}
-      <div
-        class={[
-          "pointer-events-none absolute right-3 bottom-3 z-20 flex items-end gap-2 [&>*]:pointer-events-auto",
-          open && "lg:right-[23.5rem]",
-        ]}
-      >
+      {/* The photo's buttons, at the bottom right corner (above the info,
+          whose foot leaves room for them). Only the buttons take clicks
+          (and keep them from the overlay, which closes on click); the rest
+          of the corner still closes it. */}
+      <div class="pointer-events-none absolute right-3 bottom-3 z-20 flex items-end gap-2 [&>*]:pointer-events-auto">
         {props.detailHref && (
           // Plain <a>: see the note in components/layout/header.tsx.
           <a
