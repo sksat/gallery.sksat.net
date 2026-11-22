@@ -11,6 +11,8 @@ on:
       - "shared/tag-field/**"
       # Bundled into the Worker (resized copies' claims).
       - "shared/resized/**"
+      # Bundled into the Worker (the world page's preview).
+      - "shared/vrchat/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/deploy-api-worker.yaml"
