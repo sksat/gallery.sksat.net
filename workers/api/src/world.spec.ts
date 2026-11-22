@@ -8,6 +8,7 @@ import {
   linkedWorldId,
   parseWorldPage,
   PREVIEW_TTL,
+  VRCHAT_USER_AGENT,
   worldPreview,
   type PreviewContext,
 } from "./world";
@@ -124,6 +125,10 @@ describe("worldPreview", () => {
     expect(s.fetchFn).toHaveBeenCalledTimes(1);
     expect(String(s.fetchFn.mock.calls[0][0])).toBe(
       `https://vrchat.test/home/world/${WORLD}`,
+    );
+    // vrchat.com answers 403 to a request without a User-Agent.
+    expect(new Headers(s.fetchFn.mock.calls[0][1]?.headers).get("User-Agent")).toBe(
+      VRCHAT_USER_AGENT,
     );
     expect([...s.entries.values()][0].ttl).toBe(PREVIEW_TTL);
   });
