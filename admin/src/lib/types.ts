@@ -138,6 +138,11 @@ export type MediaRow = {
   tag_values: Record<string, unknown>;
   /** Its own public levels for them: field id → level. */
   tag_value_visibility: Record<string, TagFieldLevel>;
+  /**
+   * Its own choice per tag (0021): tag → shown / hidden; a tag it does
+   * not name follows the tag's public flag. Read it with ownTagChoice.
+   */
+  tag_visibility: Record<string, TagFieldLevel>;
   updated_at: string;
 };
 
@@ -175,4 +180,10 @@ export type MediaPatch = {
   tag_values?: Record<string, TagFieldValue | null>;
   /** The photo's own levels by field id; null = the field's default. */
   tag_value_visibility?: Record<string, TagFieldLevel | null>;
+  /**
+   * The photo's own choice per tag name; null = the tag's own setting.
+   * Tags left out keep theirs, except that a change of `tags` drops the
+   * choices for tags the photo no longer has.
+   */
+  tag_visibility?: Record<string, TagFieldLevel | null>;
 };

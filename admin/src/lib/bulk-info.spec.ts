@@ -7,20 +7,27 @@ import {
   KEEP,
   markManual,
   nextTagState,
+  nextVisState,
   shared,
+  tagVisState,
+  visChanges,
   sourcePatch,
   tagChanges,
   tagCounts,
   takenAtFor,
   validateInfoEdit,
   validateInfoRestore,
-  type InfoRow,
+  type InfoUndoRow,
   type TakenAtEdit,
 } from "./bulk-info";
+import type { TagChoices } from "./tag-visibility";
 
-const row = (over: Partial<InfoRow> = {}): InfoRow => ({
+/** A row as setInfo returns it for the undo (applyInfo ignores the extra). */
+const row = (over: Partial<InfoUndoRow> = {}): InfoUndoRow => ({
   id: 1,
   tags: '["night","film"]',
+  tag_visibility: null,
+  tag_visibility_after: null,
   timestamp: "2023-12-01T10:20:30+09:00",
   metadata_visibility: null,
   world_id: "wrld_a",
@@ -132,6 +139,13 @@ describe("validateInfoRestore", () => {
       { metadata_source: "[]" },
       { metadata_source: '{"exif":1}' },
       { metadata_source: undefined },
+      { tag_visibility: undefined },
+      { tag_visibility: "[]" },
+      { tag_visibility: '{"a":"public"}' },
+      { tag_visibility: '{"a":null}' },
+      { tag_visibility: '{" a":"shown"}' },
+      { tag_visibility_after: undefined },
+      { tag_visibility_after: '{"a":"yes"}' },
     ];
     for (const b of bad) {
       expect(validateInfoRestore([{ ...row(), ...b }], 100).ok).toBe(false);
@@ -299,6 +313,120 @@ describe("applyInfo", () => {
     expect(
       src({ exif: { iso: 400 } }, row({ metadata_source: null })),
     ).toEqual({ exif: "manual" });
+  });
+});
+
+describe("tags public on the photos (0021)", () => {
+  // film is public by its own setting, night is not; the camera passes on
+  // VRChat.
+  const ctx = { publicTags: new Set(["film"]), passedOn: ["VRChat"] };
+
+  it("makes a tag public or not on the photos that have it", () => {
+    const after = applyInfo(
+      row(),
+      { tagVisibility: { film: false, night: true, other: true } },
+      ctx,
+    );
+    expect(after.tags).toBe('["night","film"]');
+    expect(JSON.parse(after.tag_visibility ?? "")).toEqual({
+      film: "hidden",
+      night: "shown",
+    });
+    // Back to the tags' settings: no choice left.
+    expect(
+      applyInfo(after, { tagVisibility: { film: true, night: false } }, ctx)
+        .tag_visibility,
+    ).toBeNull();
+  });
+
+  it("applies to a tag added in the same edit", () => {
+    const after = applyInfo(
+      row(),
+      { tagsAdd: ["secret"], tagVisibility: { secret: true } },
+      ctx,
+    );
+    expect(after.tags).toBe('["night","film","secret"]');
+    expect(after.tag_visibility).toBe('{"secret":"shown"}');
+  });
+
+  it("drops the choice of a tag taken off, not of one the camera passes on", () => {
+    const r = row({
+      tags: '["night","film","VRChat"]',
+      tag_visibility: '{"night":"shown","VRChat":"hidden","gone":"shown"}',
+    });
+    const after = applyInfo(r, { tagsRemove: ["night", "VRChat"] }, ctx);
+    expect(after.tags).toBe('["film"]');
+    expect(after.tag_visibility).toBe('{"VRChat":"hidden"}');
+    // Without the camera's tags nothing is dropped.
+    expect(applyInfo(r, { tagsRemove: ["night"] }).tag_visibility).toBe(
+      r.tag_visibility,
+    );
+  });
+
+  it("changes nothing for a tag already so", () => {
+    const r = row({ tag_visibility: '{"night":"hidden"}' });
+    const after = applyInfo(r, { tagVisibility: { night: false } }, ctx);
+    expect(infoChanged(r, after)).toBe(false);
+  });
+
+  it("validates the edit and its undo", () => {
+    expect(validateInfoEdit({ tagVisibility: { a: true, b: false } })).toEqual(
+      { ok: true, value: { tagVisibility: { a: true, b: false } } },
+    );
+    for (const bad of [
+      { a: "yes" },
+      [true],
+      { " a": true },
+      { "": true },
+      { ["x".repeat(201)]: true },
+    ]) {
+      expect(validateInfoEdit({ tagVisibility: bad }).ok, String(bad)).toBe(
+        false,
+      );
+    }
+    const r = row({
+      tag_visibility: '{"a":"shown","b":"hidden"}',
+      tag_visibility_after: '{"a":"hidden", "b":"hidden"}',
+    });
+    expect(validateInfoRestore([r], 100)).toMatchObject({
+      ok: true,
+      rows: [
+        {
+          tag_visibility: '{"a":"shown","b":"hidden"}',
+          // As written, to compare with what the photo has then.
+          tag_visibility_after: '{"a":"hidden", "b":"hidden"}',
+        },
+      ],
+    });
+  });
+
+  it("works out each tag's state over the photos and its next on a click", () => {
+    const photos: { tags: string[]; tag_visibility: TagChoices }[] = [
+      { tags: ["film", "night"], tag_visibility: {} },
+      { tags: ["film"], tag_visibility: { film: "hidden" } },
+      { tags: [], tag_visibility: {} },
+    ];
+    expect(tagVisState("film", photos, ctx.publicTags)).toBe("mixed");
+    expect(tagVisState("night", photos, ctx.publicTags)).toBe("hidden");
+    // No photo has it: the tag's setting.
+    expect(tagVisState("other", photos, ctx.publicTags)).toBe("hidden");
+    expect(nextVisState("mixed", "mixed")).toBe("shown");
+    expect(nextVisState("shown", "mixed")).toBe("hidden");
+    expect(nextVisState("hidden", "mixed")).toBe("mixed");
+    expect(nextVisState("hidden", "hidden")).toBe("shown");
+    expect(nextVisState("shown", "hidden")).toBe("hidden");
+  });
+
+  it("sends the changed states, and the state of a tag put on all", () => {
+    expect(
+      visChanges([
+        { tag: "a", initial: "all", now: "all", visInitial: "shown", visNow: "hidden" },
+        { tag: "b", initial: "all", now: "all", visInitial: "shown", visNow: "shown" },
+        { tag: "c", initial: "some", now: "all", visInitial: "shown", visNow: "shown" },
+        { tag: "d", initial: "some", now: "all", visInitial: "mixed", visNow: "mixed" },
+        { tag: "e", initial: "all", now: "none", visInitial: "shown", visNow: "hidden" },
+      ]),
+    ).toEqual({ a: false, c: true });
   });
 });
 

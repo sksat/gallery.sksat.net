@@ -23,18 +23,18 @@ describe("withLevels", () => {
   it("sets levels, removes the ones set to the default, keeps the rest", () => {
     expect(
       withLevels(
-        { camera: "hidden", taken_at: "date", tags: "hidden" },
+        { camera: "hidden", taken_at: "date", exif: "hidden" },
         { camera: "", taken_at: "year", world: "name" },
       ),
-    ).toEqual({ taken_at: "year", tags: "hidden", world: "name" });
+    ).toEqual({ taken_at: "year", exif: "hidden", world: "name" });
   });
 });
 
 describe("storedOverrides", () => {
   it("is NULL for none and JSON in the fields' order otherwise", () => {
     expect(storedOverrides({})).toBeNull();
-    expect(storedOverrides({ tags: "hidden", file_name: "name" })).toBe(
-      '{"file_name":"name","tags":"hidden"}',
+    expect(storedOverrides({ exif: "hidden", file_name: "name" })).toBe(
+      '{"file_name":"name","exif":"hidden"}',
     );
   });
 });

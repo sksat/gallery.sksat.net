@@ -8,7 +8,6 @@ import {
   type TagFieldDef,
 } from "@shared/tag-field/tag-field";
 import { tagFieldFormValues } from "~/lib/tag-field-form";
-import type { MetadataLevels } from "~/lib/metadata";
 import type { MediaRow } from "~/lib/types";
 import { field as fieldClass, link, muted } from "./ui";
 import { VISIBILITY_STYLE, VisibilityIcon } from "./visibility-style";
@@ -25,16 +24,15 @@ export const TagFieldInputs = ({
   row,
   tags: photoTags,
   fields,
-  publicTags,
-  defaults,
+  shownTags,
 }: {
   row: MediaRow;
   /** Its tags: its own and those its camera passes on (0011). */
   tags: string[];
   /** The fields of the photo's tags. */
   fields: TagFieldDef[];
-  publicTags: string[];
-  defaults: MetadataLevels;
+  /** Its tags the public site shows on it, as saved (0021). */
+  shownTags: string[];
 }) => {
   const tags = photoTags.filter((t) => fields.some((f) => f.tag === t));
   if (tags.length === 0) return null;
@@ -47,7 +45,7 @@ export const TagFieldInputs = ({
         value={JSON.stringify(loaded)}
       />
       {tags.map((tag) => {
-        const tagPublic = publicTags.includes(tag);
+        const tagShown = shownTags.includes(tag);
         return (
           <fieldset key={tag} class="space-y-3" data-testid="tag-field-group">
             <legend class={legend}>
@@ -77,9 +75,7 @@ export const TagFieldInputs = ({
                     levelOf(f, row.tag_value_visibility) === "shown";
                   const shown =
                     allowed &&
-                    tagPublic &&
-                    (row.metadata_visibility.tags ?? defaults.tags) ===
-                      "public" &&
+                    tagShown &&
                     row.visibility !== "private" &&
                     stored !== null;
                   const stale =

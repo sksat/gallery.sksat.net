@@ -17,7 +17,7 @@ import {
   setPlatforms,
   UnknownCameraError,
 } from "./db-photo-bulk";
-import { KEEP, validateInfoRestore, type InfoRow } from "./bulk-info";
+import { KEEP, validateInfoRestore, type InfoUndoRow } from "./bulk-info";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
 const fixture = (name: string) =>
@@ -71,6 +71,57 @@ describe("setInfo / restoreInfo", () => {
     if (!back.ok) throw new Error(back.error);
     await restoreInfo(db, back.rows);
     expect(read()).toEqual(before);
+  });
+
+  it("makes tags public or not per photo (0021), and undoes it", async () => {
+    const raw = migratedSqlite();
+    raw.exec(`
+      INSERT INTO camera (id, slug, name) VALUES (1, 'a', 'A');
+      INSERT INTO camera_tag (camera_id, tag, propagate) VALUES (1, 'VRChat', 1);
+      INSERT INTO media (id, file, platform, tags, camera_id, tag_visibility) VALUES
+        (1, '/a.png', 'Real', '["film","secret"]', NULL, NULL),
+        (2, '/b.png', 'Real', '["film","VRChat"]', 1, '{"VRChat":"hidden","film":"hidden"}'),
+        (3, '/c.png', 'Real', '[]', NULL, NULL);
+      INSERT INTO tag (name, public) VALUES ('film', 1), ('secret', 0), ('VRChat', 1);
+    `);
+    const db = sqliteD1(raw);
+    const read = () =>
+      raw
+        .prepare("SELECT id, tags, tag_visibility AS tv FROM media ORDER BY id")
+        .all();
+    const before = read();
+    const { previous } = await setInfo(db, [1, 2, 3], {
+      tagsRemove: ["VRChat"],
+      tagVisibility: { film: true, secret: true },
+    });
+    expect(read()).toEqual([
+      { id: 1, tags: '["film","secret"]', tv: '{"secret":"shown"}' },
+      // VRChat still comes from the camera: its choice stays.
+      { id: 2, tags: '["film"]', tv: '{"VRChat":"hidden"}' },
+      { id: 3, tags: "[]", tv: null },
+    ]);
+    expect(previous.map((p) => p.id)).toEqual([1, 2]);
+    const back = validateInfoRestore(JSON.parse(JSON.stringify(previous)), 100);
+    if (!back.ok) throw new Error(back.error);
+    await restoreInfo(db, back.rows);
+    expect(read()).toEqual(before);
+
+    // A tag hidden after the edit stays hidden through its undo.
+    const again = await setInfo(db, [1], { tagVisibility: { secret: true } });
+    raw.exec(
+      `UPDATE media SET tag_visibility = '{"film":"hidden","secret":"hidden"}' WHERE id = 1`,
+    );
+    const undo = validateInfoRestore(
+      JSON.parse(JSON.stringify(again.previous)),
+      100,
+    );
+    if (!undo.ok) throw new Error(undo.error);
+    await restoreInfo(db, undo.rows);
+    expect(read()[0]).toEqual({
+      id: 1,
+      tags: '["film","secret"]',
+      tv: '{"film":"hidden","secret":"hidden"}',
+    });
   });
 
   it("marks what it changes manual, and the undo puts the sources back exactly", async () => {
@@ -332,7 +383,7 @@ describe("the API's content version", () => {
 
   it("is bumped by every write here", async () => {
     const { db, raw } = setup();
-    let info: InfoRow[] = [];
+    let info: InfoUndoRow[] = [];
     const writes: (() => Promise<unknown>)[] = [
       async () => {
         info = (await setInfo(db, [1], { exif: { iso: 200 } })).previous;

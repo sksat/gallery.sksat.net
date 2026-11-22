@@ -13,6 +13,7 @@ import {
   sourcePatch,
   type InfoEdit,
   type InfoRow,
+  type InfoUndoRow,
   type InfoValues,
 } from "./bulk-info";
 import { ensureTags } from "./db-meta";
@@ -26,20 +27,26 @@ const INFO_UPDATE = `UPDATE media SET ${INFO_COLUMNS.map((c) => `${c} = ?`).join
 /** Only while the row still has `was` (changed meanwhile: left alone). */
 const INFO_UPDATE_IF = `${INFO_UPDATE} AND ${INFO_COLUMNS.map((c) => `${c} IS ?`).join(" AND ")}`;
 
-const RESTORED_COLUMNS = INFO_COLUMNS.filter((c) => c !== "metadata_source");
+const RESTORED_COLUMNS = INFO_COLUMNS.filter(
+  (c) => c !== "metadata_source" && c !== "tag_visibility",
+);
 
 /**
  * The undo's UPDATE: the columns as they were, and in metadata_source only
  * the keys of the fields this sheet writes (sourcePatch), so a mark set
- * since by another edit (e.g. digitized_with) stays.
+ * since by another edit (e.g. digitized_with) stays. The choices per tag
+ * (0021) go back only while they are what the edit wrote: an undo never
+ * shows a tag hidden since.
  */
 const INFO_RESTORE = `UPDATE media SET ${RESTORED_COLUMNS.map((c) => `${c} = ?`).join(", ")},
    metadata_source = NULLIF(json_patch(COALESCE(metadata_source, '{}'), ?), '{}'),
+   tag_visibility = CASE WHEN json(tag_visibility) IS json(?) THEN ?
+                         ELSE tag_visibility END,
    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`;
 
 const writeInfo = async (
   db: D1Database,
-  rows: readonly InfoRow[],
+  rows: readonly InfoUndoRow[],
 ): Promise<void> => {
   if (rows.length === 0) return;
   // One batch (a transaction): every photo or none, and the bump.
@@ -50,6 +57,8 @@ const writeInfo = async (
         .bind(
           ...RESTORED_COLUMNS.map((c) => r[c]),
           sourcePatch(r.metadata_source),
+          r.tag_visibility_after,
+          r.tag_visibility,
           r.id,
         ),
     ),
@@ -58,6 +67,8 @@ const writeInfo = async (
 };
 
 export class InfoEditError extends Error {}
+
+type PassedOn = { camera_id: number; tag: string };
 
 /**
  * Apply `edit` (bulk-info.ts) to photos `ids`. Returns what each changed
@@ -68,19 +79,47 @@ export const setInfo = async (
   db: D1Database,
   ids: readonly number[],
   edit: InfoEdit,
-): Promise<{ previous: InfoRow[]; newTags: string[] }> => {
+): Promise<{ previous: InfoUndoRow[]; newTags: string[] }> => {
   if (ids.length === 0) return { previous: [], newTags: [] };
-  const res = await db
-    .prepare(
-      `SELECT ${INFO_SELECT} FROM media
-       WHERE id IN (SELECT value FROM json_each(?)) AND ${LIVE_PHOTO}
-       ORDER BY id`,
-    )
-    .bind(JSON.stringify(ids))
-    .all<InfoRow>();
+  const tagsEdited = !!(edit.tagsAdd || edit.tagsRemove || edit.tagVisibility);
+  const [res, pub, passed] = await db.batch<
+    (InfoRow & { camera_id: number | null }) | { name: string } | PassedOn
+  >([
+    db
+      .prepare(
+        `SELECT ${INFO_SELECT}, camera_id FROM media
+         WHERE id IN (SELECT value FROM json_each(?)) AND ${LIVE_PHOTO}
+         ORDER BY id`,
+      )
+      .bind(JSON.stringify(ids)),
+    // What a tag's choice is measured against (tag-visibility.ts; a few
+    // rows, and none read unless tags are edited).
+    db.prepare(
+      tagsEdited
+        ? "SELECT name FROM tag WHERE public = 1"
+        : "SELECT 1 WHERE 0",
+    ),
+    db.prepare(
+      tagsEdited
+        ? "SELECT camera_id, tag FROM camera_tag WHERE propagate = 1"
+        : "SELECT 1 WHERE 0",
+    ),
+  ]);
+  const publicTags = new Set(
+    ((pub.results ?? []) as { name: string }[]).map((t) => t.name),
+  );
+  const passedOn = new Map<number, string[]>();
+  for (const p of (passed.results ?? []) as PassedOn[]) {
+    passedOn.set(p.camera_id, [...(passedOn.get(p.camera_id) ?? []), p.tag]);
+  }
   const changes: { before: InfoRow; after: InfoRow }[] = [];
-  for (const before of res.results ?? []) {
-    const after = applyInfo(before, edit);
+  for (const { camera_id, ...before } of (res.results ?? []) as (InfoRow & {
+    camera_id: number | null;
+  })[]) {
+    const after = applyInfo(before, edit, {
+      publicTags,
+      passedOn: (camera_id !== null && passedOn.get(camera_id)) || [],
+    });
     if (!infoChanged(before, after)) continue;
     // Nothing is written when any photo cannot take the tags it gets (its
     // tags are checked only when this edit changes them).
@@ -105,7 +144,10 @@ export const setInfo = async (
   ]);
   const previous = changes
     .filter((_, i) => (results[i]?.meta?.changes ?? 0) > 0)
-    .map((c) => c.before);
+    .map((c) => ({
+      ...c.before,
+      tag_visibility_after: c.after.tag_visibility,
+    }));
   const newTags =
     previous.length > 0 && edit.tagsAdd
       ? await ensureTags(db, edit.tagsAdd)
@@ -143,7 +185,7 @@ export const listInfo = async (
 /** Undo of setInfo: each photo's columns as they were. */
 export const restoreInfo = (
   db: D1Database,
-  previous: readonly InfoRow[],
+  previous: readonly InfoUndoRow[],
 ): Promise<void> => writeInfo(db, previous);
 
 /**

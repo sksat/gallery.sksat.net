@@ -324,7 +324,13 @@ test("tags and shooting data for the selection, and undo", async ({
   await folderWith(page, "sel-info", ["a.png", "b.png"]);
   const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
   const chip = (name: string) =>
-    sheet.getByRole("checkbox", { name: new RegExp(`^${name}`) });
+    sheet.getByRole("checkbox", { name: new RegExp(`^${name}(?!を公開)`) });
+  const tagItem = (name: string) =>
+    sheet.getByTestId("bulk-tag").filter({
+      has: page.getByRole("checkbox", {
+        name: new RegExp(`^${name}(?!を公開)`),
+      }),
+    });
   const open = async () => {
     await info(page, "タグと撮影データ…");
     await expect(sheet.getByText("読み込み中…")).toHaveCount(0);
@@ -359,7 +365,7 @@ test("tags and shooting data for the selection, and undo", async ({
   await open();
   await expect(chip("roll-a")).toHaveAttribute("aria-checked", "mixed");
   await expect(chip("roll-a")).toContainText("1/2");
-  await expect(chip("roll-a")).toHaveAttribute("data-public", "false");
+  await expect(tagItem("roll-a")).toHaveAttribute("data-public", "hidden");
   const iso = sheet.getByLabel("ISO", { exact: true });
   await expect(iso).toHaveValue("");
   await expect(iso).toHaveAttribute("placeholder", "そのまま（写真ごと）");
@@ -423,6 +429,80 @@ test("tags and shooting data for the selection, and undo", async ({
   await expect(page).toHaveURL(/\/media\/\d+\/\?back=/);
   await expect(page.getByTestId("manual-exif")).toBeVisible();
   expect(external).toEqual([]);
+});
+
+test("tags made public or not on the selected photos, and undo", async ({
+  page,
+}) => {
+  await folderWith(page, "sel-tag-public", ["a.png", "b.png"]);
+  const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
+  const pub = (name: string) =>
+    sheet.getByRole("checkbox", { name: `${name}を公開`, exact: true });
+  const open = async () => {
+    for (const name of ["a.png", "b.png"]) {
+      if ((await tile(page, name).getAttribute("aria-selected")) !== "true") {
+        await tick(page, name).click();
+      }
+    }
+    await expect(summary(page)).toContainText("2 件選択");
+    await info(page, "タグと撮影データ…");
+    await expect(sheet.getByText("読み込み中…")).toHaveCount(0);
+  };
+  const apply = async (text: string) => {
+    await sheet.getByRole("button", { name: "適用" }).click();
+    await expect(page.getByText(text)).toBeVisible();
+    await expect(sheet).toHaveCount(0);
+  };
+
+  // VRChat (public by its setting) on both: public on both.
+  await open();
+  await sheet.getByPlaceholder("タグを追加").fill("VRChat");
+  await sheet.getByPlaceholder("タグを追加").press("Enter");
+  await expect(pub("VRChat")).toHaveAttribute("aria-checked", "true");
+  await apply("2 枚のタグと撮影データを変えました。");
+
+  // Not public on these two.
+  await open();
+  await expect(pub("VRChat")).toHaveAttribute("aria-checked", "true");
+  await pub("VRChat").click();
+  await expect(pub("VRChat")).toHaveAttribute("aria-checked", "false");
+  await apply("2 枚のタグと撮影データを変えました。");
+  await open();
+  await expect(pub("VRChat")).toHaveAttribute("aria-checked", "false");
+  await sheet.getByRole("button", { name: "やめる" }).click();
+
+  // On the edit page: its own choice.
+  await page.keyboard.press("Escape");
+  await tile(page, "a.png").focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/media\/\d+\/\?back=/);
+  const chip = page.getByTestId("tag-chip").filter({ hasText: "VRChat" });
+  await expect(chip).toHaveAttribute("data-public", "false");
+  await expect(chip.getByTestId("tag-chip-own")).toBeVisible();
+  // a.png public again there: then the two differ.
+  await chip.click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/^Saved at /)).toBeVisible();
+  await page.goBack();
+  await expect(tile(page, "a.png")).toBeVisible();
+  await open();
+  await expect(pub("VRChat")).toHaveAttribute("aria-checked", "mixed");
+  // mixed → public on both → not → as it was.
+  await pub("VRChat").click();
+  await expect(pub("VRChat")).toHaveAttribute("aria-checked", "true");
+  await apply("1 枚のタグと撮影データを変えました。");
+
+  // Undo: b.png not public again.
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+  await open();
+  await expect(pub("VRChat")).toHaveAttribute("aria-checked", "mixed");
+  // A tag taken off: no lock to set.
+  await sheet
+    .getByRole("checkbox", { name: /^VRChat(?!を公開)/ })
+    .click();
+  await expect(pub("VRChat")).toBeDisabled();
+  await sheet.getByRole("button", { name: "やめる" }).click();
 });
 
 test("a reload that lacks a selected item for a while keeps it selected", async ({

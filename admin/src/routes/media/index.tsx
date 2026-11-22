@@ -79,7 +79,7 @@ import {
 import {
   validateInfoEdit,
   validateInfoRestore,
-  type InfoRow,
+  type InfoUndoRow,
 } from "~/lib/bulk-info";
 import { parseOverrides, type MetadataLevels } from "~/lib/metadata";
 import {
@@ -996,7 +996,7 @@ export default component$(() => {
   const bulkInfo = useBulkInfo();
   const restoreInfoAction = useRestoreInfo();
   /** The last タグと撮影データ change (what the photos had), for undo. */
-  const lastInfo = useSignal<InfoRow[] | null>(null);
+  const lastInfo = useSignal<InfoUndoRow[] | null>(null);
   /** The last bulk camera change (what the photos had), for undo. */
   const lastCamera = useSignal<PreviousCamera[] | null>(null);
   const bulkTagValues = useBulkTagValues();
@@ -1070,7 +1070,7 @@ export default component$(() => {
         const changes: VisibilityChange[] = [];
         const cameras: PreviousCamera[] = [];
         const platforms: PreviousPlatform[] = [];
-        const infos: InfoRow[] = [];
+        const infos: InfoUndoRow[] = [];
         const newTags = new Set<string>();
         let changed = 0;
         let error: string | null = null;
@@ -1104,7 +1104,7 @@ export default component$(() => {
             } else if (a.kind === "platform") {
               platforms.push(...(r.value.previous as PreviousPlatform[]));
             } else if (a.kind === "info" && "newTags" in r.value) {
-              infos.push(...(r.value.previous as InfoRow[]));
+              infos.push(...(r.value.previous as InfoUndoRow[]));
               for (const t of r.value.newTags as string[]) newTags.add(t);
             } else {
               previous.push(...(r.value.previous as StoredLevels[]));

@@ -52,6 +52,7 @@ const PATCH_FIELDS = new Set([
   "reset_from_file",
   "tag_values",
   "tag_value_visibility",
+  "tag_visibility",
 ]);
 
 const RESETTABLE = ["exif", "world", "location", "taken_at"] as const;
@@ -230,8 +231,51 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
     if (!v.ok) return v;
     patch.tag_value_visibility = v.value;
   }
+  if ("tag_visibility" in obj) {
+    const v = validateTagVisibilityShape(obj.tag_visibility);
+    if (!v.ok) return v;
+    patch.tag_visibility = v.value;
+  }
 
   return { ok: true, patch };
+};
+
+/**
+ * tag_visibility (0021): tag name → shown / hidden, or null (the tag's
+ * own setting). Names as tags may be (MAX_TAG_LEN), at most as many as a
+ * photo has tags and its camera passes on.
+ */
+export const validateTagVisibilityShape = (
+  v: unknown,
+):
+  | { ok: true; value: Record<string, TagFieldLevel | null> }
+  | { ok: false; error: string } => {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return { ok: false, error: "tag_visibility must be an object" };
+  }
+  const entries = Object.entries(v);
+  if (entries.length > MAX_TAGS * 2) {
+    return { ok: false, error: "tag_visibility has too many tags" };
+  }
+  const out: Record<string, TagFieldLevel | null> = {};
+  for (const [k, level] of entries) {
+    if (k.trim() !== k || k === "" || k.length > MAX_TAG_LEN) {
+      return { ok: false, error: "tag_visibility keys must be tag names" };
+    }
+    if (level !== null && !isTagFieldLevel(level)) {
+      return {
+        ok: false,
+        error: "tag_visibility must be shown, hidden or null",
+      };
+    }
+    Object.defineProperty(out, k, {
+      value: level,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return { ok: true, value: out };
 };
 
 /** Most field ids one change may name. */

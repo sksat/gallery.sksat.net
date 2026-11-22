@@ -10,7 +10,6 @@ import {
   z,
   type DocumentHead,
 } from "@builder.io/qwik-city";
-import { CameraGlyph } from "~/components/camera-label";
 import { FileMetadata } from "~/components/file-metadata";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { PhotoAccess } from "~/components/photo-access";
@@ -70,6 +69,12 @@ import {
 import { markUnread } from "~/lib/read-state";
 import { PhotoDataFields } from "~/components/photo-data-fields";
 import { TagFieldInputs } from "~/components/tag-field-inputs";
+import {
+  TagChipItems,
+  TagChipsLoaded,
+  type ChipTag,
+} from "~/components/tag-chips";
+import { chipPatch, tagState } from "~/lib/tag-visibility";
 import { fieldsOfTags, resolveTagValuePatch } from "~/lib/db-tag-field";
 import { passedOnBy } from "~/lib/db-camera-tag";
 import { inheritedOnly } from "@shared/tag-field/tag-field";
@@ -107,6 +112,7 @@ import {
   parseCameraIdInput,
   parseTagsInput,
   validatePatch,
+  validateTagVisibilityShape,
 } from "~/lib/validate";
 
 type MediaLoaderResult =
@@ -120,7 +126,10 @@ type MediaLoaderResult =
       imageBase: string | null;
       /** The site's metadata visibility defaults (the selects' デフォルト). */
       defaults: MetadataLevels;
-      /** Which of the photo's tags are public. */
+      /**
+       * Which of the photo's tags are public by the tag's own setting (each
+       * photo may choose otherwise, row.tag_visibility).
+       */
       publicTags: string[];
       /** The fields of the photo's tags (0010). */
       tagFields: TagFieldDef[];
@@ -268,7 +277,7 @@ export const useUpdateMedia = routeAction$(
       return fail(400, { message: "invalid id" });
     }
     // The flat string fields (the tag fields' objects apart).
-    const { tf, tfv, ...flat } = data;
+    const { tf, tfv, tag_shown: _shown, ...flat } = data;
     const form = flat as Record<string, string | undefined>;
     // Route the form data through the same validator the API uses so the
     // contract has a single source of truth. A malformed camera value
@@ -325,6 +334,16 @@ export const useUpdateMedia = routeAction$(
     if (!checked.ok) return fail(400, { message: checked.error });
     v.patch.tag_values = checked.values;
     v.patch.tag_value_visibility = checked.levels;
+    // The tags switched public or not on this photo (tag-chips.tsx).
+    const loaded = parseChipsLoaded(data.tag_chips_loaded);
+    if (loaded) {
+      const byDefault = new Set(await publicTags(db, Object.keys(loaded)));
+      const tv = validateTagVisibilityShape(
+        chipPatch(loaded, data.tag_shown ?? [], byDefault),
+      );
+      if (!tv.ok) return fail(400, { message: tv.error });
+      if (Object.keys(tv.value).length > 0) v.patch.tag_visibility = tv.value;
+    }
     const updated = await updateMedia(db, id, v.patch);
     if (!updated) {
       return fail(404, { message: "not found" });
@@ -348,7 +367,6 @@ export const useUpdateMedia = routeAction$(
     mv_file_name: z.string().max(20).optional(),
     mv_taken_at: z.string().max(20).optional(),
     mv_camera: z.string().max(20).optional(),
-    mv_tags: z.string().max(20).optional(),
     mv_exif: z.string().max(20).optional(),
     mv_world: z.string().max(20).optional(),
     mv_location: z.string().max(20).optional(),
@@ -376,8 +394,27 @@ export const useUpdateMedia = routeAction$(
     tf: z.record(z.string().max(20), z.string().max(400)).optional(),
     tfv: z.record(z.string().max(20), z.string().max(20)).optional(),
     tag_fields_loaded: z.string().max(40_000).optional(),
+    // Tag chips (tag-chips.tsx): the ones checked, and how each started.
+    tag_shown: z.array(z.string().max(200)).max(400).optional(),
+    tag_chips_loaded: z.string().max(100_000).optional(),
   }),
 );
+
+/** tag_chips_loaded: tag → shown when loaded; null when absent or bad. */
+const parseChipsLoaded = (
+  raw: string | undefined,
+): Record<string, boolean> | null => {
+  if (raw === undefined) return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+    const entries = Object.entries(v);
+    if (!entries.every(([, s]) => typeof s === "boolean")) return null;
+    return v as Record<string, boolean>;
+  } catch {
+    return null;
+  }
+};
 
 /** Most pending choices one 反映 applies. */
 const MAX_PENDING = 2000;
@@ -731,6 +768,17 @@ const MediaFields = component$<{
     const choices = platforms.some((p) => p.key === row.platform)
       ? platforms
       : [...platforms, platformOf(platforms, row.platform)];
+    // Its tags, each public on it or not (0021): its own choice, else the
+    // tag's setting.
+    const byDefault = new Set(publicTags);
+    const chips: ChipTag[] = [
+      ...row.tags.map((tag) => ({ tag, inherited: false })),
+      ...inheritedTags.map((tag) => ({ tag, inherited: true })),
+    ].map((c) => ({
+      ...c,
+      byDefault: byDefault.has(c.tag),
+      ...tagState(c.tag, row.tag_visibility, byDefault),
+    }));
     return (
       <>
         <fieldset class="space-y-3">
@@ -939,91 +987,38 @@ const MediaFields = component$<{
             <label for="edit-tags" class={label}>
               Tags (comma-separated)
             </label>
-            <WithLevel
-              level={
-                <LevelSelect
-                  field="tags"
-                  value={row.metadata_visibility.tags ?? ""}
-                  siteDefault={defaults.tags}
-                  // Only public tags ever leave.
-                  live={shows(
-                    row,
-                    row.tags.some((t) => publicTags.includes(t)),
-                  )}
-                />
-              }
-            >
-              <input
-                id="edit-tags"
-                type="text"
-                name="tags"
-                value={row.tags.join(", ")}
-                maxLength={2000}
-                aria-describedby="edit-tags-help"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellcheck={false}
-                enterKeyHint="done"
-                class={field}
-              />
-            </WithLevel>
+            <input
+              id="edit-tags"
+              type="text"
+              name="tags"
+              value={row.tags.join(", ")}
+              maxLength={2000}
+              aria-describedby="edit-tags-help"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellcheck={false}
+              enterKeyHint="done"
+              class={field}
+            />
             <p id="edit-tags-help" class={["mt-1 text-xs", muted]}>
               e.g. <code>VRChat, night</code>. Saved to D1 immediately; the
               public gallery shows it within about a minute.
             </p>
-            {row.tags.length + inheritedTags.length > 0 && (
-              <ul class="mt-2 flex flex-wrap gap-1.5" aria-label="タグの公開">
-                {[
-                  ...row.tags.map((t) => ({ t, inherited: false })),
-                  ...inheritedTags.map((t) => ({ t, inherited: true })),
-                ].map(({ t, inherited }) => {
-                  const isPublic = publicTags.includes(t);
-                  const chip = [
-                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ring-1 ring-inset",
-                    isPublic
-                      ? "bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
-                      : "bg-zinc-100 text-zinc-600 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-700",
-                  ];
-                  const body = (
-                    <>
-                      {inherited && <CameraGlyph />}
-                      {!isPublic && <span aria-hidden="true">🔒</span>}
-                      {t}
-                      <span class="sr-only">
-                        （{isPublic ? "公開" : "非公開"}
-                        {inherited && "・カメラから"}）
-                      </span>
-                    </>
-                  );
-                  return (
-                    <li
-                      key={`${inherited}:${t}`}
-                      data-testid="tag-chip"
-                      data-public={isPublic ? "true" : "false"}
-                      data-inherited={inherited ? "true" : undefined}
-                    >
-                      {inherited ? (
-                        // From the camera: changed there, not here.
-                        <Link
-                          prefetch="js"
-                          href={`/camera/${row.camera_id}/`}
-                          title="カメラのタグ"
-                          class={[chip, "hover:underline"]}
-                        >
-                          {body}
-                        </Link>
-                      ) : (
-                        <span class={chip}>{body}</span>
-                      )}
-                    </li>
-                  );
-                })}
-                <li>
-                  <Link prefetch="js" href="/tag/" class={[link, "text-xs"]}>
-                    タグ一覧
-                  </Link>
-                </li>
-              </ul>
+            {chips.length > 0 && (
+              <>
+                <TagChipsLoaded chips={chips} />
+                <ul
+                  class="mt-2 flex flex-wrap items-center gap-1.5"
+                  aria-label="タグの公開"
+                >
+                  <TagChipItems chips={chips} />
+                  <li>
+                    <Link prefetch="js" href="/tag/" class={[link, "text-xs"]}>
+                      タグ一覧
+                    </Link>
+                  </li>
+                </ul>
+              </>
             )}
           </div>
         </fieldset>
@@ -1032,8 +1027,7 @@ const MediaFields = component$<{
           row={row}
           tags={[...row.tags, ...inheritedTags]}
           fields={tagFields}
-          publicTags={publicTags}
-          defaults={defaults}
+          shownTags={chips.filter((c) => c.shown).map((c) => c.tag)}
         />
       </>
     );

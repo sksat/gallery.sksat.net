@@ -1,4 +1,8 @@
-import { parseLevelMap, parseValueMap } from "@shared/tag-field/tag-field";
+import {
+  parseLevelMap,
+  parseTagVisibility,
+  parseValueMap,
+} from "@shared/tag-field/tag-field";
 import { TAKEN_ON_SQL, takenOnArgs } from "./calendar";
 import { contentVersionStatement } from "./last-good";
 import { parseOverrides } from "./metadata";
@@ -49,6 +53,7 @@ type RawRow = {
   embed_exif?: number | null;
   tag_values?: string | null;
   tag_value_visibility?: string | null;
+  tag_visibility?: string | null;
   updated_at: string;
 };
 
@@ -125,6 +130,7 @@ export const rowToMedia = (raw: RawRow): MediaRow => {
       raw.embed_exif === 1 ? true : raw.embed_exif === 0 ? false : null,
     tag_values: parseValueMap(raw.tag_values),
     tag_value_visibility: parseLevelMap(raw.tag_value_visibility),
+    tag_visibility: parseTagVisibility(raw.tag_visibility),
     updated_at: raw.updated_at,
   };
 };
@@ -272,6 +278,7 @@ const LIST_COLUMNS = [
   "embed_exif",
   "tag_values",
   "tag_value_visibility",
+  "tag_visibility",
   "updated_at",
 ].join(", ");
 
@@ -463,6 +470,33 @@ export const updateMedia = async (
       `${column} = NULLIF(json_patch(COALESCE(${column}, '{}'), ?), '{}')`,
     );
     args.push(JSON.stringify(p));
+  }
+  // The photo's choices per tag (0021), merged the same way. When its tags
+  // change, only the choices for tags it still has (its own and its
+  // camera's, as saved) are kept: a tag taken off and put on again later
+  // starts from the tag's own setting.
+  const tv = patch.tag_visibility;
+  if ((tv !== undefined && Object.keys(tv).length > 0) || patch.tags) {
+    const merged =
+      tv !== undefined && Object.keys(tv).length > 0
+        ? "json_patch(COALESCE(tag_visibility, '{}'), ?)"
+        : "tag_visibility";
+    if (merged !== "tag_visibility") args.push(JSON.stringify(tv));
+    if (patch.tags) {
+      const camera = patch.camera_id !== undefined ? "?" : "media.camera_id";
+      sets.push(
+        `tag_visibility = (
+           SELECT NULLIF(json_group_object(j.key, j.value), '{}')
+           FROM json_each(COALESCE(${merged}, '{}')) j
+           WHERE j.key IN (SELECT value FROM json_each(?))
+              OR j.key IN (SELECT tag FROM camera_tag
+                           WHERE camera_id = ${camera} AND propagate = 1))`,
+      );
+      args.push(JSON.stringify(patch.tags));
+      if (patch.camera_id !== undefined) args.push(patch.camera_id);
+    } else {
+      sets.push(`tag_visibility = NULLIF(${merged}, '{}')`);
+    }
   }
   // No-op patch: skip the UPDATE entirely (don't bump updated_at) and just
   // return the current row. Costs a second round-trip but keeps the

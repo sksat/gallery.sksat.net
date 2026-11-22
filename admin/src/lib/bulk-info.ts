@@ -8,8 +8,15 @@
 // metadata reader never replaces them (the position is, through
 // location_source, a cleared one too); the undo puts those sources back.
 
+import { parseTagVisibility, tagShown } from "@shared/tag-field/tag-field";
 import { storedOverrides } from "./bulk-metadata";
 import { parseOverrides } from "./metadata";
+import {
+  keepChoices,
+  storedChoices,
+  withTargets,
+  type TagChoices,
+} from "./tag-visibility";
 import {
   mergeExif,
   parseExifColumn,
@@ -48,12 +55,19 @@ export type InfoEdit = {
   world?: WorldEdit;
   location?: LocationEdit;
   exif?: ExifEdit;
+  /**
+   * Tags made public (true) or not (false) on the photos that have them,
+   * after tagsAdd / tagsRemove (0021, tag-visibility.ts withTargets).
+   */
+  tagVisibility?: Record<string, boolean>;
 };
 
 /** The columns an edit can touch, as stored (also what an undo restores). */
 export type InfoRow = {
   id: number;
   tags: string;
+  /** Its own choice per tag (0021), as stored. */
+  tag_visibility: string | null;
   timestamp: string | null;
   metadata_visibility: string | null;
   world_id: string | null;
@@ -66,10 +80,19 @@ export type InfoRow = {
   metadata_source: string | null;
 };
 
+/**
+ * What an undo puts back: the row as it was, and the choices per tag the
+ * edit wrote. Those go back only while the photo still has them, so an
+ * undo never shows a tag hidden since (0021).
+ */
+export type InfoUndoRow = InfoRow & { tag_visibility_after: string | null };
+
 /** A selected photo's values, as the sheet shows them. */
 export type InfoValues = {
   id: number;
   tags: string[];
+  /** Its own choice per tag (0021). */
+  tag_visibility: TagChoices;
   timestamp: string | null;
   world_id: string | null;
   world_name: string | null;
@@ -144,6 +167,7 @@ const EDIT_KEYS = [
   "world",
   "location",
   "exif",
+  "tagVisibility",
 ];
 
 /** An edit from a request; nothing touched is an error. */
@@ -189,6 +213,34 @@ export const validateInfoEdit = (
     const r = validateExifEdit(o.exif);
     if (!r.ok) return r;
     if (Object.keys(r.value).length > 0) out.exif = r.value;
+  }
+  if (o.tagVisibility !== undefined) {
+    const v = o.tagVisibility;
+    const bad = { ok: false as const, error: "tagVisibility: tag → true / false" };
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return bad;
+    const entries = Object.entries(v);
+    const names = tagList(
+      entries.map(([k]) => k),
+      "tagVisibility",
+    );
+    if (!names.ok) return names;
+    if (
+      names.value.length !== entries.length ||
+      !entries.every(([k, s]) => typeof s === "boolean" && k.trim() === k)
+    ) {
+      return bad;
+    }
+    if (entries.length > 0) {
+      out.tagVisibility = {};
+      for (const [k, s] of entries) {
+        Object.defineProperty(out.tagVisibility, k, {
+          value: s,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+    }
   }
   if (Object.keys(out).length === 0) {
     return { ok: false, error: "nothing to change" };
@@ -301,14 +353,42 @@ export const sourcePatch = (raw: string | null): string => {
  * Each of the time taken, world and shooting settings that changed becomes
  * 'manual' (markManual).
  */
-export const applyInfo = (row: InfoRow, edit: InfoEdit): InfoRow => {
+export const applyInfo = (
+  row: InfoRow,
+  edit: InfoEdit,
+  /**
+   * The tags public by their own setting, and the tags the photo's camera
+   * passes on; needed for tags (their choices, 0021).
+   */
+  tagContext?: { publicTags: { has(tag: string): boolean }; passedOn: readonly string[] },
+): InfoRow => {
   const out = { ...row };
-  if (edit.tagsAdd || edit.tagsRemove) {
+  if (edit.tagsAdd || edit.tagsRemove || edit.tagVisibility) {
     const before = parseTags(row.tags);
     const after = editTags(before, edit.tagsAdd, edit.tagsRemove);
     // As stored when nothing changed (the JSON may be spelled otherwise).
     if (JSON.stringify(after) !== JSON.stringify(before)) {
       out.tags = JSON.stringify(after);
+    }
+    // The choices of the tags it keeps (a tag taken off and put on again
+    // starts from its own setting), then the ones made here. Without the
+    // camera's tags none is dropped (it may still have the tag from it).
+    const was = parseTagVisibility(row.tag_visibility);
+    let choices =
+      out.tags !== row.tags && tagContext
+        ? keepChoices(was, [...after, ...tagContext.passedOn])
+        : was;
+    if (edit.tagVisibility) {
+      if (!tagContext) throw new Error("applyInfo: tagVisibility needs tags");
+      choices = withTargets(
+        choices,
+        after,
+        edit.tagVisibility,
+        tagContext.publicTags,
+      );
+    }
+    if (JSON.stringify(choices) !== JSON.stringify(was)) {
+      out.tag_visibility = storedChoices(choices);
     }
   }
   if (edit.takenAt) {
@@ -356,6 +436,7 @@ export const applyInfo = (row: InfoRow, edit: InfoEdit): InfoRow => {
 
 export const INFO_COLUMNS = [
   "tags",
+  "tag_visibility",
   "timestamp",
   "metadata_visibility",
   "world_id",
@@ -384,6 +465,7 @@ export const infoChanged = (before: InfoRow, after: InfoRow): boolean =>
 export const infoValues = (row: InfoRow): InfoValues => ({
   id: row.id,
   tags: parseTags(row.tags),
+  tag_visibility: parseTagVisibility(row.tag_visibility),
   timestamp: row.timestamp,
   world_id: row.world_id,
   world_name: row.world_name,
@@ -407,6 +489,32 @@ const optNumber = (v: unknown, limit: number): number | null | undefined =>
       : undefined;
 
 /**
+ * media.tag_visibility from a request, as stored: null, or a JSON object
+ * of tag → shown / hidden (written as storedChoices writes it, or with
+ * `exact` as given); undefined for anything else.
+ */
+const storedChoiceText = (
+  v: unknown,
+  exact = false,
+): string | null | undefined => {
+  const raw = optText(v, 100_000);
+  if (raw === null) return null;
+  if (raw === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  const shape = validatePatch({ tag_visibility: parsed });
+  const choices = shape.ok ? shape.patch.tag_visibility : undefined;
+  if (!choices || !Object.values(choices).every((c) => c !== null)) {
+    return undefined;
+  }
+  return exact ? raw : storedChoices(choices as TagChoices);
+};
+
+/**
  * An undo from a request: each photo's columns as setInfo returned them.
  * Every value is checked and written back in its stored form; a row with
  * anything else is refused.
@@ -414,11 +522,11 @@ const optNumber = (v: unknown, limit: number): number | null | undefined =>
 export const validateInfoRestore = (
   v: unknown,
   maxRows: number,
-): { ok: true; rows: InfoRow[] } | Invalid => {
+): { ok: true; rows: InfoUndoRow[] } | Invalid => {
   if (!Array.isArray(v) || v.length > maxRows) {
     return { ok: false, error: `at most ${maxRows} photos at a time` };
   }
-  const rows: InfoRow[] = [];
+  const rows: InfoUndoRow[] = [];
   const seen = new Set<number>();
   for (const raw of v) {
     const o = (raw ?? {}) as Record<string, unknown>;
@@ -427,6 +535,9 @@ export const validateInfoRestore = (
     if (seen.has(o.id as number)) continue;
     seen.add(o.id as number);
     const tags = validatePatch({ tags: parseTags(String(o.tags ?? "")) });
+    // Choices per tag (0021) before and after the edit, as stored.
+    const tv = storedChoiceText(o.tag_visibility);
+    const tvAfter = storedChoiceText(o.tag_visibility_after, true);
     const timestamp = optText(o.timestamp, 40);
     const world = validateWorldEdit({ id: o.world_id, name: o.world_name });
     const lat = optNumber(o.latitude, 90);
@@ -445,6 +556,8 @@ export const validateInfoRestore = (
         ));
     if (
       !tags.ok ||
+      tv === undefined ||
+      tvAfter === undefined ||
       timestamp === undefined ||
       (timestamp !== null && !timeParts(timestamp)) ||
       !world.ok ||
@@ -466,6 +579,8 @@ export const validateInfoRestore = (
     rows.push({
       id: o.id as number,
       tags: JSON.stringify(tags.patch.tags ?? []),
+      tag_visibility: tv,
+      tag_visibility_after: tvAfter,
       timestamp,
       metadata_visibility: storedOverrides(parseOverrides(mv)),
       world_id: world.value.id ?? null,
@@ -521,6 +636,69 @@ export const tagChanges = (
     .filter((t) => t.now === "none" && t.initial !== "none")
     .map((t) => t.tag),
 });
+
+/** Whether a tag is public on the selected photos that have it (0021). */
+export type TagVisState = "shown" | "hidden" | "mixed";
+
+/**
+ * A tag's state over the photos that have it (as their own tag): shown
+ * or hidden on all of them, or mixed. With none, the tag's own setting.
+ */
+export const tagVisState = (
+  tag: string,
+  photos: readonly { tags: readonly string[]; tag_visibility: TagChoices }[],
+  publicTags: { has(tag: string): boolean },
+): TagVisState => {
+  const states = new Set(
+    photos
+      .filter((p) => p.tags.includes(tag))
+      .map((p) => tagShown(tag, p.tag_visibility, publicTags)),
+  );
+  if (states.size === 0) return publicTags.has(tag) ? "shown" : "hidden";
+  return states.size > 1 ? "mixed" : states.has(true) ? "shown" : "hidden";
+};
+
+/** A click on a tag's lock: mixed → shown → hidden → mixed (as it was). */
+export const nextVisState = (
+  now: TagVisState,
+  initial: TagVisState,
+): TagVisState =>
+  now === "shown"
+    ? "hidden"
+    : now === "hidden"
+      ? initial === "mixed"
+        ? "mixed"
+        : "shown"
+      : "shown";
+
+/**
+ * The tags to make public or not: those whose state changed from what it
+ * was, and those put on every photo (so the ones that get the tag get the
+ * state shown too).
+ */
+export const visChanges = (
+  rows: readonly {
+    tag: string;
+    initial: TagState;
+    now: TagState;
+    visInitial: TagVisState;
+    visNow: TagVisState;
+  }[],
+): Record<string, boolean> => {
+  const out: Record<string, boolean> = {};
+  for (const r of rows) {
+    const added = r.now === "all" && r.initial !== "all";
+    if (r.visNow === "mixed" || r.now === "none") continue;
+    if (r.visNow === r.visInitial && !added) continue;
+    Object.defineProperty(out, r.tag, {
+      value: r.visNow === "shown",
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+};
 
 /** The value every photo has, or undefined when they differ (or none). */
 export const shared = <T>(values: readonly T[]): T | undefined => {
