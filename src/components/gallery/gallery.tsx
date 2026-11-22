@@ -33,11 +33,8 @@ import {
   cameraLabel,
   cameraPreviews,
   cameraSlug,
-  digitizedWith,
   findCamera,
 } from "./cameras";
-import { DigitizedList } from "./digitized-list";
-import { CameraHeader } from "./camera-header";
 import { GRID_CANDIDATES, imageUrl, photoSize, srcSet } from "./images";
 import {
   aspectOf,
@@ -70,6 +67,8 @@ type GalleryProps = {
    * then that camera's photos alone, newest first, with no filters.
    */
   camera?: CameraJSON;
+  /** Show at most this many tiles (the overlay still steps through all). */
+  limit?: number;
   /**
    * The photo of a /photo/<id>/ page, from its route: what the overlay
    * shows for it when it is in no list (unlisted).
@@ -220,8 +219,6 @@ export default component$<GalleryProps>((props) => {
       allIds,
       /** The filtered photos' ids in display order. */
       filteredIds,
-      /** On a camera's list, the photos digitised with it. */
-      digitized: camera === null ? [] : digitizedWith(media, camera),
       /** Whether the open photo has one before / after it (swipes). */
       neighbors: {
         prev: around.prev !== null,
@@ -377,20 +374,12 @@ export default component$<GalleryProps>((props) => {
         document:onKeyDown$={onKeyDown}
       >
         {(() => {
-          const { selected, cameraInfo, camera, scope, filteredMedia } =
-            view.value;
+          const { selected, camera, scope, filteredMedia } = view.value;
           const selectedTags = state.filter.tags;
           const cameraPage = props.camera !== undefined;
 
           return (
             <>
-              {cameraPage && cameraInfo && (
-                <CameraHeader
-                  slug={cameraInfo.slug}
-                  camera={cameraInfo}
-                  count={scope.length}
-                />
-              )}
               {state.date !== null && <DateHeader date={state.date} />}
               {!cameraPage && (
                 <div class="mb-3 flex flex-col gap-3 px-1">
@@ -603,7 +592,7 @@ export default component$<GalleryProps>((props) => {
                 }
                 {
                   // 画像の一覧表示
-                  filteredMedia.map((m) => {
+                  filteredMedia.slice(0, props.limit).map((m) => {
                     const id = m.value.id;
                     const known = hasKnownSize(m.value);
                     return (
@@ -689,10 +678,6 @@ export default component$<GalleryProps>((props) => {
           );
         })()}
       </div>
-      {/* A camera page ends with the photos digitised with it. */}
-      {props.camera !== undefined && (
-        <DigitizedList media={view.value.digitized} />
-      )}
     </>
   );
 });

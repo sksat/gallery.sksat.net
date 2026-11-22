@@ -50,19 +50,44 @@ test("camera: the caption links a photo to its camera page", async ({
   );
   await expect(product).toHaveAttribute("rel", "noopener noreferrer");
   await expect(page).toHaveTitle("VirtualLens2 | sksat gallery");
-  // Pictures of the camera: the first large, the rest in a strip.
-  await expect(header.getByTestId("camera-image")).toHaveCount(3);
-  await expect(header.getByRole("img").first()).toHaveAttribute(
-    "alt",
-    "VirtualLens2: Front",
+  // Pictures of the camera: the default one large, all as thumbnails.
+  await expect(header.getByTestId("camera-image")).toHaveCount(1);
+  await expect(header.getByTestId("camera-thumb")).toHaveCount(3);
+  await expect(
+    header.getByTestId("camera-image").getByRole("img"),
+  ).toHaveAttribute("alt", "VirtualLens2: Front");
+
+  // What was taken with it: its two public photos (not the unlisted one),
+  // their dates, and its own tag, which links to the gallery.
+  const facts = header.getByTestId("camera-facts");
+  await expect(facts).toContainText("写真2 枚");
+  await expect(facts).toContainText("撮影期間2023年12月2日 – 2023年12月5日");
+  await expect(facts.getByRole("link", { name: "VRChat" })).toHaveAttribute(
+    "href",
+    "/?tag=VRChat",
   );
 
-  // Its two public photos (not the unlisted one).
+  // The photos come after the camera, with no filters of their own.
   await expect(images).toHaveCount(2);
-  await expect(page.getByTestId("result-count")).toHaveText("2 枚");
-  // Tags are counted over this camera's photos only.
+  await expect(page.getByTestId("tag-chip")).toHaveCount(0);
+  await expect(page.getByTestId("camera-select")).toHaveCount(0);
+  await expect(page.getByTestId("camera-all-photos")).toHaveAttribute(
+    "href",
+    "/?camera=virtuallens2",
+  );
+});
+
+test("camera: its photos link to the gallery filtered by it", async ({
+  page,
+}) => {
+  await page.goto("/camera/virtuallens2/");
+  await page.getByTestId("camera-all-photos").click();
+  await expect(page).toHaveURL(/\/\?camera=virtuallens2$/);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(2, {
+    timeout: 10000,
+  });
+  await expect(page.getByTestId("camera-select")).toHaveValue("virtuallens2");
   await expect(chip(page, "VRChat")).toHaveText("VRChat2");
-  await expect(chip(page, "Real")).toHaveCount(0);
 });
 
 test("camera: photos open and close within the camera page", async ({
@@ -102,48 +127,24 @@ test("camera: photos open and close within the camera page", async ({
   );
   await overlay.click({ position: { x: 5, y: 5 } });
   await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
-
-  // The overlay's URL loaded as it is shows the same: the photo over the
-  // camera's list, and closing it leaves the camera page.
-  await page.goto("/photo/vrcxxxxxxc/?camera=virtuallens2");
-  await expect(overlay).toBeVisible({ timeout: 10000 });
-  await expect(images).toHaveCount(2);
-  await expect(page.getByTestId("camera-header")).toContainText(
-    "VirtualLens2",
-  );
-  await overlay.click({ position: { x: 5, y: 5 } });
-  await expect(overlay).toHaveCount(0);
-  await expect(page).toHaveURL(/\/camera\/virtuallens2\/$/);
-
-  // Its detail page goes back to the camera.
-  await page.goto("/photo/vrcxxxxxxc/detail/?camera=virtuallens2");
-  await expect(page.getByTestId("back-link")).toHaveAttribute(
-    "href",
-    "/camera/virtuallens2/",
-  );
 });
 
-test("camera: the sort order works on a camera page", async ({ page }) => {
-  await page.goto("/camera/virtuallens2/");
-  const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(2, { timeout: 10000 });
-
-  await page.getByTestId("sort-select").selectOption("old");
-  await expect(page).toHaveURL(/\/camera\/virtuallens2\/\?sort=old$/);
-  // Oldest first: vrchat1 before vrchat3.
-  await expect(images.first()).toHaveAttribute("src", /vrchat1\.png$/);
-  await images.first().dispatchEvent("click");
-  await expect(page).toHaveURL(
-    /\/photo\/vrcxxxxxxa\/\?camera=virtuallens2&sort=old$/,
-  );
-});
-
-test("camera: a picture of the camera opens in the overlay", async ({
+test("camera: a thumbnail brings up that picture, which opens in the overlay", async ({
   page,
 }) => {
   await page.goto("/camera/virtuallens2/");
   const header = page.getByTestId("camera-header");
-  await header.getByTestId("camera-image").nth(2).click();
+  const thumbs = header.getByTestId("camera-thumb");
+  await expect(thumbs.nth(0)).toHaveAttribute("aria-pressed", "true");
+  await thumbs.nth(2).click();
+  await expect(thumbs.nth(2)).toHaveAttribute("aria-pressed", "true");
+  await expect(thumbs.nth(0)).toHaveAttribute("aria-pressed", "false");
+  const main = header.getByTestId("camera-image");
+  await expect(main.getByRole("img")).toHaveAttribute(
+    "alt",
+    "VirtualLens2: Side",
+  );
+  await main.click();
   const overlay = page.getByTestId("overlay");
   await expect(overlay).toBeVisible();
   await expect(overlay.locator("img").first()).toHaveAttribute(
@@ -156,19 +157,20 @@ test("camera: a picture of the camera opens in the overlay", async ({
   await expect(overlay).not.toBeVisible();
 });
 
-test("camera: a tag filter on a camera page stays in its URL", async ({
+test("camera: a camera with no picture shows its details alone", async ({
   page,
 }) => {
   await page.goto("/camera/pentax-sp/");
-  const images = page.getByTestId("gallery-image");
-  await expect(images).toHaveCount(1, { timeout: 10000 });
-  await expect(page.getByTestId("camera-header")).toContainText(
-    "フィルムカメラ",
-  );
-
-  await chip(page, "film").click();
-  await expect(page).toHaveURL(/\/camera\/pentax-sp\/\?tag=film$/);
-  await expect(images).toHaveCount(1);
+  const header = page.getByTestId("camera-header");
+  await expect(header.getByTestId("camera-image")).toHaveCount(0);
+  await expect(header.getByTestId("camera-maker")).toHaveText("Asahi");
+  const facts = header.getByTestId("camera-facts");
+  await expect(facts).toContainText("種類フィルムカメラ");
+  await expect(facts).toContainText("機種Pentax SP");
+  await expect(facts).toContainText("撮影日2023年12月1日");
+  await expect(page.getByTestId("gallery-image")).toHaveCount(1, {
+    timeout: 10000,
+  });
 });
 
 test("camera: the back link returns to every photo", async ({ page }) => {
@@ -292,8 +294,13 @@ test("camera filter: picks a camera on the gallery, with tags, in the URL", asyn
   await page.getByTestId("overlay").click({ position: { x: 5, y: 5 } });
   await expect(page).toHaveURL(/\/\?camera=virtuallens2&tag=Neos\+VR$/);
 
+  await expect(page.getByTestId("overlay")).toHaveCount(0);
+  await expect(images).toHaveCount(1);
+
   // Loading the URL again keeps it.
-  await page.goto("/?camera=virtuallens2&tag=Neos+VR");
+  await page.goto("/?camera=virtuallens2&tag=Neos+VR", {
+    waitUntil: "commit",
+  });
   await expect(images).toHaveCount(1, { timeout: 10000 });
   await expect(select).toHaveValue("virtuallens2");
 

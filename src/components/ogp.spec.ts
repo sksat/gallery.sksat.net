@@ -147,6 +147,7 @@ describe("cameraOgp", () => {
     description: null,
     productUrl: null,
     images: [],
+    tags: [],
   };
 
   it("uses the camera's first picture as the card", () => {

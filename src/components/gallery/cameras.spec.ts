@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cameraFacts,
   cameraHref,
   cameraLabel,
   cameraSlug,
@@ -77,6 +78,7 @@ describe("camerasFromMedia", () => {
         description: null,
         productUrl: null,
         images: [],
+        tags: [],
       },
     ]);
   });
@@ -104,6 +106,7 @@ describe("parseCameras", () => {
             { file: "/cameras/b.jpg" },
             "nope",
           ],
+          tags: ["film", "", 3, "film", "vintage"],
         },
         { slug: "b" },
         "nope",
@@ -131,6 +134,7 @@ describe("parseCameras", () => {
           { file: "/cameras/a.png", caption: "Front" },
           { file: "/cameras/b.jpg", caption: null },
         ],
+        tags: ["film", "vintage"],
       },
       {
         slug: "c",
@@ -142,6 +146,7 @@ describe("parseCameras", () => {
         description: null,
         productUrl: null,
         images: [],
+        tags: [],
       },
     ]);
   });
@@ -181,6 +186,7 @@ describe("findCamera", () => {
     description: "desc",
     productUrl: null,
     images: [],
+    tags: [],
   };
 
   it("prefers the camera record", () => {
@@ -208,6 +214,41 @@ describe("takenWith", () => {
   });
 });
 
+describe("cameraFacts", () => {
+  const taken = (id: string, takenDate: string | null, camera = vl2) => ({
+    ...photo(camera),
+    id,
+    takenDate,
+  });
+
+  it("counts its photos and their first and last dates", () => {
+    const media = [
+      taken("a", "2023-12-05"),
+      taken("b", null),
+      taken("c", "2023-12"),
+      taken("d", "2022-01-02"),
+      taken("e", "2021-01-01", { ...vl2, slug: "other" }),
+      { ...taken("f", "2020-01-01", { ...vl2, slug: "other" }), digitizer: vl2 },
+    ];
+    expect(cameraFacts(media, "virtuallens2")).toEqual({
+      count: 4,
+      first: "2022-01-02",
+      last: "2023-12-05",
+      digitized: 1,
+    });
+  });
+
+  it("has no dates when none is public", () => {
+    expect(cameraFacts([taken("a", null)], "virtuallens2")).toEqual({
+      count: 1,
+      first: null,
+      last: null,
+      digitized: 0,
+    });
+    expect(cameraFacts([], "virtuallens2").count).toBe(0);
+  });
+});
+
 describe("a スキャン機材", () => {
   const scanner: MediaCamera = {
     slug: "scanner",
@@ -230,6 +271,7 @@ describe("a スキャン機材", () => {
     description: null,
     productUrl: null,
     images: [],
+    tags: [],
   };
 
   it("has its own card, counting the photos digitised with it", () => {
@@ -303,6 +345,7 @@ describe("cameraSummaries", () => {
     description: null,
     productUrl: null,
     images: [],
+    tags: [],
   };
   const published: CameraJSON[] = [
     {

@@ -1,4 +1,4 @@
-import { component$ } from "@builder.io/qwik";
+import { component$, Slot } from "@builder.io/qwik";
 
 import { GRID_CANDIDATES, imageUrl, srcSet } from "./images";
 import type { MediaIndex } from "./types";
@@ -8,13 +8,17 @@ const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
 
 /**
  * A camera page's photos digitised with it (スキャン機材), apart from the
- * gallery of the photos taken with it: each links to its own page.
+ * photos taken with it: each links to its own page.
  */
 export const DigitizedList = component$<{ media: MediaIndex }>(({ media }) =>
   media.length === 0 ? null : (
-    <section class="mx-auto max-w-7xl px-4 py-6" data-testid="digitized-list">
-      <h2 class="mb-3 text-sm text-white/70">スキャンした写真</h2>
-      <ul class="flex flex-wrap gap-2">
+    <section
+      aria-labelledby="camera-digitized"
+      class="mt-8 px-2 sm:px-3"
+      data-testid="digitized-list"
+    >
+      <SectionHeading id="camera-digitized">スキャンした写真</SectionHeading>
+      <ul class="flex flex-wrap gap-1">
         {media.map((m) => (
           <li key={m.id}>
             <a href={`/photo/${m.id}/`} class="block">
@@ -23,7 +27,7 @@ export const DigitizedList = component$<{ media: MediaIndex }>(({ media }) =>
                 srcset={srcSet(S3_BASE, m, IMAGE_BASE, GRID_CANDIDATES)}
                 alt={m.takenText ?? ""}
                 height={120}
-                class="h-30 w-auto rounded"
+                class="h-30 w-auto"
                 loading="lazy"
               />
             </a>
@@ -33,3 +37,30 @@ export const DigitizedList = component$<{ media: MediaIndex }>(({ media }) =>
     </section>
   ),
 );
+
+/**
+ * A section of a camera page below its profile: a rule, the title, and
+ * room for a link at the right. (Its profile says how many.)
+ */
+export const SectionHeading = component$<{
+  id: string;
+  href?: string;
+  linkText?: string;
+}>(({ id, href, linkText }) => (
+  <div class="mb-3 flex flex-wrap items-baseline gap-x-3 border-t border-white/15 px-1 pt-4">
+    {/* "!": styles.css sizes every h2 for the site's banner. */}
+    <h2 id={id} class="!text-lg !font-semibold">
+      <Slot />
+    </h2>
+    {href && (
+      // Plain <a>: see the note in components/layout/header.tsx.
+      <a
+        href={href}
+        data-testid="camera-all-photos"
+        class="ml-auto inline-flex min-h-11 items-center text-sm sm:min-h-8"
+      >
+        {linkText}
+      </a>
+    )}
+  </div>
+));

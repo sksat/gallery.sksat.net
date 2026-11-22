@@ -15,6 +15,11 @@
 INSERT INTO camera (id, slug, name, manufacturer, manufacturer_url, model, kind, description, product_url) VALUES
   (1, 'pentax-sp',    'PENTAX SP',    'Asahi',    NULL,                           'Pentax SP',    'film',    NULL, NULL),
   (2, 'virtuallens2', 'VirtualLens2', 'logilabo', 'https://example.com/logilabo', 'VirtualLens2', 'virtual', 'Virtual camera for VRChat.' || char(10) || 'Second line of the description.', 'https://example.com/virtuallens2');
+-- The cameras' own tags (kept to themselves: the photos' tags stay as
+-- they are). The camera pages link them to the gallery.
+INSERT INTO camera_tag (camera_id, tag, propagate, position) VALUES
+  (1, 'film', 0, 0),
+  (2, 'VRChat', 0, 0);
 INSERT INTO camera_image (camera_id, file, position, caption) VALUES
   (2, '/camera/virtuallens2/front.png', 0, 'Front'),
   (2, '/camera/virtuallens2/ui.png',    1, NULL),

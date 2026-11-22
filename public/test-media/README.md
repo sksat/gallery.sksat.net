@@ -39,6 +39,8 @@ Two cameras:
 | `pentax-sp`    | PENTAX SP    | film    | Asahi / Pentax SP                     | —                              | —                                         |
 | `virtuallens2` | VirtualLens2 | virtual | logilabo (example.com) / VirtualLens2 | two-line text, example.com URL | `camera/virtuallens2/{front,ui,side}.png` |
 
+Each has one tag of its own that its photos do not inherit (`camera_tag.propagate = 0`): PENTAX SP `film`, VirtualLens2 `VRChat`.
+
 On the camera list (`/camera/`) VirtualLens2 comes first (2 public photos, cover = its first picture), then PENTAX SP (1 photo, no pictures, so the cover is `reaxxxxxxa`).
 
 The camera images under `camera/<slug>/` (the same key convention the admin uses for the bucket) are tiny gradients (80x60 / 60x80) made with ImageMagick (`-strip`, no date chunks, so they are byte-stable). `e2e/camera.spec.ts` and `e2e/vrt/camera.vrt.spec.ts` rely on these.
