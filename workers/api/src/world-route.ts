@@ -58,7 +58,7 @@ export const handleWorldGet = async (
   if (got === UNAVAILABLE) return unavailable();
   const response =
     got === NO_WORLD || got === null
-      ? jsonResponse(404, { error: "not found" }, "public, max-age=600")
+      ? jsonResponse(404, { error: "not found" }, WORLD_CACHE_CONTROL)
       : jsonResponse(
           200,
           {

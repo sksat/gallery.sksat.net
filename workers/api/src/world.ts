@@ -174,6 +174,8 @@ export const worldPreview = async (
       `${ctx.origin.replace(/\/$/, "")}/home/world/${worldId}`,
       {
         headers: { Accept: "text/html" },
+        // A redirect is a failure: never fetch anywhere else.
+        redirect: "manual",
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       },
     );

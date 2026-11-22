@@ -98,8 +98,9 @@ const memoryCache = () => {
 const previewSetup = (page: () => Response | Promise<Response>) => {
   const { cache, entries } = memoryCache();
   const pending: Promise<unknown>[] = [];
-  const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     void input;
+    void init;
     return page();
   });
   const ctx: PreviewContext = {
@@ -137,6 +138,18 @@ describe("worldPreview", () => {
 
     const t = previewSetup(() => Promise.reject(new Error("network")));
     expect(await worldPreview(WORLD, t.ctx)).toBeNull();
+
+    // A redirect is not followed anywhere.
+    const r = previewSetup(
+      () =>
+        new Response(null, {
+          status: 302,
+          headers: { Location: "https://example.com/" },
+        }),
+    );
+    expect(await worldPreview(WORLD, r.ctx)).toBeNull();
+    expect(r.fetchFn).toHaveBeenCalledTimes(1);
+    expect(r.fetchFn.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
   });
 
   it("never fetches for a malformed id", async () => {
@@ -177,7 +190,7 @@ describe("the world preview of a photo", () => {
       s.ctx,
     );
     expect(res.status).toBe(200);
-    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=60");
     expect(await res.json()).toEqual({
       name: "江ノ島 七里ヶ浜",
       author: "てぃーどらごん",

@@ -54,8 +54,12 @@ export const parseWorldRoute = (pathname: string): string | null => {
   return m && PUBLIC_ID_RE.test(m[1]) ? m[1] : null;
 };
 
-/** Cache-Control of a world preview: an hour in browsers. */
-export const WORLD_CACHE_CONTROL = "public, max-age=3600";
+/**
+ * Cache-Control of a world preview: a minute in browsers, like the API's
+ * other answers, so a world link hidden in the admin stops being
+ * previewed soon (the Worker keeps the preview itself much longer).
+ */
+export const WORLD_CACHE_CONTROL = "public, max-age=60";
 
 /**
  * Cache-Control for API responses: ten seconds in browsers (and a minute

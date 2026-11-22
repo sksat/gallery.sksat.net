@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  BROWSER_CACHE_CONTROL,
   handleWorldImage,
   isWorldImageUrl,
   parseWorldImageUrl,
-  WORLD_IMAGE_TTL,
+  WORLD_IMAGE_MAX_BYTES,
   type WorldImageContext,
 } from "./world-image";
 
@@ -37,14 +38,22 @@ describe("isWorldImageUrl", () => {
   });
 });
 
+const png = () =>
+  new Response(PNG, { headers: { "Content-Type": "image/png" } });
+
+/** VRChat's API answers with a redirect to its file server. */
+const FILE = "https://files.vrchat.cloud/World-Image.png?sig=1";
+const redirect = (to: string) =>
+  new Response(null, { status: 302, headers: { Location: to } });
+
 const setup = (
   image: string | null | Error,
-  upstream: () => Response = () =>
-    new Response(PNG, { headers: { "Content-Type": "image/png" } }),
+  upstream: (url: string) => Response = (url) =>
+    url === IMAGE ? redirect(FILE) : png(),
 ) => {
   const entries = new Map<string, Response>();
   const pending: Promise<unknown>[] = [];
-  const fetchFn = vi.fn(async () => upstream());
+  const fetchFn = vi.fn(async (url: string) => upstream(url));
   const ctx: WorldImageContext = {
     worldImage: async () => {
       if (image instanceof Error) throw image;
@@ -61,24 +70,52 @@ const setup = (
 };
 
 describe("handleWorldImage", () => {
-  it("passes the picture on, keeps it and sends it with a week's max-age", async () => {
+  it("passes the picture on through VRChat's redirect, and keeps it", async () => {
     const s = setup(IMAGE);
     const res = await handleWorldImage(ID, s.ctx);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("image/png");
-    expect(res.headers.get("Cache-Control")).toBe(
-      `public, max-age=${WORLD_IMAGE_TTL}`,
-    );
+    expect(res.headers.get("Cache-Control")).toBe(BROWSER_CACHE_CONTROL);
     expect(res.headers.get("X-Image-Cache")).toBe("MISS");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+    expect(s.fetchFn.mock.calls.map((c) => c[0])).toEqual([IMAGE, FILE]);
     await s.settle();
 
     const again = await handleWorldImage(ID, s.ctx);
     expect(again.headers.get("X-Image-Cache")).toBe("HIT");
-    expect(again.headers.get("Cache-Control")).toBe(
-      `public, max-age=${WORLD_IMAGE_TTL}`,
+    expect(again.headers.get("Cache-Control")).toBe(BROWSER_CACHE_CONTROL);
+    expect(s.fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("never follows a redirect off VRChat's file servers", async () => {
+    const s = setup(IMAGE, (url) =>
+      url === IMAGE ? redirect("https://example.com/a.png") : png(),
     );
-    expect(s.fetchFn).toHaveBeenCalledTimes(1);
+    expect((await handleWorldImage(ID, s.ctx)).status).toBe(502);
+    expect(s.fetchFn.mock.calls.map((c) => c[0])).toEqual([IMAGE]);
+    // Nor an endless chain.
+    const loop = setup(IMAGE, () => redirect(FILE));
+    expect((await handleWorldImage(ID, loop.ctx)).status).toBe(502);
+    expect(loop.fetchFn.mock.calls.length).toBeLessThanOrEqual(4);
+  });
+
+  it("stops reading a picture past its size, even without a length", async () => {
+    const big = new Uint8Array(WORLD_IMAGE_MAX_BYTES + 1);
+    const s = setup(
+      IMAGE,
+      () =>
+        new Response(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(big);
+              c.close();
+            },
+          }),
+          { headers: { "Content-Type": "image/png" } },
+        ),
+    );
+    expect((await handleWorldImage(ID, s.ctx)).status).toBe(502);
+    expect(s.entries.size).toBe(0);
   });
 
   it("is 404 when the photo links no world, without fetching", async () => {
@@ -101,16 +138,8 @@ describe("handleWorldImage", () => {
       () => new Response("<html>", { headers: { "Content-Type": "text/html" } }),
     );
     expect((await handleWorldImage(ID, html.ctx)).status).toBe(502);
-    const away = setup(IMAGE, () => {
-      const r = new Response(PNG, { headers: { "Content-Type": "image/png" } });
-      Object.defineProperty(r, "url", { value: "https://example.com/a.png" });
-      return r;
-    });
-    expect((await handleWorldImage(ID, away.ctx)).status).toBe(502);
     const failed = setup(IMAGE, () => new Response("no", { status: 403 }));
     expect((await handleWorldImage(ID, failed.ctx)).status).toBe(502);
-    expect(html.entries.size + away.entries.size + failed.entries.size).toBe(
-      0,
-    );
+    expect(html.entries.size + failed.entries.size).toBe(0);
   });
 });

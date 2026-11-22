@@ -28,6 +28,11 @@ const fetchCard = (photoId: string): Promise<WorldCard | null> => {
       .then((res) => (res.ok ? res.json() : null))
       .then(parseWorldCard)
       .catch(() => null);
+    // Without a card, asked again next time (it may have been a moment's
+    // failure).
+    void card.then((c) => {
+      if (c === null) cards.delete(photoId);
+    });
     cards.set(photoId, card);
   }
   return card;
@@ -192,6 +197,10 @@ export const WorldLink = component$<WorldLinkProps>((props) => {
                 width={288}
                 height={216}
                 decoding="async"
+                // A picture that cannot be had leaves the place empty.
+                onError$={(_, img: HTMLImageElement) => {
+                  img.style.visibility = "hidden";
+                }}
                 class="h-full w-full object-cover"
               />
             )}
