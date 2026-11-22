@@ -37,9 +37,8 @@ const JST_MS = 9 * 3600_000;
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 /**
- * Bucket keys are UTC: "2026-11-18" (a UTC day) or "2026-11-18T03" (an
- * hour). Days are shown as they are; hours in JST, like the rest of the
- * admin.
+ * Bucket keys (web-analytics.ts): "2026-11-18" is a JST day, shown as it
+ * is; "2026-11-18T03" a UTC hour, shown in JST like the rest of the admin.
  */
 const hourJst = (key: string): Date =>
   new Date(Date.parse(`${key.slice(0, 13)}:00:00Z`) + JST_MS);

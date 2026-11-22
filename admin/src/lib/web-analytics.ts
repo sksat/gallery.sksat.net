@@ -40,13 +40,12 @@ export const parseAccessRange = (
 const HOUR_MS = 3600_000;
 const DAY_MS = 24 * HOUR_MS;
 
-/** Hourly buckets for 24 h, daily (UTC) ones for 7 d / 30 d. */
-export const bucketUnit = (range: AccessRange): "hour" | "day" =>
-  range === "24h" ? "hour" : "day";
+/** Days start at midnight JST, like the rest of the admin. */
+const JST_MS = 9 * HOUR_MS;
 
 /**
- * The query window: the last 24 h, or the last N UTC days including today
- * (so each daily bucket is a whole day, today's so far).
+ * The query window: the last 24 h, or the last N days (JST) including
+ * today (so each daily bucket is a whole day, today's so far).
  */
 export const rangeWindow = (
   range: AccessRange,
@@ -56,7 +55,8 @@ export const rangeWindow = (
   const start =
     range === "24h"
       ? Math.floor(end / HOUR_MS) * HOUR_MS - 23 * HOUR_MS
-      : Math.floor(end / DAY_MS) * DAY_MS -
+      : Math.floor((end + JST_MS) / DAY_MS) * DAY_MS -
+        JST_MS -
         ((range === "7d" ? 7 : 30) - 1) * DAY_MS;
   return {
     since: new Date(start).toISOString().replace(/\.\d{3}Z$/, "Z"),
@@ -89,16 +89,40 @@ export const previousWindow = (
 export const changeRatio = (cur: number, prev: number): number | null =>
   prev > 0 ? (cur - prev) / prev : null;
 
+/**
+ * The bucket a time falls in: its UTC hour "2026-11-18T03" for 24 h, its
+ * JST day "2026-11-18" otherwise.
+ */
+export const bucketKeyOf = (range: AccessRange, t: number): string =>
+  range === "24h"
+    ? new Date(t).toISOString().slice(0, 13)
+    : new Date(t + JST_MS).toISOString().slice(0, 10);
+
 /** Bucket keys of the window, oldest first: "2026-11-18T03" or "2026-11-18". */
 export const bucketKeys = (range: AccessRange, now: Date): string[] => {
   const { since } = rangeWindow(range, now);
   const start = Date.parse(since);
   const n = range === "24h" ? 24 : range === "7d" ? 7 : 30;
   const step = range === "24h" ? HOUR_MS : DAY_MS;
-  const len = range === "24h" ? 13 : 10;
   return Array.from({ length: n }, (_, i) =>
-    new Date(start + i * step).toISOString().slice(0, len),
+    bucketKeyOf(range, start + i * step),
   );
+};
+
+/**
+ * Series rows are read per hour (datetimeHour) for every range: the API's
+ * `date` is a UTC day, so JST days are added up from hours. 30 days is
+ * 720 rows (per path for a photo), well inside a query's 10,000.
+ */
+export const SERIES_ROWS = 30 * 24;
+
+/** The bucket of a datetimeHour value, null when it is not a time. */
+export const bucketOfValue = (
+  range: AccessRange,
+  value: string,
+): string | null => {
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? bucketKeyOf(range, t) : null;
 };
 
 export type WebAnalyticsConfig = {
@@ -135,8 +159,7 @@ const REFERRER_LIMIT = 20;
 // One request, aliased groups over the same filter (scalar variables, the
 // filter inline). `count` is page views, `sum.visits` visits. Checked
 // against the live API (max range per query 93 days, so 30 d fits).
-export const accessQuery = (range: AccessRange): string => {
-  const bucket = bucketUnit(range) === "hour" ? "datetimeHour" : "date";
+export const accessQuery = (): string => {
   const f = `filter: { siteTag: $siteTag, requestHost: $host, datetime_geq: $since, datetime_leq: $until }`;
   return `query Access($accountTag: string!, $siteTag: string!, $host: string!, $since: Time!, $until: Time!, $prevSince: Time!, $prevUntil: Time!) {
   viewer {
@@ -149,10 +172,10 @@ export const accessQuery = (range: AccessRange): string => {
         count
         sum { visits }
       }
-      series: rumPageloadEventsAdaptiveGroups(limit: 100, ${f}, orderBy: [${bucket}_ASC]) {
+      series: rumPageloadEventsAdaptiveGroups(limit: ${SERIES_ROWS}, ${f}, orderBy: [datetimeHour_ASC]) {
         count
         sum { visits }
-        dimensions { bucket: ${bucket} }
+        dimensions { bucket: datetimeHour }
       }
       pages: rumPageloadEventsAdaptiveGroups(limit: ${PAGE_LIMIT}, ${f}, orderBy: [count_DESC]) {
         count
@@ -177,7 +200,7 @@ export const accessRequestBody = (
   range: AccessRange,
   now: Date,
 ) => ({
-  query: accessQuery(range),
+  query: accessQuery(),
   variables: {
     accountTag: cfg.accountId,
     siteTag: cfg.siteTag,
@@ -263,8 +286,8 @@ export const referrersOf = (
 
 /**
  * AccessStats from a GraphQL response body, or null when it has errors or
- * another shape. Bucket values may come back as "2026-11-18" or
- * "2026-11-18T03:00:00Z"; they are matched by their prefix.
+ * another shape. Hourly rows ("2026-11-18T03:00:00Z") are added up into
+ * the window's buckets (bucketOfValue); rows outside it are dropped.
  */
 export const parseAccess = (
   body: unknown,
@@ -295,13 +318,13 @@ export const parseAccess = (
   if (!total || !previous) return null;
 
   const keys = bucketKeys(range, now);
-  const len = keys[0]?.length ?? 10;
   const byKey = new Map(keys.map((k) => [k, { pageViews: 0, visits: 0 }]));
   for (const g of seriesG) {
-    const b = dimOf(g, "bucket");
+    const v = dimOf(g, "bucket");
+    const b = v === null ? null : bucketOfValue(range, v);
     const c = countsOf(g, true);
     if (b === null || !c) return null;
-    const slot = byKey.get(b.slice(0, len));
+    const slot = byKey.get(b);
     if (slot) {
       slot.pageViews += c.pageViews;
       slot.visits += c.visits;

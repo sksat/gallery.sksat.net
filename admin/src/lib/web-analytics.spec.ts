@@ -23,13 +23,21 @@ describe("ranges", () => {
     expect(parseAccessRange(null)).toBe("7d");
   });
 
-  it("covers 24 whole hours, or whole UTC days up to now", () => {
+  it("covers 24 whole hours, or whole JST days up to now", () => {
     expect(rangeWindow("24h", now)).toEqual({
       since: "2026-11-17T04:00:00Z",
       until: "2026-11-18T03:04:05Z",
     });
-    expect(rangeWindow("7d", now).since).toBe("2026-11-12T00:00:00Z");
-    expect(rangeWindow("30d", now).since).toBe("2026-10-20T00:00:00Z");
+    // Now is 11/18 12:04 JST: 7 days from 11/12 00:00 JST.
+    expect(rangeWindow("7d", now).since).toBe("2026-11-11T15:00:00Z");
+    expect(rangeWindow("30d", now).since).toBe("2026-10-19T15:00:00Z");
+    // Just after midnight JST, today is the new day.
+    expect(
+      rangeWindow("7d", new Date("2026-11-17T15:00:00Z")).since,
+    ).toBe("2026-11-11T15:00:00Z");
+    expect(
+      rangeWindow("7d", new Date("2026-11-17T14:59:59Z")).since,
+    ).toBe("2026-11-10T15:00:00Z");
   });
 
   it("lists the buckets oldest first", () => {
@@ -50,10 +58,10 @@ describe("ranges", () => {
   });
 
   it("compares with the as long stretch just before", () => {
-    // 7 d at 03:04:05 is 6 days 3:04:05 long.
+    // 7 d at 12:04:05 JST is 6 days 12:04:05 long.
     expect(previousWindow("7d", now)).toEqual({
-      prevSince: "2026-11-05T20:55:55Z",
-      prevUntil: "2026-11-11T23:59:59Z",
+      prevSince: "2026-11-05T02:55:55Z",
+      prevUntil: "2026-11-11T14:59:59Z",
     });
     expect(previousWindow("24h", now)).toEqual({
       prevSince: "2026-11-16T04:55:55Z",
@@ -81,8 +89,14 @@ const body = (node: object) => ({
 const sample = body({
   total: [g(30, 12)],
   previous: [g(24, 15)],
+  // Hours, added up into JST days.
   series: [
-    g(10, 4, { bucket: "2026-11-12" }),
+    // 11/11 23:00 JST: before the window.
+    g(99, 99, { bucket: "2026-11-11T14:00:00Z" }),
+    // 11/12 00:00 and 23:00 JST.
+    g(10, 4, { bucket: "2026-11-11T15:00:00Z" }),
+    g(1, 1, { bucket: "2026-11-12T14:00:00Z" }),
+    // 11/18 09:00 JST.
     g(20, 8, { bucket: "2026-11-18T00:00:00Z" }),
   ],
   pages: [
@@ -113,7 +127,7 @@ describe("parseAccess", () => {
     expect(s.total).toEqual({ pageViews: 30, visits: 12 });
     expect(s.previous).toEqual({ pageViews: 24, visits: 15 });
     expect(s.series.map((b) => [b.key, b.pageViews, b.visits])).toEqual([
-      ["2026-11-12", 10, 4],
+      ["2026-11-12", 11, 5],
       ["2026-11-13", 0, 0],
       ["2026-11-14", 0, 0],
       ["2026-11-15", 0, 0],
@@ -225,15 +239,18 @@ describe("fetchAccess", () => {
       accountTag: "acc",
       siteTag: "site1",
       host: HOST,
-      since: "2026-11-12T00:00:00Z",
+      since: "2026-11-11T15:00:00Z",
       until: "2026-11-18T03:04:05Z",
-      prevSince: "2026-11-05T20:55:55Z",
-      prevUntil: "2026-11-11T23:59:59Z",
+      prevSince: "2026-11-05T02:55:55Z",
+      prevUntil: "2026-11-11T14:59:59Z",
     });
     expect(sent.query).toContain(
       "previous: rumPageloadEventsAdaptiveGroups(limit: 1, filter: { siteTag: $siteTag, requestHost: $host, datetime_geq: $prevSince, datetime_leq: $prevUntil })",
     );
-    expect(sent.query).toContain("dimensions { bucket: date }");
+    // Days are added up from hours (the API's `date` is a UTC day).
+    expect(sent.query).toContain("limit: 720");
+    expect(sent.query).toContain("dimensions { bucket: datetimeHour }");
+    expect(sent.query).not.toContain("date }");
     expect(sent.query).toContain("requestHost: $host");
     expect(cache.keys[0]).not.toContain("t0k");
     expect(await fetchAccess(config, "7d", deps)).toEqual(r);

@@ -15,7 +15,7 @@ import {
 import { PUBLIC_ID_RE } from "./public-id";
 import {
   bucketKeys,
-  bucketUnit,
+  bucketOfValue,
   countriesOf,
   countsOf,
   dimOf,
@@ -23,6 +23,7 @@ import {
   previousWindow,
   rangeWindow,
   referrersOf,
+  SERIES_ROWS,
   TOP_LIMIT,
   totalOf,
   type AccessConfigResult,
@@ -51,8 +52,9 @@ export const photoPageOf = (
       : null;
 };
 
-// Series rows: one per bucket and path (up to 30 × 4).
-const SERIES_LIMIT = 200;
+// Series rows: one per hour and path (up to 720 × 4; most hours have
+// none, and the answer holds only the rows that have views).
+const SERIES_LIMIT = SERIES_ROWS * 4;
 const REFERRER_LIMIT = 20;
 
 /**
@@ -63,7 +65,6 @@ const REFERRER_LIMIT = 20;
 export const photoAccessQuery = (range: AccessRange, publicId: string) => {
   const p = photoPaths(publicId);
   const paths = JSON.stringify([...p.viewer, ...p.detail]);
-  const bucket = bucketUnit(range) === "hour" ? "datetimeHour" : "date";
   const base = `siteTag: $siteTag, requestHost: $host, requestPath_in: ${paths}`;
   const f = `filter: { ${base}, datetime_geq: $since, datetime_leq: $until }`;
   return `query PhotoAccess($accountTag: string!, $siteTag: string!, $host: string!, $since: Time!, $until: Time!, $prevSince: Time!, $prevUntil: Time!) {
@@ -77,9 +78,9 @@ export const photoAccessQuery = (range: AccessRange, publicId: string) => {
         count
         sum { visits }
       }
-      series: rumPageloadEventsAdaptiveGroups(limit: ${SERIES_LIMIT}, ${f}, orderBy: [${bucket}_ASC]) {
+      series: rumPageloadEventsAdaptiveGroups(limit: ${SERIES_LIMIT}, ${f}, orderBy: [datetimeHour_ASC]) {
         count
-        dimensions { bucket: ${bucket} requestPath }
+        dimensions { bucket: datetimeHour requestPath }
       }
       countries: rumPageloadEventsAdaptiveGroups(limit: ${TOP_LIMIT}, ${f}, orderBy: [count_DESC]) {
         count
@@ -132,15 +133,15 @@ export const parsePhotoAccess = (
   if (!total || !previous || !countries || !referrers) return null;
 
   const keys = bucketKeys(range, now);
-  const len = keys[0]?.length ?? 10;
   const byKey = new Map(keys.map((k) => [k, { viewer: 0, detail: 0 }]));
   for (const g of seriesG) {
-    const b = dimOf(g, "bucket");
+    const v = dimOf(g, "bucket");
+    const b = v === null ? null : bucketOfValue(range, v);
     const path = dimOf(g, "requestPath");
     const c = countsOf(g, false);
     if (b === null || path === null || !c) return null;
     const page = photoPageOf(path, publicId);
-    const slot = byKey.get(b.slice(0, len));
+    const slot = byKey.get(b);
     if (page && slot) slot[page] += c.pageViews;
   }
   const series = keys.map((key) => ({ key, ...byKey.get(key)! }));

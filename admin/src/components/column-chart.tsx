@@ -21,7 +21,7 @@ export const SERIES_COLORS = [
 ] as const;
 
 export type ChartBucket = {
-  /** A bucket key of web-analytics.ts (UTC day or hour). */
+  /** A bucket key of web-analytics.ts (JST day or UTC hour). */
   key: string;
   /** One value per series, stacked bottom up. */
   values: number[];

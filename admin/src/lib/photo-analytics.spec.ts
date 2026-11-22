@@ -20,17 +20,24 @@ const body = (node: object) => ({
   data: { viewer: { accounts: [node] } },
   errors: null,
 });
+const D12a = "2026-11-11T15:00:00Z";
+const D12b = "2026-11-12T10:00:00Z";
+const D18 = "2026-11-18T01:00:00Z";
 const sample = body({
   total: [g(14, 6)],
   previous: [g(7, 3)],
   series: [
-    g(4, null, { bucket: "2026-11-12", requestPath: `/photo/${ID}/` }),
-    g(1, null, { bucket: "2026-11-12", requestPath: `/photo/${ID}` }),
-    g(2, null, { bucket: "2026-11-12", requestPath: `/photo/${ID}/detail/` }),
-    g(6, null, { bucket: "2026-11-18", requestPath: `/photo/${ID}/` }),
-    g(1, null, { bucket: "2026-11-18", requestPath: `/photo/${ID}/detail` }),
+    // Hours, added up into JST days: 11/12 00:00 and 19:00 JST …
+    g(4, null, { bucket: D12a, requestPath: `/photo/${ID}/` }),
+    g(1, null, { bucket: D12b, requestPath: `/photo/${ID}` }),
+    g(2, null, { bucket: D12b, requestPath: `/photo/${ID}/detail/` }),
+    // … and 11/18 10:00 JST.
+    g(6, null, { bucket: D18, requestPath: `/photo/${ID}/` }),
+    g(1, null, { bucket: D18, requestPath: `/photo/${ID}/detail` }),
+    // Before the window (11/11 23:00 JST): dropped.
+    g(5, null, { bucket: "2026-11-11T14:00:00Z", requestPath: `/photo/${ID}/` }),
     // Not this photo's: ignored.
-    g(9, null, { bucket: "2026-11-18", requestPath: "/" }),
+    g(9, null, { bucket: D18, requestPath: "/" }),
   ],
   countries: [g(10, null, { countryName: "JP" })],
   referrers: [
@@ -123,7 +130,8 @@ describe("fetchPhotoAccess", () => {
     const sent = JSON.parse(
       (f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string,
     );
-    expect(sent.variables.prevUntil).toBe("2026-11-11T23:59:59Z");
+    expect(sent.variables.since).toBe("2026-11-11T15:00:00Z");
+    expect(sent.variables.prevUntil).toBe("2026-11-11T14:59:59Z");
   });
 
   it("never asks for something that is not a public id", async () => {

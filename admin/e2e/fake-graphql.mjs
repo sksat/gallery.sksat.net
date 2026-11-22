@@ -26,22 +26,26 @@ const g = (count, visits, dimensions) => ({
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
 
-const access = (query, vars) => {
-  const hourly = query.includes("datetimeHour");
+// Series rows are always per hour (datetimeHour). A 24 h window gets one
+// row per hour; a longer one one row per day, in the first hour of each
+// (JST) day the window starts at, so the page's days add up to it.
+const slots = (vars) => {
   const start = Date.parse(vars.since);
-  const n = hourly
-    ? 24
-    : Math.floor((Date.parse(vars.until) - start) / DAY) + 1;
-  const series = [];
-  for (let i = 0; i < n; i++) {
-    const t = new Date(start + i * (hourly ? HOUR : DAY)).toISOString();
+  const len = Date.parse(vars.until) - start;
+  const hourly = len < DAY;
+  const n = hourly ? 24 : Math.floor(len / DAY) + 1;
+  return Array.from({ length: n }, (_, i) =>
+    new Date(start + i * (hourly ? HOUR : DAY))
+      .toISOString()
+      .replace(/\.\d{3}Z$/, "Z"),
+  );
+};
+
+const access = (vars) => {
+  const series = slots(vars).map((bucket, i) => {
     const count = 5 + ((i * 7) % 13) * 3;
-    series.push(
-      g(count, Math.ceil(count / 2), {
-        bucket: hourly ? t.replace(/\.\d{3}Z$/, "Z") : t.slice(0, 10),
-      }),
-    );
-  }
+    return g(count, Math.ceil(count / 2), { bucket });
+  });
   return account({
     total: [g(250, 140)],
     // +25% page views, −30% visits.
@@ -96,15 +100,8 @@ const photoAccess = (query, vars) => {
       referrers: [],
     });
   }
-  const hourly = query.includes("datetimeHour");
-  const start = Date.parse(vars.since);
-  const n = hourly
-    ? 24
-    : Math.floor((Date.parse(vars.until) - start) / DAY) + 1;
   const series = [];
-  for (let i = 0; i < n; i++) {
-    const t = new Date(start + i * (hourly ? HOUR : DAY)).toISOString();
-    const bucket = hourly ? t.replace(/\.\d{3}Z$/, "Z") : t.slice(0, 10);
+  for (const [i, bucket] of slots(vars).entries()) {
     series.push(
       g(2 + (i % 3), null, { bucket, requestPath: `/photo/${id}/` }),
       g(1, null, { bucket, requestPath: `/photo/${id}` }),
@@ -165,7 +162,7 @@ createServer((req, res) => {
         200,
         query.includes("requestPath_in")
           ? photoAccess(query, vars)
-          : access(query, vars),
+          : access(vars),
       );
     }
     json(res, 200, { data: null, errors: [{ message: "unknown query" }] });
