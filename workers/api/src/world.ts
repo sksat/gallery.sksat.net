@@ -36,6 +36,13 @@ export const FETCH_TIMEOUT_MS = 5000;
 /** The most of the page read (bytes): the tags are in its head. */
 const MAX_PAGE_BYTES = 256 * 1024;
 
+/**
+ * The User-Agent sent to vrchat.com and its file servers: they answer 403
+ * to a request without one, as a Worker's fetch is by default.
+ */
+export const VRCHAT_USER_AGENT =
+  "Mozilla/5.0 (compatible; gallery.sksat.net/1.0; +https://gallery.sksat.net)";
+
 /** Where the pictures may come from. */
 export const IMAGE_HOSTS = ["api.vrchat.cloud", "files.vrchat.cloud"];
 
@@ -175,7 +182,7 @@ export const worldPreview = async (
     const res = await ctx.fetch(
       `${ctx.origin.replace(/\/$/, "")}/home/world/${worldId}`,
       {
-        headers: { Accept: "text/html" },
+        headers: { Accept: "text/html", "User-Agent": VRCHAT_USER_AGENT },
         // A redirect is a failure: never fetch anywhere else.
         redirect: "manual",
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

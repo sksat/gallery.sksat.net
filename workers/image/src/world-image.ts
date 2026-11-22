@@ -13,6 +13,13 @@ import { PUBLIC_ID_RE } from "./request";
 /** Where the pictures may come from (and be redirected to). */
 export const WORLD_IMAGE_HOSTS = ["api.vrchat.cloud", "files.vrchat.cloud"];
 
+/**
+ * The User-Agent sent to VRChat's file servers: they answer 403 to a
+ * request without one, as a Worker's fetch is by default.
+ */
+export const VRCHAT_USER_AGENT =
+  "Mozilla/5.0 (compatible; gallery.sksat.net/1.0; +https://gallery.sksat.net)";
+
 /** How long a picture is kept in the data centre (seconds). */
 export const WORLD_IMAGE_TTL = 7 * 24 * 60 * 60;
 /**
@@ -112,7 +119,11 @@ export const fetchPicture = async (
   for (let hop = 0; ; hop++) {
     let res: Response;
     try {
-      res = await fetchFn(at, { redirect: "manual", signal });
+      res = await fetchFn(at, {
+        redirect: "manual",
+        signal,
+        headers: { "User-Agent": VRCHAT_USER_AGENT },
+      });
     } catch (err) {
       return `fetch failed: ${String(err)}`;
     }

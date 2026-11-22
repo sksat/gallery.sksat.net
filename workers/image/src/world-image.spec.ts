@@ -5,6 +5,7 @@ import {
   handleWorldImage,
   isWorldImageUrl,
   parseWorldImageUrl,
+  VRCHAT_USER_AGENT,
   WORLD_IMAGE_MAX_BYTES,
   type WorldImageContext,
 } from "./world-image";
@@ -85,6 +86,10 @@ describe("handleWorldImage", () => {
     // Redirects are followed here, each checked first.
     for (const call of s.fetchFn.mock.calls) {
       expect(call[1]).toMatchObject({ redirect: "manual" });
+      // VRChat answers 403 to a request without a User-Agent.
+      expect(new Headers(call[1]?.headers).get("User-Agent")).toBe(
+        VRCHAT_USER_AGENT,
+      );
     }
     await s.settle();
 
