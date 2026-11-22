@@ -9,16 +9,17 @@ import HeaderSksat from "~/media/sksat-header.png?jsx";
 // first line (SiteNav, components/layout/site-nav.tsx).
 export default component$(() => (
   <header class="relative h-32 overflow-hidden">
+    {/* The face in the illustration is on the left; below xl it would sit
+        under the centred title. There the image is drawn wider and moved
+        left by the same amount, so the face sits beside the title (cut at
+        the left edge on the narrowest phones). */}
     <HeaderSksat
-      class="absolute inset-0 z-0 h-full w-full object-cover"
+      class="absolute top-0 bottom-0 left-[-28%] z-0 h-full w-[128%] max-w-none object-cover min-[390px]:left-[-17%] min-[390px]:w-[117%] sm:left-[-9%] sm:w-[109%] md:left-[-8%] md:w-[108%] xl:left-0 xl:w-full"
       style="object-position: 0% 50%;"
       alt="生活(@m2__z)さんに描いていただいたイラスト: https://skeb.jp/@m2__z/works/12"
     />
-    {/* The face in the illustration is on the left and the image is
-        cropped from its left edge, so below xl the face sits where a
-        centred title would: keep the title to the right there, and on
-        phones put the icon above the title. */}
-    <div class="relative z-10 flex h-full items-center justify-end pr-4 xl:justify-center xl:pr-0">
+    {/* On phones the icon sits above the title. */}
+    <div class="relative z-10 flex h-full items-center justify-center">
       <div>
         {/* A plain <a>, not <Link>: the gallery rewrites the URL with
             history.pushState/replaceState, which Qwik City's SPA router does
