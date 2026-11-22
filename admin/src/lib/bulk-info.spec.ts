@@ -143,7 +143,7 @@ describe("validateInfoRestore", () => {
       { tag_visibility: "[]" },
       { tag_visibility: '{"a":"public"}' },
       { tag_visibility: '{"a":null}' },
-      { tag_visibility: '{" a":"shown"}' },
+      { tag_visibility: '{" a":"hidden"}' },
       { tag_visibility_after: undefined },
       { tag_visibility_after: '{"a":"yes"}' },
     ];
@@ -317,42 +317,40 @@ describe("applyInfo", () => {
 });
 
 describe("tags public on the photos (0021)", () => {
-  // film is public by its own setting, night is not; the camera passes on
-  // VRChat.
-  const ctx = { publicTags: new Set(["film"]), passedOn: ["VRChat"] };
+  // film and VRChat are public, night is not; the camera passes on VRChat.
+  const ctx = {
+    publicTags: new Set(["film", "VRChat"]),
+    passedOn: ["VRChat"],
+  };
 
-  it("makes a tag public or not on the photos that have it", () => {
+  it("hides a public tag on the photos that have it, never shows a private one", () => {
     const after = applyInfo(
       row(),
       { tagVisibility: { film: false, night: true, other: true } },
       ctx,
     );
     expect(after.tags).toBe('["night","film"]');
-    expect(JSON.parse(after.tag_visibility ?? "")).toEqual({
-      film: "hidden",
-      night: "shown",
-    });
-    // Back to the tags' settings: no choice left.
+    expect(after.tag_visibility).toBe('{"film":"hidden"}');
+    // Shown again: no choice left.
     expect(
-      applyInfo(after, { tagVisibility: { film: true, night: false } }, ctx)
-        .tag_visibility,
+      applyInfo(after, { tagVisibility: { film: true } }, ctx).tag_visibility,
     ).toBeNull();
   });
 
   it("applies to a tag added in the same edit", () => {
     const after = applyInfo(
       row(),
-      { tagsAdd: ["secret"], tagVisibility: { secret: true } },
+      { tagsAdd: ["VRChat"], tagVisibility: { VRChat: false } },
       ctx,
     );
-    expect(after.tags).toBe('["night","film","secret"]');
-    expect(after.tag_visibility).toBe('{"secret":"shown"}');
+    expect(after.tags).toBe('["night","film","VRChat"]');
+    expect(after.tag_visibility).toBe('{"VRChat":"hidden"}');
   });
 
   it("drops the choice of a tag taken off, not of one the camera passes on", () => {
     const r = row({
       tags: '["night","film","VRChat"]',
-      tag_visibility: '{"night":"shown","VRChat":"hidden","gone":"shown"}',
+      tag_visibility: '{"night":"hidden","VRChat":"hidden","gone":"hidden"}',
     });
     const after = applyInfo(r, { tagsRemove: ["night", "VRChat"] }, ctx);
     expect(after.tags).toBe('["film"]');
@@ -385,19 +383,26 @@ describe("tags public on the photos (0021)", () => {
       );
     }
     const r = row({
-      tag_visibility: '{"a":"shown","b":"hidden"}',
+      tag_visibility: '{"b":"hidden"}',
       tag_visibility_after: '{"a":"hidden", "b":"hidden"}',
     });
     expect(validateInfoRestore([r], 100)).toMatchObject({
       ok: true,
       rows: [
         {
-          tag_visibility: '{"a":"shown","b":"hidden"}',
+          tag_visibility: '{"b":"hidden"}',
           // As written, to compare with what the photo has then.
           tag_visibility_after: '{"a":"hidden", "b":"hidden"}',
         },
       ],
     });
+    // A stored "shown" is no choice: left out, not refused.
+    expect(
+      validateInfoRestore(
+        [row({ tag_visibility: '{"a":"shown","b":"hidden"}' })],
+        100,
+      ),
+    ).toMatchObject({ ok: true, rows: [{ tag_visibility: '{"b":"hidden"}' }] });
   });
 
   it("works out each tag's state over the photos and its next on a click", () => {

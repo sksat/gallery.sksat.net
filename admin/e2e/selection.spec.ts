@@ -366,6 +366,10 @@ test("tags and shooting data for the selection, and undo", async ({
   await expect(chip("roll-a")).toHaveAttribute("aria-checked", "mixed");
   await expect(chip("roll-a")).toContainText("1/2");
   await expect(tagItem("roll-a")).toHaveAttribute("data-public", "hidden");
+  // A private tag: never public on a photo.
+  await expect(
+    sheet.getByRole("checkbox", { name: "roll-aを公開", exact: true }),
+  ).toBeDisabled();
   const iso = sheet.getByLabel("ISO", { exact: true });
   await expect(iso).toHaveValue("");
   await expect(iso).toHaveAttribute("placeholder", "そのまま（写真ごと）");

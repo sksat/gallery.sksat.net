@@ -127,8 +127,8 @@ type MediaLoaderResult =
       /** The site's metadata visibility defaults (the selects' デフォルト). */
       defaults: MetadataLevels;
       /**
-       * Which of the photo's tags are public by the tag's own setting (each
-       * photo may choose otherwise, row.tag_visibility).
+       * Which of the photo's tags are public (the photo may still hide
+       * them, row.tag_visibility; a private one is never shown).
        */
       publicTags: string[];
       /** The fields of the photo's tags (0010). */
@@ -337,9 +337,9 @@ export const useUpdateMedia = routeAction$(
     // The tags switched public or not on this photo (tag-chips.tsx).
     const loaded = parseChipsLoaded(data.tag_chips_loaded);
     if (loaded) {
-      const byDefault = new Set(await publicTags(db, Object.keys(loaded)));
+      const pub = new Set(await publicTags(db, Object.keys(loaded)));
       const tv = validateTagVisibilityShape(
-        chipPatch(loaded, data.tag_shown ?? [], byDefault),
+        chipPatch(loaded, data.tag_shown ?? [], pub),
       );
       if (!tv.ok) return fail(400, { message: tv.error });
       if (Object.keys(tv.value).length > 0) v.patch.tag_visibility = tv.value;
@@ -768,17 +768,16 @@ const MediaFields = component$<{
     const choices = platforms.some((p) => p.key === row.platform)
       ? platforms
       : [...platforms, platformOf(platforms, row.platform)];
-    // Its tags, each public on it or not (0021): its own choice, else the
-    // tag's setting.
-    const byDefault = new Set(publicTags);
+    // Its tags, each public on it or not (0021): a public tag unless the
+    // photo hides it; a private tag never.
+    const pub = new Set(publicTags);
     const chips: ChipTag[] = [
       ...row.tags.map((tag) => ({ tag, inherited: false })),
       ...inheritedTags.map((tag) => ({ tag, inherited: true })),
-    ].map((c) => ({
-      ...c,
-      byDefault: byDefault.has(c.tag),
-      ...tagState(c.tag, row.tag_visibility, byDefault),
-    }));
+    ].map((c) => {
+      const s = tagState(c.tag, row.tag_visibility, pub);
+      return { ...c, shown: s.shown, locked: s.locked };
+    });
     return (
       <>
         <fieldset class="space-y-3">

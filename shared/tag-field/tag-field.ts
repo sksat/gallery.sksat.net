@@ -343,8 +343,9 @@ export const effectiveTags = (
 
 /**
  * media.tag_visibility (admin migration 0021) read leniently: tag name →
- * the photo's own choice for that tag, "shown" or "hidden". A value that
- * is neither is "hidden" (fail closed); a JSON null is no choice. Every
+ * the photo's own choice for that tag. Only "hidden" means anything
+ * (tagShown); a value that is not "shown" or "hidden" is "hidden" (fail
+ * closed); a JSON null is no choice. Every
  * key is an own property (a tag may be called "__proto__" or
  * "constructor"), so read it with tagShown.
  */
@@ -372,18 +373,16 @@ export const ownTagChoice = (
   Object.hasOwn(overrides, tag) ? overrides[tag] : undefined;
 
 /**
- * Whether the public site shows `tag` on a photo (0021): the photo's own
- * choice for it, else the tag's own setting (the `tag` table's public
- * flag; a tag with no row is private).
+ * Whether the public site shows `tag` on a photo (0021): only a public
+ * tag (the `tag` table's public flag; a tag with no row is private), and
+ * only while the photo does not hide it. A photo can never show a private
+ * tag: a stored "shown" is no choice at all.
  */
 export const tagShown = (
   tag: string,
   overrides: Readonly<Record<string, TagFieldLevel>>,
   publicTags: { has(tag: string): boolean },
-): boolean => {
-  const own = ownTagChoice(overrides, tag);
-  return own === undefined ? publicTags.has(tag) : own === "shown";
-};
+): boolean => publicTags.has(tag) && ownTagChoice(overrides, tag) !== "hidden";
 
 /** The camera's tags that a photo has only through its camera. */
 export const inheritedOnly = (

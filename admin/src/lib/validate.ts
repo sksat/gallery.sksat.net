@@ -241,14 +241,14 @@ export const validatePatch = (input: unknown): ValidatePatchResult => {
 };
 
 /**
- * tag_visibility (0021): tag name → shown / hidden, or null (the tag's
- * own setting). Names as tags may be (MAX_TAG_LEN), at most as many as a
+ * tag_visibility (0021): tag name → hidden, or null (no choice: shown
+ * while the tag is public). Names as tags may be (MAX_TAG_LEN), at most as many as a
  * photo has tags and its camera passes on.
  */
 export const validateTagVisibilityShape = (
   v: unknown,
 ):
-  | { ok: true; value: Record<string, TagFieldLevel | null> }
+  | { ok: true; value: Record<string, "hidden" | null> }
   | { ok: false; error: string } => {
   if (typeof v !== "object" || v === null || Array.isArray(v)) {
     return { ok: false, error: "tag_visibility must be an object" };
@@ -257,16 +257,15 @@ export const validateTagVisibilityShape = (
   if (entries.length > MAX_TAGS * 2) {
     return { ok: false, error: "tag_visibility has too many tags" };
   }
-  const out: Record<string, TagFieldLevel | null> = {};
+  const out: Record<string, "hidden" | null> = {};
   for (const [k, level] of entries) {
     if (k.trim() !== k || k === "" || k.length > MAX_TAG_LEN) {
       return { ok: false, error: "tag_visibility keys must be tag names" };
     }
-    if (level !== null && !isTagFieldLevel(level)) {
-      return {
-        ok: false,
-        error: "tag_visibility must be shown, hidden or null",
-      };
+    // Only a public tag hidden on the photo is a choice (0021): a photo
+    // cannot show a private tag.
+    if (level !== null && level !== "hidden") {
+      return { ok: false, error: "tag_visibility must be hidden or null" };
     }
     Object.defineProperty(out, k, {
       value: level,

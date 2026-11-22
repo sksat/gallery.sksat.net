@@ -1,14 +1,13 @@
-// Whether each tag of a photo is public on it (migration 0021; pure,
-// tag-visibility.spec.ts). The tag's own setting (`tag.public`, on /tag/)
-// is the default; a photo may choose otherwise for any of its tags, its
-// camera's included (media.tag_visibility: tag → shown / hidden). The API
-// Worker decides with the same tagShown (shared/tag-field).
+// Which tags a photo hides (migration 0021; pure, tag-visibility.spec.ts).
+// A public tag (`tag.public`, on /tag/) is shown on every photo that does
+// not hide it; a private tag is never shown, on any photo, and a photo
+// cannot make it public. So a photo stores only the public tags it hides
+// (media.tag_visibility: tag → "hidden"), its camera's tags included. The
+// API Worker decides with the same tagShown (shared/tag-field).
 //
-// A choice is stored only where it differs from the tag's setting: making
-// a tag public on a photo where the tag is public anyway removes the
-// photo's choice, so it follows the tag again. A choice that is already
-// stored stays while the tag's state on the photo is not changed (0021
-// hid every tag of the photos whose tags were hidden, private ones too).
+// A "hidden" already stored for a private tag (0021 hid every tag of the
+// photos whose tags were hidden) stays: if the tag is made public, that
+// photo still hides it.
 
 import {
   ownTagChoice,
@@ -28,37 +27,29 @@ const setOwn = <T>(o: Record<string, T>, k: string, value: T) =>
     configurable: true,
   });
 
-/** The choice to store for `tag` shown or not: null when it is the default. */
-export const choiceFor = (
-  tag: string,
-  shown: boolean,
-  publicTags: TagSet,
-): TagFieldLevel | null =>
-  shown === publicTags.has(tag) ? null : shown ? "shown" : "hidden";
-
 /**
- * The edit page's tag chips as a patch (media.tag_visibility, null = the
- * tag's setting): only the chips switched since the page loaded
- * (`loaded`: tag → shown then), so a tag whose setting changed meanwhile
- * keeps following it.
+ * The edit page's tag chips as a patch (media.tag_visibility, null = no
+ * choice): only the chips of public tags switched since the page loaded
+ * (`loaded`: tag → shown then). A private tag cannot be switched.
  */
 export const chipPatch = (
   loaded: Readonly<Record<string, boolean>>,
   shownNow: readonly string[],
   publicTags: TagSet,
-): Record<string, TagFieldLevel | null> => {
-  const out: Record<string, TagFieldLevel | null> = {};
+): Record<string, "hidden" | null> => {
+  const out: Record<string, "hidden" | null> = {};
   for (const [tag, was] of Object.entries(loaded)) {
+    if (!publicTags.has(tag)) continue;
     const now = shownNow.includes(tag);
-    if (now !== was) setOwn(out, tag, choiceFor(tag, now, publicTags));
+    if (now !== was) setOwn(out, tag, now ? null : "hidden");
   }
   return out;
 };
 
 /**
- * A photo's choices after making each tag of `targets` shown (true) or
- * hidden (false) on it, for the tags among `tags` (the ones it has). A
- * tag already so is left as it is.
+ * A photo's choices after making each public tag of `targets` shown
+ * (true) or hidden (false) on it, for the tags among `tags` (the ones it
+ * has). A tag already so, or a private one, is left as it is.
  */
 export const withTargets = (
   current: Readonly<TagChoices>,
@@ -69,11 +60,10 @@ export const withTargets = (
   const out: TagChoices = {};
   for (const [k, v] of Object.entries(current)) setOwn(out, k, v);
   for (const [tag, shown] of Object.entries(targets)) {
-    if (!tags.includes(tag)) continue;
+    if (!tags.includes(tag) || !publicTags.has(tag)) continue;
     if (tagShown(tag, current, publicTags) === shown) continue;
-    const choice = choiceFor(tag, shown, publicTags);
-    if (choice === null) delete out[tag];
-    else setOwn(out, tag, choice);
+    if (shown) delete out[tag];
+    else setOwn(out, tag, "hidden");
   }
   return out;
 };
@@ -95,14 +85,16 @@ export const storedChoices = (c: Readonly<TagChoices>): string | null =>
   Object.keys(c).length > 0 ? JSON.stringify(c) : null;
 
 /**
- * For the edit page's chips: whether the photo shows `tag`, and whether
- * that is its own choice rather than the tag's setting.
+ * For the edit page's chips: whether the photo shows `tag`, whether that
+ * is because the photo hides it (rather than the tag being private), and
+ * whether it can be switched at all (only a public tag can).
  */
 export const tagState = (
   tag: string,
   choices: Readonly<TagChoices>,
   publicTags: TagSet,
-): { shown: boolean; own: boolean } => ({
+): { shown: boolean; own: boolean; locked: boolean } => ({
   shown: tagShown(tag, choices, publicTags),
-  own: ownTagChoice(choices, tag) !== undefined,
+  own: publicTags.has(tag) && ownTagChoice(choices, tag) === "hidden",
+  locked: !publicTags.has(tag),
 });

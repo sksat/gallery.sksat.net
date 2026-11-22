@@ -23,18 +23,18 @@ describe("updateMedia tag_visibility", () => {
   it("merges choices; null takes one off, none left is NULL", async () => {
     const { db, tv } = setup();
     await updateMedia(db, 1, {
-      tag_visibility: { night: "hidden", secret: "shown" },
+      tag_visibility: { night: "hidden", secret: "hidden" },
     });
     expect(JSON.parse(tv() ?? "")).toEqual({
       night: "hidden",
-      secret: "shown",
+      secret: "hidden",
     });
     expect((await getMedia(db, 1))?.tag_visibility).toEqual({
       night: "hidden",
-      secret: "shown",
+      secret: "hidden",
     });
     await updateMedia(db, 1, { tag_visibility: { night: null } });
-    expect(tv()).toBe('{"secret":"shown"}');
+    expect(tv()).toBe('{"secret":"hidden"}');
     await updateMedia(db, 1, { tag_visibility: { secret: null } });
     expect(tv()).toBeNull();
   });
@@ -42,11 +42,11 @@ describe("updateMedia tag_visibility", () => {
   it("keeps only the choices of tags the photo still has, its camera's too", async () => {
     const { db, tv } = setup();
     await updateMedia(db, 1, {
-      tag_visibility: { night: "shown", secret: "shown", VRChat: "hidden" },
+      tag_visibility: { night: "hidden", secret: "hidden", VRChat: "hidden" },
     });
     await updateMedia(db, 1, { tags: ["night"] });
     expect(JSON.parse(tv() ?? "")).toEqual({
-      night: "shown",
+      night: "hidden",
       VRChat: "hidden",
     });
     // With another camera in the same save: the new camera's tags count.
@@ -56,7 +56,7 @@ describe("updateMedia tag_visibility", () => {
       tag_visibility: { film: "hidden" },
     });
     expect(JSON.parse(tv() ?? "")).toEqual({
-      night: "shown",
+      night: "hidden",
       film: "hidden",
     });
     await updateMedia(db, 1, { tags: [], camera_id: null });

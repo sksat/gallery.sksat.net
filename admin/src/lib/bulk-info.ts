@@ -506,7 +506,21 @@ const storedChoiceText = (
   } catch {
     return undefined;
   }
-  const shape = validatePatch({ tag_visibility: parsed });
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return undefined;
+  }
+  // A stored "shown" is no choice (0021): left out, never refused.
+  const hidden: Record<string, unknown> = {};
+  for (const [k, c] of Object.entries(parsed)) {
+    if (c === "shown") continue;
+    Object.defineProperty(hidden, k, {
+      value: c,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  const shape = validatePatch({ tag_visibility: hidden });
   const choices = shape.ok ? shape.patch.tag_visibility : undefined;
   if (!choices || !Object.values(choices).every((c) => c !== null)) {
     return undefined;

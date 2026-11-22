@@ -92,12 +92,13 @@ describe("setInfo / restoreInfo", () => {
     const before = read();
     const { previous } = await setInfo(db, [1, 2, 3], {
       tagsRemove: ["VRChat"],
-      tagVisibility: { film: true, secret: true },
+      tagVisibility: { film: false, secret: true },
     });
     expect(read()).toEqual([
-      { id: 1, tags: '["film","secret"]', tv: '{"secret":"shown"}' },
+      // secret is private: never made public on a photo.
+      { id: 1, tags: '["film","secret"]', tv: '{"film":"hidden"}' },
       // VRChat still comes from the camera: its choice stays.
-      { id: 2, tags: '["film"]', tv: '{"VRChat":"hidden"}' },
+      { id: 2, tags: '["film"]', tv: '{"VRChat":"hidden","film":"hidden"}' },
       { id: 3, tags: "[]", tv: null },
     ]);
     expect(previous.map((p) => p.id)).toEqual([1, 2]);
@@ -107,7 +108,7 @@ describe("setInfo / restoreInfo", () => {
     expect(read()).toEqual(before);
 
     // A tag hidden after the edit stays hidden through its undo.
-    const again = await setInfo(db, [1], { tagVisibility: { secret: true } });
+    const again = await setInfo(db, [1], { exif: { iso: 200 } });
     raw.exec(
       `UPDATE media SET tag_visibility = '{"film":"hidden","secret":"hidden"}' WHERE id = 1`,
     );

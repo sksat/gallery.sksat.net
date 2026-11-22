@@ -67,7 +67,7 @@ export type MediaJoinRow = {
   tag_values?: string | null;
   /** Its own levels for them (JSON), or NULL. */
   tag_value_visibility?: string | null;
-  /** 0021: its own choice per tag, shown or hidden (JSON), or NULL. */
+  /** 0021: the public tags it hides ({tag: "hidden"} JSON), or NULL. */
   tag_visibility?: string | null;
   /** Its camera (0011: the camera's tags it inherits); absent in old tests. */
   camera_id?: number | null;
@@ -108,8 +108,8 @@ export type Context = {
   /** The `setting` row metadata_visibility (JSON), or null. */
   site: string | null;
   /**
-   * The tags marked public in the `tag` table: shown on every photo that
-   * does not choose otherwise (media.tag_visibility, 0021).
+   * The tags marked public in the `tag` table: the only ones ever shown,
+   * on every photo that does not hide them (media.tag_visibility, 0021).
    */
   publicTags: ReadonlySet<string>;
   /**
@@ -117,15 +117,9 @@ export type Context = {
    * shooting information as EXIF when a photo does not say (default on).
    */
   embedDefault: boolean;
-  /**
-   * The fields of every tag (0010; a photo may show a tag that is not
-   * public by default); none when left out.
-   */
+  /** The fields of public tags (0010); none when left out. */
   tagFields?: readonly TagFieldDef[];
-  /**
-   * Tags each camera passes on to its photos (0011), by camera id, public
-   * or not (a photo may show either).
-   */
+  /** Public tags each camera passes on to its photos (0011), by camera id. */
   cameraTags?: ReadonlyMap<number, readonly string[]>;
   /** The admin's `platform` table (0014) by key. */
   platforms: ReadonlyMap<string, { name: string; kind: PlatformKind }>;
@@ -255,23 +249,22 @@ const contextStatements = (db: D1Database, withFields = true) => [
      WHERE key IN ('metadata_visibility', 'embed_exif')`,
   ),
   db.prepare("SELECT name FROM tag WHERE public = 1"),
-  // Every tag's fields (a handful of rows): a photo may show a tag that is
-  // private by default (0021), and projectPhoto keeps only the fields of
-  // the tags it shows. The image Worker's lookups never use them: no rows
-  // read there.
+  // Only public tags' fields ever reach a projection (a handful of rows).
+  // The image Worker's lookups never use them: no rows read there.
   db.prepare(
     withFields
       ? `SELECT f.id, t.name AS tag, f.label, f.type, f.options, f.visibility,
                 f.position
-         FROM tag_field f JOIN tag t ON t.id = f.tag_id`
+         FROM tag_field f JOIN tag t ON t.id = f.tag_id WHERE t.public = 1`
       : "SELECT 1 WHERE 0",
   ),
-  // The tags cameras pass on to their photos (0011; a few rows, merged in
-  // projectPhoto: never a join per photo), public or not: each photo's
-  // own choice decides (0021).
+  // The public tags cameras pass on to their photos (0011; a few rows,
+  // merged in projectPhoto: never a join per photo).
   db.prepare(
-    `SELECT camera_id, tag FROM camera_tag WHERE propagate = 1
-     ORDER BY camera_id, position, tag`,
+    `SELECT ct.camera_id, ct.tag FROM camera_tag ct
+     JOIN tag t ON t.name = ct.tag
+     WHERE ct.propagate = 1 AND t.public = 1
+     ORDER BY ct.camera_id, ct.position, ct.tag`,
   ),
   // The platforms (0014; a few rows: read whole rather than joined to
   // every photo).
@@ -415,8 +408,8 @@ export const projectPhoto = (
   const path = row.path ?? row.file;
   const name = path.slice(path.lastIndexOf("/") + 1);
   const timestamp = truncateTimestamp(row.timestamp, levels.taken_at);
-  // Its own tags and those its camera passes on (0011), each only when
-  // the photo shows it: its own choice for the tag, else the tag's (0021).
+  // Its own tags and those its camera passes on (0011), public ones only,
+  // and none the photo hides (0021).
   const choices = parseTagVisibility(row.tag_visibility);
   const tags = effectiveTags(
     parseTags(row.tags),

@@ -50,7 +50,7 @@ import { VisibilityIcon } from "./visibility-style";
 // can be typed (picked from the site's tags; a new tag starts private).
 // Its globe or lock says whether it is public on the photos that have it
 // (both when they differ); a click makes it public on all of them,
-// then not, then back as it was. Values (the time taken, the world, the position, the shooting settings)
+// then not, then back as it was. A private tag stays locked (0021). Values (the time taken, the world, the position, the shooting settings)
 // start at what the photos share, or empty with そのまま（写真ごと） when
 // they differ; × clears one. Only what was touched is applied, through the
 // same checks as the edit page. A sheet along the bottom on phones, a
@@ -211,6 +211,8 @@ type TagRow = {
   count: number;
   initial: TagState;
   now: TagState;
+  /** The tag itself is public: only then can it be shown (0021). */
+  public: boolean;
   /** Public on the photos that have it (0021): as loaded, and now. */
   visInitial: TagVisState;
   visNow: TagVisState;
@@ -248,6 +250,7 @@ export const BulkInfoDialog = component$<Props>(
             count: t.count,
             initial: t.state,
             now: t.state,
+            public: pub.has(t.tag),
             visInitial: vis,
             visNow: vis,
           };
@@ -280,6 +283,7 @@ export const BulkInfoDialog = component$<Props>(
           count: 0,
           initial: "none",
           now: "all",
+          public: site?.public ?? false,
           visInitial: vis,
           visNow: vis,
         },
@@ -453,7 +457,8 @@ export const BulkInfoDialog = component$<Props>(
                                     ? "false"
                                     : "mixed"
                               }
-                              disabled={off}
+                              disabled={off || !row.public}
+                              title={row.public ? undefined : "タグが非公開"}
                               data-testid="bulk-tag-public"
                               data-changed={
                                 row.visNow !== row.visInitial ? "" : undefined

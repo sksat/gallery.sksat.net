@@ -307,23 +307,35 @@ describe("tag visibility per photo (0021)", () => {
     expect((await getMedia(db, "aaaaaaaaa7"))?.tags).toEqual(["VRChat"]);
   });
 
-  it("shows a private tag only on the photos that show it", async () => {
+  it("never shows a private tag, whatever the photo says", async () => {
     const { raw, db } = setup();
     run(
       raw,
-      `UPDATE media SET tag_visibility = '{"secret":"shown"}' WHERE id = 2;
-       UPDATE media SET tags = '["secret"]' WHERE id = 6;`,
+      `UPDATE media SET tag_visibility = '{"secret":"shown","VRChat":"shown"}' WHERE id = 2`,
     );
-    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual([
-      "VRChat",
-      "secret",
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
+    const everything = JSON.stringify([
+      await listPublicMedia(db),
+      await getMedia(db, "aaaaaaaaa3"),
+      await getPhotoForImage(db, "aaaaaaaaa3"),
+      await getPathAccess(db, "/p2.png"),
     ]);
-    expect((await getMedia(db, "aaaaaaaaa7"))?.tags).toEqual([]);
-    // A choice for a tag the photo does not have shows nothing.
+    expect(everything).not.toContain("secret");
+  });
+
+  it("follows the tag made private and public again", async () => {
+    const { raw, db } = setup();
     run(
       raw,
-      `UPDATE media SET tag_visibility = '{"other":"shown"}' WHERE id = 6`,
+      `UPDATE media SET tag_visibility = '{"film":"hidden"}' WHERE id = 6;
+       UPDATE media SET tags = '["film"]' WHERE id = 6;
+       UPDATE tag SET public = 0 WHERE name = 'film';`,
     );
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tags).toEqual([]);
+    expect((await getMedia(db, "aaaaaaaaa7"))?.tags).toEqual([]);
+    run(raw, "UPDATE tag SET public = 1 WHERE name = 'film'");
+    // Back on the photos that do not hide it.
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tags).toEqual(["film"]);
     expect((await getMedia(db, "aaaaaaaaa7"))?.tags).toEqual([]);
   });
 
@@ -510,17 +522,14 @@ describe("tags a camera passes on", () => {
     expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual([]);
   });
 
-  it("lets a photo choose for a passed-on tag too", async () => {
+  it("lets a photo hide a passed-on tag too, never show a private one", async () => {
     const { raw, db } = withCameraTags();
     run(
       raw,
       `UPDATE media SET tag_visibility = '{"film":"hidden","secret":"shown","night":"shown"}' WHERE id = 2`,
     );
-    // night is kept to the camera: the photo does not have it.
-    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual([
-      "VRChat",
-      "secret",
-    ]);
+    // secret is private; night is kept to the camera.
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
   });
 
   it("follows the photo's camera and the camera's tags as they are now", async () => {
@@ -622,18 +631,15 @@ describe("tag fields", () => {
     expect((await getMedia(db, "aaaaaaaaa2"))?.tag_fields).toEqual([]);
   });
 
-  it("shows a private tag's fields on a photo that shows the tag", async () => {
+  it("never shows a private tag's fields, whatever the photo says", async () => {
     const { raw, db } = withFields();
     run(
       raw,
       `UPDATE media SET tag_visibility = '{"secret":"shown"}' WHERE id = 2`,
     );
-    expect((await getMedia(db, "aaaaaaaaa3"))?.tag_fields).toEqual([
-      { tag: "secret", label: "メモ", value: "memo text" },
-    ]);
-    // Not on the other photo with values for it.
-    expect((await getMedia(db, "aaaaaaaaa2"))?.tag_fields).not.toContainEqual(
-      expect.objectContaining({ tag: "secret" }),
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tag_fields).toEqual([]);
+    expect(JSON.stringify(await listPublicMedia(db))).not.toContain(
+      "memo text",
     );
   });
 
@@ -1106,13 +1112,13 @@ describe("projectPhoto", () => {
     });
   });
 
-  it("shows each tag as the photo chooses, else as the tag is", () => {
+  it("shows the public tags the photo does not hide, never a private one", () => {
     const tagsWith = (tag_visibility: string | null) =>
       projectPhoto({ ...row, tag_visibility }, ctx).tags;
     expect(tagsWith(null)).toEqual(["x"]);
     expect(tagsWith('{"x":"hidden"}')).toEqual([]);
-    expect(tagsWith('{"y":"shown"}')).toEqual(["x", "y"]);
-    expect(tagsWith('{"x":"hidden","y":"shown"}')).toEqual(["y"]);
+    expect(tagsWith('{"x":"shown","y":"shown"}')).toEqual(["x"]);
+    expect(tagsWith('{"x":"hidden","y":"shown"}')).toEqual([]);
     // Not an object, or not JSON: no choices.
     expect(tagsWith('["y"]')).toEqual(["x"]);
     expect(tagsWith("nope")).toEqual(["x"]);
@@ -1129,7 +1135,12 @@ describe("projectPhoto", () => {
         { ...named, tag_visibility: '{"__proto__":"shown","x":"hidden"}' },
         c,
       ).tags,
-    ).toEqual(["constructor", "__proto__"]);
+    ).toEqual(["constructor"]);
+    const all = { ...c, publicTags: new Set(["constructor", "__proto__", "x"]) };
+    expect(
+      projectPhoto({ ...named, tag_visibility: '{"__proto__":"hidden"}' }, all)
+        .tags,
+    ).toEqual(["constructor", "x"]);
     expect(
       projectPhoto(
         { ...named, tag_visibility: '{"constructor":"hidden"}' },
