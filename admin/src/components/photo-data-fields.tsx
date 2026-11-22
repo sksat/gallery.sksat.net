@@ -8,7 +8,6 @@ import {
   formGroups,
   mapUrl,
   rowFormValues,
-  worldUrl,
 } from "~/lib/photo-data";
 import { hasRealPlace, type PlatformKind } from "~/lib/platform";
 import type { MediaRow } from "~/lib/types";
@@ -17,6 +16,7 @@ import { LevelSelect } from "./level-select";
 import { LocationPicker } from "./location-picker";
 import { field, label, link, muted } from "./ui";
 import { VisibilityIcon } from "./visibility-style";
+import { WorldLink } from "./world-link";
 
 // 撮影データ on the edit page: what was read from the file (camera
 // settings, VRChat world, where it was taken), each with how much of it
@@ -222,11 +222,14 @@ export const PhotoDataFields = ({
   kind,
   defaults,
   onReset$,
+  pictures,
 }: {
   row: MediaRow;
   /** The kind of the photo's platform: a virtual one has no map. */
   kind: PlatformKind;
   defaults: MetadataLevels;
+  /** Thumbnails are on: the world card shows the world's picture. */
+  pictures?: boolean;
   /** Set a field back to what the file says (reset_from_file). */
   onReset$?: QRL<(field: Field) => void>;
 }) => {
@@ -304,15 +307,12 @@ export const PhotoDataFields = ({
         }
       >
         {row.world_id ? (
-          <a
-            href={worldUrl(row.world_id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            class={link}
-            data-testid="world-link"
-          >
-            {row.world_name ?? row.world_id}
-          </a>
+          // With a card previewing the world (world-link.tsx).
+          <WorldLink
+            worldId={row.world_id}
+            name={row.world_name}
+            pictures={pictures === true}
+          />
         ) : row.world_name ? (
           <span>{row.world_name}</span>
         ) : (

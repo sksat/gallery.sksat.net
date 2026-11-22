@@ -12,6 +12,7 @@ The admin app for gallery.sksat.net: a separate Qwik City project on Pages with 
 - The browser uploads originals straight to B2 with presigned PUTs; the admin only signs. The bucket's CORS rule for this (origin `https://admin.gallery.sksat.net`, `s3_put`, headers `content-type` and `x-amz-meta-sha256`, expose `ETag`) is set with `b2_update_bucket`, outside the repo.
 - `/api/favicon/<host>/` fetches a referrer site's favicon itself (`src/lib/favicon.ts`): https only, public host names only (`isPublicHostname`), redirects checked hop by hop, a time limit, a size cap and raster images by their bytes only. Keep those checks when changing it; never route favicons through a third-party service or let the browser fetch them from the site.
 - Cloudflare Analytics needs the optional secret `CF_ANALYTICS_API_TOKEN` (Account Analytics: Read). Without it the dashboard cards say so and the page still renders. All Analytics queries go through `cachedGraphql` (5-min Cache API, never throws).
+- The edit page's world card reads the world's page and picture from VRChat itself (`/api/world/<id>`, `src/lib/world-preview.ts`, the parser in `shared/vrchat/`), kept in `caches.default` by world id (a world's public page, nothing of the photo). `VRCHAT_ORIGIN` points it elsewhere (E2E: the fake bucket).
 
 ## Data invariants
 

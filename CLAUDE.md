@@ -65,6 +65,7 @@ How they connect: [docs/architecture.d2](docs/architecture.d2) (rendered as `doc
 ### External services
 
 - Map tiles come from OpenFreeMap (no key, no limit). Never use OpenStreetMap's own tile servers: their usage policy does not cover an app's map. MapLibre GL JS is loaded only from the map components' visible tasks.
+- VRChat world pages and pictures are fetched only server side (`shared/vrchat/`: the API Worker for public photos' worlds, the image Worker for their pictures, the admin's `/api/world/<id>` for any photo's), with its User-Agent and kept in the Cache API; a browser never asks VRChat. Hover cards (world, camera, photo) share `HoverCard` (one in the gallery, one in the admin) and `shared/preview/position.ts`.
 
 ## Tooling
 

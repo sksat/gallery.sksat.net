@@ -5,10 +5,12 @@ import { MissingBindingError } from "~/components/missing-binding-error";
 import { StatePanel } from "~/components/state-panel";
 import { buttonPrimary, card, kindBadge, muted } from "~/components/ui";
 import { listCameras, type CameraListItem } from "~/lib/db";
-import { getDB } from "~/lib/env";
+import { getDB, getImageBase } from "~/lib/env";
+import { CameraHover } from "~/components/camera-hover";
 
 type CameraListResult =
-  { kind: "ok"; cameras: CameraListItem[] } | { kind: "missing-binding" };
+  | { kind: "ok"; cameras: CameraListItem[]; imageBase: string | null }
+  | { kind: "missing-binding" };
 
 export const useCameraList = routeLoader$<CameraListResult>(
   async ({ platform, status }) => {
@@ -20,7 +22,11 @@ export const useCameraList = routeLoader$<CameraListResult>(
       status(500);
       return { kind: "missing-binding" };
     }
-    return { kind: "ok", cameras: await listCameras(db) };
+    return {
+      kind: "ok",
+      cameras: await listCameras(db),
+      imageBase: getImageBase(platform),
+    };
   },
 );
 
@@ -32,7 +38,7 @@ export default component$(() => {
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/" />;
   }
-  const { cameras } = data.value;
+  const { cameras, imageBase } = data.value;
 
   return (
     <div class="space-y-6">
@@ -60,36 +66,51 @@ export default component$(() => {
         <ul class={[card, "divide-y divide-zinc-100 dark:divide-zinc-800"]}>
           {cameras.map((c) => (
             <li key={c.id}>
-              <Link
-                prefetch="js"
-                href={`/camera/${c.id}/`}
-                class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors hover:bg-sky-50/60 sm:px-5 dark:hover:bg-sky-950/30"
+              {/* Its picture and newest photos, on hover (camera-hover.tsx). */}
+              <CameraHover
+                id={c.id}
+                name={c.name}
+                about={[
+                  c.kind && CAMERA_KIND_LABELS[c.kind],
+                  `${c.photo_count} ${c.photo_count === 1 ? "photo" : "photos"}`,
+                  c.digitized_count > 0 && `スキャン ${c.digitized_count}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                imageBase={imageBase}
+                class="flex items-center"
               >
-                <span class="flex min-w-0 flex-1 flex-col">
-                  <span class="truncate font-medium">{c.name}</span>
-                  <span class={["truncate text-xs", muted]}>
-                    <code>{c.slug}</code>
-                    {manufacturerModel(c) && <> · {manufacturerModel(c)}</>}
-                  </span>
-                </span>
-                {c.kind && (
-                  <span class={kindBadge}>{CAMERA_KIND_LABELS[c.kind]}</span>
-                )}
-                <span
-                  class={["w-20 text-right text-sm tabular-nums", muted]}
-                  data-testid="camera-photo-count"
+                <Link
+                  prefetch="js"
+                  href={`/camera/${c.id}/`}
+                  class="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors hover:bg-sky-50/60 sm:px-5 dark:hover:bg-sky-950/30"
                 >
-                  {c.photo_count} {c.photo_count === 1 ? "photo" : "photos"}
-                </span>
-                {c.digitized_count > 0 && (
-                  <span
-                    class={["text-right text-sm tabular-nums", muted]}
-                    data-testid="camera-digitized-count"
-                  >
-                    スキャン {c.digitized_count}
+                  <span class="flex min-w-0 flex-1 flex-col">
+                    <span class="truncate font-medium">{c.name}</span>
+                    <span class={["truncate text-xs", muted]}>
+                      <code>{c.slug}</code>
+                      {manufacturerModel(c) && <> · {manufacturerModel(c)}</>}
+                    </span>
                   </span>
-                )}
-              </Link>
+                  {c.kind && (
+                    <span class={kindBadge}>{CAMERA_KIND_LABELS[c.kind]}</span>
+                  )}
+                  <span
+                    class={["w-20 text-right text-sm tabular-nums", muted]}
+                    data-testid="camera-photo-count"
+                  >
+                    {c.photo_count} {c.photo_count === 1 ? "photo" : "photos"}
+                  </span>
+                  {c.digitized_count > 0 && (
+                    <span
+                      class={["text-right text-sm tabular-nums", muted]}
+                      data-testid="camera-digitized-count"
+                    >
+                      スキャン {c.digitized_count}
+                    </span>
+                  )}
+                </Link>
+              </CameraHover>
             </li>
           ))}
         </ul>

@@ -4,6 +4,7 @@ import {
   noSerialize,
   Slot,
   useSignal,
+  useTask$,
   type NoSerialize,
   type QRL,
 } from "@builder.io/qwik";
@@ -50,6 +51,10 @@ export const HoverCard = component$<HoverCardProps>((props) => {
   const open = useSignal(false);
   const timer = useSignal<number | null>(null);
   const observer = useSignal<NoSerialize<ResizeObserver>>();
+  // Removed while open (the photo changed, a page left): let it go.
+  useTask$(({ cleanup }) => {
+    cleanup(() => observer.value?.disconnect());
+  });
 
   const place = $(() => {
     const el = card.value;
