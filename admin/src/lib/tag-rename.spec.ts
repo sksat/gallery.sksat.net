@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseChoiceMap,
   parseTagList,
+  renameInChoices,
   renameInList,
+  storedChoiceMap,
+  unrenameInChoices,
   unrenameInList,
   validateTagName,
 } from "./tag-rename";
@@ -57,6 +61,54 @@ describe("unrenameInList", () => {
     ).toEqual(["旅", "a", "旅行", "c"]);
     // The new name taken off since: nothing to take back.
     expect(unrenameInList(["a"], ["a", "旅"], "旅", "旅行")).toEqual(["a"]);
+  });
+});
+
+describe("renameInChoices / unrenameInChoices (0021)", () => {
+  const H = "hidden";
+
+  it("moves the choice to the new name, in place", () => {
+    const c = { a: H, 旅: H, b: H };
+    expect(JSON.stringify(renameInChoices(c, "旅", "たび"))).toBe(
+      '{"a":"hidden","たび":"hidden","b":"hidden"}',
+    );
+    const none = { a: H };
+    expect(renameInChoices(none, "旅", "たび")).toBe(none);
+  });
+
+  it("merges: hidden when either was", () => {
+    expect(renameInChoices({ 旅: H, 旅行: "shown" }, "旅", "旅行")).toEqual({
+      旅行: H,
+    });
+    expect(renameInChoices({ 旅: "shown", 旅行: H }, "旅", "旅行")).toEqual({
+      旅行: H,
+    });
+  });
+
+  it("undoes exactly while nothing changed since", () => {
+    const before = { 旅: H, 旅行: "shown" };
+    const after = renameInChoices(before, "旅", "旅行");
+    expect(unrenameInChoices(after, before, "旅", "旅行")).toBe(before);
+  });
+
+  it("keeps a choice made since, hiding the old name when the new one is", () => {
+    // Renamed with no choice; hidden since under the new name.
+    expect(unrenameInChoices({ たび: H }, {}, "旅", "たび")).toEqual({
+      たび: H,
+      旅: H,
+    });
+    // Hidden by the rename, shown since: `from` back as it was (none),
+    // and the edit stays.
+    expect(unrenameInChoices({}, { 旅: "x" }, "旅", "たび")).toEqual({
+      旅: "x",
+    });
+  });
+
+  it("parses and stores", () => {
+    expect(parseChoiceMap('{"a":"hidden","b":1,"c":null,"d":"shown"}')).toEqual({ a: H, b: H, d: "shown" });
+    expect(parseChoiceMap("[]")).toBeNull();
+    expect(parseChoiceMap(null)).toBeNull();
+    expect(storedChoiceMap({})).toBeNull();
   });
 });
 

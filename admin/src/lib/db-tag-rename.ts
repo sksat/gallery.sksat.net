@@ -5,6 +5,9 @@
 //     id, media.tag_values / tag_value_visibility, need nothing),
 //   - media.tags (each photo's own tags, a JSON array; also the photos in
 //     the trash and uploads not completed, so they come back right),
+//   - media.tag_visibility (0021: a photo's choices, keyed by name; a
+//     photo may hide a tag it has only through its camera, so it is
+//     searched apart from media.tags),
 //   - camera_tag.tag (0011),
 //   - the upload rules' tags (the `setting` row upload_rules).
 // One read finds them (a pass over media through json_each(media.tags):
@@ -14,7 +17,16 @@
 // runs this on the real schema.
 
 import { contentVersionStatement } from "./last-good";
-import { parseTagList, renameInList, unrenameInList } from "./tag-rename";
+import {
+  parseChoiceMap,
+  parseTagList,
+  renameInChoices,
+  renameInList,
+  storedChoiceMap,
+  unrenameInChoices,
+  unrenameInList,
+  type TagChoiceMap,
+} from "./tag-rename";
 import { UPLOAD_RULES_KEY } from "./upload-rules";
 
 type TagRowBefore = { id: number; public: boolean; createdAt: string };
@@ -28,7 +40,15 @@ type CameraTagBefore = {
 };
 
 /** A photo's columns before the rename (only those that name tags). */
-export type PhotoTagsBefore = { id: number; tags: string[] };
+export type PhotoTagsBefore = {
+  id: number;
+  tags: string[];
+  /**
+   * Its choices per tag (0021, media.tag_visibility), or null for none.
+   * Always set by renameTag; absent only in an undo from before 0021.
+   */
+  tagVisibility?: TagChoiceMap | null;
+};
 
 /** What a rename changed: everything its undo puts back. */
 export type TagRename = {
@@ -107,25 +127,53 @@ const mapRuleTags = (
  * Every row with either name (?1, ?2; in the trash or uploading too):
  * the one pass over media (scripts/bench-queries.ts counts its rows).
  */
-export const FIND_TAGGED_SQL = `SELECT id, tags FROM media
- WHERE json_valid(tags) AND EXISTS (
+export const FIND_TAGGED_SQL = `SELECT id, tags, tag_visibility FROM media
+ WHERE (json_valid(tags) AND EXISTS (
    SELECT 1 FROM json_each(media.tags) j
-   WHERE j.type = 'text' AND j.value IN (?1, ?2))`;
+   WHERE j.type = 'text' AND j.value IN (?1, ?2)))
+ OR (tag_visibility IS NOT NULL AND EXISTS (
+   SELECT 1 FROM json_each(media.tag_visibility) k
+   WHERE k.key IN (?1, ?2)))`;
 
-// [id, tags before (the guard), tags after]: one statement whatever the
-// count (D1 caps bound parameters at 100), read once through json_each and
-// joined on the primary key. A photo whose tags changed meanwhile is left.
+/** [id, tags before, tags after, choices before, choices after]. */
+type PhotoWrite = readonly [
+  number,
+  string,
+  string,
+  string | null,
+  string | null,
+];
+
+// One statement whatever the count (D1 caps bound parameters at 100), read
+// once through json_each and joined on the primary key. A photo whose tags
+// or choices changed meanwhile is left (the guards).
 export const SET_TAGS_SQL = `UPDATE media SET tags = p.next,
+   tag_visibility = p.next_tv,
    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
  FROM (SELECT json_extract(value, '$[0]') AS id,
               json_extract(value, '$[1]') AS prev,
-              json_extract(value, '$[2]') AS next
+              json_extract(value, '$[2]') AS next,
+              json_extract(value, '$[3]') AS prev_tv,
+              json_extract(value, '$[4]') AS next_tv
        FROM json_each(?1)) AS p
- WHERE media.id = p.id AND media.tags = p.prev`;
+ WHERE media.id = p.id AND media.tags = p.prev
+   AND media.tag_visibility IS p.prev_tv`;
+
+/** Stored choices after the rename: as stored when it changes nothing. */
+const renamedChoices = (
+  raw: string | null,
+  choices: TagChoiceMap | null,
+  from: string,
+  to: string,
+): string | null => {
+  if (choices === null) return raw;
+  const next = renameInChoices(choices, from, to);
+  return next === choices ? raw : storedChoiceMap(next);
+};
 
 const setTags = (
   db: D1Database,
-  rows: readonly (readonly [number, string, string])[],
+  rows: readonly PhotoWrite[],
 ): D1PreparedStatement => db.prepare(SET_TAGS_SQL).bind(JSON.stringify(rows));
 
 const setRules = (
@@ -225,13 +273,37 @@ export const renameTag = async (
     ((ruleRow.results ?? [])[0] as { value: string } | undefined)?.value ??
     null;
   const rules = parseRules(ruleRaw);
-  const photos = ((mediaRows.results ?? []) as { id: number; tags: string }[])
-    .map((r) => ({ id: r.id, raw: r.tags, tags: parseTagList(r.tags) }))
+  const photos = (
+    (mediaRows.results ?? []) as {
+      id: number;
+      tags: string;
+      tag_visibility: string | null;
+    }[]
+  )
+    .map((r) => ({
+      id: r.id,
+      raw: r.tags,
+      tags: parseTagList(r.tags),
+      rawTv: r.tag_visibility,
+      tv: parseChoiceMap(r.tag_visibility),
+    }))
     .filter(
-      (r): r is { id: number; raw: string; tags: string[] } => r.tags !== null,
+      (
+        r,
+      ): r is {
+        id: number;
+        raw: string;
+        tags: string[];
+        rawTv: string | null;
+        tv: TagChoiceMap | null;
+      } => r.tags !== null,
     );
 
-  const fromPhotos = photos.filter((p) => p.tags.includes(from));
+  // Photos that name `from`: in their tags, or in their choices (a tag
+  // they have only through a camera).
+  const fromPhotos = photos.filter(
+    (p) => p.tags.includes(from) || (p.tv !== null && Object.hasOwn(p.tv, from)),
+  );
   const fromCams = new Set(
     cams.filter((c) => c.tag === from).map((c) => c.camera_id),
   );
@@ -338,6 +410,8 @@ export const renameTag = async (
               p.id,
               p.raw,
               JSON.stringify(renameInList(p.tags, from, to)),
+              p.rawTv,
+              renamedChoices(p.rawTv, p.tv, from, to),
             ] as const,
         ),
       ),
@@ -373,7 +447,11 @@ export const renameTag = async (
         id: r.id as string,
         tags: ruleTags(r) ?? [],
       })),
-      photos: fromPhotos.map((p) => ({ id: p.id, tags: p.tags })),
+      photos: fromPhotos.map((p) => ({
+        id: p.id,
+        tags: p.tags,
+        tagVisibility: p.tv,
+      })),
     },
   };
 };
@@ -398,9 +476,23 @@ export const unrenameTag = async (
       .bind(UPLOAD_RULES_KEY),
     db
       .prepare(
-        "SELECT id, tags FROM media WHERE id IN (SELECT value FROM json_each(?))",
+        // The renamed photos, and those of the cameras that had the old
+        // name that hid the new one since (a tag their camera passes on,
+        // with no choice when it was renamed).
+        `SELECT id, tags, tag_visibility FROM media
+         WHERE id IN (SELECT value FROM json_each(?1))
+            OR (camera_id IN (SELECT value FROM json_each(?3))
+                AND tag_visibility IS NOT NULL AND EXISTS (
+                  SELECT 1 FROM json_each(media.tag_visibility) k
+                  WHERE k.key = ?2))`,
       )
-      .bind(JSON.stringify(ids)),
+      .bind(
+        JSON.stringify(ids),
+        r.to,
+        JSON.stringify(
+          r.cameras.filter((c) => c.tag === r.from).map((c) => c.cameraId),
+        ),
+      ),
     db
       .prepare(
         `SELECT camera_id, tag, propagate, created_at FROM camera_tag
@@ -545,15 +637,56 @@ export const unrenameTag = async (
       changed(db, 1),
     );
   }
-  const before = new Map(r.photos.map((p) => [p.id, p.tags]));
+  const before = new Map(r.photos.map((p) => [p.id, p]));
   const rows = (
-    (mediaRows.results ?? []) as { id: number; tags: string }[]
-  ).flatMap((m) => {
+    (mediaRows.results ?? []) as {
+      id: number;
+      tags: string;
+      tag_visibility: string | null;
+    }[]
+  ).flatMap((m): PhotoWrite[] => {
     const now = parseTagList(m.tags);
     const b = before.get(m.id);
-    if (!now || !b) return [];
-    const next = unrenameInList(now, b, r.from, r.to);
-    return next === now ? [] : [[m.id, m.tags, JSON.stringify(next)] as const];
+    if (!now) return [];
+    if (!b) {
+      // Not renamed, but hides the new name now, which its camera passes
+      // on: it hides the old one too, never shows it.
+      const tv = parseChoiceMap(m.tag_visibility) ?? {};
+      if (
+        !Object.hasOwn(tv, r.to) ||
+        tv[r.to] !== "hidden" ||
+        Object.hasOwn(tv, r.from)
+      ) {
+        return [];
+      }
+      const next = { ...tv };
+      Object.defineProperty(next, r.from, {
+        value: "hidden",
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+      return [[m.id, m.tags, m.tags, m.tag_visibility, storedChoiceMap(next)]];
+    }
+    const next = unrenameInList(now, b.tags, r.from, r.to);
+    // Choices: back as they were, or only the rename taken back (an older
+    // undo without them leaves the choices as they are).
+    const tvNow = parseChoiceMap(m.tag_visibility) ?? {};
+    const tvNext =
+      b.tagVisibility === undefined
+        ? tvNow
+        : unrenameInChoices(tvNow, b.tagVisibility ?? {}, r.from, r.to);
+    const tvSame = JSON.stringify(tvNext) === JSON.stringify(tvNow);
+    if (next === now && tvSame) return [];
+    return [
+      [
+        m.id,
+        m.tags,
+        JSON.stringify(next),
+        m.tag_visibility,
+        tvSame ? m.tag_visibility : storedChoiceMap(tvNext),
+      ],
+    ];
   });
   if (rows.length > 0) stmts.push(setTags(db, rows), changed(db, rows.length));
   stmts.push(contentVersionStatement(db));
