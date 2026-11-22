@@ -53,7 +53,7 @@ const drag = async (
  * next drag lands on it rather than on the one it replaces.
  */
 const shown = (page: Page, date: string) =>
-  expect(page.getByTestId("info-taken")).toHaveText(date);
+  expect(page.getByTestId("info-taken").locator("time")).toHaveText(date);
 
 const open = async (page: Page, id: string) => {
   await openInOverlay(page, id);

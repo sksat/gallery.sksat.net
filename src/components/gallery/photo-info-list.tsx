@@ -1,6 +1,7 @@
 import { $, component$, Slot, sync$, type QRL } from "@builder.io/qwik";
 
 import { splitTaken, type ExposureSpec, type PhotoInfo } from "./photo-info";
+import type { TakenAt } from "./taken";
 
 export type TagLink = { tag: string; href: string };
 
@@ -87,59 +88,45 @@ const Row = component$<{ icon: keyof typeof ICON; label: string; id: string }>(
   ),
 );
 
+/**
+ * When a photo was taken, as the overlay and the photo page show it above
+ * the photo: the date, and the time (at its public precision) lighter.
+ */
+export const TakenText = component$<{ taken: TakenAt }>(({ taken }) => {
+  const { date, time } = splitTaken(taken.text);
+  return (
+    <time dateTime={taken.datetime}>
+      {date}
+      {time && " "}
+      {time && <span class="ml-[0.2em] font-normal text-white/60">{time}</span>}
+    </time>
+  );
+});
+
 interface PhotoTitleProps {
   info: PhotoInfo;
-  /** The heading's level: 1 on the photo page, 2 in the overlay. */
-  level: 1 | 2;
-  id: string;
+  /** Larger, on the photo page. */
+  large?: boolean;
+  /** A heading (for screen readers) with this id: the overlay's info. */
+  headingId?: string;
 }
 
 /**
- * The photo's title block: its date as the heading (the time set lighter),
- * and where it was taken under it: the VRChat world, or the place on the
- * map. Without a public date the heading is for screen readers only.
+ * Where the photo was taken, at the head of its info: the VRChat world (a
+ * link to its page), or the place on the map. Its date is above the photo
+ * (TakenText).
  */
 export const PhotoTitle = component$<PhotoTitleProps>((props) => {
-  const { taken, world, location } = props.info;
-  const page = props.level === 1;
-  const parts = taken ? splitTaken(taken.text) : null;
-  // `!`: the site's unlayered h2 rule would win otherwise.
-  const headingClass = [
-    "!m-0 leading-none !font-semibold tracking-tight tabular-nums",
-    page ? "!text-4xl sm:!text-5xl" : "!text-[1.75rem]",
-    taken ? "" : "sr-only",
-  ];
-  const heading =
-    taken && parts ? (
-      <time dateTime={taken.datetime}>
-        {parts.date}
-        {parts.time && " "}
-        {parts.time && (
-          <span
-            class={[
-              "font-normal text-white/55",
-              page ? "ml-1.5 text-[0.6em]" : "ml-1 text-[0.65em]",
-            ]}
-          >
-            {parts.time}
-          </span>
-        )}
-      </time>
-    ) : page ? (
-      "写真"
-    ) : (
-      "写真の情報"
-    );
-  const H = page ? "h1" : "h2";
+  const { world, location } = props.info;
+  const page = props.large === true;
   return (
-    <div class="flex flex-col gap-3">
-      <H
-        id={props.id}
-        data-testid={taken ? "info-taken" : undefined}
-        class={headingClass}
-      >
-        {heading}
-      </H>
+    <div class="flex flex-col gap-3 empty:hidden">
+      {props.headingId && (
+        // `!`: the site's unlayered h2 rule would win otherwise.
+        <h2 id={props.headingId} class="sr-only !m-0">
+          写真の情報
+        </h2>
+      )}
       {(world || location) && (
         <dl
           class={[
@@ -198,15 +185,19 @@ export const ExposureSpecs = component$<{
   specs: ExposureSpec[];
   /** Larger, on the photo page. */
   large?: boolean;
+  /** In one row on wide screens (the overlay's strip under the photo). */
+  row?: boolean;
 }>((props) => (
   <dl
     data-testid="info-exposure"
     aria-label="撮影設定"
-    // Two by two where it is narrow (the overlay's card, phones); on the
-    // photo page from sm, all in one row.
+    // Two by two where it is narrow (the overlay beside the photo,
+    // phones); on the photo page from sm, and in the overlay's strip, all
+    // in one row.
     class={[
       "grid grid-cols-2 gap-1.5",
       props.large && "sm:grid-cols-(--readout-cols)",
+      props.row && "lg:grid-cols-(--readout-cols)",
     ]}
     style={{
       "--readout-cols": `repeat(${props.specs.length}, minmax(0, 1fr))`,
@@ -246,6 +237,8 @@ interface PhotoInfoListProps {
    * are plain links (the photo page).
    */
   onTag$?: QRL<(tag: string) => void>;
+  /** Its rows side by side on wide screens (the overlay's strip). */
+  inline?: boolean;
 }
 
 /**
@@ -259,7 +252,13 @@ interface PhotoInfoListProps {
 export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
   const i = props.info;
   return (
-    <dl class="grid gap-y-4 text-[0.9375rem] leading-snug text-white [&_dd]:break-words">
+    <dl
+      class={[
+        "grid gap-y-4 text-[0.9375rem] leading-snug text-white [&_dd]:break-words",
+        props.inline &&
+          "lg:flex lg:flex-wrap lg:items-start lg:gap-x-8 lg:gap-y-3 lg:[&>*]:max-w-80",
+      ]}
+    >
       {(i.camera || i.body || i.lens) && (
         <Row icon="camera" label="カメラ" id="info-camera">
           {i.camera && (

@@ -338,12 +338,13 @@ test.describe("phone", () => {
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\/detail\/\?tag=VRChat$/);
   });
 
-  test("the photo comes first, then its details", async ({ page }) => {
+  test("the date above the photo, then its details", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxa/detail/");
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
-    const photo = await page.getByTestId("overlay-box").boundingBox();
-    const info = await page.getByTestId("info-taken").boundingBox();
-    if (!photo || !info) throw new Error("missing");
+    const photo = (await page.getByTestId("overlay-box").boundingBox())!;
+    const date = (await page.getByTestId("info-taken").boundingBox())!;
+    const info = (await page.getByTestId("info-exposure").boundingBox())!;
+    expect(date.y + date.height).toBeLessThanOrEqual(photo.y);
     expect(info.y).toBeGreaterThan(photo.y + photo.height);
   });
 });

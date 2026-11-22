@@ -31,11 +31,12 @@ test.describe("desktop", () => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
     await expectShown(page);
-    // The date heads the panel.
-    await expect(p.getByRole("heading")).toHaveText("2023/12/02 00:00");
-    await expect(p.getByTestId("info-taken").locator("time")).toHaveAttribute(
-      "datetime",
-      "2023-12-02T00:00Z",
+    // The date is at the top, above the photo.
+    const date = page.getByTestId("info-taken").locator("time");
+    await expect(date).toHaveText("2023/12/02 00:00");
+    await expect(date).toHaveAttribute("datetime", "2023-12-02T00:00Z");
+    expect((await date.boundingBox())!.y).toBeLessThan(
+      (await page.getByTestId("overlay-image").boundingBox())!.y,
     );
     const camera = p.getByTestId("info-camera");
     await expect(camera.getByRole("link", { name: "VirtualLens2" })).toHaveAttribute(
@@ -74,7 +75,9 @@ test.describe("desktop", () => {
     await openPhoto(page, "vrcxxxxxxb");
     const p = panel(page);
     await expectShown(page);
-    await expect(p.getByTestId("info-taken")).toHaveText("2023/12/04");
+    await expect(page.getByTestId("info-taken").locator("time")).toHaveText(
+      "2023/12/04",
+    );
     // The maker only, as text.
     await expect(p.getByTestId("info-camera")).toHaveText("カメラRICOH");
     await expect(p.getByTestId("info-camera").getByRole("link")).toHaveCount(0);
@@ -110,7 +113,9 @@ test.describe("desktop", () => {
 
     await openPhoto(page, "reaxxxxxxa");
     await expectShown(page);
-    await expect(p.getByTestId("info-taken")).toHaveText("2023/12/01 00:00");
+    await expect(page.getByTestId("info-taken").locator("time")).toHaveText(
+      "2023/12/01 00:00",
+    );
     // Its place, linking to the map on it.
     const place = p.getByTestId("info-location").getByRole("link");
     await expect(place).toHaveText(/35\.68/);
@@ -140,22 +145,31 @@ test.describe("desktop", () => {
     expect(await page.content()).not.toContain("draft memo");
   });
 
-  test("at the top right, the photo centred as without it", async ({
-    page,
-  }) => {
+  test("never over the photo, which stays centred", async ({ page }) => {
+    const photo = page.getByTestId("overlay-box");
+
+    // 16:9: no room at its sides, so the info is under it.
     await openPhoto(page, "vrcxxxxxxa");
     await expectShown(page);
-    const photo = page.getByTestId("overlay-box");
-    const shown = await photo.boundingBox();
-    const info = await panel(page).boundingBox();
-    if (!shown || !info) throw new Error("missing");
-    // The photo box is 90vw wide and centred; the info at the top right.
-    expect(shown.width).toBeCloseTo(1280 * 0.9, 0);
-    expect(shown.x + shown.width / 2).toBeCloseTo(640, 0);
-    expect(info.x + info.width).toBeGreaterThan(1250);
-    expect(info.y).toBeLessThan(30);
+    await expect(panel(page)).toHaveAttribute("data-wide", "below");
+    let box = (await photo.boundingBox())!;
+    let info = (await panel(page).boundingBox())!;
+    expect(box.x + box.width / 2).toBeCloseTo(640, 0);
+    expect(info.y).toBeGreaterThanOrEqual(box.y + box.height);
+
+    // 3:4: beside it, past the photo's right edge (the box is 90vw wide;
+    // the photo in it as tall as the box).
+    await openPhoto(page, "reaxxxxxxa");
+    await expectShown(page);
+    await expect(panel(page)).toHaveAttribute("data-wide", "side");
+    box = (await photo.boundingBox())!;
+    info = (await panel(page).boundingBox())!;
+    expect(box.x + box.width / 2).toBeCloseTo(640, 0);
+    expect(info.x).toBeGreaterThanOrEqual(640 + (box.height * 3) / 4 / 2);
+    expect(info.x + info.width).toBeLessThanOrEqual(1280);
 
     // Hidden, the photo stays where it was.
+    const shown = await photo.boundingBox();
     await page.getByTestId("info-toggle").click();
     await expect(panel(page)).toBeHidden();
     expect(await photo.boundingBox()).toEqual(shown);
@@ -256,22 +270,26 @@ test.describe("desktop", () => {
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("the info follows the centred photo, its date in view", async ({
+  test("the date above the centred photo, the info right under it", async ({
     page,
   }) => {
     for (const id of ["vrcxxxxxxa", "reaxxxxxxa"]) {
       await openPhoto(page, id);
       await expectShown(page);
-      const photo = await page.getByTestId("overlay-box").boundingBox();
-      const date = await panel(page).getByTestId("info-taken").boundingBox();
-      if (!photo || !date) throw new Error("missing");
+      const photo = (await page.getByTestId("overlay-box").boundingBox())!;
+      const date = (await page.getByTestId("info-taken").boundingBox())!;
+      // Its first line (the world or the place).
+      const first = (await panel(page)
+        .locator("[data-testid=info-world], [data-testid=info-location]")
+        .boundingBox())!;
       // The photo in the middle of the first screen (the progress bar
       // under it is in the centring too).
       expect(Math.abs(photo.y + photo.height / 2 - 844 / 2)).toBeLessThan(12);
-      // The date right under it, on the first screen (a tall photo
-      // leaves room for it).
-      expect(date.y).toBeGreaterThanOrEqual(photo.y + photo.height);
-      expect(date.y + date.height).toBeLessThan(844);
+      // The date above it, and the info right under it, on the first
+      // screen (a tall photo leaves room for its first line).
+      expect(date.y + date.height).toBeLessThanOrEqual(photo.y);
+      expect(first.y).toBeGreaterThanOrEqual(photo.y + photo.height);
+      expect(first.y + first.height).toBeLessThan(844);
     }
     // Landscape: the rest of the info is in view too.
     await openPhoto(page, "vrcxxxxxxa");
@@ -290,7 +308,9 @@ test.describe("phone", () => {
     await openPhoto(page, "vrcxxxxxxb");
     const p = panel(page);
     await expectShown(page);
-    await expect(p.getByTestId("info-taken")).toHaveText("2023/12/04");
+    await expect(page.getByTestId("info-taken").locator("time")).toHaveText(
+      "2023/12/04",
+    );
     await expect(p.getByTestId("info-exposure")).toHaveCount(0);
     await expect(p.getByTestId("info-world").getByRole("link")).toHaveCount(0);
   });

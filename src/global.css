@@ -44,7 +44,8 @@ body {
    viewer's stored choice to hide it (put on <html> by router-head.tsx
    before the page paints) hides it here, so it does not show for a
    moment (photo-overlay.tsx). */
-html[data-photo-info="hidden"] [data-info-pending] #photo-info {
+html[data-photo-info="hidden"] [data-info-pending] #photo-info,
+html[data-photo-info="hidden"] [data-info-pending] ~ [data-photo-taken] {
   display: none;
 }
 

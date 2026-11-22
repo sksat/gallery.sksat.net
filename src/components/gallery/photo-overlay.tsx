@@ -14,6 +14,12 @@ import { photoSize, type ImageSource } from "./images";
 import { InfoPanel, type TagLink } from "./info-panel";
 import { isTextTarget } from "./keys";
 import {
+  SERVER_WIDE_INFO_PLACE,
+  wideInfoPlace,
+  type WideInfoPlace,
+} from "./overlay-layout";
+import { TakenText } from "./photo-info-list";
+import {
   hasDetails,
   INFO_HIDDEN,
   INFO_SHOWN_KEY,
@@ -111,6 +117,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     props.info ? photoInfo(props.info) : undefined,
   );
   const i = info.value;
+  const taken = i?.taken ?? null;
   const hasInfo =
     i !== undefined &&
     props.onTag$ !== undefined &&
@@ -147,8 +154,37 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
   // not known, rather than a guessed shape).
   const size = props.info ? photoSize(props.info) : {};
   const most = "100dvh - 2 * var(--peek)";
+  // Wide screens: the info beside the photo when it leaves room at its
+  // sides, else in a strip under it (overlay-layout.ts), never over it.
+  // Known at once in the browser (stepping makes a new overlay); a
+  // server-rendered one starts below, which fits any screen.
+  const ratio = "width" in size ? size.width / size.height : null;
+  const wide = useSignal<WideInfoPlace>(
+    isBrowser
+      ? wideInfoPlace(window.innerWidth, window.innerHeight, ratio)
+      : SERVER_WIDE_INFO_PLACE,
+  );
+  // A visible task is intended: the screen's size is only known in the
+  // browser, and the place follows it as the window is resized.
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(({ cleanup }) => {
+    const update = () => {
+      wide.value = wideInfoPlace(window.innerWidth, window.innerHeight, ratio);
+    };
+    update();
+    window.addEventListener("resize", update);
+    cleanup(() => window.removeEventListener("resize", update));
+  });
+  const below = wide.value === "below";
   const layout = {
     "--peek": "5rem",
+    // The strip under the photo on wide screens.
+    "--strip": "7rem",
+    // Half the photo's width as shown beside its info (90vw by the
+    // screen's height less 3.5rem above and below), so the info starts
+    // just past its edge.
+    "--photo-half-w":
+      ratio === null ? "45vw" : `min(45vw, (50vh - 3.5rem) * ${ratio})`,
     "--photo-h":
       "width" in size
         ? `min(90vw * ${size.height / size.width}, ${most})`
@@ -171,15 +207,26 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
       }}
       class={overlayClass.backdrop}
     >
-      {/* The photo centred on the screen, as without its info. Narrow:
-          the info follows it, the overlay scrolling to it. Wide: the info
-          at the right edge, over the photo where the photo reaches it. */}
+      {/* The photo centred on the screen, as without its info, and the
+          info never over it. Narrow: the info follows it, the overlay
+          scrolling to it. Wide: the info beside it, or in a strip under
+          it (the photo then centred in the room above the strip). */}
       <div
         data-info-pending={resumed.value ? undefined : ""}
         style={layout}
         class="absolute inset-0 overflow-y-auto overscroll-contain lg:overflow-hidden"
       >
-        <div class="flex h-dvh flex-col items-center justify-center gap-3">
+        <div
+          class={[
+            "flex h-dvh flex-col items-center justify-center gap-3",
+            // Wide: room for the date above, and for the strip below or as
+            // much again (the photo stays centred).
+            hasInfo &&
+              (below
+                ? "lg:pt-14 lg:pb-[calc(var(--strip)+1.5rem)]"
+                : "lg:py-14"),
+          ]}
+        >
           <ProgressiveImage
             src={props.src}
             boxRef={box}
@@ -188,7 +235,7 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
             // photo.
             boxClass={
               hasInfo
-                ? "relative flex h-(--photo-h) w-[90vw] items-center justify-center lg:h-[85vh]"
+                ? "relative flex h-(--photo-h) w-[90vw] items-center justify-center lg:h-auto lg:min-h-0 lg:flex-1"
                 : overlayClass.box
             }
           />
@@ -196,12 +243,27 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
         {hasInfo && (
           <InfoPanel
             info={i}
+            wide={wide.value}
             shown={open}
             tagLinks={props.tagLinks ?? []}
             onTag$={props.onTag$!}
           />
         )}
       </div>
+
+      {/* When it was taken, at the top above the photo, with the info: in
+          view on every screen without opening or scrolling anything. Taps
+          go through it (to the backdrop, which closes). */}
+      {open && taken && (
+        <p
+          data-testid="info-taken"
+          data-photo-taken
+          class="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-[0.9375rem] leading-tight font-semibold whitespace-nowrap text-white tabular-nums ring-1 ring-white/10 backdrop-blur-sm"
+        >
+          <span class="sr-only">撮影日時 </span>
+          <TakenText taken={taken} />
+        </p>
+      )}
 
       {/* The photo's buttons, at the bottom right corner (above the info,
           whose foot leaves room for them). Only the buttons take clicks

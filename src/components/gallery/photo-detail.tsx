@@ -14,7 +14,12 @@ import { SiteNav } from "../layout/site-nav";
 import { MiniMap } from "../map/mini-map";
 import { MiniCalendar } from "./mini-calendar";
 import { photoInfo } from "./photo-info";
-import { ExposureSpecs, PhotoInfoList, PhotoTitle } from "./photo-info-list";
+import {
+  ExposureSpecs,
+  PhotoInfoList,
+  PhotoTitle,
+  TakenText,
+} from "./photo-info-list";
 import { ProgressiveImage } from "./progressive-image";
 import { ShareButton } from "./share-button";
 import { DEFAULT_TAG_MODE, mediaTags } from "./tags";
@@ -188,6 +193,19 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
         </span>
       </div>
 
+      {/* The date names the photo, at the top above it, as in the overlay.
+          `!`: the site's unlayered h1 rules would win otherwise. */}
+      <h1
+        id="photo-detail-title"
+        data-testid={info.taken ? "info-taken" : undefined}
+        class={[
+          "mx-auto max-w-6xl px-4 pt-1 pb-4 text-[1.75rem] leading-none font-semibold tracking-tight tabular-nums sm:px-6 sm:pt-2 sm:pb-5 sm:text-4xl",
+          info.taken ? "" : "sr-only",
+        ]}
+      >
+        {info.taken ? <TakenText taken={info.taken} /> : "写真"}
+      </h1>
+
       {/* The photo: a dark band across the whole page, the photo as large
           as fits in it (the screen's width on phones). */}
       <div
@@ -218,7 +236,7 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
       <div class="mx-auto max-w-6xl px-4 pt-8 sm:px-6 sm:pt-12">
         <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
           <div class="flex min-w-0 flex-col gap-8 sm:gap-10">
-            <PhotoTitle info={info} level={1} id="photo-detail-title" />
+            <PhotoTitle info={info} large />
             {info.exposure && (
               <div class="max-w-xl">
                 <ExposureSpecs specs={info.exposure} large />

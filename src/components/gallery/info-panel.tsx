@@ -1,5 +1,6 @@
 import { component$, type QRL } from "@builder.io/qwik";
 
+import type { WideInfoPlace } from "./overlay-layout";
 import type { PhotoInfo } from "./photo-info";
 import {
   ExposureSpecs,
@@ -18,17 +19,19 @@ interface InfoPanelProps {
   onTag$: QRL<(tag: string) => void>;
   /** Shown (else hidden, the photo taking the whole screen). */
   shown: boolean;
+  /** Where it goes on wide screens (overlay-layout.ts). */
+  wide: WideInfoPlace;
 }
 
 /**
- * The photo's metadata in the overlay, exactly as the API gave it, never
- * moving the photo from the centre: a card at the top right on wide
- * screens (over the photo only where a wide photo reaches it), and under
- * the photo on narrow ones (the overlay scrolls to it; its title shows at
- * the foot of the first screen). The same parts as the photo page: the
- * date as the title with the world or place, the exposure readout, then
- * the other rows. Shown until the viewer hides it (the ⓘ button or `i`,
- * in photo-overlay.tsx).
+ * The photo's metadata in the overlay, exactly as the API gave it, in the
+ * room the photo leaves, never over it (the date is above the photo, in
+ * photo-overlay.tsx): on narrow screens under the photo (the overlay
+ * scrolls to it; its first line shows at the foot of the first screen);
+ * on wide ones beside the photo, or in a strip under it, its parts side by
+ * side. The same parts as the photo page: the world or place, the
+ * exposure readout, then the other rows. Shown until the viewer hides it
+ * (the ⓘ button or `i`).
  *
  * Rendered on the server so the metadata is in the page without JS. It
  * takes its own clicks, so the overlay's "click outside closes" never
@@ -36,10 +39,12 @@ interface InfoPanelProps {
  */
 export const InfoPanel = component$<InfoPanelProps>((props) => {
   const i = props.info;
+  const strip = props.wide === "below";
   return (
     <section
       id="photo-info"
       data-testid="info-panel"
+      data-wide={props.wide}
       // A horizontal swipe on it steps like one on the photo (its scrolling
       // is vertical).
       aria-labelledby="photo-info-title"
@@ -51,15 +56,23 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
         // --info-top), as wide as reads well; the foot leaves room for the
         // buttons in the corner.
         "relative mx-auto mt-(--info-top) w-full max-w-xl px-5 pt-4 pb-20",
-        // Wide: a dark card at the top right, over the photo where the
-        // photo reaches it (dark enough for its links over a bright
-        // photo), scrolling on its own.
-        "lg:absolute lg:top-4 lg:right-4 lg:m-0 lg:max-h-[calc(100%-6rem)] lg:w-[22rem] lg:max-w-none lg:overflow-y-auto lg:overscroll-contain lg:rounded-2xl lg:bg-[#0c0f22]/90 lg:p-6 lg:shadow-2xl lg:ring-1 lg:ring-white/10 lg:backdrop-blur-md",
+        "lg:absolute lg:m-0 lg:max-w-none lg:overflow-y-auto lg:overscroll-contain lg:p-0",
+        strip
+          ? // Under the photo, centred, clear of the corner's buttons.
+            "lg:bottom-3 lg:left-1/2 lg:h-(--strip) lg:w-[min(100vw-20rem,64rem)] lg:-translate-x-1/2 lg:flex-row lg:flex-wrap lg:content-start lg:items-start lg:justify-center lg:gap-x-10 lg:gap-y-3"
+          : // In the margin at the right, just past the photo's edge
+            // (photo-overlay.tsx sets --photo-half-w).
+            "lg:top-1/2 lg:left-[calc(50%+var(--photo-half-w)+2rem)] lg:max-h-[calc(100vh-10rem)] lg:w-80 lg:-translate-y-1/2",
       ]}
     >
-      <PhotoTitle info={i} level={2} id="photo-info-title" />
-      {i.exposure && <ExposureSpecs specs={i.exposure} />}
-      <PhotoInfoList info={i} tagLinks={props.tagLinks} onTag$={props.onTag$} />
+      <PhotoTitle info={i} headingId="photo-info-title" />
+      {i.exposure && <ExposureSpecs specs={i.exposure} row={strip} />}
+      <PhotoInfoList
+        info={i}
+        tagLinks={props.tagLinks}
+        onTag$={props.onTag$}
+        inline={strip}
+      />
     </section>
   );
 });
