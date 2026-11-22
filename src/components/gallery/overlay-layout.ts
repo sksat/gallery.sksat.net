@@ -4,10 +4,11 @@
 
 /**
  * The overlay's photo box beside its info: 90vw wide, and the screen's
- * height less 3.5rem above (the date) and below (photo-overlay.tsx).
+ * height less 3.5rem above (the date) and 4rem below (the summary;
+ * photo-overlay.tsx).
  */
 const BOX_W = 0.9;
-export const BOX_MARGIN_Y_PX = 2 * 56;
+export const BOX_MARGIN_Y_PX = 56 + 64;
 
 /** The side card's width and its gaps on both sides (CSS px). */
 export const SIDE_CARD_PX = 320;

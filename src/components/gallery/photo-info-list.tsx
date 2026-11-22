@@ -41,6 +41,9 @@ const DETAIL = "mt-0.5 text-sm text-white/65";
 /** 24×24 stroke icons, one per kind of row. */
 const ICON = {
   camera: "M4 8h3l2-3h6l2 3h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+  // An aperture.
+  exposure:
+    "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16 3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94",
   // A scanner's frame.
   scan: "M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10",
   world:
@@ -185,47 +188,38 @@ export const ExposureSpecs = component$<{
   specs: ExposureSpec[];
   /** Larger, on the photo page. */
   large?: boolean;
-  /** In one row on wide screens (the overlay's strip under the photo). */
-  row?: boolean;
 }>((props) => (
-  <dl
+  <div
     data-testid="info-exposure"
-    aria-label="撮影設定"
-    // Two by two where it is narrow (the overlay beside the photo,
-    // phones); on the photo page from sm, and in the overlay's strip, all
-    // in one row.
-    class={[
-      "grid grid-cols-2 gap-1.5",
-      props.large && "sm:grid-cols-(--readout-cols)",
-      props.row && "lg:grid-cols-(--readout-cols)",
-    ]}
-    style={{
-      "--readout-cols": `repeat(${props.specs.length}, minmax(0, 1fr))`,
-    }}
+    class="grid grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-x-3"
   >
-    {props.specs.map((s) => (
-      <div
-        key={s.label}
-        class={[
-          "flex min-w-0 flex-col gap-1 rounded-lg bg-white/[0.07] ring-1 ring-white/10 ring-inset",
-          props.large ? "px-3.5 py-3" : "px-3 py-2",
-        ]}
-      >
-        <dt class="text-[0.6875rem] leading-none whitespace-nowrap text-white/65">
-          {s.label}
-        </dt>
-        <dd
-          data-testid="info-exposure-value"
+    <span title="撮影設定" class="text-white/55">
+      <Icon icon="exposure" />
+    </span>
+    {/* One line, the values apart by thin rules, as a camera shows them;
+        their names for screen readers. */}
+    <dl
+      aria-label="撮影設定"
+      class={[
+        "flex flex-wrap items-center gap-y-1 leading-snug tabular-nums",
+        props.large ? "text-lg" : "text-[0.9375rem]",
+      ]}
+    >
+      {props.specs.map((s, n) => (
+        <div
+          key={s.label}
           class={[
-            "leading-tight font-semibold break-words tabular-nums",
-            props.large ? "text-xl" : "text-base",
+            "flex items-center whitespace-nowrap",
+            n > 0 &&
+              "before:mx-2.5 before:h-[0.9em] before:w-px before:bg-white/25 before:content-['']",
           ]}
         >
-          {s.value}
-        </dd>
-      </div>
-    ))}
-  </dl>
+          <dt class="sr-only">{s.label}</dt>
+          <dd data-testid="info-exposure-value">{s.value}</dd>
+        </div>
+      ))}
+    </dl>
+  </div>
 ));
 
 interface PhotoInfoListProps {

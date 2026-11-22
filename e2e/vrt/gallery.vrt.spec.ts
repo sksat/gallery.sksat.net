@@ -82,26 +82,35 @@ test("photo page", async ({ page }) => {
   await expect(page).toHaveScreenshot("photo-page.png", { fullPage: true });
 });
 
+/** Open the details from the summary (closed at first on wide screens). */
+const openDetails = async (page: Page) => {
+  await page.getByTestId("info-summary").click();
+  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+};
+
+// Wide screens: the summary under the photo.
 test("photo overlay", async ({ page }) => {
   await openPhoto(page);
-  await settled(page);
+  await expect(page.getByTestId("info-summary")).toBeVisible();
   await expect(page).toHaveScreenshot("photo-1.png");
 });
 
-test("photo overlay: info hidden", async ({ page }) => {
+// 16:9: the details in a strip under the photo.
+test("photo overlay: details open", async ({ page }) => {
   await openPhoto(page);
-  await page.getByTestId("info-toggle").click();
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
-  await expect(page.getByTestId("info-panel")).toBeHidden();
-  await expect(page).toHaveScreenshot("photo-1-info-hidden.png");
+  await openDetails(page);
+  await settled(page);
+  await expect(page).toHaveScreenshot("photo-1-info-open.png");
 });
 
-// reaxxxxxxa: its film tag's fields under the tag.
+// reaxxxxxxa (3:4): the details beside the photo, its film tag's fields
+// under the tag.
 test("photo overlay: a tag's fields", async ({ page }) => {
   await openPhoto(page, "reaxxxxxxa");
+  await openDetails(page);
   await expect(page.getByTestId("info-tag-fields")).toBeVisible();
   await settled(page);
   await expect(page).toHaveScreenshot("photo-real1-tag-fields.png");

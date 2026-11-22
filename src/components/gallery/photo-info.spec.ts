@@ -7,7 +7,9 @@ import {
   groupTagFields,
   hasDetails,
   INFO_HIDDEN,
-  infoShownFrom,
+  INFO_SHOWN,
+  infoChoiceFrom,
+  infoSummary,
   placeOf,
   photoInfo,
   worldHref,
@@ -54,10 +56,10 @@ describe("exposureSpecs", () => {
     ).toEqual([
       { label: "絞り", value: "f/2.8" },
       { label: "シャッター", value: "1/250 s" },
-      { label: "ISO", value: "100" },
+      { label: "ISO 感度", value: "ISO 100" },
       { label: "焦点距離", value: "35 mm" },
     ]);
-    expect(values({ iso: 3200 })).toEqual(["3200"]);
+    expect(values({ iso: 3200 })).toEqual(["ISO 3200"]);
     expect(values({ exposure_time: "2", focal_length_mm: 4.25 })).toEqual([
       "2 s",
       "4.3 mm",
@@ -86,12 +88,36 @@ describe("splitTaken", () => {
   });
 });
 
-describe("infoShownFrom", () => {
-  it("shows the info unless the viewer hid it", () => {
-    expect(infoShownFrom(null)).toBe(true);
-    expect(infoShownFrom("shown")).toBe(true);
-    expect(infoShownFrom("something else")).toBe(true);
-    expect(infoShownFrom(INFO_HIDDEN)).toBe(false);
+describe("infoChoiceFrom", () => {
+  it("reads the viewer's choice, or none", () => {
+    expect(infoChoiceFrom(INFO_SHOWN)).toBe(true);
+    expect(infoChoiceFrom(INFO_HIDDEN)).toBe(false);
+    expect(infoChoiceFrom(null)).toBeNull();
+    expect(infoChoiceFrom("something else")).toBeNull();
+  });
+});
+
+describe("infoSummary", () => {
+  it("is where, the camera and the exposure, on one line", () => {
+    const i = info({
+      camera: {
+        slug: "virtuallens2",
+        name: "VirtualLens2",
+        manufacturer: "logilabo",
+        model: "VirtualLens2",
+      },
+      world: { id: null, name: "Home" },
+      exif: { f_number: 1.4, exposure_time: "1/120", iso: 199 },
+    });
+    expect(infoSummary(i)).toBe("Home · VirtualLens2 · f/1.4 1/120 s ISO 199");
+    expect(
+      infoSummary(
+        info({
+          location: { latitude: 35.7, longitude: 139.8, precision: "city" },
+        }),
+      ),
+    ).toBe(placeLabel(35.7, 139.8, "city"));
+    expect(infoSummary(info({}))).toBeNull();
   });
 });
 

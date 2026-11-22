@@ -123,7 +123,8 @@ test.describe("desktop", () => {
   }) => {
     await openInOverlay(page, "vrcxxxxxxa");
     const tag = page.getByTestId("info-tag");
-    // The info is shown from the start.
+    // Its details open.
+    await page.getByTestId("info-summary").click();
     await expect(page.getByTestId("info-toggle")).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -148,7 +149,7 @@ test.describe("desktop", () => {
     await expect(d.getByTestId("info-exposure-value")).toHaveText([
       "f/2.8",
       "1/250 s",
-      "100",
+      "ISO 100",
       "35 mm",
     ]);
     await expect(

@@ -15,12 +15,17 @@ const panel = (page: Page) => page.getByTestId("info-panel");
 
 const openPhoto = openInOverlay;
 
-/** The panel is shown (as it is until the viewer hides it). */
+/**
+ * The details are shown: opened from the summary where they start closed
+ * (wide screens, until the viewer opened them once).
+ */
 const expectShown = async (page: Page) => {
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
+  const toggle = page.getByTestId("info-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", /true|false/);
+  if ((await toggle.getAttribute("aria-expanded")) === "false") {
+    await page.getByTestId("info-summary").click();
+  }
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(panel(page)).toBeInViewport();
 };
 
@@ -50,7 +55,7 @@ test.describe("desktop", () => {
     await expect(p.getByTestId("info-exposure-value")).toHaveText([
       "f/2.8",
       "1/250 s",
-      "100",
+      "ISO 100",
       "35 mm",
     ]);
     await expect(
@@ -101,7 +106,7 @@ test.describe("desktop", () => {
     await expect(p.getByTestId("info-exposure-value")).toHaveText([
       "f/5.6",
       "1/1000 s",
-      "200",
+      "ISO 200",
       "18.3 mm",
     ]);
     await expect(p.getByTestId("info-file")).toHaveCount(0);
@@ -175,19 +180,51 @@ test.describe("desktop", () => {
     expect(await photo.boundingBox()).toEqual(shown);
   });
 
-  test("toggles with i and the button, and remembers", async ({ page }) => {
+  test("a summary at first; i, the button and the summary open the details, remembered", async ({
+    page,
+  }) => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
     const toggle = page.getByTestId("info-toggle");
+    const summary = page.getByTestId("info-summary");
 
-    await page.keyboard.press("i");
+    // Closed at first on a wide screen: a one-line summary under the
+    // photo, never over it.
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(p).toBeHidden();
-    await page.keyboard.press("i");
+    await expect(summary).toHaveText(
+      "Fixture World · VirtualLens2 · f/2.8 1/250 s ISO 100 35 mm",
+    );
+    const photo = (await page.getByTestId("overlay-box").boundingBox())!;
+    expect((await summary.boundingBox())!.y).toBeGreaterThanOrEqual(
+      photo.y + photo.height,
+    );
+
+    // Opened from the summary, the focus goes into the details.
+    await summary.focus();
+    await page.keyboard.press("Enter");
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(p).toBeInViewport();
+    await expect(p).toBeFocused();
+    await expect(summary).toBeHidden();
+    // Its × closes it to the summary again.
+    await p.getByTestId("info-close").click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(summary).toBeVisible();
+    await summary.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
 
-    // Hidden, it stays hidden on the next photo, on reopening and on a
+    // Open, it stays open on the next photo.
+    await page.keyboard.press("ArrowRight");
+    await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\//);
+    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await page.keyboard.press("ArrowLeft");
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\//);
+
+    // Closed, it stays closed on the next photo, on reopening and on a
     // reload.
     await page.keyboard.press("i");
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -214,7 +251,11 @@ test.describe("desktop", () => {
 
     // The button shows it again; clicks on it do not close the photo.
     await page.getByTestId("info-toggle").click();
-    await expectShown(page);
+    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(p).toBeInViewport();
     await p.getByTestId("info-camera").click();
     await expect(page.getByTestId("overlay")).toBeVisible();
 
@@ -225,7 +266,7 @@ test.describe("desktop", () => {
     await expect(page.getByTestId("info-toggle")).toBeFocused();
     await expect(p).toBeHidden();
     await page.keyboard.press("i");
-    await expectShown(page);
+    await expect(p).toBeInViewport();
 
     // Arrows still browse; a click outside still closes.
     await page.keyboard.press("ArrowLeft");
@@ -251,14 +292,30 @@ test.describe("desktop", () => {
     await expect(page.getByTestId("overlay")).toBeVisible();
   });
 
+  test("without JS the details show, under the photo", async ({ browser }) => {
+    const context = await browser.newContext({
+      javaScriptEnabled: false,
+      viewport: { width: 1280, height: 800 },
+    });
+    const page = await context.newPage();
+    await page.goto("/photo/vrcxxxxxxa/");
+    await expect(panel(page)).toBeVisible();
+    await expect(page.getByTestId("info-summary")).toBeHidden();
+    const box = (await page.getByTestId("overlay-box").boundingBox())!;
+    const info = (await panel(page).boundingBox())!;
+    expect(info.y).toBeGreaterThanOrEqual(box.y + box.height);
+    await context.close();
+  });
+
   test("is in the server-rendered page of the overlay's URL", async ({
     request,
   }) => {
-    // A reload of an open photo renders the overlay with its info shown.
+    // A reload of an open photo renders the overlay with its info: the
+    // details and the summary, the screen's width choosing between them.
     const html = await (await request.get("/photo/vrcxxxxxxa/")).text();
     expect(html).toContain('data-testid="overlay"');
     expect(html).toContain('data-testid="info-exposure"');
-    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('data-testid="info-summary"');
     for (const part of ["f/2.8", "1/250 s", "35 mm", "シャッター"]) {
       expect(html).toContain(part);
     }
