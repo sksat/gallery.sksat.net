@@ -164,7 +164,7 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           if [ "$EVENT" != pull_request ] ||
-            git diff --name-only HEAD^1 HEAD |
+            git diff --no-renames --name-only HEAD^1 HEAD |
             grep -qE '^(admin/|shared/|\.github/workflows/ci\.yaml$)'; then
             echo run=true >> "$GITHUB_OUTPUT"
           else
