@@ -77,7 +77,9 @@ const Bar = ({
     <span
       class={[
         "block h-full rounded-full",
-        quiet ? "bg-zinc-300 dark:bg-zinc-600" : "bg-sky-500",
+        quiet
+          ? "bg-zinc-300 dark:bg-zinc-600"
+          : "bg-[#2a78d6] dark:bg-[#3987e5]",
       ]}
       style={{ width: `${percentOf(value, max)}%` }}
     />

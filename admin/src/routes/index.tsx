@@ -10,64 +10,26 @@ import {
   getAnalyticsConfig,
   type D1UsageResult,
 } from "~/lib/d1-usage";
+import { loadAccess, type AccessData } from "~/lib/access-load";
 import { getDB, getImageBase } from "~/lib/env";
-import {
-  lookupsOf,
-  rankPaths,
-  rankingCameras,
-  rankingPhotos,
-  resolveRanking,
-  type RankedPage,
-} from "~/lib/page-ranking";
 import {
   fetchStorageRows,
   summarizeStorage,
   type StorageSummary,
 } from "~/lib/storage";
-import {
-  fetchAccess,
-  getWebAnalyticsConfig,
-  parseAccessRange,
-  TOP_LIMIT,
-  type AccessRange,
-  type AccessResult,
-} from "~/lib/web-analytics";
 
 type DashboardData = {
   /** null without a D1 binding (pnpm dev, previews); "error" if the query failed. */
   storage: StorageSummary | null | "error";
   dbBytes: number | null;
   usage: D1UsageResult;
-  range: AccessRange;
-  access: AccessResult;
-  pages: RankedPage[];
+  /** The last 7 days; other ranges are on /analytics/. */
+  access: AccessData;
   imageBase: string | null;
 };
 
-// Most viewed pages, named from D1: one IN lookup for the photos and one
-// for the cameras among the shown rows. Without D1 (or if a lookup fails)
-// the rows still show, photos and cameras by their path.
-const rankingOf = async (
-  db: D1Database | null,
-  access: AccessResult,
-): Promise<RankedPage[]> => {
-  if (access.kind !== "ok") return [];
-  const ranked = rankPaths(access.stats.pages, TOP_LIMIT);
-  const { publicIds, slugs } = lookupsOf(ranked);
-  const [photos, cameras] = db
-    ? await Promise.all([
-        rankingPhotos(db, publicIds).catch((err) => {
-          console.error("/ loader: photo lookup failed:", err);
-          return null;
-        }),
-        rankingCameras(db, slugs).catch((err) => {
-          console.error("/ loader: camera lookup failed:", err);
-          return [];
-        }),
-      ])
-    : [null, []];
-  return resolveRanking(ranked, photos, cameras);
-};
+/** How many of the most viewed photos the summary shows. */
+const SUMMARY_PHOTOS = 4;
 
 // The dashboard renders without D1 or the analytics token (the cards then
 // say so), so neither is an error page here.
@@ -79,13 +41,7 @@ export const useDashboard = routeLoader$<DashboardData>(
       now: new Date(),
       endpoint: graphqlEndpoint(platform, url),
     };
-    const range = parseAccessRange(url.searchParams.get("range"));
     const usagePromise = fetchD1Usage(getAnalyticsConfig(platform), deps);
-    const accessPromise = fetchAccess(
-      getWebAnalyticsConfig(platform),
-      range,
-      deps,
-    );
     const imageBase = getImageBase(platform);
     let db: D1Database | null = null;
     try {
@@ -93,6 +49,14 @@ export const useDashboard = routeLoader$<DashboardData>(
     } catch (err) {
       console.error("/ loader: getDB failed:", err);
     }
+    const accessPromise = loadAccess(
+      platform,
+      db,
+      "7d",
+      deps,
+      { photos: SUMMARY_PHOTOS, pages: 0 },
+      "/ loader",
+    );
     const [storage, usage, access] = await Promise.all([
       db
         ? fetchStorageRows(db).catch((err) => {
@@ -103,14 +67,7 @@ export const useDashboard = routeLoader$<DashboardData>(
       usagePromise,
       accessPromise,
     ]);
-    const pages = await rankingOf(db, access);
-    // The card shows the ranking; the raw pages (up to PAGE_LIMIT) stay
-    // out of the page's serialized data.
-    const shown: AccessResult =
-      access.kind === "ok"
-        ? { kind: "ok", stats: { ...access.stats, pages: [] } }
-        : access;
-    const common = { usage, range, access: shown, pages, imageBase };
+    const common = { usage, access, imageBase };
     if (storage === null || storage === "error") {
       return { ...common, storage, dbBytes: null };
     }
@@ -143,12 +100,7 @@ export default component$(() => {
         <D1Card dbBytes={data.value.dbBytes} usage={data.value.usage} />
       </div>
 
-      <AccessCard
-        range={data.value.range}
-        access={data.value.access}
-        pages={data.value.pages}
-        imageBase={data.value.imageBase}
-      />
+      <AccessCard data={data.value.access} imageBase={data.value.imageBase} />
 
       <div class="grid gap-4 md:grid-cols-2">
         <section class={[card, "flex flex-col p-5"]}>

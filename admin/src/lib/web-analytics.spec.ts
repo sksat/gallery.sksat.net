@@ -7,8 +7,8 @@ import {
   getWebAnalyticsConfig,
   parseAccess,
   parseAccessRange,
-  parsePhotoPath,
-  photoCounts,
+  previousWindow,
+  changeRatio,
   rangeWindow,
   referrerLabel,
 } from "./web-analytics";
@@ -48,6 +48,25 @@ describe("ranges", () => {
     ]);
     expect(bucketKeys("30d", now)).toHaveLength(30);
   });
+
+  it("compares with the as long stretch just before", () => {
+    // 7 d at 03:04:05 is 6 days 3:04:05 long.
+    expect(previousWindow("7d", now)).toEqual({
+      prevSince: "2026-11-05T20:55:55Z",
+      prevUntil: "2026-11-11T23:59:59Z",
+    });
+    expect(previousWindow("24h", now)).toEqual({
+      prevSince: "2026-11-16T04:55:55Z",
+      prevUntil: "2026-11-17T03:59:59Z",
+    });
+  });
+
+  it("gives the change as a ratio, none from zero", () => {
+    expect(changeRatio(12, 10)).toBeCloseTo(0.2);
+    expect(changeRatio(5, 10)).toBe(-0.5);
+    expect(changeRatio(5, 0)).toBeNull();
+    expect(changeRatio(0, 0)).toBeNull();
+  });
 });
 
 const g = (count: number, visits: number | null, dims: object = {}) => ({
@@ -61,6 +80,7 @@ const body = (node: object) => ({
 });
 const sample = body({
   total: [g(30, 12)],
+  previous: [g(24, 15)],
   series: [
     g(10, 4, { bucket: "2026-11-12" }),
     g(20, 8, { bucket: "2026-11-18T00:00:00Z" }),
@@ -91,6 +111,7 @@ describe("parseAccess", () => {
   it("reads the groups and fills empty buckets with zeros", () => {
     const s = parseAccess(sample, "7d", now, HOST)!;
     expect(s.total).toEqual({ pageViews: 30, visits: 12 });
+    expect(s.previous).toEqual({ pageViews: 24, visits: 15 });
     expect(s.series.map((b) => [b.key, b.pageViews, b.visits])).toEqual([
       ["2026-11-12", 10, 4],
       ["2026-11-13", 0, 0],
@@ -118,12 +139,20 @@ describe("parseAccess", () => {
 
   it("reads no traffic as zeros", () => {
     const s = parseAccess(
-      body({ total: [], series: [], pages: [], countries: [], referrers: [] }),
+      body({
+        total: [],
+        previous: [],
+        series: [],
+        pages: [],
+        countries: [],
+        referrers: [],
+      }),
       "24h",
       now,
       HOST,
     )!;
     expect(s.total).toEqual({ pageViews: 0, visits: 0 });
+    expect(s.previous).toEqual({ pageViews: 0, visits: 0 });
     expect(s.series).toHaveLength(24);
     expect(s.series.every((b) => b.pageViews === 0)).toBe(true);
   });
@@ -198,7 +227,12 @@ describe("fetchAccess", () => {
       host: HOST,
       since: "2026-11-12T00:00:00Z",
       until: "2026-11-18T03:04:05Z",
+      prevSince: "2026-11-05T20:55:55Z",
+      prevUntil: "2026-11-11T23:59:59Z",
     });
+    expect(sent.query).toContain(
+      "previous: rumPageloadEventsAdaptiveGroups(limit: 1, filter: { siteTag: $siteTag, requestHost: $host, datetime_geq: $prevSince, datetime_leq: $prevUntil })",
+    );
     expect(sent.query).toContain("dimensions { bucket: date }");
     expect(sent.query).toContain("requestHost: $host");
     expect(cache.keys[0]).not.toContain("t0k");
@@ -248,51 +282,7 @@ describe("getWebAnalyticsConfig", () => {
   });
 });
 
-describe("photo paths", () => {
-  it.each([
-    ["/photo/aaaaaaaaa3/", "aaaaaaaaa3"],
-    ["/photo/aaaaaaaaa3", "aaaaaaaaa3"],
-    ["/photo/12/", null],
-    ["/photo/0", null],
-    ["/photo/", null],
-    ["/photo/AAAAAAAAA3/", null],
-    ["/photo/aaaaaaaaa3/x", null],
-    ["/photo/aaaaaaaaa3/detail/", "aaaaaaaaa3"],
-    ["/photo/aaaaaaaaa3/detail", "aaaaaaaaa3"],
-    ["/photo/aaaaaaaaa3/detail/x", null],
-    ["/photo/12/detail/", null],
-    ["/camera/x/", null],
-  ])("%s", (path, id) => expect(parsePhotoPath(path)).toBe(id));
-
-  const pages = parseAccess(sample, "7d", now, HOST)!.pages;
-
-  it("adds a photo's paths with and without the slash together", () => {
-    expect(photoCounts(pages, "aaaaaaaaa3")).toEqual({
-      pageViews: 8,
-      visits: 4,
-    });
-    expect(photoCounts(pages, "aaaaaaaaa2")).toEqual({
-      pageViews: 1,
-      visits: 1,
-    });
-    expect(photoCounts(pages, "zzzzzzzzzz")).toEqual({
-      pageViews: 0,
-      visits: 0,
-    });
-  });
-
-  it("adds the photo's detail page to it", () => {
-    const withDetail = [
-      ...pages,
-      { path: "/photo/aaaaaaaaa3/detail/", pageViews: 3, visits: 2 },
-      { path: "/photo/aaaaaaaaa3/detail", pageViews: 1, visits: 1 },
-    ];
-    expect(photoCounts(withDetail, "aaaaaaaaa3")).toEqual({
-      pageViews: 12,
-      visits: 7,
-    });
-  });
-
+describe("labels", () => {
   it("labels a direct visit", () => {
     expect(referrerLabel("")).toBe("(直接)");
     expect(referrerLabel("x.com")).toBe("x.com");

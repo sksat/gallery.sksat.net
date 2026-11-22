@@ -64,6 +64,31 @@ export const rangeWindow = (
   };
 };
 
+/**
+ * The window just before rangeWindow, as long as it: the 7 d window at
+ * 10:00 (6 days and 10 hours) is compared with the 6 days and 10 hours
+ * before it, so today's partial day is not set against a whole one.
+ * Both ends inclusive (datetime_leq), so it ends a second before `since`.
+ */
+export const previousWindow = (
+  range: AccessRange,
+  now: Date,
+): { prevSince: string; prevUntil: string } => {
+  const { since, until } = rangeWindow(range, now);
+  const s = Date.parse(since);
+  const len = Date.parse(until) - s;
+  const iso = (t: number) =>
+    new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
+  return { prevSince: iso(s - len), prevUntil: iso(s - 1000) };
+};
+
+/**
+ * The change from `prev` to `cur` as a ratio (0.12 = +12%), or null when
+ * there is nothing to compare with (prev is 0).
+ */
+export const changeRatio = (cur: number, prev: number): number | null =>
+  prev > 0 ? (cur - prev) / prev : null;
+
 /** Bucket keys of the window, oldest first: "2026-11-18T03" or "2026-11-18". */
 export const bucketKeys = (range: AccessRange, now: Date): string[] => {
   const { since } = rangeWindow(range, now);
@@ -113,10 +138,14 @@ const REFERRER_LIMIT = 20;
 export const accessQuery = (range: AccessRange): string => {
   const bucket = bucketUnit(range) === "hour" ? "datetimeHour" : "date";
   const f = `filter: { siteTag: $siteTag, requestHost: $host, datetime_geq: $since, datetime_leq: $until }`;
-  return `query Access($accountTag: string!, $siteTag: string!, $host: string!, $since: Time!, $until: Time!) {
+  return `query Access($accountTag: string!, $siteTag: string!, $host: string!, $since: Time!, $until: Time!, $prevSince: Time!, $prevUntil: Time!) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
       total: rumPageloadEventsAdaptiveGroups(limit: 1, ${f}) {
+        count
+        sum { visits }
+      }
+      previous: rumPageloadEventsAdaptiveGroups(limit: 1, filter: { siteTag: $siteTag, requestHost: $host, datetime_geq: $prevSince, datetime_leq: $prevUntil }) {
         count
         sum { visits }
       }
@@ -154,6 +183,7 @@ export const accessRequestBody = (
     siteTag: cfg.siteTag,
     host: cfg.host,
     ...rangeWindow(range, now),
+    ...previousWindow(range, now),
   },
 });
 
@@ -161,6 +191,8 @@ export type Counts = { pageViews: number; visits: number };
 export type AccessStats = {
   range: AccessRange;
   total: Counts;
+  /** The same counts over previousWindow. */
+  previous: Counts;
   /** One entry per bucket of the window (zeros where nothing came). */
   series: ({ key: string } & Counts)[];
   pages: ({ path: string } & Counts)[];
@@ -168,26 +200,65 @@ export type AccessStats = {
   referrers: { host: string; pageViews: number }[];
 };
 
-type Group = {
+// Helpers shared with photo-analytics.ts, which reads the same dataset.
+
+export type Group = {
   count?: unknown;
   sum?: { visits?: unknown } | null;
   dimensions?: Record<string, unknown> | null;
 };
 
-const groupsOf = (node: Record<string, unknown>, alias: string) => {
+export const groupsOf = (node: Record<string, unknown>, alias: string) => {
   const g = node[alias];
   return Array.isArray(g) ? (g as (Group | null)[]) : null;
 };
 
-const countsOf = (g: Group | null, withVisits: boolean): Counts | null => {
+export const countsOf = (
+  g: Group | null,
+  withVisits: boolean,
+): Counts | null => {
   const pageViews = finiteNumber(g?.count);
   const visits = withVisits ? finiteNumber(g?.sum?.visits) : 0;
   return pageViews === null || visits === null ? null : { pageViews, visits };
 };
 
-const dimOf = (g: Group | null, name: string): string | null => {
+export const dimOf = (g: Group | null, name: string): string | null => {
   const v = g?.dimensions?.[name];
   return typeof v === "string" ? v : null;
+};
+
+/** A `limit: 1` total: no group is no traffic. */
+export const totalOf = (groups: (Group | null)[]): Counts | null =>
+  groups.length === 0 ? { pageViews: 0, visits: 0 } : countsOf(groups[0], true);
+
+export const countriesOf = (
+  groups: (Group | null)[],
+): AccessStats["countries"] | null => {
+  const out: AccessStats["countries"] = [];
+  for (const g of groups) {
+    const country = dimOf(g, "countryName");
+    const c = countsOf(g, false);
+    if (country === null || !c) return null;
+    out.push({ country, pageViews: c.pageViews });
+  }
+  return out;
+};
+
+/** Referrers without the site's own hosts, the first TOP_LIMIT. */
+export const referrersOf = (
+  groups: (Group | null)[],
+  siteHost: string,
+): AccessStats["referrers"] | null => {
+  const out: AccessStats["referrers"] = [];
+  for (const g of groups) {
+    const host = dimOf(g, "refererHost");
+    const c = countsOf(g, false);
+    if (host === null || !c) return null;
+    if (!isSelfReferrer(host, siteHost)) {
+      out.push({ host, pageViews: c.pageViews });
+    }
+  }
+  return out.slice(0, TOP_LIMIT);
 };
 
 /**
@@ -204,18 +275,24 @@ export const parseAccess = (
   const node = accountNode(body);
   if (!node) return null;
   const totalG = groupsOf(node, "total");
+  const previousG = groupsOf(node, "previous");
   const seriesG = groupsOf(node, "series");
   const pagesG = groupsOf(node, "pages");
   const countriesG = groupsOf(node, "countries");
   const referrersG = groupsOf(node, "referrers");
-  if (!totalG || !seriesG || !pagesG || !countriesG || !referrersG) {
+  if (
+    !totalG ||
+    !previousG ||
+    !seriesG ||
+    !pagesG ||
+    !countriesG ||
+    !referrersG
+  ) {
     return null;
   }
-  const total =
-    totalG.length === 0
-      ? { pageViews: 0, visits: 0 }
-      : countsOf(totalG[0], true);
-  if (!total) return null;
+  const total = totalOf(totalG);
+  const previous = totalOf(previousG);
+  if (!total || !previous) return null;
 
   const keys = bucketKeys(range, now);
   const len = keys[0]?.length ?? 10;
@@ -238,29 +315,17 @@ export const parseAccess = (
     if (path === null || !c) return null;
     pages.push({ path, ...c });
   }
-  const countries: AccessStats["countries"] = [];
-  for (const g of countriesG) {
-    const country = dimOf(g, "countryName");
-    const c = countsOf(g, false);
-    if (country === null || !c) return null;
-    countries.push({ country, pageViews: c.pageViews });
-  }
-  const referrers: AccessStats["referrers"] = [];
-  for (const g of referrersG) {
-    const host = dimOf(g, "refererHost");
-    const c = countsOf(g, false);
-    if (host === null || !c) return null;
-    if (!isSelfReferrer(host, siteHost)) {
-      referrers.push({ host, pageViews: c.pageViews });
-    }
-  }
+  const countries = countriesOf(countriesG);
+  const referrers = referrersOf(referrersG, siteHost);
+  if (!countries || !referrers) return null;
   return {
     range,
     total,
+    previous,
     series: keys.map((key) => ({ key, ...byKey.get(key)! })),
     pages,
     countries,
-    referrers: referrers.slice(0, TOP_LIMIT),
+    referrers,
   };
 };
 
@@ -310,35 +375,6 @@ export const fetchAccess = async (
     deps,
   );
   return stats ? { kind: "ok", stats } : { kind: "error" };
-};
-
-/**
- * The public id of a photo's pages, /photo/<public_id> (the photo, open
- * over the list) and /photo/<public_id>/detail (its detail page), with or
- * without the trailing slash; null for any other path (including old
- * /photo/<N> URLs).
- */
-export const parsePhotoPath = (path: string): string | null => {
-  const m = /^\/photo\/([^/?#]+)(?:\/detail)?\/?$/.exec(path);
-  return m && PUBLIC_ID_RE.test(m[1]) ? m[1] : null;
-};
-
-/**
- * Page views and visits of one photo, adding up its pages and both forms
- * of their paths.
- */
-export const photoCounts = (
-  pages: AccessStats["pages"],
-  publicId: string,
-): Counts => {
-  const out = { pageViews: 0, visits: 0 };
-  for (const p of pages) {
-    if (parsePhotoPath(p.path) === publicId) {
-      out.pageViews += p.pageViews;
-      out.visits += p.visits;
-    }
-  }
-  return out;
 };
 
 /** Referrer host for display: "" is a direct visit (no referrer). */

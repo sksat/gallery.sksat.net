@@ -10,7 +10,7 @@ The admin app for gallery.sksat.net: a separate Qwik City project on Pages with 
 - Thumbnails of private photos come from the image Worker's `AdminImage` RPC through the `IMAGES` binding, which verifies the same Access JWT itself. Responses stay `Cache-Control: private`; never put them in a shared cache.
 - The B2 upload key has writeFiles only (no readFiles). Deleting objects (完全に削除, a deleted incomplete upload's display copy) needs listFiles and deleteFiles, which the code supports but the key does not have yet: until they are added, B2 answers 403 and the admin says 「削除の権限がありません」. Reads of the bucket (checking an upload, reading metadata, fetching an original) go through `AdminImage` (`stat`, `bytes`, `object`). Do not add read permission to the admin's key. The image Worker method a change needs must be deployed before the admin code that calls it.
 - The browser uploads originals straight to B2 with presigned PUTs; the admin only signs. The bucket's CORS rule for this (origin `https://admin.gallery.sksat.net`, `s3_put`, headers `content-type` and `x-amz-meta-sha256`, expose `ETag`) is set with `b2_update_bucket`, outside the repo.
-- Cloudflare Analytics needs the optional secret `CF_ANALYTICS_API_TOKEN` (Account Analytics: Read). Without it the dashboard cards say so and the page still renders.
+- Cloudflare Analytics needs the optional secret `CF_ANALYTICS_API_TOKEN` (Account Analytics: Read). Without it the dashboard cards say so and the page still renders. All Analytics queries go through `cachedGraphql` (5-min Cache API, never throws).
 
 ## Data invariants
 

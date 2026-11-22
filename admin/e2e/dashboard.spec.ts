@@ -35,88 +35,150 @@ test("dashboard: D1 card with today's reads and writes", async ({ page }) => {
   await expect(d1).toContainText("今日の書き込み300 行 / 100,000 行 (0.3%)");
 });
 
-test("dashboard: access card", async ({ page }) => {
+test("dashboard: access summary", async ({ page }) => {
   await page.goto("/");
   const card = page.getByRole("region", { name: "アクセス" });
-  await expect(card).toContainText("ページビュー約 250");
-  await expect(card).toContainText("訪問約 140");
-  await expect(
-    card.getByRole("link", { name: "7 日", exact: true }),
-  ).toHaveAttribute("aria-current", "page");
+  // Each number with its change against the 7 days before.
+  await expect(card).toContainText("ページビュー250▲ +25% 前の 7 日比");
+  await expect(card).toContainText("訪問140▼ −30% 前の 7 日比");
+  await expect(card.getByText("概数")).toBeVisible();
 
-  // One ranking of pages, each form of a page added up; the old numeric
+  // The four most viewed photos (forms of a photo's URL added up); an
+  // unknown photo keeps its place.
+  const photos = card.getByTestId("photo-ranking").getByRole("listitem");
+  await expect(photos).toHaveCount(4);
+  await expect(photos.nth(0)).toContainText("50");
+  await expect(photos.nth(0)).toContainText("vrchat1.png");
+  await expect(photos.nth(0).getByRole("link")).toHaveAttribute(
+    "href",
+    "/media/2/",
+  );
+  await expect(photos.nth(1)).toContainText("vrchat2.png");
+  await expect(photos.nth(2)).toContainText("/photo/zzzzzzzzzz/");
+  await expect(photos.nth(2).getByRole("link")).toHaveCount(0);
+
+  // The chart's numbers are in its table, and on hover.
+  const chart = card.getByTestId("column-chart");
+  await expect(card.locator("table")).toContainText("日ページビュー訪問");
+  await chart.scrollIntoViewIfNeeded();
+  const box = (await chart.boundingBox())!;
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+  await expect(card.getByTestId("chart-tooltip")).toContainText("ページビュー");
+
+  await card.getByRole("link", { name: "詳しく見る →" }).click();
+  await expect(page).toHaveURL(/\/analytics\/$/);
+  await expect(page.getByRole("heading", { name: "アクセス" })).toBeVisible();
+});
+
+test("analytics page: ranges, photos, pages, referrers", async ({ page }) => {
+  await page.goto("/analytics/");
+  await expect(
+    page.getByRole("link", { name: "7 日", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("main")).toContainText(
+    "ページビュー250▲ +25% 前の 7 日比",
+  );
+
+  // Photos in their own ranking, then the other pages; the old numeric
   // URLs are one row at the end.
-  const rows = card.getByTestId("page-ranking").getByRole("listitem");
+  const photos = page.getByTestId("photo-ranking").getByRole("listitem");
+  await expect(photos).toHaveCount(4);
+  await expect(photos.nth(3)).toContainText("vrchat3.png");
+  const rows = page.getByTestId("page-ranking").getByRole("listitem");
   await expect(rows).toHaveText([
-    // Pages say (to screen readers) that they open in a new tab; the
-    // placeholder thumbnails say PNG.
     "トップ（新しいタブ）120",
-    "PNG/mock/vrchat1.pngPublic50",
-    "PNG/mock/vrchat2.pngUnlisted25",
     "カメラ（新しいタブ）15",
     "VirtualLens2（新しいタブ）14",
     "2023年12月（新しいタブ）8",
     "地図（新しいタブ）6",
-    "/photo/zzzzzzzzzz/5",
-    "PNG/mock/vrchat3.pngPrivate4",
     "旧 URL6",
   ]);
-
-  // A photo opens its edit page, with its public page beside it.
-  const photo = rows.nth(1);
-  const edit = photo.getByRole("link", { name: /\/mock\/vrchat1\.png/ });
-  await expect(edit).toHaveAttribute("href", "/media/2/");
-  const external = photo.getByRole("link", {
-    name: "公開サイトで開く（新しいタブ）",
-  });
-  await expect(external).toHaveAttribute(
-    "href",
-    "https://gallery.sksat.net/photo/aaaaaaaaa3/",
-  );
-  await expect(external).toHaveAttribute("target", "_blank");
-  // A private photo has no public page to open.
-  await expect(rows.nth(8).getByRole("link")).toHaveCount(1);
-
   // Other pages open on the public site in a new tab.
-  const camera = rows.nth(4).getByRole("link");
+  const camera = rows.nth(2).getByRole("link");
   await expect(camera).toHaveAttribute(
     "href",
     "https://gallery.sksat.net/camera/virtuallens2/",
   );
   await expect(camera).toHaveAttribute("target", "_blank");
   await expect(camera).toHaveAttribute("rel", "noopener noreferrer");
-  await expect(rows.nth(5).getByRole("link")).toHaveAttribute(
-    "href",
-    "https://gallery.sksat.net/calendar/2023/12/",
-  );
-  // An unknown photo and the old URLs lead nowhere.
-  await expect(rows.nth(7).getByRole("link")).toHaveCount(0);
-  await expect(rows.nth(9).getByRole("link")).toHaveCount(0);
+  await expect(rows.nth(5).getByRole("link")).toHaveCount(0);
 
-  await expect(card).toContainText("日本");
-  await expect(card).toContainText("t.co");
-  await expect(card).toContainText("(直接)");
+  const refs = page.getByRole("region", { name: "参照元と国" });
+  await expect(refs).toContainText("日本");
+  await expect(refs).toContainText("t.co");
+  await expect(refs).toContainText("(直接)");
   // The admin is not a referrer.
-  await expect(card).not.toContainText("admin.gallery.sksat.net");
+  await expect(refs).not.toContainText("admin.gallery.sksat.net");
+
+  // The chart: one column per day, the newest labelled; arrow keys move
+  // the tooltip.
+  const chart = page.getByTestId("column-chart");
+  await chart.focus();
+  const tip = page.getByTestId("chart-tooltip");
+  await expect(tip).toBeVisible();
+  const last = await tip.textContent();
+  await page.keyboard.press("ArrowLeft");
+  await expect(tip).not.toHaveText(last!);
+  await page.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
 
   // Switching the range keeps the page where it is.
-  await page.setViewportSize({ width: 1280, height: 400 });
-  await card.getByRole("link", { name: "24 時間" }).scrollIntoViewIfNeeded();
+  await page.setViewportSize({ width: 1280, height: 300 });
+  const h24 = page.getByRole("link", { name: "24 時間" });
+  await page.evaluate(() => window.scrollTo(0, 60));
   const before = await page.evaluate(() => window.scrollY);
   expect(before).toBeGreaterThan(0);
-  await card.getByRole("link", { name: "24 時間" }).click();
-  await expect(page).toHaveURL(/\?range=24h$/);
-  await expect(card.getByRole("link", { name: "24 時間" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  await expect(card).toContainText("時間ごとのページビュー");
+  await h24.click();
+  await expect(page).toHaveURL(/\/analytics\/\?range=24h$/);
+  await expect(h24).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("table")).toContainText("時間ページビュー訪問");
+  await expect(page.getByRole("main")).toContainText("前の 24 時間比");
   expect(await page.evaluate(() => window.scrollY)).toBe(before);
 });
 
-test("media edit page: the photo's views", async ({ page }) => {
+test("media edit page: the photo's access, loaded when shown", async ({
+  page,
+}) => {
   await page.goto("/media/2/");
-  await expect(page.getByTestId("photo-views")).toHaveText(
-    "閲覧数 (概数) 7 日 50 · 30 日 50",
+  const card = page.getByTestId("photo-access");
+  // Nothing is asked before the card is on screen.
+  await page.waitForLoadState("networkidle");
+  await expect(card).toContainText("読み込み中");
+  await card.scrollIntoViewIfNeeded();
+
+  // Its viewer and detail pages, together and apart; the change against
+  // the 7 days before.
+  await expect(card).toContainText("ページビュー30▼ −50% 前の 7 日比");
+  await expect(card).toContainText("訪問9±0% 前の 7 日比");
+  await expect(card).toContainText("ビューア27");
+  await expect(card).toContainText("詳細ページ3");
+  await expect(card).toContainText("bsky.app");
+  await expect(card).toContainText("台湾");
+  // The site itself is not a referrer.
+  await expect(card).not.toContainText("gallery.sksat.net");
+
+  // Hovering a column shows both pages and their sum.
+  const chart = card.getByTestId("column-chart");
+  const box = (await chart.boundingBox())!;
+  await page.mouse.move(box.x + box.width * (1.5 / 7), box.y + box.height - 2);
+  await expect(card.getByTestId("chart-tooltip")).toContainText(
+    /合計5ビューア4詳細ページ1/,
   );
+
+  // Another range: asked again, one column per hour.
+  await card.getByRole("button", { name: "24 時間" }).click();
+  await expect(card.getByRole("button", { name: "24 時間" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(card).toContainText("前の 24 時間比");
+  await expect(card.locator("tbody tr")).toHaveCount(24);
+});
+
+test("media edit page: a photo nobody viewed", async ({ page }) => {
+  await page.goto("/media/3/");
+  const card = page.getByTestId("photo-access");
+  await card.scrollIntoViewIfNeeded();
+  await expect(card).toContainText("ページビュー0前の 7 日 0");
+  await expect(card).toContainText("参照元なし");
 });

@@ -44,6 +44,8 @@ const access = (query, vars) => {
   }
   return account({
     total: [g(250, 140)],
+    // +25% page views, −30% visits.
+    previous: [g(200, 200)],
     series,
     pages: [
       g(120, 80, { requestPath: "/" }),
@@ -80,6 +82,53 @@ const access = (query, vars) => {
   });
 };
 
+// One photo's numbers (a query filtered with requestPath_in): fixture
+// photo 2 (aaaaaaaaa3) has views on its viewer and detail pages in every
+// bucket, any other photo none.
+const photoAccess = (query, vars) => {
+  const id = /"\/photo\/([^"/]+)"/.exec(query)?.[1];
+  if (id !== "aaaaaaaaa3") {
+    return account({
+      total: [],
+      previous: [],
+      series: [],
+      countries: [],
+      referrers: [],
+    });
+  }
+  const hourly = query.includes("datetimeHour");
+  const start = Date.parse(vars.since);
+  const n = hourly
+    ? 24
+    : Math.floor((Date.parse(vars.until) - start) / DAY) + 1;
+  const series = [];
+  for (let i = 0; i < n; i++) {
+    const t = new Date(start + i * (hourly ? HOUR : DAY)).toISOString();
+    const bucket = hourly ? t.replace(/\.\d{3}Z$/, "Z") : t.slice(0, 10);
+    series.push(
+      g(2 + (i % 3), null, { bucket, requestPath: `/photo/${id}/` }),
+      g(1, null, { bucket, requestPath: `/photo/${id}` }),
+      g(i % 2, null, { bucket, requestPath: `/photo/${id}/detail/` }),
+    );
+  }
+  const total = series.reduce((s, x) => s + x.count, 0);
+  return account({
+    total: [g(total, 9)],
+    // The period before: twice as many (−50%), as many visits (±0%).
+    previous: [g(total * 2, 9)],
+    series,
+    countries: [
+      g(24, null, { countryName: "JP" }),
+      g(6, null, { countryName: "TW" }),
+    ],
+    referrers: [
+      g(20, null, { refererHost: host }),
+      g(7, null, { refererHost: "" }),
+      g(3, null, { refererHost: "bsky.app" }),
+    ],
+  });
+};
+
 createServer((req, res) => {
   if (req.method !== "POST") return json(res, 405, {});
   if (req.headers.authorization !== `Bearer ${token}`) {
@@ -111,7 +160,13 @@ createServer((req, res) => {
       if (vars.siteTag !== siteTag || vars.host !== host) {
         return json(res, 200, { data: null, errors: [{ message: "filter" }] });
       }
-      return json(res, 200, access(query, vars));
+      return json(
+        res,
+        200,
+        query.includes("requestPath_in")
+          ? photoAccess(query, vars)
+          : access(query, vars),
+      );
     }
     json(res, 200, { data: null, errors: [{ message: "unknown query" }] });
   });

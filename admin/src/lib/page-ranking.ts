@@ -113,6 +113,28 @@ export const rankPaths = (
   return old ? [...top, old] : top;
 };
 
+/**
+ * The ranking in two lists: the top `limits.photos` photos, and the top
+ * `limits.pages` other pages, after them the old numeric URLs' entry
+ * (none when no pages are asked for).
+ */
+export const splitRanking = (
+  pages: AccessStats["pages"],
+  limits: { photos: number; pages: number },
+): { photos: RankedPath[]; others: RankedPath[] } => {
+  const all = rankPaths(pages, Number.POSITIVE_INFINITY);
+  const isPhoto = (r: RankedPath) => r.page.kind === "photo";
+  const others = all.filter((r) => !isPhoto(r));
+  const old = others.at(-1)?.page.kind === "old-photo" ? others.pop() : null;
+  return {
+    photos: all.filter(isPhoto).slice(0, limits.photos),
+    others:
+      limits.pages > 0
+        ? [...others.slice(0, limits.pages), ...(old ? [old] : [])]
+        : [],
+  };
+};
+
 /** The public ids and camera slugs to look up for these pages. */
 export const lookupsOf = (
   ranked: RankedPath[],

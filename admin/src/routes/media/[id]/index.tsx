@@ -13,7 +13,7 @@ import {
 import { CameraGlyph } from "~/components/camera-label";
 import { FileMetadata } from "~/components/file-metadata";
 import { MissingBindingError } from "~/components/missing-binding-error";
-import { PhotoViews } from "~/components/photo-views";
+import { PhotoAccess } from "~/components/photo-access";
 import { StatePanel } from "~/components/state-panel";
 import { SubmitButton } from "~/components/submit-button";
 import { Toast, type ToastState } from "~/components/toast";
@@ -1297,7 +1297,6 @@ export default component$(() => {
           <PlatformBadge platform={row.platform} />
           <VisibilityBadge visibility={row.visibility} />
         </div>
-        <PhotoViews public_id={row.public_id} />
       </div>
 
       {/* A tap opens the photo full screen (shared/overlay/ look). */}
@@ -1577,6 +1576,8 @@ export default component$(() => {
           </>
         )}
       </section>
+      {/* Keyed: prev/next ask for the other photo's numbers afresh. */}
+      <PhotoAccess key={row.public_id} public_id={row.public_id} />
       {/* Keyed: prev/next start closed, on the other photo's file. */}
       <FileMetadata key={row.id} id={row.id} file={row.file} />
       <Toast toast={toast} onAction$={undoLastMove} />

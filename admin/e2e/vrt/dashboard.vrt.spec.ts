@@ -16,6 +16,24 @@ test.describe("desktop", () => {
     await expect(page.getByRole("region", { name: "アクセス" })).toBeVisible();
     await shoot(page, "admin-home.png");
   });
+
+  test("admin dashboard: access", async ({ page }) => {
+    await page.goto("/analytics/");
+    await expect(page.getByTestId("photo-ranking")).toBeVisible();
+    await shoot(page, "admin-analytics.png");
+  });
+
+  test("admin dashboard: access chart tooltip", async ({ page }) => {
+    await page.goto("/analytics/");
+    const chart = page.getByTestId("column-chart");
+    await chart.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByTestId("chart-tooltip")).toBeVisible();
+    await expect(page.getByRole("region", { name: "推移" })).toHaveScreenshot(
+      "admin-analytics-tooltip.png",
+      { mask: [page.locator("[data-date]")] },
+    );
+  });
 });
 
 test.describe("phone", () => {
@@ -25,5 +43,11 @@ test.describe("phone", () => {
     await page.goto("/");
     await expect(page.getByRole("region", { name: "アクセス" })).toBeVisible();
     await shoot(page, "admin-home-phone.png");
+  });
+
+  test("admin dashboard: access (phone)", async ({ page }) => {
+    await page.goto("/analytics/");
+    await expect(page.getByTestId("photo-ranking")).toBeVisible();
+    await shoot(page, "admin-analytics-phone.png");
   });
 });

@@ -7,6 +7,7 @@ import {
   rankingCameras,
   rankingPhotos,
   resolveRanking,
+  splitRanking,
   type RankingPhoto,
 } from "./page-ranking";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
@@ -106,6 +107,30 @@ describe("rankPaths", () => {
       ["map", 2],
       ["old-photo", 11],
     ]);
+  });
+
+  it("splits the photos from the other pages, each its own top", () => {
+    const pages = [
+      page("/", 45),
+      page("/photo/aaaaaaaaa3/", 12),
+      page("/photo/aaaaaaaaa2/detail/", 9),
+      page("/photo/aaaaaaaaa4/", 2),
+      page("/map/", 8),
+      page("/camera/", 3),
+      page("/photo/1", 5),
+    ];
+    const s = splitRanking(pages, { photos: 2, pages: 2 });
+    expect(s.photos.map((r) => [r.path, r.pageViews])).toEqual([
+      ["/photo/aaaaaaaaa3/", 12],
+      ["/photo/aaaaaaaaa2/", 9],
+    ]);
+    expect(s.others.map((r) => [r.page.kind, r.pageViews])).toEqual([
+      ["top", 45],
+      ["map", 8],
+      ["old-photo", 5],
+    ]);
+    // No pages asked for: not even the old URLs.
+    expect(splitRanking(pages, { photos: 1, pages: 0 }).others).toEqual([]);
   });
 
   it("collects the photos and cameras to look up", () => {
