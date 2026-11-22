@@ -137,3 +137,69 @@ export const createFolder = async (
   const res = await db.prepare(CREATE_FOLDER_SQL).bind(path).run();
   return (res.meta.changes ?? 0) > 0;
 };
+
+/**
+ * The bounds of everything below `folder` ("/" = everywhere) on the path
+ * index: the paths in [start, end) are those starting with `folder` + "/"
+ * ("0" is the character after "/").
+ */
+export const folderRange = (folder: string): [string, string] => {
+  const prefix = folder.endsWith("/") ? folder : `${folder}/`;
+  return [prefix, `${prefix.slice(0, -1)}0`];
+};
+
+/**
+ * The live photos below a folder, subfolders included (?1, ?2 from
+ * folderRange), with the columns of the Files view's rows: a range of
+ * idx_media_path_live, so it reads the folder's photos and no others.
+ * (Left to itself the planner may pick the status or trash index, which
+ * reads every photo.)
+ */
+export const PHOTOS_UNDER_SQL = `SELECT id, file, path, platform, visibility, size, metadata_visibility, timestamp, camera_id, tags
+  FROM media INDEXED BY idx_media_path_live
+  WHERE trashed_at IS NULL AND path >= ?1 AND path < ?2 AND +status = 'ready'
+  ORDER BY path LIMIT ?3`;
+
+/** The most photos a selection of folders may stand for at once. */
+export const MAX_FOLDER_PHOTOS = 10_000;
+
+/**
+ * The folders that are not inside another of them, each once, in the
+ * order of their photos' paths ("/a-b/…" before "/a/…"): no photo is then
+ * read twice.
+ */
+export const outermostFolders = (folders: readonly string[]): string[] => {
+  const start = (f: string) => folderRange(f)[0];
+  const sorted = [...new Set(folders)].sort((a, b) =>
+    start(a) < start(b) ? -1 : start(a) > start(b) ? 1 : 0,
+  );
+  return sorted.filter(
+    (f) => !sorted.some((o) => o !== f && (o === "/" || f.startsWith(`${o}/`))),
+  );
+};
+
+/**
+ * Every live photo below `folders` (each with its subfolders), once each,
+ * by path. One statement per folder, one after another, each asking for
+ * no more than what is left of `limit` (and one more): whatever the
+ * folders, at most `limit` + their number of rows are read. `truncated`
+ * when there are more than `limit` (the rows are then not all of them).
+ */
+export const listPhotosUnder = async (
+  db: D1Database,
+  folders: readonly string[],
+  limit = MAX_FOLDER_PHOTOS,
+): Promise<{ rows: MediaFileRow[]; truncated: boolean }> => {
+  const rows: MediaFileRow[] = [];
+  for (const f of outermostFolders(folders)) {
+    const res = await db
+      .prepare(PHOTOS_UNDER_SQL)
+      .bind(...folderRange(f), limit - rows.length + 1)
+      .all<MediaFileRow>();
+    rows.push(...(res.results ?? []));
+    if (rows.length > limit)
+      return { rows: rows.slice(0, limit), truncated: true };
+  }
+  // (Disjoint folders, in path order: the rows are already by path.)
+  return { rows, truncated: false };
+};
