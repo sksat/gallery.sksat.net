@@ -2,9 +2,15 @@ import { useDocumentHead, useLocation } from "@builder.io/qwik-city";
 
 import { component$ } from "@builder.io/qwik";
 
+import { INFO_HIDDEN, INFO_SHOWN_KEY } from "~/components/gallery/photo-info";
+
 // Public value (it appears in every page's HTML).
 const CF_BEACON_TOKEN: string | undefined = import.meta.env
   .VITE_CF_BEACON_TOKEN;
+
+// Marks <html> when the viewer hid the photo overlay's info, before the
+// page paints (see global.css).
+const INFO_CHOICE_SCRIPT = `try{if(localStorage.getItem(${JSON.stringify(INFO_SHOWN_KEY)})===${JSON.stringify(INFO_HIDDEN)})document.documentElement.dataset.photoInfo=${JSON.stringify(INFO_HIDDEN)}}catch(e){}`;
 
 /**
  * The RouterHead component is placed inside of the document `<head>` element.
@@ -29,6 +35,7 @@ export const RouterHead = component$(() => {
       <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
       <link rel="icon" type="image/png" href="/icon-192.png" sizes="192x192" />
       <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+      <script dangerouslySetInnerHTML={INFO_CHOICE_SCRIPT} />
 
       {/* Cloudflare Web Analytics (cookieless). Production only: the token
           is set in .env.production, so dev and tests send no beacons. */}

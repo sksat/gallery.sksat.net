@@ -302,6 +302,8 @@ export default component$<GalleryProps>((props) => {
 
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       step(event.key === "ArrowRight" ? "next" : "prev");
+    } else if (event.key === "Escape" && !event.isComposing) {
+      closeImage();
     } else if (
       event.key === "Enter" &&
       !event.shiftKey &&

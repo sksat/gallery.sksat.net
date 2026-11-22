@@ -282,7 +282,14 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
           )}
           {/* When and where: side by side where there is room. */}
           {(hasCalendar || props.photo.location) && (
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+            <div
+              class={[
+                "grid gap-3",
+                hasCalendar &&
+                  props.photo.location &&
+                  "sm:grid-cols-2 lg:grid-cols-1",
+              ]}
+            >
               <MiniCalendar
                 timestamp={photo.takenIso ?? null}
                 precision={photo.timestamp_precision}

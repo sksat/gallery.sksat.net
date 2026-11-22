@@ -40,6 +40,17 @@ body {
   line-height: inherit;
 }
 
+/* A server-rendered photo overlay shows its info; until it resumes, the
+   viewer's stored choice to hide it (put on <html> by router-head.tsx
+   before the page paints) hides it here, so it does not show for a
+   moment (photo-overlay.tsx). */
+html[data-photo-info="hidden"] [data-info-pending] #photo-info {
+  display: none;
+}
+html[data-photo-info="hidden"] [data-info-pending] [data-photo-stage] {
+  margin-block: auto;
+}
+
 /* Map markers and popups (src/components/map/render.ts): DOM elements
    MapLibre positions, so plain classes rather than utilities. */
 .photo-map-marker {

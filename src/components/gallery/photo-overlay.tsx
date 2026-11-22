@@ -95,11 +95,16 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
   // Rendered shown on the server; in the browser (stepping to the next
   // photo makes a new overlay) the stored choice from the start.
   const shown = useSignal(isBrowser ? storedInfoShown() : true);
+  // Server-rendered and not yet resumed: until then a stylesheet rule
+  // (global.css) follows the stored choice, so the info does not show
+  // for a moment to a viewer who hid it.
+  const resumed = useSignal(isBrowser);
   // A visible task is intended: the stored choice is only known in the
   // browser, and a server-rendered overlay has to follow it.
   // eslint-disable-next-line qwik/no-use-visible-task
   useVisibleTask$(() => {
     shown.value = storedInfoShown();
+    resumed.value = true;
   });
 
   const info = useComputed$(() =>
@@ -158,8 +163,12 @@ export const PhotoOverlay = component$<PhotoOverlayProps>((props) => {
     >
       {/* Narrow: the photo, then its info, centred together when they fit
           and scrolling when not. Wide: side by side. */}
-      <div class="absolute inset-0 flex flex-col overflow-y-auto overscroll-contain lg:flex-row lg:overflow-hidden">
+      <div
+        data-info-pending={resumed.value ? undefined : ""}
+        class="absolute inset-0 flex flex-col overflow-y-auto overscroll-contain lg:flex-row lg:overflow-hidden"
+      >
         <div
+          data-photo-stage
           class={[
             "flex shrink-0 flex-col items-center justify-center gap-3",
             open

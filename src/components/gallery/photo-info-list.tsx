@@ -1,4 +1,11 @@
-import { $, component$, Slot, sync$, type QRL } from "@builder.io/qwik";
+import {
+  $,
+  component$,
+  Fragment,
+  Slot,
+  sync$,
+  type QRL,
+} from "@builder.io/qwik";
 
 import type { PhotoInfo } from "./photo-info";
 
@@ -124,10 +131,12 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
         <Row icon="exposure" label="撮影設定" id="info-exposure">
           {/* Each value apart, like a camera's own readout. */}
           <dd class="flex flex-wrap gap-x-3.5 gap-y-0.5 tabular-nums">
-            {i.exposure.map((part) => (
-              <span key={part} data-testid="info-exposure-value">
-                {part}
-              </span>
+            {i.exposure.map((part, n) => (
+              <Fragment key={part}>
+                {/* Read apart, too. */}
+                {n > 0 && <span class="sr-only">, </span>}
+                <span data-testid="info-exposure-value">{part}</span>
+              </Fragment>
             ))}
           </dd>
         </Row>
