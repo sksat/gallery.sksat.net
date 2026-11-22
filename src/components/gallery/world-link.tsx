@@ -73,7 +73,12 @@ export const WorldLink = component$<WorldLinkProps>((props) => {
 
   const show = $(async () => {
     open.value = true;
-    if (data.value === undefined) data.value = await fetchCard(props.photoId);
+    // Fetched the first time, and again after it failed (fetchCard keeps
+    // only the cards it got).
+    if (data.value === undefined || data.value === null) {
+      data.value = undefined;
+      data.value = await fetchCard(props.photoId);
+    }
   });
   const hide = $(() => {
     if (timer.value !== null) window.clearTimeout(timer.value);

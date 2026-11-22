@@ -67,6 +67,23 @@ test.describe("desktop", () => {
     }
   });
 
+  test("a card that failed is asked for again", async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/media/vrcxxxxxxa/world", (route) =>
+      ++calls === 1
+        ? route.fulfill({ status: 503, body: "{}" })
+        : route.continue(),
+    );
+    await page.goto("/photo/vrcxxxxxxa/detail/");
+    await worldLink(page).hover();
+    await expect.poll(() => calls).toBe(1);
+    await expect(card(page)).toBeHidden();
+    await page.mouse.move(5, 5);
+    await worldLink(page).hover();
+    await expect(card(page)).toContainText("by Fixture Author");
+    expect(calls).toBe(2);
+  });
+
   test("on the photo page too", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxa/detail/");
     await worldLink(page).hover();

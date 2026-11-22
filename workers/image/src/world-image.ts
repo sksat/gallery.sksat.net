@@ -16,10 +16,11 @@ export const WORLD_IMAGE_HOSTS = ["api.vrchat.cloud", "files.vrchat.cloud"];
 /** How long a picture is kept in the data centre (seconds). */
 export const WORLD_IMAGE_TTL = 7 * 24 * 60 * 60;
 /**
- * What browsers may keep: an hour, like the photos' own images, so a
- * world link hidden in the admin stops being shown soon.
+ * What browsers may keep: a minute, like the API's answers, so a world
+ * link hidden in the admin stops being shown soon (the data centre keeps
+ * the picture itself, so this costs no fetch from VRChat).
  */
-export const BROWSER_CACHE_CONTROL = "public, max-age=3600";
+export const BROWSER_CACHE_CONTROL = "public, max-age=60";
 /** The largest picture passed on (bytes); VRChat's are about 0.5 MB. */
 export const WORLD_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 /** How long VRChat's file server has to answer, redirects and all (ms). */

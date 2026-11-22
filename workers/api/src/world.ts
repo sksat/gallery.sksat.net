@@ -142,14 +142,16 @@ const readHead = async (res: Response): Promise<string> => {
   while (size < MAX_PAGE_BYTES) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
-    size += value.byteLength;
+    // Never more than the cap, however large a chunk comes.
+    const part = value.subarray(0, MAX_PAGE_BYTES - size);
+    chunks.push(part);
+    size += part.byteLength;
   }
   void reader.cancel().catch(() => {});
   const bytes = new Uint8Array(size);
   let at = 0;
   for (const c of chunks) {
-    bytes.set(c.subarray(0, Math.min(c.byteLength, size - at)), at);
+    bytes.set(c, at);
     at += c.byteLength;
   }
   return new TextDecoder().decode(bytes);

@@ -152,6 +152,24 @@ describe("worldPreview", () => {
     expect(r.fetchFn.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
   });
 
+  it("reads no more of a page than its head needs", async () => {
+    // One huge chunk: the tags first, then 1 MB more.
+    const s = previewSetup(
+      () =>
+        new Response(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(
+                new TextEncoder().encode(PAGE + " ".repeat(1024 * 1024)),
+              );
+              c.close();
+            },
+          }),
+        ),
+    );
+    expect((await worldPreview(WORLD, s.ctx))?.name).toBe("江ノ島 七里ヶ浜");
+  });
+
   it("never fetches for a malformed id", async () => {
     const s = previewSetup(() => new Response(PAGE));
     expect(await worldPreview("wrld_x/../../admin", s.ctx)).toBeNull();

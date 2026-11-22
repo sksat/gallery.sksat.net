@@ -53,7 +53,10 @@ const setup = (
 ) => {
   const entries = new Map<string, Response>();
   const pending: Promise<unknown>[] = [];
-  const fetchFn = vi.fn(async (url: string) => upstream(url));
+  const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+    void init;
+    return upstream(url);
+  });
   const ctx: WorldImageContext = {
     worldImage: async () => {
       if (image instanceof Error) throw image;
@@ -79,6 +82,10 @@ describe("handleWorldImage", () => {
     expect(res.headers.get("X-Image-Cache")).toBe("MISS");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
     expect(s.fetchFn.mock.calls.map((c) => c[0])).toEqual([IMAGE, FILE]);
+    // Redirects are followed here, each checked first.
+    for (const call of s.fetchFn.mock.calls) {
+      expect(call[1]).toMatchObject({ redirect: "manual" });
+    }
     await s.settle();
 
     const again = await handleWorldImage(ID, s.ctx);
