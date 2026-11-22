@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   exifBody,
-  exposureLine,
+  exposureSpecs,
+  splitTaken,
   groupTagFields,
   hasDetails,
-  infoSummary,
   placeOf,
   photoInfo,
   worldHref,
@@ -37,31 +37,50 @@ describe("groupTagFields", () => {
   });
 });
 
-describe("exposureLine", () => {
-  it("joins what is known", () => {
+const values = (exif: Parameters<typeof exposureSpecs>[0]) =>
+  exposureSpecs(exif)?.map((s) => s.value) ?? null;
+
+describe("exposureSpecs", () => {
+  it("lists what is known, in order, each with its name", () => {
     expect(
-      exposureLine({
+      exposureSpecs({
         f_number: 2.8,
         exposure_time: "1/250",
         iso: 100,
         focal_length_mm: 35,
       }),
-    ).toBe("f/2.8 · 1/250 s · ISO 100 · 35 mm");
-    expect(exposureLine({ iso: 3200 })).toBe("ISO 3200");
-    expect(exposureLine({ exposure_time: "2", focal_length_mm: 4.25 })).toBe(
-      "2 s · 4.3 mm",
-    );
+    ).toEqual([
+      { label: "絞り", value: "f/2.8" },
+      { label: "シャッター", value: "1/250 s" },
+      { label: "ISO 感度", value: "ISO 100" },
+      { label: "焦点距離", value: "35 mm" },
+    ]);
+    expect(values({ iso: 3200 })).toEqual(["ISO 3200"]);
+    expect(values({ exposure_time: "2", focal_length_mm: 4.25 })).toEqual([
+      "2 s",
+      "4.3 mm",
+    ]);
   });
 
   it("drops trailing zeros", () => {
-    expect(exposureLine({ f_number: 8 })).toBe("f/8");
-    expect(exposureLine({ f_number: 0.95 })).toBe("f/0.95");
-    expect(exposureLine({ focal_length_mm: 50.0 })).toBe("50 mm");
+    expect(values({ f_number: 8 })).toEqual(["f/8"]);
+    expect(values({ f_number: 0.95 })).toEqual(["f/0.95"]);
+    expect(values({ focal_length_mm: 50.0 })).toEqual(["50 mm"]);
   });
 
   it("is null when nothing is known", () => {
-    expect(exposureLine(null)).toBeNull();
-    expect(exposureLine({ lens: "35mm F1.4" })).toBeNull();
+    expect(exposureSpecs(null)).toBeNull();
+    expect(exposureSpecs({ lens: "35mm F1.4" })).toBeNull();
+  });
+});
+
+describe("splitTaken", () => {
+  it("sets the time apart from the date", () => {
+    expect(splitTaken("2023/12/16 23:12")).toEqual({
+      date: "2023/12/16",
+      time: "23:12",
+    });
+    expect(splitTaken("2023/12")).toEqual({ date: "2023/12", time: null });
   });
 });
 
@@ -153,14 +172,13 @@ describe("photoInfo", () => {
       digitized: null,
       body: "Canon EOS R5",
       lens: "RF35mm F1.8",
-      exposure: "f/1.8",
+      exposure: [{ label: "絞り", value: "f/1.8" }],
       world: { name: "Home", href: "https://vrchat.com/home/world/wrld_x" },
       location: null,
       tags: ["VRChat", "night"],
       tagFields: [],
       file: "/2023/a.png",
     });
-    expect(infoSummary(i)).toBe("2023/12/16 23:12 · VirtualLens2 · Home");
   });
 
   it("shows the スキャン機材 and スキャン日時 when the API gives them", () => {
@@ -201,7 +219,6 @@ describe("photoInfo", () => {
     });
     // The platform is a tag in the gallery.
     expect(i.tags).toEqual(["Real"]);
-    expect(infoSummary(i)).toBeNull();
     expect(hasDetails(info({}))).toBe(false);
     expect(hasDetails(i)).toBe(true);
   });

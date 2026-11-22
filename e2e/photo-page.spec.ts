@@ -16,8 +16,7 @@ const resumed = (page: Page) =>
   expect
     .poll(() =>
       page
-        .getByTestId("overlay-box")
-        .locator("..")
+        .getByTestId("photo-area")
         .evaluate((el: HTMLElement) => el.style.touchAction),
     )
     .toBe("pan-y pinch-zoom");
@@ -75,12 +74,6 @@ test.describe("desktop", () => {
       "/camera/virtuallens2/",
       VIRTUALLENS2_ORDER,
     );
-    // Resumed: the info panel answers its key.
-    await page.keyboard.press("i");
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(
       /\/photo\/vrcxxxxxxc\/detail\/\?camera=virtuallens2$/,
@@ -124,11 +117,7 @@ test.describe("desktop", () => {
   }) => {
     await openInOverlay(page, "vrcxxxxxxa");
     const tag = page.getByTestId("info-tag");
-    await page.getByTestId("info-toggle").click();
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    await expect(tag).toBeVisible();
     await tag.focus();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/\?tag=VRChat$/);
@@ -138,12 +127,20 @@ test.describe("desktop", () => {
   test("everything public about the photo", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxa/detail/");
     const d = detail(page);
-    await expect(d.getByTestId("info-taken")).toHaveText(
-      "撮影日時2023/12/02 00:00",
+    // The date heads the page.
+    await expect(d.getByRole("heading", { level: 1 })).toHaveText(
+      "2023/12/02 00:00",
     );
-    await expect(d.getByTestId("info-exposure")).toHaveText(
-      "撮影設定f/2.8 · 1/250 s · ISO 100 · 35 mm",
+    await expect(d.getByTestId("info-taken").locator("time")).toHaveAttribute(
+      "datetime",
+      "2023-12-02T00:00Z",
     );
+    await expect(d.getByTestId("info-exposure-value")).toHaveText([
+      "f/2.8",
+      "1/250 s",
+      "ISO 100",
+      "35 mm",
+    ]);
     await expect(
       d.getByTestId("info-world").getByRole("link", { name: "Fixture World" }),
     ).toHaveAttribute("href", /vrchat\.com\/home\/world\/wrld_0123abcd/);
@@ -181,7 +178,7 @@ test.describe("desktop", () => {
   test("hidden fields are absent", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxb/detail/");
     const d = detail(page);
-    await expect(d.getByTestId("info-taken")).toHaveText("撮影日時2023/12/04");
+    await expect(d.getByTestId("info-taken")).toHaveText("2023/12/04");
     // Maker only: no camera page, so no card.
     await expect(d.getByTestId("info-camera")).toHaveText("カメラRICOH");
     await expect(d.getByTestId("camera-card")).toHaveCount(0);
@@ -220,7 +217,10 @@ test.describe("desktop", () => {
       "href",
       "/map/?photo=reaxxxxxxa",
     );
-    await expect(detail(page).getByTestId("info-location")).toHaveCount(0);
+    // The title names the place too, linking to the same map.
+    await expect(
+      detail(page).getByTestId("info-location").getByRole("link"),
+    ).toHaveAttribute("href", "/map/?photo=reaxxxxxxa");
     // reaxxxxxxb only to the city.
     await page.goto("/photo/reaxxxxxxb/detail/");
     await expect(
@@ -257,7 +257,7 @@ test.describe("phone", () => {
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
     // The swipe listeners are in place once the photo area takes its
     // touch-action.
-    const area = page.getByTestId("overlay-box").locator("..");
+    const area = page.getByTestId("photo-area");
     await expect
       .poll(() => area.evaluate((el: HTMLElement) => el.style.touchAction))
       .toBe("pan-y pinch-zoom");
@@ -297,7 +297,7 @@ test.describe("phone", () => {
   test("a swipe right is the previous photo", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxb/detail/?tag=VRChat");
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
-    const area = page.getByTestId("overlay-box").locator("..");
+    const area = page.getByTestId("photo-area");
     await expect
       .poll(() => area.evaluate((el: HTMLElement) => el.style.touchAction))
       .toBe("pan-y pinch-zoom");
@@ -328,12 +328,13 @@ test.describe("phone", () => {
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxc\/detail\/\?tag=VRChat$/);
   });
 
-  test("the photo comes first, then its details", async ({ page }) => {
+  test("the date above the photo, then its details", async ({ page }) => {
     await page.goto("/photo/vrcxxxxxxa/detail/");
     await expect(detail(page)).toBeVisible({ timeout: 10000 });
-    const photo = await page.getByTestId("overlay-box").boundingBox();
-    const info = await page.getByTestId("info-taken").boundingBox();
-    if (!photo || !info) throw new Error("missing");
+    const photo = (await page.getByTestId("overlay-box").boundingBox())!;
+    const date = (await page.getByTestId("info-taken").boundingBox())!;
+    const info = (await page.getByTestId("info-exposure").boundingBox())!;
+    expect(date.y + date.height).toBeLessThanOrEqual(photo.y);
     expect(info.y).toBeGreaterThan(photo.y + photo.height);
   });
 });

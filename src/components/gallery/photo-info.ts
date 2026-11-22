@@ -19,22 +19,50 @@ const short = (n: number, digits: number) => {
   return String(Math.round(n * f) / f);
 };
 
+/** One shooting setting: 絞り f/2.8. */
+export type ExposureSpec = { label: string; value: string };
+
 /**
- * How the photo was exposed, as one line: 「f/2.8 · 1/250 s · ISO 100 ·
- * 35 mm」, with only the values the API gave. Null when there are none.
+ * How the photo was exposed, setting by setting (絞り f/2.8, シャッター
+ * 1/250 s, ISO 100, 焦点距離 35 mm), with only the values the API gave.
+ * Null when there are none.
  */
-export const exposureLine = (
+export const exposureSpecs = (
   exif: MediaExif | null | undefined,
-): string | null => {
+): ExposureSpec[] | null => {
   if (!exif) return null;
-  const parts = [
-    exif.f_number !== undefined && `f/${short(exif.f_number, 2)}`,
-    exif.exposure_time !== undefined && `${exif.exposure_time} s`,
-    exif.iso !== undefined && `ISO ${short(exif.iso, 0)}`,
-    exif.focal_length_mm !== undefined &&
-      `${short(exif.focal_length_mm, 1)} mm`,
-  ].filter((p): p is string => typeof p === "string");
-  return parts.length > 0 ? parts.join(" · ") : null;
+  const specs = [
+    exif.f_number !== undefined && {
+      label: "絞り",
+      value: `f/${short(exif.f_number, 2)}`,
+    },
+    exif.exposure_time !== undefined && {
+      label: "シャッター",
+      value: `${exif.exposure_time} s`,
+    },
+    exif.iso !== undefined && {
+      label: "ISO 感度",
+      value: `ISO ${short(exif.iso, 0)}`,
+    },
+    exif.focal_length_mm !== undefined && {
+      label: "焦点距離",
+      value: `${short(exif.focal_length_mm, 1)} mm`,
+    },
+  ].filter((s): s is ExposureSpec => typeof s === "object");
+  return specs.length > 0 ? specs : null;
+};
+
+/**
+ * The date and the time of a taken-at text, apart, for a title that sets
+ * them differently: "2023/12/16 23:12" → 2023/12/16 and 23:12.
+ */
+export const splitTaken = (
+  text: string,
+): { date: string; time: string | null } => {
+  const at = text.indexOf(" ");
+  return at === -1
+    ? { date: text, time: null }
+    : { date: text.slice(0, at), time: text.slice(at + 1) };
 };
 
 /**
@@ -115,7 +143,7 @@ export type PhotoInfo = {
   /** The EXIF body, when it is not already the camera row. */
   body: string | null;
   lens: string | null;
-  exposure: string | null;
+  exposure: ExposureSpec[] | null;
   world: { name: string; href: string | null } | null;
   location: { label: string; href: string } | null;
   tags: string[];
@@ -165,7 +193,7 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
     // then, too).
     body: m.camera && body !== null && body !== camera?.label ? body : null,
     lens: m.exif?.lens ?? null,
-    exposure: exposureLine(m.exif),
+    exposure: exposureSpecs(m.exif),
     world,
     location: placeOf(m.id, m.location),
     tags: mediaTags(m),
@@ -189,14 +217,3 @@ export const hasDetails = (info: PhotoInfo): boolean =>
     info.tagFields.length > 0 ||
     info.file,
   );
-
-/**
- * The one-line summary at the overlay's bottom edge:
- * 「2023/12/16 23:12 · VirtualLens2 · Home」 (what of it is public).
- */
-export const infoSummary = (info: PhotoInfo): string | null => {
-  const parts = [info.taken?.text, info.camera?.label, info.world?.name].filter(
-    (p): p is string => Boolean(p),
-  );
-  return parts.length > 0 ? parts.join(" · ") : null;
-};

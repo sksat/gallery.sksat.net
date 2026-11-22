@@ -2,6 +2,7 @@ import { $, component$, useComputed$, useSignal } from "@builder.io/qwik";
 import { useLocation } from "@builder.io/qwik-city";
 
 import { useGalleryIndex } from "~/routes/layout";
+import { takenDateKey } from "@shared/calendar/calendar";
 import type { SwipeDirection } from "@shared/gestures/swipe";
 import { Manufacturer } from "./camera-header";
 import { CAMERA_KIND_LABELS, cameraHref, findCamera } from "./cameras";
@@ -13,7 +14,12 @@ import { SiteNav } from "../layout/site-nav";
 import { MiniMap } from "../map/mini-map";
 import { MiniCalendar } from "./mini-calendar";
 import { photoInfo } from "./photo-info";
-import { PhotoInfoList } from "./photo-info-list";
+import {
+  ExposureSpecs,
+  PhotoInfoList,
+  PhotoTitle,
+  TakenText,
+} from "./photo-info-list";
 import { ProgressiveImage } from "./progressive-image";
 import { ShareButton } from "./share-button";
 import { DEFAULT_TAG_MODE, mediaTags } from "./tags";
@@ -23,9 +29,8 @@ import { useSwipe } from "./use-swipe";
 const S3_BASE = import.meta.env.VITE_S3_BASE_URL;
 const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
 
-// `!` on the colour: the site's unlayered `a { color }` would win otherwise.
-const ROUND_BUTTON =
-  "flex size-10 items-center justify-center rounded-full bg-black/50 !text-white/80 hover:bg-black/70 hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white";
+/** The camera card, calendar and map: each a way to more photos. */
+const CARD = "rounded-2xl bg-white/[0.04] ring-1 ring-white/10 ring-inset";
 
 const Chevron = component$<{ dir: "prev" | "next" }>(({ dir }) => (
   <svg
@@ -44,10 +49,46 @@ const Chevron = component$<{ dir: "prev" | "next" }>(({ dir }) => (
 ));
 
 /**
- * A photo's detail page (/photo/<id>/detail/): the photo large, everything public
- * about it, and the previous / next photo and a way back to the list it
- * was opened from (carried in the query). Server-rendered in full; the
- * arrow keys and swipes step like the overlay's.
+ * The previous / next link: under the photo on phones (a labelled pill),
+ * and from sm up the whole height of the photo's band at its edge, its
+ * chevron in a circle that lights up on hover.
+ */
+const StepLink = component$<{ dir: "prev" | "next"; href: string }>(
+  ({ dir, href }) => {
+    const label = dir === "prev" ? "前の写真" : "次の写真";
+    return (
+      // Plain <a>: see the note in components/layout/header.tsx.
+      <a
+        href={href}
+        rel={dir}
+        data-testid={`${dir}-link`}
+        aria-label={label}
+        title={`${label} (${dir === "prev" ? "←" : "→"})`}
+        class={[
+          "group flex items-center gap-1 rounded-full bg-white/[0.06] py-2 text-sm !text-white/85 ring-1 ring-white/10 ring-inset hover:bg-white/15 hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white",
+          dir === "prev" ? "pr-4 pl-2" : "ml-auto flex-row-reverse pr-2 pl-4",
+          // From sm: a full-height zone at the band's edge.
+          "sm:absolute sm:inset-y-0 sm:w-20 sm:justify-center sm:rounded-none sm:bg-transparent sm:p-0 sm:ring-0 sm:hover:bg-white/[0.04] sm:focus-visible:-outline-offset-4",
+          dir === "prev" ? "sm:left-0" : "sm:right-0",
+        ]}
+      >
+        <span class="sm:flex sm:size-11 sm:items-center sm:justify-center sm:rounded-full sm:bg-black/40 sm:ring-1 sm:ring-white/15 sm:transition-colors sm:group-hover:bg-white/90 sm:group-hover:text-black">
+          <Chevron dir={dir} />
+        </span>
+        <span class="sm:sr-only">{label}</span>
+      </a>
+    );
+  },
+);
+
+/**
+ * A photo's detail page (/photo/<id>/detail/): the photo as a wide band
+ * across the page, then its title (the date, with the world or place),
+ * the exposure readout and the other details, and beside them the
+ * camera, the day and the place as cards. Previous / next and the way
+ * back go through the list it was opened from (carried in the query).
+ * Server-rendered in full; the arrow keys and swipes step like the
+ * overlay's.
  */
 export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
   const location = useLocation();
@@ -74,12 +115,8 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
       /** In the public list (not unlisted). */
       listed: media.some((m) => m.id === photo.id),
       // The camera card shows the camera (the list keeps its body and
-      // lens), and the small map the place.
-      info: {
-        ...info,
-        camera: camera ? null : info.camera,
-        location: null,
-      },
+      // lens).
+      info: { ...info, camera: camera ? null : info.camera },
       backLabel:
         ctx.camera === null
           ? "写真一覧"
@@ -126,6 +163,9 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
   const cover = camera?.images[0]?.file;
   const size = photoSize(photo);
   const aspect = "width" in size ? `${size.width} / ${size.height}` : "3 / 2";
+  const hasCalendar =
+    takenDateKey(photo.takenIso ?? null, photo.timestamp_precision) !== null;
+  const hasMap = props.photo.location != null;
 
   return (
     <article
@@ -133,124 +173,146 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
       aria-labelledby="photo-detail-title"
       // On an element: see gallery.tsx on why not useOnDocument.
       document:onKeyDown$={onKeyDown}
-      class="mx-auto flex max-w-7xl flex-col gap-6 px-3 py-4 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-8 lg:px-6"
+      class="pb-14"
     >
-      <h1 id="photo-detail-title" class="sr-only">
-        {info.taken?.text ?? "写真"}
-      </h1>
-      <div class="flex min-w-0 flex-col gap-3">
-        <div class="flex items-center justify-between gap-3">
-          {/* Plain <a>s: see the note in components/layout/header.tsx. */}
-          <a
-            href={ctx.backHref}
-            data-testid="back-link"
-            class="min-h-11 truncate text-sm leading-[2.75rem] opacity-80 hover:opacity-100 sm:min-h-8 sm:leading-8"
-          >
-            <span aria-hidden="true">← </span>
-            {backLabel}
-          </a>
-          <span class="ml-auto flex shrink-0 items-center gap-1">
-            <SiteNav compact />
-            <ShareButton photoId={photo.id} variant="inline" />
-          </span>
-        </div>
-        <div
-          ref={area}
-          class="relative flex flex-col items-center gap-3 overflow-hidden"
+      <div class="mx-auto flex max-w-6xl items-center gap-3 px-3 py-2 sm:px-6">
+        {/* Plain <a>s: see the note in components/layout/header.tsx. */}
+        <a
+          href={ctx.backHref}
+          data-testid="back-link"
+          class="-ml-1 inline-flex min-h-11 min-w-0 items-center rounded px-1 text-sm !text-white/75 hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white sm:min-h-8"
         >
+          <span aria-hidden="true" class="whitespace-pre">
+            {"← "}
+          </span>
+          <span class="truncate">{backLabel}</span>
+        </a>
+        <span class="ml-auto flex shrink-0 items-center gap-1">
+          <SiteNav compact />
+          <ShareButton photoId={photo.id} variant="inline" />
+        </span>
+      </div>
+
+      {/* The date names the photo, at the top above it, as in the overlay.
+          `!`: the site's unlayered h1 rules would win otherwise. */}
+      <h1
+        id="photo-detail-title"
+        data-testid={info.taken ? "info-taken" : undefined}
+        class={[
+          "mx-auto max-w-6xl px-4 pt-1 pb-4 text-[1.75rem] leading-none font-semibold tracking-tight tabular-nums sm:px-6 sm:pt-2 sm:pb-5 sm:text-4xl",
+          info.taken ? "" : "sr-only",
+        ]}
+      >
+        {info.taken ? <TakenText taken={info.taken} /> : "写真"}
+      </h1>
+
+      {/* The photo: a dark band across the whole page, the photo as large
+          as fits in it (the screen's width on phones). */}
+      <div
+        ref={area}
+        data-testid="photo-area"
+        class="relative overflow-hidden bg-black/45 shadow-[inset_0_1px_0_rgb(255_255_255/0.04),inset_0_-1px_0_rgb(255_255_255/0.04)]"
+      >
+        <div class="mx-auto flex max-w-[110rem] flex-col items-center gap-2 sm:h-[min(80svh,58rem)] sm:justify-center sm:px-24 sm:py-8">
           <ProgressiveImage
             src={{ id: photo.id, file: photo.file }}
             boxRef={box}
-            // The photo's aspect ratio at the column's width (at most most
-            // of the screen tall), set before it loads so nothing shifts;
-            // 3:2 when its size is not known.
-            boxClass="relative max-h-[min(75vh,60rem)] w-full"
+            // Phones: the photo's own shape at the screen's width (at most
+            // most of the screen tall), set before it loads so nothing
+            // shifts; 3:2 when its size is not known. From sm: the band.
+            boxClass="relative max-h-[75svh] w-full sm:h-full sm:max-h-none"
             boxStyle={{ aspectRatio: aspect }}
             alt={info.taken ? `${info.taken.text} の写真` : "写真"}
           />
-          {ctx.prevHref && (
-            <a
-              href={ctx.prevHref}
-              rel="prev"
-              data-testid="prev-link"
-              aria-label="前の写真"
-              title="前の写真 (←)"
-              class={["absolute top-1/2 left-2 -translate-y-1/2", ROUND_BUTTON]}
-            >
-              <Chevron dir="prev" />
-            </a>
-          )}
-          {ctx.nextHref && (
-            <a
-              href={ctx.nextHref}
-              rel="next"
-              data-testid="next-link"
-              aria-label="次の写真"
-              title="次の写真 (→)"
-              class={[
-                "absolute top-1/2 right-2 -translate-y-1/2",
-                ROUND_BUTTON,
-              ]}
-            >
-              <Chevron dir="next" />
-            </a>
-          )}
         </div>
-      </div>
-
-      {/* The h1 is absolutely positioned (sr-only), so it takes no cell. */}
-      <div class="flex flex-col gap-6 text-sm text-white lg:pt-11">
-        <PhotoInfoList info={info} tagLinks={tagLinks} />
-        {camera && (
-          <div
-            data-testid="camera-card"
-            class="relative flex items-center gap-3 rounded border border-white/15 p-2 transition-colors hover:border-white/50"
-          >
-            <div class="size-16 shrink-0 overflow-hidden rounded bg-white/5">
-              {cover && (
-                <img
-                  src={imageUrl(S3_BASE, cover, IMAGE_BASE, "h240")}
-                  alt=""
-                  width={64}
-                  height={64}
-                  decoding="async"
-                  class="h-full w-full object-cover"
-                />
-              )}
-            </div>
-            <div class="flex min-w-0 flex-col gap-1">
-              <span class="text-xs text-white/60">カメラ</span>
-              <a
-                href={cameraHref(camera.slug)}
-                class="truncate font-semibold text-white after:absolute after:inset-0 after:content-['']"
-              >
-                {camera.name}
-              </a>
-              {(camera.manufacturer || camera.kind) && (
-                <span class="flex gap-3 text-white/70">
-                  {camera.manufacturer && (
-                    <span class={camera.manufacturerUrl ? "relative z-10" : ""}>
-                      <Manufacturer camera={camera} />
-                    </span>
-                  )}
-                  {camera.kind && (
-                    <span>{CAMERA_KIND_LABELS[camera.kind]}</span>
-                  )}
-                </span>
-              )}
-            </div>
+        {(ctx.prevHref || ctx.nextHref) && (
+          <div class="flex px-3 pb-3 sm:contents">
+            {ctx.prevHref && <StepLink dir="prev" href={ctx.prevHref} />}
+            {ctx.nextHref && <StepLink dir="next" href={ctx.nextHref} />}
           </div>
         )}
-        <MiniCalendar
-          timestamp={photo.takenIso ?? null}
-          precision={photo.timestamp_precision}
-          // An unlisted photo is on no day's list.
-          linkDay={listed}
-        />
-        {/* Only a public location (never for a VRChat photo). */}
-        {props.photo.location && (
-          <MiniMap photoId={photo.id} location={props.photo.location} />
-        )}
+      </div>
+
+      <div class="mx-auto max-w-6xl px-4 pt-8 sm:px-6 sm:pt-12">
+        <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
+          <div class="flex min-w-0 flex-col gap-8 sm:gap-10">
+            <PhotoTitle info={info} large />
+            <div class="flex max-w-xl flex-col gap-4">
+              {info.exposure && <ExposureSpecs specs={info.exposure} />}
+              <PhotoInfoList info={info} tagLinks={tagLinks} />
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-4">
+            {camera && (
+              <div
+                data-testid="camera-card"
+                class={[
+                  "relative flex items-center gap-4 transition-colors hover:bg-white/[0.08]",
+                  cover ? "p-3" : "px-4 py-3",
+                  CARD,
+                ]}
+              >
+                {/* Its picture, when it has one; else just its name. */}
+                {cover && (
+                  <div class="size-20 shrink-0 overflow-hidden rounded-xl bg-white/5">
+                    <img
+                      src={imageUrl(S3_BASE, cover, IMAGE_BASE, "h240")}
+                      alt=""
+                      width={80}
+                      height={80}
+                      decoding="async"
+                      class="h-full w-full object-cover"
+                    />
+                  </div>
+                )}
+                <div class="flex min-w-0 flex-col gap-1 text-sm">
+                  <span class="text-white/55">カメラ</span>
+                  <a
+                    href={cameraHref(camera.slug)}
+                    class="truncate text-base font-semibold !text-white after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:outline-none focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-white"
+                  >
+                    {camera.name}
+                  </a>
+                  {(camera.manufacturer || camera.kind) && (
+                    <span class="flex gap-3 text-white/65">
+                      {camera.manufacturer && (
+                        <span
+                          class={camera.manufacturerUrl ? "relative z-10" : ""}
+                        >
+                          <Manufacturer camera={camera} />
+                        </span>
+                      )}
+                      {camera.kind && (
+                        <span>{CAMERA_KIND_LABELS[camera.kind]}</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            {/* When and where: side by side where there is room. */}
+            {(hasCalendar || hasMap) && (
+              <div
+                class={[
+                  "grid gap-4",
+                  hasCalendar && hasMap && "sm:grid-cols-2 lg:grid-cols-1",
+                ]}
+              >
+                <MiniCalendar
+                  timestamp={photo.takenIso ?? null}
+                  precision={photo.timestamp_precision}
+                  // An unlisted photo is on no day's list.
+                  linkDay={listed}
+                />
+                {/* Only a public location (never for a VRChat photo). */}
+                {props.photo.location && (
+                  <MiniMap photoId={photo.id} location={props.photo.location} />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </article>
   );

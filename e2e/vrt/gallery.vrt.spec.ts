@@ -47,9 +47,8 @@ const openPhoto = async (page: Page, id = "vrcxxxxxxa") => {
         .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth),
     )
     .toBeGreaterThan(0);
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    /true|false/,
+  await expect(overlay.getByTestId("overlay-progress")).toHaveClass(
+    /opacity-0/,
   );
 };
 
@@ -82,27 +81,16 @@ test("photo page", async ({ page }) => {
   await expect(page).toHaveScreenshot("photo-page.png", { fullPage: true });
 });
 
-test("photo overlay: summary", async ({ page }) => {
+// The info under the photo, in one row.
+test("photo overlay", async ({ page }) => {
   await openPhoto(page);
   await settled(page);
   await expect(page).toHaveScreenshot("photo-1.png");
 });
 
-test("photo overlay: info panel open", async ({ page }) => {
-  await openPhoto(page);
-  await page.getByTestId("info-summary").click();
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  await settled(page);
-  await expect(page).toHaveScreenshot("photo-1-info-open.png");
-});
-
-// reaxxxxxxa: its film tag's fields under the tag.
+// reaxxxxxxa (3:4): its film tag's fields under the tag.
 test("photo overlay: a tag's fields", async ({ page }) => {
   await openPhoto(page, "reaxxxxxxa");
-  await page.getByTestId("info-summary").click();
   await expect(page.getByTestId("info-tag-fields")).toBeVisible();
   await settled(page);
   await expect(page).toHaveScreenshot("photo-real1-tag-fields.png");
@@ -118,26 +106,14 @@ test.describe("phone", () => {
     });
   });
 
-  test("photo overlay: summary", async ({ page }) => {
+  test("photo overlay", async ({ page }) => {
     await openPhoto(page);
     await settled(page);
     await expect(page).toHaveScreenshot("photo-1-phone.png");
   });
 
-  test("photo overlay: info sheet", async ({ page }) => {
-    await openPhoto(page);
-    await page.getByTestId("info-summary").click();
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    await settled(page);
-    await expect(page).toHaveScreenshot("photo-1-phone-info.png");
-  });
-
   test("photo overlay: a tag's fields", async ({ page }) => {
     await openPhoto(page, "reaxxxxxxa");
-    await page.getByTestId("info-summary").click();
     await expect(page.getByTestId("info-tag-fields")).toBeVisible();
     await settled(page);
     await expect(page).toHaveScreenshot("photo-real1-tag-fields-phone.png");

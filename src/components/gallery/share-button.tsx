@@ -9,8 +9,9 @@ interface ShareButtonProps {
   /** The photo whose page (/photo/<id>/) is shared. */
   photoId: string;
   /**
-   * "overlay" (default): in the overlay's bottom-right corner. "inline":
-   * in the flow of the photo page, with the message and field below.
+   * "overlay" (default): in the overlay's buttons at the bottom, with the
+   * message and field above. "inline": in the flow of the photo page,
+   * with the message and field below.
    */
   variant?: "overlay" | "inline";
 }
@@ -79,22 +80,16 @@ export const ShareButton = component$<ShareButtonProps>((props) => {
   });
 
   const label = canShare.value ? "共有" : "リンクをコピー";
+  const inline = props.variant === "inline";
+  // The message and the URL field float next to the button (below it on
+  // the page, above it in the overlay's bottom corner) rather than push
+  // its neighbours.
+  const floating = inline
+    ? "absolute top-full right-0 z-10 mt-2"
+    : "absolute right-0 bottom-full z-20 mb-2";
 
   return (
-    <div
-      // Bottom right: the site nav sits above the overlay at the top right.
-      // Reversed so the button stays in the corner and the message and URL
-      // field stack above it. Only the button and the field take clicks
-      // (and keep them from the overlay, which closes on click), so the
-      // rest of the corner still closes the overlay.
-      // Above the open info sheet (its foot leaves room for it), so the
-      // button, the copy message and the URL field stay usable.
-      class={
-        props.variant === "inline"
-          ? "relative flex flex-col items-end gap-2"
-          : "pointer-events-none absolute right-3 bottom-3 z-20 flex flex-col-reverse items-end gap-2"
-      }
-    >
+    <div class="relative flex">
       <button
         type="button"
         data-testid="share-button"
@@ -143,10 +138,8 @@ export const ShareButton = component$<ShareButtonProps>((props) => {
         data-testid="share-status"
         aria-live="polite"
         class={[
-          "rounded bg-black/70 px-2 py-1 text-sm text-white transition-opacity duration-200",
-          // Inline: below the button, over the page rather than pushing it.
-          props.variant === "inline" &&
-            "pointer-events-none absolute top-full right-0 z-10 mt-2 whitespace-nowrap",
+          "pointer-events-none rounded bg-black/70 px-2 py-1 text-sm whitespace-nowrap text-white transition-opacity duration-200",
+          floating,
           copied.value ? "opacity-100" : "opacity-0",
         ]}
       >
@@ -167,8 +160,8 @@ export const ShareButton = component$<ShareButtonProps>((props) => {
           value={manualUrl.value}
           stoppropagation:click
           class={[
-            "pointer-events-auto w-[min(80vw,24rem)] rounded bg-black/70 px-2 py-1 text-sm text-white",
-            props.variant === "inline" && "absolute top-full right-0 z-10 mt-2",
+            "w-[min(80vw,24rem)] rounded bg-black/70 px-2 py-1 text-sm text-white",
+            floating,
           ]}
         />
       )}

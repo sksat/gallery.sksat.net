@@ -15,13 +15,8 @@ const panel = (page: Page) => page.getByTestId("info-panel");
 
 const openPhoto = openInOverlay;
 
-/** Open the panel with its ⓘ button (it starts closed everywhere). */
-const openInfo = async (page: Page) => {
-  await page.getByTestId("info-toggle").click();
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
+/** The info is on screen (as it always is). */
+const expectShown = async (page: Page) => {
   await expect(panel(page)).toBeInViewport();
 };
 
@@ -31,14 +26,12 @@ test.describe("desktop", () => {
   test("shows every field the API gives", async ({ page }) => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
-    await openInfo(page);
-    await expect(p.getByTestId("info-taken")).toHaveText(
-      "撮影日時2023/12/02 00:00",
-    );
-    await expect(p.locator("time")).toHaveAttribute(
-      "datetime",
-      "2023-12-02T00:00Z",
-    );
+    await expectShown(page);
+    // The date heads the row.
+    const date = p.getByTestId("info-taken").locator("time");
+    await expect(date).toBeVisible();
+    await expect(date).toHaveText("2023/12/02 00:00");
+    await expect(date).toHaveAttribute("datetime", "2023-12-02T00:00Z");
     const camera = p.getByTestId("info-camera");
     await expect(camera.getByRole("link", { name: "VirtualLens2" })).toHaveAttribute(
       "href",
@@ -48,9 +41,12 @@ test.describe("desktop", () => {
     await expect(p.getByTestId("info-lens")).toHaveText(
       "RF35mm F1.8 MACRO IS STM",
     );
-    await expect(p.getByTestId("info-exposure")).toHaveText(
-      "撮影設定f/2.8 · 1/250 s · ISO 100 · 35 mm",
-    );
+    await expect(p.getByTestId("info-exposure-value")).toHaveText([
+      "f/2.8",
+      "1/250 s",
+      "ISO 100",
+      "35 mm",
+    ]);
     await expect(
       p.getByTestId("info-world").getByRole("link", { name: "Fixture World" }),
     ).toHaveAttribute(
@@ -72,8 +68,10 @@ test.describe("desktop", () => {
   test("hidden fields are absent", async ({ page }) => {
     await openPhoto(page, "vrcxxxxxxb");
     const p = panel(page);
-    await openInfo(page);
-    await expect(p.getByTestId("info-taken")).toHaveText("撮影日時2023/12/04");
+    await expectShown(page);
+    await expect(page.getByTestId("info-taken").locator("time")).toHaveText(
+      "2023/12/04",
+    );
     // The maker only, as text.
     await expect(p.getByTestId("info-camera")).toHaveText("カメラRICOH");
     await expect(p.getByTestId("info-camera").getByRole("link")).toHaveCount(0);
@@ -86,7 +84,7 @@ test.describe("desktop", () => {
     expect(await page.content()).not.toContain("wrld_fedcba98");
 
     await openPhoto(page, "reaxxxxxxb");
-    await openInfo(page);
+    await expectShown(page);
     // Only to the city: two decimals, said so.
     await expect(p.getByTestId("info-location")).toContainText("35.66");
     await expect(p.getByTestId("info-location")).toContainText(
@@ -94,9 +92,12 @@ test.describe("desktop", () => {
     );
     await expect(p.getByTestId("info-location")).not.toContainText("35.658");
     await expect(p.getByTestId("info-camera")).toHaveCount(0);
-    await expect(p.getByTestId("info-exposure")).toHaveText(
-      "撮影設定f/5.6 · 1/1000 s · ISO 200 · 18.3 mm",
-    );
+    await expect(p.getByTestId("info-exposure-value")).toHaveText([
+      "f/5.6",
+      "1/1000 s",
+      "ISO 200",
+      "18.3 mm",
+    ]);
     await expect(p.getByTestId("info-file")).toHaveCount(0);
     await expect(p.getByTestId("info-world")).toHaveCount(0);
     // The API leaves out the lens, the body and the camera altogether.
@@ -105,9 +106,9 @@ test.describe("desktop", () => {
     await expect(p).not.toContainText("GR III");
 
     await openPhoto(page, "reaxxxxxxa");
-    await openInfo(page);
-    await expect(p.getByTestId("info-taken")).toHaveText(
-      "撮影日時2023/12/01 00:00",
+    await expectShown(page);
+    await expect(page.getByTestId("info-taken").locator("time")).toHaveText(
+      "2023/12/01 00:00",
     );
     // Its place, linking to the map on it.
     const place = p.getByTestId("info-location").getByRole("link");
@@ -120,7 +121,7 @@ test.describe("desktop", () => {
   }) => {
     await openPhoto(page, "reaxxxxxxa");
     const p = panel(page);
-    await openInfo(page);
+    await expectShown(page);
     const group = p.getByTestId("info-tag-fields");
     await expect(group).toHaveCount(1);
     await expect(group.locator("> dt")).toHaveText("film");
@@ -133,85 +134,54 @@ test.describe("desktop", () => {
     expect(await page.content()).not.toContain("Fixture Lab");
     // The private tag "draft"'s field, on vrcxxxxxxc.
     await openPhoto(page, "vrcxxxxxxc");
-    await openInfo(page);
+    await expectShown(page);
     await expect(p.getByTestId("info-tag-fields")).toHaveCount(0);
     expect(await page.content()).not.toContain("draft memo");
   });
 
-  test("closed at first, the photo as large as without it", async ({
+  test("under the photo, which stays centred", async ({
     page,
   }) => {
-    await openPhoto(page, "vrcxxxxxxa");
-    const p = panel(page);
-    const toggle = page.getByTestId("info-toggle");
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(p).not.toBeInViewport();
-    // A one-line summary at the bottom edge instead, below the photo.
-    const summary = page.getByTestId("info-summary");
-    await expect(summary).toHaveText(
-      "2023/12/02 00:00 · VirtualLens2 · Fixture World",
-    );
-    const box = await page.getByTestId("overlay-box").boundingBox();
-    // The photo box is 90vw wide, as without the panel.
-    expect(box?.width).toBeCloseTo(1280 * 0.9, 0);
-
-    // The summary opens the panel over the photo; the box stays put.
-    await summary.click();
-    await expect(p).toBeInViewport();
-    await expect(p.getByTestId("info-close")).toBeFocused();
-    expect(await page.getByTestId("overlay-box").boundingBox()).toEqual(box);
+    const photo = page.getByTestId("overlay-box");
+    // 16:9 and 3:4 alike: the row at the bottom left under the photo.
+    for (const id of ["vrcxxxxxxa", "reaxxxxxxa"]) {
+      await openPhoto(page, id);
+      await expectShown(page);
+      const box = (await photo.boundingBox())!;
+      const block = (await panel(page).boundingBox())!;
+      expect(box.x + box.width / 2).toBeCloseTo(640, 0);
+      expect(block.y).toBeGreaterThanOrEqual(box.y + box.height);
+      expect(block.x).toBeLessThan(20);
+      // Wrapped or not, all of it on the screen.
+      expect(block.y + block.height).toBeLessThanOrEqual(800);
+    }
   });
 
-  test("toggles with i and the button", async ({ page }) => {
+  test("always shown, each value once, on every photo", async ({ page }) => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
-    const toggle = page.getByTestId("info-toggle");
-
+    await expectShown(page);
+    await expect(page.getByTestId("info-taken")).toHaveCount(1);
+    for (const value of ["Fixture World", "VirtualLens2", "f/2.8"]) {
+      // Once on screen.
+      await expect(
+        page.getByTestId("overlay").getByText(value).filter({ visible: true }),
+      ).toHaveCount(1);
+    }
+    // Nothing hides it.
+    await expect(page.getByTestId("info-toggle")).toHaveCount(0);
     await page.keyboard.press("i");
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(p).toBeInViewport();
-    await page.keyboard.press("i");
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(p).not.toBeInViewport();
 
-    // Not remembered: reopening the photo starts closed again.
-    await page.keyboard.press("i");
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await page.getByTestId("overlay").click({ position: { x: 5, y: 400 } });
-    await expect(page.getByTestId("overlay")).toHaveCount(0);
-    await page.getByTestId("gallery-image").nth(3).dispatchEvent("click");
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    // Shown on the next photo too.
     await page.keyboard.press("ArrowRight");
-    // Newest first: vrcxxxxxxa is followed by reaxxxxxxa, also closed.
     await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\//);
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    await expectShown(page);
 
-    // The button opens it, over the summary; clicks on it do not close
-    // the photo.
-    await openInfo(page);
-    await expect(page.getByTestId("info-summary")).toBeHidden();
-    await p.getByTestId("info-taken").click();
+    // A click on it (off its links) does not close the photo.
+    await p.click({ position: { x: 4, y: 4 } });
     await expect(page.getByTestId("overlay")).toBeVisible();
 
-    // `i` with the focus in the sheet closes it and hands the focus back.
-    await p.getByTestId("info-close").focus();
-    await page.keyboard.press("i");
-    await expect(page.getByTestId("info-toggle")).toBeFocused();
-    await openInfo(page);
-
-    // The close button hands focus back to the toggle.
-    await p.getByTestId("info-close").click();
-    await expect(page.getByTestId("info-toggle")).toBeFocused();
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
     // Arrows still browse; a click outside still closes.
     await page.keyboard.press("ArrowLeft");
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\//);
@@ -223,7 +193,7 @@ test.describe("desktop", () => {
     await page.goto("/");
     await page.getByTestId("gallery-image").nth(1).dispatchEvent("click");
     await expect(page).toHaveURL(/\/photo\/vrcxxxxxxb\/$/);
-    await openInfo(page);
+    await expectShown(page);
     const night = panel(page).getByTestId("info-tag").filter({ hasText: "night" });
     await expect(night).toHaveAttribute("href", "/?tag=night");
     await night.click();
@@ -236,6 +206,20 @@ test.describe("desktop", () => {
     await expect(page.getByTestId("overlay")).toBeVisible();
   });
 
+  test("without JS the info shows, under the photo", async ({ browser }) => {
+    const context = await browser.newContext({
+      javaScriptEnabled: false,
+      viewport: { width: 1280, height: 800 },
+    });
+    const page = await context.newPage();
+    await page.goto("/photo/vrcxxxxxxa/");
+    await expect(panel(page)).toBeVisible();
+    const box = (await page.getByTestId("overlay-box").boundingBox())!;
+    const info = (await panel(page).boundingBox())!;
+    expect(info.y).toBeGreaterThanOrEqual(box.y + box.height);
+    await context.close();
+  });
+
   test("is in the server-rendered page of the overlay's URL", async ({
     request,
   }) => {
@@ -243,50 +227,65 @@ test.describe("desktop", () => {
     const html = await (await request.get("/photo/vrcxxxxxxa/")).text();
     expect(html).toContain('data-testid="overlay"');
     expect(html).toContain('data-testid="info-exposure"');
-    expect(html).toContain("f/2.8 · 1/250 s · ISO 100 · 35 mm");
+    for (const part of ["f/2.8", "1/250 s", "35 mm", "シャッター"]) {
+      expect(html).toContain(part);
+    }
     expect(html).toContain("Fixture World");
     expect(html).toContain("2023/12/02 00:00");
+  });
+});
+
+test.describe("short wide screen", () => {
+  test.use({ viewport: { width: 1366, height: 480 } });
+
+  test("the photo keeps most of the height; the info never over it", async ({
+    page,
+  }) => {
+    await openPhoto(page, "reaxxxxxxa");
+    await expectShown(page);
+    const box = (await page.getByTestId("overlay-box").boundingBox())!;
+    const block = (await panel(page).boundingBox())!;
+    expect(box.height).toBeGreaterThan(480 * 0.55);
+    expect(block.y).toBeGreaterThanOrEqual(box.y + box.height);
+    expect(block.y + block.height).toBeLessThanOrEqual(480);
   });
 });
 
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("a summary opens the bottom sheet", async ({ page }) => {
+  test("the info right under the centred photo, its date in view", async ({
+    page,
+  }) => {
+    for (const id of ["vrcxxxxxxa", "reaxxxxxxa"]) {
+      await openPhoto(page, id);
+      await expectShown(page);
+      const photo = (await page.getByTestId("overlay-box").boundingBox())!;
+      // The row, headed by the date.
+      const date = (await page.getByTestId("info-taken").boundingBox())!;
+      // The photo in the middle of the first screen (the progress bar
+      // under it is in the centring too).
+      expect(Math.abs(photo.y + photo.height / 2 - 844 / 2)).toBeLessThan(12);
+      // The info right under it, its date on the first screen (a tall
+      // photo leaves room for it).
+      expect(date.y).toBeGreaterThanOrEqual(photo.y + photo.height);
+      expect(date.y + date.height).toBeLessThan(844);
+    }
+    // Landscape: the rest of the info is in view too.
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
-    // Closed by default, with a one-line summary on the photo.
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    await expect(p).not.toBeInViewport();
-    const summary = page.getByTestId("info-summary");
-    await expect(summary).toHaveText(
-      "2023/12/02 00:00 · VirtualLens2 · Fixture World",
-    );
-
-    await summary.click();
-    await expect(p).toBeInViewport();
-    await expect(p.getByTestId("info-close")).toBeFocused();
-    await expect(p.getByTestId("info-exposure")).toBeVisible();
-    await expect(page.getByTestId("overlay")).toBeVisible();
-
-    await p.getByTestId("info-close").click();
-    await expect(p).not.toBeInViewport();
-
-    // i toggles here too.
-    await page.keyboard.press("i");
-    await expect(p).toBeInViewport();
+    await expect(p.getByTestId("info-exposure")).toBeInViewport();
+    // Nothing hides it.
+    await expect(page.getByTestId("info-toggle")).toHaveCount(0);
   });
 
   test("hidden fields are absent", async ({ page }) => {
     await openPhoto(page, "vrcxxxxxxb");
-    await expect(page.getByTestId("info-summary")).toHaveText(
-      "2023/12/04 · RICOH · Name Only World",
-    );
-    await page.getByTestId("info-toggle").click();
     const p = panel(page);
+    await expectShown(page);
+    await expect(page.getByTestId("info-taken").locator("time")).toHaveText(
+      "2023/12/04",
+    );
     await expect(p.getByTestId("info-exposure")).toHaveCount(0);
     await expect(p.getByTestId("info-world").getByRole("link")).toHaveCount(0);
   });

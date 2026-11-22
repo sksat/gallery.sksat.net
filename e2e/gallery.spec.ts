@@ -101,6 +101,13 @@ test("gallery: view and navigate photos within the filter", async ({ page }) => 
   await expect(overlay).not.toBeVisible();
   await expect(page).toHaveURL(/\/\?tag=Real&tag=night&mode=or$/);
   await expect(images).toHaveCount(3);
+
+  // Esc closes it too.
+  await images.first().dispatchEvent("click");
+  await expect(overlay).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(overlay).not.toBeVisible();
+  await expect(page).toHaveURL(/\/\?tag=Real&tag=night&mode=or$/);
 });
 
 test("gallery: browser Back closes the photo without reloading", async ({
