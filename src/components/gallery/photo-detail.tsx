@@ -252,12 +252,14 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
               <div
                 data-testid="camera-card"
                 class={[
-                  "relative flex items-center gap-4 p-3 transition-colors hover:bg-white/[0.08]",
+                  "relative flex items-center gap-4 transition-colors hover:bg-white/[0.08]",
+                  cover ? "p-3" : "px-4 py-3",
                   CARD,
                 ]}
               >
-                <div class="size-20 shrink-0 overflow-hidden rounded-xl bg-white/5">
-                  {cover && (
+                {/* Its picture, when it has one; else just its name. */}
+                {cover && (
+                  <div class="size-20 shrink-0 overflow-hidden rounded-xl bg-white/5">
                     <img
                       src={imageUrl(S3_BASE, cover, IMAGE_BASE, "h240")}
                       alt=""
@@ -266,8 +268,8 @@ export const PhotoDetail = component$<{ photo: MediaInfoJSON }>((props) => {
                       decoding="async"
                       class="h-full w-full object-cover"
                     />
-                  )}
-                </div>
+                  </div>
+                )}
                 <div class="flex min-w-0 flex-col gap-1 text-sm">
                   <span class="text-white/55">カメラ</span>
                   <a
