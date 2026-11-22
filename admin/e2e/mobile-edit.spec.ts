@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { addTags, setTags, tagsField } from "./tag-editor-helpers";
 
 // The edit page on a phone: the save bar, prev/next through the list it was
 // opened from (links and swipes on the photo), the unsaved-changes guard
@@ -16,17 +17,16 @@ test("save from the bar fixed to the bottom", async ({ page }) => {
   // Without scrolling down to the end of the form.
   await expect(save).toBeInViewport();
 
-  const tags = page.getByLabel("Tags (comma-separated)");
-  const before = await tags.inputValue();
+  const before = await tagsField(page).inputValue();
   try {
-    await tags.fill("VRChat, mobile");
+    await addTags(page, "mobile");
     await expect(page.getByTestId("dirty")).toHaveText("未保存");
     await save.tap();
     await expect(page.getByText(/^Saved at /)).toBeVisible();
     await expect(page.getByTestId("dirty")).toHaveCount(0);
   } finally {
     await page.goto("/media/2/");
-    await page.getByLabel("Tags (comma-separated)").fill(before);
+    await setTags(page, before);
     await page.getByRole("button", { name: "Save" }).tap();
     await expect(page.getByText(/^Saved at /)).toBeVisible();
   }
@@ -68,14 +68,14 @@ test("unsaved changes ask before leaving", async ({ page }) => {
     .getByText("vrchat3.png")
     .tap();
   await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
-  await page.getByLabel("Tags (comma-separated)").fill("not saved");
+  await page.getByLabel("タグを追加").fill("not saved");
   await expect(page.getByTestId("dirty")).toBeVisible();
 
   // Cancel: stay, with the edit.
   page.once("dialog", (d) => d.dismiss());
   await page.getByRole("link", { name: "次へ ›" }).tap();
   await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
-  await expect(page.getByLabel("Tags (comma-separated)")).toHaveValue(
+  await expect(page.getByLabel("タグを追加")).toHaveValue(
     "not saved",
   );
 
@@ -85,7 +85,7 @@ test("unsaved changes ask before leaving", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Edit #4" })).toBeVisible();
   await expect(page.getByTestId("dirty")).toHaveCount(0);
   await page.goto("/media/5/");
-  await expect(page.getByLabel("Tags (comma-separated)")).not.toHaveValue(
+  await expect(page.getByLabel("タグを追加")).not.toHaveValue(
     "not saved",
   );
 });
@@ -142,12 +142,12 @@ test("swipe the photo to step, like ←/→", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
 
   // Unsaved edits ask first, as with the keys; cancel stays.
-  await page.getByLabel("Tags (comma-separated)").fill("not saved");
+  await page.getByLabel("タグを追加").fill("not saved");
   page.once("dialog", (d) => d.dismiss());
   await swipeOn(page, photo, -120);
   await page.waitForTimeout(300);
   await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
-  await expect(page.getByLabel("Tags (comma-separated)")).toHaveValue(
+  await expect(page.getByLabel("タグを追加")).toHaveValue(
     "not saved",
   );
 });

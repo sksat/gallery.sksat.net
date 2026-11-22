@@ -61,6 +61,7 @@ import {
   setCameraTagPropagate,
   type CameraTagRow,
 } from "~/lib/db-camera-tag";
+import { validateTagName } from "~/lib/tag-rename";
 import { getDB, getImageBase } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
 import { inChunks } from "~/lib/selection";
@@ -229,15 +230,10 @@ export const useCameraTagOp = routeAction$(
     const id = parseId(params.id);
     if (id === null) return fail(400, { message: "invalid id" });
     const db = getDB(platform);
-    const tag = data.tag.trim();
-    if (tag.length === 0 || tag.length > 200) {
-      return fail(400, { message: "タグは 1〜200 文字です" });
-    }
-    // A photo's tags are typed comma-separated: a comma could never be
-    // one of them.
-    if (tag.includes(",")) {
-      return fail(400, { message: "タグに , は使えません" });
-    }
+    // The same checks as every place a tag is typed (tag-rename.ts).
+    const name = validateTagName(data.tag);
+    if (!name.ok) return fail(400, { message: name.error });
+    const tag = name.value;
     if (!(await getCamera(db, id))) return fail(404, { message: "not found" });
     switch (data.op) {
       case "add":

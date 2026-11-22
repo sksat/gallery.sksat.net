@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { folderWith, tile } from "./files-helpers";
+import { setTags as setEditorTags } from "./tag-editor-helpers";
 
 // Renaming a tag on /tag/ (click its name, Enter saves, Esc cancels), and
 // merging it into another by renaming it to that one's name, each with
@@ -24,7 +25,7 @@ const openPhoto = async (page: Page, name: string) => {
 
 const setTags = async (page: Page, url: string, tags: string) => {
   await page.goto(url);
-  await page.locator('input[name="tags"]').fill(tags);
+  await setEditorTags(page, tags);
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText(/^Saved at /)).toBeVisible();
 };

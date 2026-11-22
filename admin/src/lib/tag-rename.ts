@@ -9,7 +9,10 @@
 
 const MAX_TAG_LEN = 200;
 
-/** A tag name as typed: the same checks as adding one to a camera. */
+/**
+ * A tag name as typed, one at a time (the edit page, the selection's
+ * sheet, a camera's tags, a rename): the same checks everywhere.
+ */
 export const validateTagName = (
   raw: string,
 ): { ok: true; value: string } | { ok: false; error: string } => {
@@ -17,7 +20,8 @@ export const validateTagName = (
   if (name.length === 0 || name.length > MAX_TAG_LEN) {
     return { ok: false, error: `タグは 1〜${MAX_TAG_LEN} 文字です` };
   }
-  // A photo's tags are typed comma-separated.
+  // The form sends a photo's tags comma-joined (and the upload rules
+  // still take them so): a comma can never be part of one.
   if (name.includes(",")) return { ok: false, error: "タグに , は使えません" };
   return { ok: true, value: name };
 };

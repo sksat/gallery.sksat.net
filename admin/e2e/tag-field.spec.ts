@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { folderWith, tick, tile } from "./files-helpers";
+import { setTags } from "./tag-editor-helpers";
 
 // Fields of a tag (migration 0010): defined on /tag/, filled in on a
 // photo's edit page and for a selection in the Files view, with undo. On
@@ -45,7 +46,7 @@ test("define fields on a tag, fill them on a photo and for a selection", async (
 }) => {
   await folderWith(page, "tf", ["a.png", "b.png"]);
   const a = await openPhoto(page, "a.png");
-  await page.locator('input[name="tags"]').fill(TAG);
+  await setTags(page, TAG);
   await save(page);
   // No fields yet: no section.
   await expect(page.getByTestId("tag-field-group")).toHaveCount(0);
@@ -141,7 +142,7 @@ test("define fields on a tag, fill them on a photo and for a selection", async (
 test("removing a field can be undone with its values", async ({ page }) => {
   await folderWith(page, "tf-undo", ["a.png"]);
   const a = await openPhoto(page, "a.png");
-  await page.locator('input[name="tags"]').fill("e2e-trip");
+  await setTags(page, "e2e-trip");
   await save(page);
   await page.goto("/tag/");
   const row = page.getByTestId("tag-row").filter({ hasText: "e2e-trip" });

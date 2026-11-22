@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { setTags } from "./tag-editor-helpers";
 
 test("media edit: invalid id renders the bad-request UI, not 'Not found'", async ({
   page,
@@ -25,8 +26,7 @@ test("media edit: tags can be saved and reflected on the list", async ({
   await page.goto("/media/3/");
   await expect(page.getByRole("heading", { name: "Edit #3" })).toBeVisible();
 
-  const tagsInput = page.locator('input[name="tags"]');
-  await tagsInput.fill("alpha, beta");
+  await setTags(page, "alpha, beta");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText(/^Saved at /)).toBeVisible();
 

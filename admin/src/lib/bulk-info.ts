@@ -672,19 +672,6 @@ export const tagVisState = (
   return states.size > 1 ? "mixed" : states.has(true) ? "shown" : "hidden";
 };
 
-/** A click on a tag's lock: mixed → shown → hidden → mixed (as it was). */
-export const nextVisState = (
-  now: TagVisState,
-  initial: TagVisState,
-): TagVisState =>
-  now === "shown"
-    ? "hidden"
-    : now === "hidden"
-      ? initial === "mixed"
-        ? "mixed"
-        : "shown"
-      : "shown";
-
 /**
  * The tags to make public or not: those whose state changed from what it
  * was, and those put on every photo (so the ones that get the tag get the

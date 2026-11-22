@@ -7,7 +7,6 @@ import {
   KEEP,
   markManual,
   nextTagState,
-  nextVisState,
   shared,
   tagVisState,
   visChanges,
@@ -405,7 +404,7 @@ describe("tags public on the photos (0021)", () => {
     ).toMatchObject({ ok: true, rows: [{ tag_visibility: '{"b":"hidden"}' }] });
   });
 
-  it("works out each tag's state over the photos and its next on a click", () => {
+  it("works out each tag's state over the photos", () => {
     const photos: { tags: string[]; tag_visibility: TagChoices }[] = [
       { tags: ["film", "night"], tag_visibility: {} },
       { tags: ["film"], tag_visibility: { film: "hidden" } },
@@ -415,11 +414,6 @@ describe("tags public on the photos (0021)", () => {
     expect(tagVisState("night", photos, ctx.publicTags)).toBe("hidden");
     // No photo has it: the tag's setting.
     expect(tagVisState("other", photos, ctx.publicTags)).toBe("hidden");
-    expect(nextVisState("mixed", "mixed")).toBe("shown");
-    expect(nextVisState("shown", "mixed")).toBe("hidden");
-    expect(nextVisState("hidden", "mixed")).toBe("mixed");
-    expect(nextVisState("hidden", "hidden")).toBe("shown");
-    expect(nextVisState("shown", "hidden")).toBe("hidden");
   });
 
   it("sends the changed states, and the state of a tag put on all", () => {

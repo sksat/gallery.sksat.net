@@ -12,23 +12,21 @@ import {
 const pub = new Set(["film"]);
 
 describe("chipPatch", () => {
-  it("saves only the public tags' chips switched since the page loaded", () => {
-    expect(chipPatch({ film: true, night: false }, [], pub)).toEqual({
-      film: "hidden",
-    });
-    expect(chipPatch({ film: false }, ["film"], pub)).toEqual({ film: null });
+  it("saves only the public tags switched since the page loaded", () => {
+    expect(chipPatch([], ["film"], pub)).toEqual({ film: "hidden" });
+    expect(chipPatch(["film"], [], pub)).toEqual({ film: null });
     // Nothing switched: nothing to save.
-    expect(chipPatch({ film: true }, ["film"], pub)).toEqual({});
+    expect(chipPatch(["film"], ["film"], pub)).toEqual({});
   });
 
-  it("never makes a private tag public, even when the form says so", () => {
-    expect(chipPatch({ secret: false }, ["secret"], pub)).toEqual({});
+  it("ignores a private tag, which cannot be switched", () => {
+    expect(chipPatch(["secret"], [], pub)).toEqual({});
+    expect(chipPatch([], ["secret"], pub)).toEqual({});
   });
 
   it("takes tags named like Object's own properties", () => {
-    const loaded = JSON.parse('{"__proto__":true,"constructor":true}');
     const all = new Set(["__proto__", "constructor"]);
-    const p = chipPatch(loaded, [], all);
+    const p = chipPatch([], ["__proto__", "constructor"], all);
     expect(Object.keys(p)).toEqual(["__proto__", "constructor"]);
     expect(JSON.stringify(p)).toBe(
       '{"__proto__":"hidden","constructor":"hidden"}',

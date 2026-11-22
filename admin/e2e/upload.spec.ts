@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { dropZoneOf } from "./files-helpers";
+import { addTags } from "./tag-editor-helpers";
 
 // Uploads from the Files view into a fake bucket (e2e/fake-b2.mjs on
 // PORT+2, which checks the presigned PUTs). Named to run last: uploaded
@@ -597,7 +598,7 @@ test("a photo opened while the view reloads after an upload stays open", async (
   // app makes the photo wait for the reload, so then it answers after 1 s.)
   await page.route(/qaction=/, async (route) => {
     await page
-      .locator('input[name="tags"]')
+      .getByPlaceholder("タグを追加")
       .waitFor({ timeout: 1000 })
       .catch(() => {});
     await route.continue();
@@ -610,7 +611,7 @@ test("a photo opened while the view reloads after an upload stays open", async (
   await tile.dblclick();
   await (await reloaded).finished();
   await expect(page).toHaveURL(/\/media\/\d+\//);
-  await expect(page.locator('input[name="tags"]')).toBeVisible();
+  await expect(page.getByPlaceholder("タグを追加")).toBeVisible();
   // The reload's answer, put on screen within frames of its arrival, did
   // not bring the folder back.
   await page.evaluate(
@@ -708,7 +709,7 @@ test("the file's EXIF and VRChat world fill the shooting data, editable", async 
     "https://vrchat.com/home/world/wrld_4cf554b4-430c-4f8f-b53e-1f294eed230b",
   );
   // Saving without touching the shooting data keeps it as read.
-  await page.getByLabel("Tags (comma-separated)").fill("cat");
+  await addTags(page, "cat");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText(/^Saved at /)).toBeVisible();
   await page.reload();

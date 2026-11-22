@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { addTags, setTags, tagChip as chip } from "./tag-editor-helpers";
 
 // How much of a photo's metadata is public (per photo, and the site's
 // defaults on /setting/), and which tags are public (/tag/). Every test
@@ -101,14 +102,13 @@ test("site defaults on /setting/", async ({ page }) => {
   }
 });
 
+
 test("tags: a public tag can be hidden on a photo; a private tag never shows", async ({
   page,
 }) => {
   await page.goto("/media/2/");
-  const tags = page.locator('input[name="tags"]');
-  const chip = (name: string) =>
-    page.getByTestId("tag-chip").filter({ hasText: name });
-  const own = (name: string) => chip(name).getByTestId("tag-chip-own");
+  const eye = (name: string) =>
+    page.getByRole("switch", { name: `${name}をサイトに表示` });
   const fieldPublic = page.getByTestId("tag-field-public-1");
   const tagSwitch = (name: string) =>
     page
@@ -117,67 +117,69 @@ test("tags: a public tag can be hidden on a photo; a private tag never shows", a
       .getByRole("switch");
   try {
     // VRChat is public: shown here, and its field イベント (with a value).
-    await expect(chip("VRChat")).toHaveAttribute("data-public", "true");
-    await expect(own("VRChat")).toHaveCount(0);
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-public", "true");
+    await expect(eye("VRChat")).toHaveAttribute("aria-checked", "true");
     await expect(fieldPublic).toHaveAttribute("data-shown", "true");
-    await chip("VRChat").click();
-    await expect(chip("VRChat")).toHaveAttribute("data-public", "false");
-    await expect(own("VRChat")).toBeVisible();
+    await eye("VRChat").click();
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-hidden", "true");
+    await expect(eye("VRChat")).toHaveAttribute("aria-checked", "false");
     await expect(page.getByTestId("dirty")).toBeVisible();
-    await tags.fill("VRChat, draft");
+    // Adding a tag keeps the hidden one as it is.
+    await addTags(page, "draft");
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-hidden", "true");
     await save(page);
     await page.reload();
-    await expect(chip("VRChat")).toHaveAttribute("data-public", "false");
-    await expect(own("VRChat")).toBeVisible();
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-public", "false");
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-hidden", "true");
     await expect(fieldPublic).toHaveAttribute("data-shown", "false");
-    // draft is private: locked, never shown on a photo.
-    await expect(chip("draft")).toHaveAttribute("data-locked", "true");
-    await expect(chip("draft")).toHaveAttribute("data-public", "false");
-    await expect(chip("draft").locator("label")).toHaveAttribute(
-      "title",
-      "タグが非公開",
-    );
+    // draft is private: a lock, no switch, never shown on a photo.
+    await expect(chip(page, "draft")).toHaveAttribute("data-locked", "true");
+    await expect(chip(page, "draft")).toHaveAttribute("data-public", "false");
     await expect(
-      page.getByRole("checkbox", { name: "draftを公開" }),
-    ).toBeDisabled();
+      chip(page, "draft").getByRole("img", { name: "非公開タグ" }),
+    ).toHaveAttribute("title", "非公開タグ");
+    await expect(eye("draft")).toHaveCount(0);
 
     // Another photo with VRChat still shows it.
     await page.goto("/media/4/");
-    await expect(chip("VRChat")).toHaveAttribute("data-public", "true");
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-public", "true");
     // VRChat made private: hidden on every photo; public again: back on
     // the photos that do not hide it.
     await page.goto("/tag/");
     await tagSwitch("VRChat").click();
     await expect(tagSwitch("VRChat")).toHaveAttribute("aria-checked", "false");
     await page.goto("/media/4/");
-    await expect(chip("VRChat")).toHaveAttribute("data-locked", "true");
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-locked", "true");
     await page.goto("/tag/");
     await tagSwitch("VRChat").click();
     await expect(tagSwitch("VRChat")).toHaveAttribute("aria-checked", "true");
     await page.goto("/media/4/");
-    await expect(chip("VRChat")).toHaveAttribute("data-public", "true");
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-public", "true");
     await page.goto("/media/2/");
-    await expect(chip("VRChat")).toHaveAttribute("data-public", "false");
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-public", "false");
 
-    // Shown again: no choice of its own left.
-    await chip("VRChat").click();
-    await expect(own("VRChat")).toHaveCount(0);
+    // Shown again.
+    await eye("VRChat").click();
+    await expect(eye("VRChat")).toHaveAttribute("aria-checked", "true");
     await save(page);
     await page.reload();
-    await expect(chip("VRChat")).toHaveAttribute("data-public", "true");
-    await expect(own("VRChat")).toHaveCount(0);
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-public", "true");
     // Hidden, then taken off the photo's own tags: its camera still passes
     // it on, so the photo keeps hiding it.
-    await chip("VRChat").click();
-    await tags.fill("draft");
+    await eye("VRChat").click();
+    await expect(eye("VRChat")).toHaveAttribute("aria-checked", "false");
+    await setTags(page, "draft");
     await save(page);
     await page.reload();
-    const inherited = page.locator(
-      '[data-testid="tag-chip"][data-inherited="true"]',
-      { hasText: "VRChat" },
+    await expect(chip(page, "VRChat")).toHaveAttribute(
+      "data-inherited",
+      "true",
     );
-    await expect(inherited).toHaveAttribute("data-public", "false");
-    await expect(inherited.getByTestId("tag-chip-own")).toBeVisible();
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-hidden", "true");
+    // The camera's tag cannot be taken off here.
+    await expect(
+      page.getByRole("button", { name: "VRChatを外す" }),
+    ).toHaveCount(0);
   } finally {
     await page.goto("/tag/");
     if ((await tagSwitch("VRChat").getAttribute("aria-checked")) === "false") {
@@ -185,10 +187,59 @@ test("tags: a public tag can be hidden on a photo; a private tag never shows", a
       await expect(tagSwitch("VRChat")).toHaveAttribute("aria-checked", "true");
     }
     await page.goto("/media/2/");
-    if ((await chip("VRChat").getAttribute("data-public")) === "false") {
-      await chip("VRChat").click();
+    if ((await eye("VRChat").getAttribute("aria-checked")) === "false") {
+      await eye("VRChat").click();
+      await expect(eye("VRChat")).toHaveAttribute("aria-checked", "true");
     }
-    await tags.fill("VRChat");
+    await setTags(page, "VRChat");
+    await save(page);
+  }
+});
+
+test("tags: added from the box, taken off with ×", async ({ page }) => {
+  await page.goto("/media/2/");
+  const box = page.getByTestId("tag-editor").getByPlaceholder("タグを追加");
+  try {
+    // A site's tag is offered.
+    await expect(
+      page.locator('#edit-tag-options option[value="draft"]'),
+    ).toHaveCount(1);
+    await box.fill("draft");
+    await box.press("Enter");
+    await expect(chip(page, "draft")).toBeVisible();
+    await box.fill("e2e-box");
+    await page
+      .getByTestId("tag-editor")
+      .getByRole("button", { name: "追加" })
+      .click();
+    await expect(chip(page, "draft")).toBeVisible();
+    await expect(chip(page, "e2e-box")).toBeVisible();
+    // One tag at a time: a comma cannot be in one.
+    await box.fill("a,b");
+    await expect(
+      page.getByTestId("tag-editor").getByRole("button", { name: "追加" }),
+    ).toBeDisabled();
+    await expect(page.getByTestId("tag-editor").getByRole("alert")).toHaveText(
+      "タグに , は使えません",
+    );
+    await box.press("Enter");
+    await expect(box).toHaveValue("a,b");
+    await expect(chip(page, "a,b")).toHaveCount(0);
+    await box.fill("");
+    // Enter adds, it does not save.
+    await expect(page.getByTestId("dirty")).toBeVisible();
+    await page.getByRole("button", { name: "e2e-boxを外す" }).click();
+    await expect(chip(page, "e2e-box")).toHaveCount(0);
+    // A tag typed but not added is saved too.
+    await box.fill("e2e-typed");
+    await save(page);
+    await page.reload();
+    await expect(page.locator('input[name="tags"]')).toHaveValue(
+      "VRChat, draft, e2e-typed",
+    );
+  } finally {
+    await page.goto("/media/2/");
+    await setTags(page, "VRChat");
     await save(page);
   }
 });
@@ -197,18 +248,15 @@ test("tags: a new tag is private; publish it on /tag/, and undo", async ({
   page,
 }) => {
   await page.goto("/media/2/");
-  const tags = page.locator('input[name="tags"]');
   try {
-    await tags.fill("VRChat, e2e-new");
+    await setTags(page, "VRChat, e2e-new");
     await page.getByRole("button", { name: "Save" }).click();
     await expect(
       page.getByText(/新しいタグ『e2e-new』は非公開です。/),
     ).toBeVisible();
     await page.reload();
-    const chip = (name: string) =>
-      page.getByTestId("tag-chip").filter({ hasText: name });
-    await expect(chip("VRChat")).toHaveAttribute("data-public", "true");
-    await expect(chip("e2e-new")).toHaveAttribute("data-public", "false");
+    await expect(chip(page, "VRChat")).toHaveAttribute("data-public", "true");
+    await expect(chip(page, "e2e-new")).toHaveAttribute("data-public", "false");
 
     await page.goto("/tag/");
     const row = page.getByTestId("tag-row").filter({ hasText: "e2e-new" });
@@ -222,7 +270,7 @@ test("tags: a new tag is private; publish it on /tag/, and undo", async ({
     await expect(sw).toHaveAttribute("aria-checked", "false");
   } finally {
     await page.goto("/media/2/");
-    await tags.fill("VRChat");
+    await setTags(page, "VRChat");
     await save(page);
   }
 });

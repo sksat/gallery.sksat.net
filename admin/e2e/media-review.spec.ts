@@ -314,7 +314,7 @@ test("held keys, typing and IME do not trigger shortcuts", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "写真を全画面で表示" }),
   ).toBeFocused();
-  const tags = page.getByLabel("Tags (comma-separated)");
+  const tags = page.getByLabel("タグを追加");
   await tags.focus();
   await page.waitForTimeout(300);
   await expect(tags).toBeFocused();

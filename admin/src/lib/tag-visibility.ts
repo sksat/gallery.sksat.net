@@ -28,20 +28,21 @@ const setOwn = <T>(o: Record<string, T>, k: string, value: T) =>
   });
 
 /**
- * The edit page's tag chips as a patch (media.tag_visibility, null = no
- * choice): only the chips of public tags switched since the page loaded
- * (`loaded`: tag → shown then). A private tag cannot be switched.
+ * The edit page's tag editor as a patch (media.tag_visibility, null = no
+ * choice): only the public tags switched since the page loaded
+ * (`hiddenThen`: hidden when it loaded, `hiddenNow`: hidden now). A
+ * private tag cannot be switched.
  */
 export const chipPatch = (
-  loaded: Readonly<Record<string, boolean>>,
-  shownNow: readonly string[],
+  hiddenThen: readonly string[],
+  hiddenNow: readonly string[],
   publicTags: TagSet,
 ): Record<string, "hidden" | null> => {
   const out: Record<string, "hidden" | null> = {};
-  for (const [tag, was] of Object.entries(loaded)) {
+  for (const tag of new Set([...hiddenThen, ...hiddenNow])) {
     if (!publicTags.has(tag)) continue;
-    const now = shownNow.includes(tag);
-    if (now !== was) setOwn(out, tag, now ? null : "hidden");
+    const now = hiddenNow.includes(tag);
+    if (now !== hiddenThen.includes(tag)) setOwn(out, tag, now ? "hidden" : null);
   }
   return out;
 };
