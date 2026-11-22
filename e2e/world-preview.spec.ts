@@ -26,8 +26,6 @@ test.describe("desktop", () => {
   }) => {
     const urls = watchRequests(page);
     await openInOverlay(page, "vrcxxxxxxa");
-    // The details open (closed at first on a wide screen).
-    await page.getByTestId("info-summary").click();
     // Nothing is fetched until the card is wanted.
     expect(urls.filter((u) => /\/api\/media\/\w+\/world/.test(u))).toEqual(
       [],
