@@ -9,6 +9,8 @@ on:
       - "admin/migrations/**"
       # Bundled into the Worker (tag fields' checks and projection).
       - "shared/tag-field/**"
+      # Bundled into the Worker (resized copies' claims).
+      - "shared/resized/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/deploy-api-worker.yaml"
