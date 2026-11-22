@@ -10,6 +10,7 @@
 // time with a fresh init, which resumes the same `uploading` row and signs
 // a new URL (so an expired URL is not a dead end).
 
+import type { SimilarPhoto } from "./db-merge";
 import type { TakenAtSource } from "./metadata-source";
 import type { FileHints, StoredMeta } from "./photo-meta";
 import { checkUploadLimits, uploadTarget, type TargetResult } from "./upload";
@@ -44,6 +45,11 @@ export type UploadItem = {
   attempts: number;
   /** What the upload rules set on its row ("VRChat ← /VRChat/ フォルダ"). */
   applied: AppliedChip[];
+  /**
+   * A photo of the same name (or the name without retouch suffixes) in the
+   * folder, which this one may be a retouched version of.
+   */
+  similar?: SimilarPhoto;
 };
 
 /** A picked file (File, or a stand-in in tests). */
@@ -100,6 +106,8 @@ export type InitResult =
       file: string;
       /** What the upload rules set (new rows only). */
       applied?: AppliedChip[];
+      /** A photo this one may be a retouch of (new rows only). */
+      similar?: SimilarPhoto;
       /** The display copy's PUT, when the init announced one. */
       display?: PutTarget & { file: string };
     } & PutTarget)
@@ -280,6 +288,7 @@ export const createUploadQueue = <S extends UploadSource>(
         message: entry.note,
         // A resumed row keeps what its first init reported.
         ...(init.applied ? { applied: init.applied } : {}),
+        ...(init.similar ? { similar: init.similar } : {}),
       });
       await deps.put(init, source, (loaded) =>
         set(item, { loaded: Math.min(loaded, item.size) }),

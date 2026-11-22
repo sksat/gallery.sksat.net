@@ -29,6 +29,12 @@ import {
   restoreItems,
   type TrashedPhoto,
 } from "~/lib/db-ops";
+import {
+  listTrashedEdits,
+  purgeEdits,
+  restoreEdits,
+  type TrashedEdit,
+} from "~/lib/db-retouch";
 import { getDB, getMediaCache, getImageBase } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
 import { formatJst, splitPath } from "~/lib/format";
@@ -43,6 +49,8 @@ type TrashResult =
   | {
       kind: "ok";
       rows: TrashedPhoto[];
+      /** Retouched versions taken off their photos (0020). */
+      edits: TrashedEdit[];
       bytes: number;
       imageBase: string | null;
       /** B2 settings exist, so 完全に削除 can work. */
@@ -60,11 +68,15 @@ export const useTrash = routeLoader$<TrashResult>(
       status(500);
       return { kind: "missing-binding" };
     }
-    const { rows, bytes } = await listTrash(db);
+    const [{ rows, bytes }, edits] = await Promise.all([
+      listTrash(db),
+      listTrashedEdits(db),
+    ]);
     return {
       kind: "ok",
       rows,
-      bytes,
+      edits,
+      bytes: edits.reduce((n, e) => n + (e.size ?? 0), bytes),
       imageBase: getImageBase(platform),
       canPurge: getUploadConfig(platform) !== null,
     };
@@ -74,15 +86,23 @@ export const useTrash = routeLoader$<TrashResult>(
 const ids = z.array(z.string().max(20)).max(10_000).default([]);
 const parseIds = (raw: readonly string[]) =>
   [...new Set(raw.map(Number))].filter((n) => Number.isInteger(n) && n > 0);
+/** Retouched versions (media_file ids) are picked as "f<id>". */
+const parseFileIds = (raw: readonly string[]) =>
+  parseIds(raw.filter((v) => v.startsWith("f")).map((v) => v.slice(1)));
 
 export const useRestore = routeAction$(async (data, { platform, fail }) => {
   const picked = parseIds(data.ids);
-  if (picked.length === 0) return fail(400, { message: "選ばれていません" });
+  const edits = parseFileIds(data.ids);
+  if (picked.length + edits.length === 0) {
+    return fail(400, { message: "選ばれていません" });
+  }
   try {
     const db = getDB(platform);
-    const r = await restoreItems(db, picked);
-    await contentChanged(db);
-    return { ok: true, restored: r.restored.length };
+    const r = picked.length > 0 ? await restoreItems(db, picked) : null;
+    if (r) await contentChanged(db);
+    // A retouched version goes back to its photo (not shown until chosen).
+    const files = await restoreEdits(db, edits);
+    return { ok: true, restored: (r?.restored.length ?? 0) + files };
   } catch (err) {
     if (err instanceof RestoreError) return fail(409, { message: err.message });
     throw err;
@@ -105,23 +125,34 @@ export const usePurge = routeAction$(async (data, { platform, fail }) => {
   }
   const db = getDB(platform);
   const picked = parseIds(data.ids);
-  if (picked.length === 0) return fail(400, { message: "選ばれていません" });
-  if (picked.length > PURGE_CHUNK) {
+  const edits = parseFileIds(data.ids);
+  if (picked.length + edits.length === 0) {
+    return fail(400, { message: "選ばれていません" });
+  }
+  if (picked.length + edits.length > PURGE_CHUNK) {
     return fail(400, { message: `一度に ${PURGE_CHUNK} 件までです` });
   }
+  const remove = async (o: { key: string }) => {
+    await deleteAllVersions(config, o.key);
+  };
   // B2 only: a photo with a file in R2 (no binding yet) stays in the
   // trash, untouched (purgeItems). Its resized copies go from MEDIA_CACHE.
-  const r = await purgeItems(
+  const photos = await purgeItems(
     db,
     picked,
-    async (o) => {
-      await deleteAllVersions(config, o.key);
-    },
+    remove,
     ["b2"],
     getMediaCache(platform),
   );
+  // Retouched versions taken off their photo: nothing public refers to
+  // them.
+  const files = await purgeEdits(db, edits, remove);
+  const r = {
+    deleted: [...photos.deleted, ...files.deleted],
+    failed: [...photos.failed, ...files.failed],
+  };
   // A camera picture with a deleted row's file can be served by path again.
-  if (r.deleted.length > 0) await contentChanged(db);
+  if (photos.deleted.length > 0) await contentChanged(db);
   return {
     ok: true,
     deleted: r.deleted.length,
@@ -187,7 +218,8 @@ export default component$(() => {
   if (data.value.kind === "missing-binding") {
     return <MissingBindingError backHref="/media/" />;
   }
-  const { rows, bytes, imageBase, canPurge } = data.value;
+  const { rows, edits, bytes, imageBase, canPurge } = data.value;
+  const count = rows.length + edits.length;
 
   return (
     <div class="space-y-6">
@@ -197,7 +229,7 @@ export default component$(() => {
         </Link>
         <div class="mt-2 flex flex-wrap items-baseline justify-between gap-3">
           <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">
-            ゴミ箱 <span class={["font-normal", muted]}>({rows.length})</span>
+            ゴミ箱 <span class={["font-normal", muted]}>({count})</span>
           </h1>
           <p class={["text-sm tabular-nums", muted]} data-testid="trash-bytes">
             合計 {formatDecimalBytes(bytes)}
@@ -205,7 +237,7 @@ export default component$(() => {
         </div>
       </div>
 
-      {rows.length === 0 ? (
+      {count === 0 ? (
         <StatePanel tone="empty" level={2} title="ゴミ箱は空です">
           <p>Files で消した写真はここに入り、元に戻せます。</p>
         </StatePanel>
@@ -296,6 +328,53 @@ export default component$(() => {
                 </li>
               );
             })}
+            {edits.map((e) => {
+              const name = e.key.slice(e.key.lastIndexOf("/") + 1);
+              return (
+                <li
+                  key={`f${e.id}`}
+                  data-testid="trash-row"
+                  class="flex items-center gap-3 p-3 has-checked:bg-sky-50 dark:has-checked:bg-sky-950/40"
+                >
+                  <input
+                    type="checkbox"
+                    name="ids[]"
+                    value={`f${e.id}`}
+                    aria-label={`${name} を選ぶ`}
+                    class="size-5 shrink-0 accent-sky-600"
+                  />
+                  <Thumb
+                    file={e.thumbKey}
+                    exact
+                    platform={null}
+                    imageBase={imageBase}
+                    variant="list"
+                    class="w-20 rounded-md"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate font-medium" title={e.key}>
+                      {name}
+                    </p>
+                    <p class={["truncate text-xs", muted]}>
+                      <Link
+                        prefetch="js"
+                        href={`/media/${e.mediaId}/`}
+                        class="hover:underline"
+                      >
+                        {e.photoPath}
+                      </Link>{" "}
+                      のレタッチ版
+                    </p>
+                  </div>
+                  <div
+                    class={["shrink-0 text-right text-xs tabular-nums", muted]}
+                  >
+                    <p>{e.size === null ? "—" : formatDecimalBytes(e.size)}</p>
+                    <p data-testid="trashed-at">{formatJst(e.trashedAt)}</p>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </Form>
       )}
@@ -308,7 +387,7 @@ export default component$(() => {
         >
           <p id="purge-title" class="font-semibold">
             {confirming.value === "all"
-              ? `ゴミ箱の ${rows.length} 件を完全に削除しますか？`
+              ? `ゴミ箱の ${count} 件を完全に削除しますか？`
               : `選んだ ${picked.value} 件を完全に削除しますか？`}
           </p>
           <p>B2 からファイルを消すので、元に戻せません。</p>

@@ -714,7 +714,7 @@ export default component$(() => {
   const refresh = useRefresh();
   const uploader = useUploader(
     $(() => refresh.submit()),
-    data.value.kind === "ok" ? data.value.camera.id : undefined,
+    data.value.kind === "ok" ? { cameraId: data.value.camera.id } : undefined,
   );
   useTask$(({ track }) => {
     const v = track(() => imageOp.value);

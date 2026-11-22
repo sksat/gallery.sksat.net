@@ -291,6 +291,66 @@ export const cameraPictureDeps = (
   };
 };
 
+/**
+ * The queue's dependencies for retouched versions of photo `mediaId`,
+ * uploaded into `dir` (the photo's folder) through POST
+ * /api/media/<id>/file. Read like originals (metadata, display copy); one
+ * at a time.
+ */
+export const editFileDeps = (
+  mediaId: number,
+  onChange: (items: UploadItem[]) => void,
+): QueueDeps<PickedFile> => {
+  const path = `/api/media/${mediaId}/file`;
+  return {
+    prepare: prepareFile,
+    init: (req) => {
+      const { display, ...rest } = req;
+      return api("POST", path, {
+        step: "init",
+        ...rest,
+        ...(display
+          ? {
+              display: {
+                size: display.size,
+                width: display.width,
+                height: display.height,
+                sha256: display.sha256,
+              },
+            }
+          : {}),
+      }) as Promise<InitResult>;
+    },
+    put: putFile,
+    putDisplay: (target, blob) => putBlob(target, blob, () => {}),
+    complete: async (id) => {
+      await api("POST", path, { step: "complete", id });
+    },
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    onChange,
+    concurrency: 1,
+  };
+};
+
+/**
+ * Merge photo `from` into photo `into` as a retouched version of it
+ * (POST /api/media/merge, its defaults); the alias is the undo's handle.
+ */
+export const mergeRequest = async (
+  into: number,
+  from: number,
+): Promise<{ alias: string }> =>
+  (await api("POST", "/api/media/merge", { into, from })) as { alias: string };
+
+/** Undo a merge: the photo comes back. */
+export const unmergeRequest = async (
+  alias: string,
+): Promise<{ id: number; path: string }> =>
+  (await api("POST", "/api/media/merge", { undo: alias })) as {
+    id: number;
+    path: string;
+  };
+
 /** Everything the queue needs in a browser, except onChange. */
 export const browserDeps = (
   onChange: (items: UploadItem[]) => void,

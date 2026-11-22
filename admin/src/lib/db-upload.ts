@@ -205,7 +205,7 @@ export const displayCopyStatement = (
 
 // The photo's original row (media_file, 0013) is inserted by a trigger in
 // the same statement, so its UNIQUE indexes can refuse it too.
-const isUniqueError = (err: unknown) =>
+export const isUniqueError = (err: unknown) =>
   err instanceof Error &&
   /UNIQUE constraint failed: media(_file)?\./.test(err.message);
 

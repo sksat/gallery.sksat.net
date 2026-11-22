@@ -515,11 +515,27 @@ export const MEDIA_BY_ID_SQL = `${MEDIA_SELECT} WHERE m.public_id = ? AND ${VIEW
 /** The image Worker's: the same photo and the file to resize. */
 export const IMAGE_BY_ID_SQL = `${MEDIA_SELECT_WITH_SOURCE} WHERE m.public_id = ? AND ${VIEWABLE}`;
 
+/**
+ * A photo merged into another one (admin migration 0020): its public id is
+ * an alias of that photo, which is answered for it while that one may be
+ * opened (the gallery redirects to its own URL), if the merged photo could
+ * be opened itself when it was merged (`redirect`). By the alias's primary
+ * key, then the photo's.
+ */
+const BY_ALIAS = `m.id = (SELECT a.media_id FROM media_alias a
+  WHERE a.public_id = ? AND a.redirect = 1)`;
+export const MEDIA_BY_ALIAS_SQL = `${MEDIA_SELECT} WHERE ${BY_ALIAS} AND ${VIEWABLE}`;
+export const IMAGE_BY_ALIAS_SQL = `${MEDIA_SELECT_WITH_SOURCE} WHERE ${BY_ALIAS} AND ${VIEWABLE}`;
+
 /** The public list (`/api/media`); it never reads media_file. */
 export const LIST_SQL = `${MEDIA_SELECT} WHERE ${LISTED}
        ORDER BY m.timestamp IS NULL, m.timestamp DESC, m.id DESC`;
 
-/** A public or unlisted photo by its public id. */
+/**
+ * A public or unlisted photo by its public id, or the one a merged photo
+ * went into by the merged photo's id (its `id` then differs from the one
+ * asked for).
+ */
 export const getMedia = async (
   db: D1Database,
   publicId: string,
@@ -527,9 +543,10 @@ export const getMedia = async (
   const results = await db.batch([
     ...contextStatements(db),
     db.prepare(MEDIA_BY_ID_SQL).bind(publicId),
+    db.prepare(MEDIA_BY_ALIAS_SQL).bind(publicId),
   ]);
-  const row = (results[CONTEXT_SIZE].results ?? [])[0] as
-    MediaJoinRow | undefined;
+  const row = ((results[CONTEXT_SIZE].results ?? [])[0] ??
+    (results[CONTEXT_SIZE + 1].results ?? [])[0]) as MediaJoinRow | undefined;
   return row ? projectPhoto(row, toContext(results)) : null;
 };
 
@@ -549,7 +566,11 @@ const imagePhoto = (
   source: sourceOf(row),
 });
 
-/** A public or unlisted photo by its public id, for the image Worker. */
+/**
+ * A public or unlisted photo by its public id (or a merged photo's, as
+ * getMedia), for the image Worker: /img/<id> of a merged photo shows the
+ * photo it went into.
+ */
 export const getPhotoForImage = async (
   db: D1Database,
   publicId: string,
@@ -558,8 +579,10 @@ export const getPhotoForImage = async (
     // The image Worker has no use for tag fields.
     ...contextStatements(db, false),
     db.prepare(IMAGE_BY_ID_SQL).bind(publicId),
+    db.prepare(IMAGE_BY_ALIAS_SQL).bind(publicId),
   ]);
-  const row = (results[CONTEXT_SIZE].results ?? [])[0] as
+  const row = ((results[CONTEXT_SIZE].results ?? [])[0] ??
+    (results[CONTEXT_SIZE + 1].results ?? [])[0]) as
     (MediaJoinRow & SourceRow) | undefined;
   return row ? imagePhoto(row, toContext(results)) : null;
 };

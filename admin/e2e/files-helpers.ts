@@ -17,6 +17,44 @@ export const png = (name: string, seed: string) => ({
   ]),
 });
 
+/**
+ * A JPEG as Lightroom exports it, as far as the admin reads it: an XMP
+ * packet with its CreatorTool, a few develop settings and two history
+ * steps (no pixels). `seed` makes the bytes unique.
+ */
+export const retouchJpeg = (name: string, seed: string) => {
+  const agent = "Adobe Lightroom Classic 14.0 (Windows)";
+  const xmp =
+    `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>` +
+    `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
+    `<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"` +
+    ` xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" xmlns:stEvt="http://ns.adobe.com/xap/1.0/sType/ResourceEvent#"` +
+    ` xmp:CreatorTool="${agent}" crs:Exposure2012="+0.35" crs:Contrast2012="+12"` +
+    ` crs:Highlights2012="-40" crs:Shadows2012="+25" crs:Temperature="5600" crs:HasCrop="True"` +
+    ` crs:Sharpness="40" crs:LuminanceSmoothing="10">` +
+    `<xmpMM:History><rdf:Seq>` +
+    `<rdf:li stEvt:action="derived" stEvt:when="2026-11-01T10:00:00+09:00" stEvt:softwareAgent="${agent}"/>` +
+    `<rdf:li stEvt:action="saved" stEvt:when="2026-11-01T10:05:00+09:00" stEvt:softwareAgent="${agent}"/>` +
+    `</rdf:Seq></xmpMM:History></rdf:Description></rdf:RDF></x:xmpmeta>` +
+    `<!-- ${seed} --><?xpacket end="w"?>`;
+  const app1 = Buffer.concat([
+    Buffer.from("http://ns.adobe.com/xap/1.0/\0", "latin1"),
+    Buffer.from(xmp, "utf8"),
+  ]);
+  const length = Buffer.alloc(2);
+  length.writeUInt16BE(app1.length + 2);
+  return {
+    name,
+    mimeType: "image/jpeg",
+    buffer: Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe1]),
+      length,
+      app1,
+      Buffer.from([0xff, 0xd9]),
+    ]),
+  };
+};
+
 export const uploadedKeys = async (page: Page): Promise<string[]> => {
   const res = await page.request.get(`${fakeB2}/__uploads`);
   return ((await res.json()) as { key: string }[]).map((u) => u.key);
