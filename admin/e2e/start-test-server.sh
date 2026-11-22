@@ -12,11 +12,18 @@
 set -euo pipefail
 
 PORT="${1:-5175}"
+# Per port, so servers on other ports (ADMIN_E2E_PORT, e.g. one per
+# ADMIN_E2E_GROUP run side by side) each have their own D1.
 PERSIST_DIR=".wrangler-test"
+if [ "$PORT" != 5175 ]; then PERSIST_DIR=".wrangler-test-$PORT"; fi
 
 cd "$(dirname "$0")/.."
 
-pnpm run build
+# ADMIN_E2E_SKIP_BUILD=1 serves the dist/ already built, for runs side by side
+# that would otherwise all write dist/ at once.
+if [ -z "${ADMIN_E2E_SKIP_BUILD:-}" ]; then
+  pnpm run build
+fi
 
 rm -rf "$PERSIST_DIR" "${PERSIST_DIR}-noauth"
 pnpm exec wrangler d1 migrations apply gallery-admin \
@@ -59,6 +66,7 @@ trap 'kill "$NOAUTH_PID" "$FAKE_B2_PID" "$FAKE_GRAPHQL_PID" 2>/dev/null || true'
 # only), e.g. the photo preview with thumbnails Playwright serves itself.
 pnpm exec wrangler pages dev ./dist \
   --persist-to "$PERSIST_DIR" \
+  --inspector-port $((PORT + 4000)) \
   --binding ACCESS_DISABLED=1 \
   --binding THUMBNAILS= \
   --binding E2E_TEST_ROUTES=1 \
