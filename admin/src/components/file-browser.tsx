@@ -3,6 +3,7 @@ import {
   component$,
   Slot,
   sync$,
+  useComputed$,
   useOnDocument,
   useSignal,
   useTask$,
@@ -10,8 +11,14 @@ import {
   type JSXOutput,
   type QRL,
 } from "@builder.io/qwik";
-import { Link, useNavigate } from "@builder.io/qwik-city";
+import { isServer } from "@builder.io/qwik/build";
+import { Link, server$, useNavigate } from "@builder.io/qwik-city";
 import type { TagFieldDef } from "@shared/tag-field/tag-field";
+import { passedOnTags, photoTags } from "~/lib/db-camera-tag";
+import { listPhotosUnder, MAX_FOLDER_PHOTOS } from "~/lib/db-files";
+import { parseTagList } from "~/lib/db-tag-field";
+import { getDB } from "~/lib/env";
+import { parseOverrides } from "~/lib/metadata";
 import {
   DEFAULT_PREFS,
   moveFocus,
@@ -26,8 +33,10 @@ import {
 } from "~/lib/file-view";
 import {
   ancestors,
+  findFolder,
   folderTotals,
   isWithin,
+  normalizeDir,
   type FolderNode,
 } from "~/lib/folders";
 import { formatJst, mediaEditHref, mediaListHref } from "~/lib/format";
@@ -48,6 +57,7 @@ import {
   sameKeys,
   selectAll,
   splitSelection,
+  targetPhotos,
   type MarqueeMode,
   type Point,
   type Rect,
@@ -142,6 +152,59 @@ type Props = {
 };
 
 export type SelectedItems = { photos: number[]; folders: string[] };
+
+/** Actions on the selection's photos (a folder stands for those below it). */
+const PHOTO_ACTIONS = new Set<SelectionAction["kind"]>([
+  "visibility",
+  "metadata",
+  "tag-values",
+  "camera",
+  "platform",
+  "info",
+]);
+/** The most folders one selection resolves (a folder's tiles at most). */
+const MAX_TARGET_FOLDERS = 1000;
+
+type Under = { tiles: FileTile[] } | { tooMany: true };
+
+/**
+ * The photos below the selected folders, subfolders included, as tiles
+ * (what the bar's actions and sheets read): ranges of the path index,
+ * so it reads those photos and no others. A server$, not an action
+ * (after which every loader of the page would run again).
+ */
+const loadPhotosUnder = server$(async function (
+  folders: unknown,
+): Promise<Under> {
+  if (
+    !Array.isArray(folders) ||
+    folders.length === 0 ||
+    folders.length > MAX_TARGET_FOLDERS ||
+    !folders.every(
+      (f) =>
+        typeof f === "string" &&
+        f.length <= 512 &&
+        f !== "/" &&
+        normalizeDir(f) === f,
+    )
+  ) {
+    throw new Error("invalid folders");
+  }
+  const db = getDB(this.platform);
+  const { rows, truncated } = await listPhotosUnder(db, folders as string[]);
+  if (truncated) return { tooMany: true };
+  // Tags cameras pass on count as the photos' own (0011), as in the view.
+  const passed = await passedOnTags(db);
+  return {
+    tiles: rows.map(({ metadata_visibility, tags, ...r }) => ({
+      ...r,
+      metadata: parseOverrides(metadata_visibility),
+      tags: photoTags(parseTagList(tags), r.camera_id, passed),
+      // (Only the tiles shown name their camera.)
+      camera_name: null,
+    })),
+  };
+});
 
 const ROOT_LABEL = "All files";
 /** How long a touch must be held to start selecting. */
@@ -387,6 +450,13 @@ const noNativeMenu = sync$((e: MouseEvent) => {
   if ((e.target as HTMLElement).closest("[data-sel-key]")) e.preventDefault();
 });
 
+/** No native menu on a folder of the tree: it has its own. */
+const noNativeTreeMenu = sync$((e: MouseEvent) => {
+  if ((e.target as HTMLElement).closest("[data-folder-menu]")) {
+    e.preventDefault();
+  }
+});
+
 export const FileBrowser = component$<Props>(
   ({
     tree,
@@ -486,6 +556,12 @@ export const FileBrowser = component$<Props>(
 
     /** The folder and filter the selection was made in. */
     const selView = useSignal("");
+    /**
+     * A folder of the tree its menu acts on (it may not be shown here):
+     * the bar's target instead of the selection, until something is
+     * selected, the bar is closed or another folder opens.
+     */
+    const outside = useSignal<string | null>(null);
     useTask$(({ track }) => {
       // Another folder or filter: keep what it still shows. A reload of
       // the same one keeps every key (it may briefly lack an item); what
@@ -512,9 +588,71 @@ export const FileBrowser = component$<Props>(
         sel.value,
         shown.view === selView.value,
       );
+      if (shown.view !== selView.value) outside.value = null;
       selView.value = shown.view;
     });
     const selectable = onSelection$ !== undefined;
+
+    useTask$(({ track }) => {
+      if (track(() => sel.value.keys.length) > 0) outside.value = null;
+    });
+    /** The folders the bar acts on: the tree's, or those selected and shown. */
+    const targetFolders = useComputed$((): string[] => {
+      if (outside.value) return [outside.value];
+      try {
+        const shown = new Set((folder?.children ?? []).map((c) => c.path));
+        return splitSelection(sel.value.keys).folders.filter((f) =>
+          shown.has(f),
+        );
+      } catch {
+        // Leaving the Files view (see above).
+        return [];
+      }
+    });
+    /** The photos below `key` (the target folders, one per line). */
+    const under = useSignal<
+      { key: string; tiles: FileTile[] } | { key: string; error: string } | null
+    >(null);
+    /** Requests for `under` so far: only the last one's answer counts. */
+    const underRequest = useSignal(0);
+    useTask$(async ({ track }) => {
+      const key = track(() => targetFolders.value.join("\n"));
+      // Again after a reload of the page's data (an edit went through),
+      // once an action is over: each of its chunks reloads it.
+      track(() => {
+        try {
+          return tree;
+        } catch {
+          return null;
+        }
+      });
+      const working = track(() => busy.value);
+      if (isServer) return;
+      // Whatever is on its way is not the answer any more.
+      const request = ++underRequest.value;
+      if (working) return;
+      if (!key) {
+        under.value = null;
+        return;
+      }
+      // (A reload keeps the count shown until the new one is in.)
+      if (under.value?.key !== key) under.value = null;
+      let next: NonNullable<typeof under.value>;
+      try {
+        const r = await loadPhotosUnder(key.split("\n"));
+        next =
+          "tiles" in r
+            ? { key, tiles: r.tiles }
+            : {
+                key,
+                error: `${MAX_FOLDER_PHOTOS} 枚を超えるため、まとめて変えられません`,
+              };
+      } catch {
+        next = { key, error: "写真を読み込めませんでした" };
+      }
+      // Only the newest answer (one from before a reload may come later).
+      if (request === underRequest.value) under.value = next;
+    });
     /**
      * What is selected and shown: the count, the bar and every action use
      * this, so an item that left the view is never acted on unseen.
@@ -528,11 +666,23 @@ export const FileBrowser = component$<Props>(
     const picked = splitSelection(shownSel.keys);
     const pickedFolders = picked.folders;
     const pickedPhotos = files.filter((f) => selected.has(photoKey(f.id)));
-    const bytes =
-      pickedPhotos.reduce((n, f) => n + (f.size ?? 0), 0) +
-      shownFolders
-        .filter((c) => selected.has(folderKey(c.path)))
-        .reduce((n, c) => n + folderTotals(c).bytes, 0);
+    const outsideNode = outside.value ? findFolder(tree, outside.value) : null;
+    const bytes = outsideNode
+      ? folderTotals(outsideNode).bytes
+      : pickedPhotos.reduce((n, f) => n + (f.size ?? 0), 0) +
+        shownFolders
+          .filter((c) => selected.has(folderKey(c.path)))
+          .reduce((n, c) => n + folderTotals(c).bytes, 0);
+    // What the bar's photo actions touch: the photos picked and every
+    // photo below the folders (once they are counted).
+    const foldersKey = targetFolders.value.join("\n");
+    const resolved = under.value?.key === foldersKey ? under.value : null;
+    const counting = foldersKey !== "" && resolved === null;
+    const countError = resolved && "error" in resolved ? resolved.error : null;
+    const barPhotos = targetPhotos(
+      pickedPhotos,
+      resolved && "tiles" in resolved ? resolved.tiles : [],
+    );
     const tabKey =
       focusKey.value && order.includes(focusKey.value)
         ? focusKey.value
@@ -556,19 +706,37 @@ export const FileBrowser = component$<Props>(
       async (a: SelectionAction, keys?: SelKey[]): Promise<boolean> => {
         if (a.kind === "clear") {
           sel.value = EMPTY_SELECTION;
+          outside.value = null;
           return true;
         }
         // One at a time (a held Delete must not trash twice).
         if (!onSelection$ || busy.value) return false;
+        const items = splitSelection(
+          keys ??
+            (outside.value
+              ? [folderKey(outside.value)]
+              : keepShown(order, sel.value).keys),
+        );
+        // A folder stands for every photo below it, as counted. (From the
+        // signals: values of a render are those of when it ran.)
+        const key = targetFolders.value.join("\n");
+        if (PHOTO_ACTIONS.has(a.kind) && key !== "") {
+          const u = under.value;
+          if (u?.key !== key || !("tiles" in u)) return false;
+          items.photos = targetPhotos(
+            items.photos.map((id) => ({ id })),
+            u.tiles,
+          ).map((p) => p.id);
+        }
         busy.value = true;
         try {
           // Where the focus was, for when its item goes away.
           const at = focusKey.value ? order.indexOf(focusKey.value) : -1;
-          const ok = await onSelection$(
-            a,
-            splitSelection(keys ?? keepShown(order, sel.value).keys),
-          );
-          if (ok) sel.value = EMPTY_SELECTION;
+          const ok = await onSelection$(a, items);
+          if (ok) {
+            sel.value = EMPTY_SELECTION;
+            outside.value = null;
+          }
           if (ok && at >= 0) {
             // Once the folder is shown again: keyboard users stay in the
             // list (the item at the same place, or the last one).
@@ -644,6 +812,8 @@ export const FileBrowser = component$<Props>(
           // The browser also selected the page's text (no sync handler
           // on document to prevent it): take that back.
           window.getSelection()?.removeAllRanges();
+        } else if (e.key === "Escape" && outside.value) {
+          outside.value = null;
         } else if (e.key === "Escape" && sel.value.keys.length > 0) {
           sel.value = EMPTY_SELECTION;
         } else if (e.key === "Delete" || (e.key === "Backspace" && e.metaKey)) {
@@ -1089,9 +1259,47 @@ export const FileBrowser = component$<Props>(
       if (el) return selectFor(el.dataset.selKey as SelKey);
     });
 
+    /**
+     * The photos' entries (a folder's: every photo below it); disabled
+     * when there is none.
+     */
+    const photoItems = (none: boolean): MenuItem[] => [
+      ...[...VISIBILITIES].reverse().map((v): MenuItem => ({
+        kind: "item",
+        id: `visibility:${v}`,
+        label: VISIBILITY_LABELS_JA[v],
+        visibility: v,
+        disabled: none,
+      })),
+      { kind: "item", id: "camera", label: "カメラ…", disabled: none },
+      {
+        kind: "item",
+        id: "platform",
+        label: "プラットフォーム…",
+        disabled: none,
+      },
+      {
+        kind: "item",
+        id: "info",
+        label: "タグと撮影データ…",
+        disabled: none,
+      },
+      { kind: "item", id: "metadata", label: "公開する情報…", disabled: none },
+    ];
+    /** Whether a folder has photos (in it or below). */
+    const hasPhotos = (path: string) => {
+      const node = findFolder(tree, path);
+      return node !== null && folderTotals(node).count > 0;
+    };
     const menuItems = (key: SelKey): MenuItem[] => {
       const single = selCount <= 1;
-      const photos = pickedPhotos.length > 0 || key.startsWith("p:");
+      const photos =
+        pickedPhotos.length > 0 ||
+        key.startsWith("p:") ||
+        [
+          ...pickedFolders,
+          ...(key.startsWith("f:") ? [key.slice(2)] : []),
+        ].some(hasPhotos);
       return [
         {
           kind: "item",
@@ -1109,32 +1317,7 @@ export const FileBrowser = component$<Props>(
         },
         { kind: "item", id: "move", label: "移動…" },
         { kind: "separator", id: "s1" },
-        ...[...VISIBILITIES].reverse().map((v): MenuItem => ({
-          kind: "item",
-          id: `visibility:${v}`,
-          label: VISIBILITY_LABELS_JA[v],
-          visibility: v,
-          disabled: !photos,
-        })),
-        { kind: "item", id: "camera", label: "カメラ…", disabled: !photos },
-        {
-          kind: "item",
-          id: "platform",
-          label: "プラットフォーム…",
-          disabled: !photos,
-        },
-        {
-          kind: "item",
-          id: "info",
-          label: "タグと撮影データ…",
-          disabled: !photos,
-        },
-        {
-          kind: "item",
-          id: "metadata",
-          label: "公開する情報…",
-          disabled: !photos,
-        },
+        ...photoItems(!photos),
         { kind: "separator", id: "s2" },
         {
           kind: "item",
@@ -1164,6 +1347,36 @@ export const FileBrowser = component$<Props>(
         };
       }
     });
+    /** A folder of the tree's menu (right click, the menu key). */
+    const folderMenu = useSignal<{
+      x: number;
+      y: number;
+      path: string;
+      n: number;
+    } | null>(null);
+    const treeMenu = $((e: MouseEvent) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>(
+        "[data-folder-menu]",
+      );
+      const path = el?.dataset.folderMenu;
+      if (!el || !path || busy.value) return;
+      // From the keyboard there is no pointer: at the folder.
+      const r = el.getBoundingClientRect();
+      const fromKey = e.clientX === 0 && e.clientY === 0;
+      menuOpens.value++;
+      folderMenu.value = {
+        x: fromKey ? r.left + 16 : e.clientX,
+        y: fromKey ? r.bottom : e.clientY,
+        path,
+        n: menuOpens.value,
+      };
+    });
+    const pickFolderMenu = $(async (id: string, path: string) => {
+      // The folder becomes the bar's target (the selection goes).
+      sel.value = EMPTY_SELECTION;
+      outside.value = path;
+      await pickMenu(id, folderKey(path));
+    });
     const submitRename = $(async (form: HTMLFormElement) => {
       const name = String(new FormData(form).get("name") ?? "").trim();
       const r = renaming.value;
@@ -1191,6 +1404,11 @@ export const FileBrowser = component$<Props>(
             key={href(node.path)}
             href={href(node.path)}
             data-drop={node.path}
+            // Its menu: the photos' actions on everything below it (not
+            // for the root: the whole library).
+            data-folder-menu={
+              selectable && node.path !== "/" ? node.path : undefined
+            }
             // "page" is the view tab; this marks where we are in the tree.
             aria-current={here ? "location" : undefined}
             title={node.path}
@@ -1227,6 +1445,7 @@ export const FileBrowser = component$<Props>(
     const treeList = () => <ul class="space-y-0.5">{renderNode(tree)}</ul>;
     const crumbs = ancestors(dir);
     const menuKey = menu.value?.key ?? tabKey;
+    const folderMenuPath = folderMenu.value?.path ?? "";
 
     /** Attributes every item (tile or row) of the listbox has. */
     const itemProps = (key: SelKey, name: string) => ({
@@ -1332,6 +1551,7 @@ export const FileBrowser = component$<Props>(
         <nav
           aria-label="Folders"
           class={[card, "hidden p-2 sm:sticky sm:top-4 sm:block"]}
+          onContextMenu$={[noNativeTreeMenu, treeMenu]}
         >
           {treeList()}
         </nav>
@@ -1355,6 +1575,7 @@ export const FileBrowser = component$<Props>(
           <nav
             aria-label="Folders"
             class="border-t border-zinc-200 p-2 dark:border-zinc-800"
+            onContextMenu$={[noNativeTreeMenu, treeMenu]}
           >
             {treeList()}
           </nav>
@@ -1710,12 +1931,16 @@ export const FileBrowser = component$<Props>(
               </div>
             </div>
           )}
-          {selectable && selCount > 0 && (
+          {selectable && (selCount > 0 || outsideNode) && (
             <SelectionBar
-              count={selCount}
-              photos={pickedPhotos}
+              count={outsideNode ? 1 : selCount}
+              photos={barPhotos}
+              folderCount={targetFolders.value.length}
+              counting={counting}
+              countError={countError}
+              folderOnly={outsideNode !== null}
               bytes={bytes}
-              folders={pickedFolders}
+              folders={outsideNode ? [outsideNode.path] : pickedFolders}
               dir={dir}
               tree={tree}
               imageBase={imageBase}
@@ -1741,6 +1966,20 @@ export const FileBrowser = component$<Props>(
             onClose$={() => (menu.value = null)}
             // The key as rendered: the menu closes before the pick runs.
             onPick$={(id) => pickMenu(id, menuKey)}
+          />
+        )}
+        {folderMenu.value && (
+          <ContextMenu
+            key={folderMenu.value.n}
+            x={folderMenu.value.x}
+            y={folderMenu.value.y}
+            label={`フォルダ「${nameOf(folderMenu.value.path)}」の操作`}
+            items={photoItems(!hasPhotos(folderMenu.value.path))}
+            onClose$={() => (folderMenu.value = null)}
+            onPick$={(id) =>
+              // (Read before the menu closes and clears it.)
+              pickFolderMenu(id, folderMenuPath)
+            }
           />
         )}
 

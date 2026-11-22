@@ -13,10 +13,12 @@ import {
   sameKeys,
   reconcileSelection,
   selectAll,
+  selectionSummary,
   sharedCamera,
   sharedPlatform,
   sharedVisibility,
   splitSelection,
+  targetPhotos,
   visibilityPending,
   type SelKey,
 } from "./selection";
@@ -289,5 +291,22 @@ describe("the rectangle (marquee)", () => {
     expect(sameKeys(["p:1", "p:2"], ["p:1", "p:2"])).toBe(true);
     expect(sameKeys(["p:1", "p:2"], ["p:2", "p:1"])).toBe(false);
     expect(sameKeys([], ["p:1"])).toBe(false);
+  });
+});
+
+describe("targetPhotos", () => {
+  it("is the picked photos, then those below the folders, each once", () => {
+    expect(
+      targetPhotos([{ id: 3 }, { id: 1 }], [{ id: 1 }, { id: 5 }, { id: 2 }]),
+    ).toEqual([{ id: 3 }, { id: 1 }, { id: 5 }, { id: 2 }]);
+    expect(targetPhotos([], [])).toEqual([]);
+  });
+});
+
+describe("selectionSummary", () => {
+  it("counts items, or with folders every photo they stand for", () => {
+    expect(selectionSummary(3, 0, 3)).toBe("3 件選択");
+    expect(selectionSummary(5, 2, null)).toBe("2 フォルダ");
+    expect(selectionSummary(5, 2, 131)).toBe("2 フォルダ・131 枚");
   });
 });

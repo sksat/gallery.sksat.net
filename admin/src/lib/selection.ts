@@ -150,6 +150,34 @@ export const splitSelection = (
   folders: keys.filter((k) => k.startsWith("f:")).map((k) => k.slice(2)),
 });
 
+/**
+ * The photos a selection stands for: those picked themselves, then those
+ * below the picked folders (`under`), each once.
+ */
+export const targetPhotos = <T extends { id: number }>(
+  picked: readonly T[],
+  under: readonly T[],
+): T[] => {
+  const seen = new Set(picked.map((p) => p.id));
+  return [...picked, ...under.filter((p) => !seen.has(p.id))];
+};
+
+/**
+ * What the selection bar says is selected: "3 件選択", or with folders
+ * "2 フォルダ・128 枚" (every photo it stands for, those in subfolders
+ * too; just the folders while they are being counted, `photos` null).
+ */
+export const selectionSummary = (
+  items: number,
+  folders: number,
+  photos: number | null,
+): string =>
+  folders === 0
+    ? `${items} 件選択`
+    : photos === null
+      ? `${folders} フォルダ`
+      : `${folders} フォルダ・${photos} 枚`;
+
 // Selecting by dragging a rectangle (a marquee) over the items, with a
 // mouse or a pen, from empty space in the view. The item boxes are read
 // once when the drag starts, in page coordinates (they do not move when

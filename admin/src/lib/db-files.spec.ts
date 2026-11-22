@@ -3,8 +3,12 @@ import {
   CREATE_FOLDER_SQL,
   createFolder,
   filesQuery,
+  folderRange,
   listFolders,
   listMediaFiles,
+  listPhotosUnder,
+  outermostFolders,
+  PHOTOS_UNDER_SQL,
 } from "./db-files";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
@@ -127,5 +131,111 @@ describe("folders (on the real schema)", () => {
     expect(plan).not.toMatch(/SCAN (media|folder)\b/);
     expect(plan).toMatch(/SEARCH media USING INDEX idx_media_path_live/);
     expect(plan).toMatch(/SEARCH folder USING COVERING INDEX/);
+  });
+});
+
+describe("folderRange", () => {
+  it("bounds the paths below a folder, the root being everything", () => {
+    expect(folderRange("/a/b")).toEqual(["/a/b/", "/a/b0"]);
+    expect(folderRange("/")).toEqual(["/", "0"]);
+  });
+});
+
+describe("outermostFolders", () => {
+  it("drops repeats and folders inside another, in path order", () => {
+    expect(outermostFolders(["/a", "/a/b", "/a-b", "/a", "/c/d"])).toEqual([
+      "/a-b",
+      "/a",
+      "/c/d",
+    ]);
+    expect(outermostFolders(["/a", "/"])).toEqual(["/"]);
+  });
+});
+
+describe("listPhotosUnder (on the real schema)", () => {
+  const setup = () => {
+    const raw = migratedSqlite();
+    raw.exec(`INSERT INTO media (id, file, platform) VALUES
+        (1, '/a/x.png', 'Real'), (2, '/a/b/y.png', 'Real'),
+        (3, '/a/b/c/z.png', 'Real'), (4, '/a-b/n.png', 'Real'),
+        (5, '/a0/n.png', 'Real'), (6, '/d/w.png', 'Real'),
+        (7, '/a/t.png', 'Real'), (8, '/x/u.png', 'Real');
+      INSERT INTO media (id, file, platform, status) VALUES (9, '/a/up.png', 'Real', 'uploading');
+      UPDATE media SET trashed_at = '2026-01-01' WHERE id = 7;
+      UPDATE media SET path = '/a/b/moved.png' WHERE id = 8;`);
+    return { raw, db: sqliteD1(raw) };
+  };
+
+  it("takes every live photo below the folders, subfolders included, once", async () => {
+    const { db } = setup();
+    const { rows, truncated } = await listPhotosUnder(db, ["/a", "/a/b", "/d"]);
+    expect(rows.map((r) => r.id)).toEqual([3, 8, 2, 1, 6]);
+    expect(truncated).toBe(false);
+    expect((await listPhotosUnder(db, [])).rows).toEqual([]);
+  });
+
+  it("in path order across folders whose names start alike", async () => {
+    const { db } = setup();
+    const { rows } = await listPhotosUnder(db, ["/a", "/a-b"]);
+    expect(rows.map((r) => r.path)).toEqual([
+      "/a-b/n.png",
+      "/a/b/c/z.png",
+      "/a/b/moved.png",
+      "/a/b/y.png",
+      "/a/x.png",
+    ]);
+  });
+
+  it("reads each photo once however the folders repeat or nest", async () => {
+    const { db } = setup();
+    let read = 0;
+    const counting = {
+      prepare: (sql: string) => {
+        const stmt = db.prepare(sql);
+        return {
+          bind: (...args: unknown[]) => {
+            const bound = stmt.bind(...args);
+            return {
+              all: async <T>() => {
+                const r = await bound.all<T>();
+                read += r.results?.length ?? 0;
+                return r;
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    await listPhotosUnder(counting, ["/a/b", "/a", "/a", "/a/b/c"]);
+    expect(read).toBe(4);
+    // Past the limit it stops: no more than the limit and one per folder.
+    read = 0;
+    expect((await listPhotosUnder(counting, ["/a", "/d"], 2)).truncated).toBe(
+      true,
+    );
+    expect(read).toBe(3);
+  });
+
+  it("says when there are more than the limit", async () => {
+    const { db } = setup();
+    const r = await listPhotosUnder(db, ["/a"], 2);
+    expect(r.rows).toHaveLength(2);
+    expect(r.truncated).toBe(true);
+    expect((await listPhotosUnder(db, ["/a"], 4)).truncated).toBe(false);
+  });
+
+  it("reads a range of the path index", () => {
+    const { raw } = setup();
+    const plan = (
+      raw
+        .prepare(`EXPLAIN QUERY PLAN ${PHOTOS_UNDER_SQL}`)
+        .all("/a/", "/a0", 11) as { detail: string }[]
+    )
+      .map((r) => r.detail)
+      .join("\n");
+    expect(plan).toMatch(
+      /SEARCH media USING INDEX idx_media_path_live \(path>\? AND path<\?\)/,
+    );
+    expect(plan).not.toMatch(/SCAN|TEMP B-TREE/);
   });
 });

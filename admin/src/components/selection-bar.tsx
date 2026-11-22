@@ -13,6 +13,7 @@ import type { MetadataLevels } from "~/lib/metadata";
 import { exposing, previewOf } from "~/lib/review-pending";
 import type { CameraChoice } from "~/lib/db-photo-bulk";
 import {
+  selectionSummary,
   sharedCamera,
   sharedPlatform,
   sharedVisibility,
@@ -43,7 +44,9 @@ import {
 // public or unlisted first shows them as thumbnails, as the viewer's 反映
 // does), 情報 (a menu: カメラ and プラットフォーム in choice-picker.tsx,
 // タグと撮影データ in bulk-info-dialog.tsx, 公開する情報 in
-// bulk-metadata-dialog.tsx), ゴミ箱へ, and clearing it.
+// bulk-metadata-dialog.tsx), ゴミ箱へ, and clearing it. A selected folder
+// stands for every photo below it (subfolders too) in the photo actions;
+// a folder of the tree, from its menu, gets just those.
 // Every change can be undone from the page's toast. A bar fixed at the
 // bottom on phones (replacing the tab bar, data-bottom-bar), sticky above
 // the grid from sm up.
@@ -72,8 +75,19 @@ export type BarCommand =
 
 type Props = {
   count: number;
-  /** The selected photos (folders' contents not included). */
+  /**
+   * The photos the actions touch: those selected, and every photo below
+   * the selected folders (subfolders too) once they are counted.
+   */
   photos: FileTile[];
+  /** Folders among the items. */
+  folderCount: number;
+  /** The folders' photos are being counted (the photo actions wait). */
+  counting: boolean;
+  /** Why the folders' photos could not be counted. */
+  countError: string | null;
+  /** A folder of the tree, not a selection: only the photo actions. */
+  folderOnly: boolean;
   bytes: number;
   /** Folders being moved: they and their insides are not destinations. */
   folders: string[];
@@ -137,6 +151,10 @@ export const SelectionBar = component$<Props>(
   ({
     count,
     photos,
+    folderCount,
+    counting,
+    countError,
+    folderOnly,
     bytes,
     folders,
     dir,
@@ -178,6 +196,9 @@ export const SelectionBar = component$<Props>(
       ([node]) => !folders.some((f) => isWithin(node.path, f)),
     );
     const current = sharedVisibility(photos);
+    const renamable = count === 1 && !folderOnly;
+    /** No photo to act on (yet: a folder's are still being counted). */
+    const noPhotos = photos.length === 0 || counting || countError !== null;
     const visible = confirming.value
       ? exposing(visibilityPending(photos, confirming.value))
       : [];
@@ -212,8 +233,10 @@ export const SelectionBar = component$<Props>(
     // eslint-disable-next-line qwik/no-use-visible-task
     useVisibleTask$(async ({ track }) => {
       const c = track(() => command.value);
-      if (!c) return;
+      // A folder's photos first (a right click on it has just selected it).
+      if (!c || track(() => counting)) return;
       command.value = null;
+      if (c.kind !== "move" && (photos.length === 0 || countError)) return;
       if (c.kind === "move") await openMove();
       else if (c.kind === "metadata") metadataOpen.value = true;
       else if (c.kind === "info") infoOpen.value = true;
@@ -237,7 +260,7 @@ export const SelectionBar = component$<Props>(
         data-testid="selection-bar"
         class={[
           // Phones: the count, then (one item) rename and ×.
-          count === 1 ? "grid-cols-[1fr_auto_auto]" : "grid-cols-[1fr_auto]",
+          renamable ? "grid-cols-[1fr_auto_auto]" : "grid-cols-[1fr_auto]",
           "z-30 grid items-center gap-2 border-zinc-200 bg-white/95 backdrop-blur sm:flex sm:flex-wrap sm:gap-1 dark:border-zinc-800 dark:bg-zinc-900/95",
           "max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:border-t max-sm:pt-2 max-sm:pr-[max(1rem,env(safe-area-inset-right))] max-sm:pb-[calc(0.5rem+env(safe-area-inset-bottom))] max-sm:pl-[max(1rem,env(safe-area-inset-left))] max-sm:shadow-[0_-4px_12px_rgb(0_0_0/0.06)]",
           // After the grid, held at the viewport's bottom while it scrolls.
@@ -313,10 +336,23 @@ export const SelectionBar = component$<Props>(
           data-testid="selection-summary"
           aria-live="polite"
         >
-          {count} 件選択
-          <span class={["ml-2 font-normal", muted]}>
-            {formatDecimalBytes(bytes)}
-          </span>
+          {selectionSummary(
+            count,
+            folderCount,
+            counting || countError ? null : photos.length,
+          )}
+          {countError ? (
+            <span
+              role="alert"
+              class="ml-2 font-normal text-red-700 dark:text-red-400"
+            >
+              {countError}
+            </span>
+          ) : (
+            <span class={["ml-2 font-normal", muted]}>
+              {formatDecimalBytes(bytes)}
+            </span>
+          )}
           {progress && (
             // A large selection goes in chunks: how far it got.
             <span
@@ -334,7 +370,7 @@ export const SelectionBar = component$<Props>(
             </span>
           )}
         </p>
-        {count === 1 && (
+        {renamable && (
           // Touch screens (no menu there: a long press selects); with a mouse,
           // F2 or the context menu.
           <button
@@ -369,7 +405,7 @@ export const SelectionBar = component$<Props>(
             <button
               key={v}
               type="button"
-              disabled={busy.value || photos.length === 0}
+              disabled={busy.value || noPhotos}
               aria-pressed={current === v}
               onClick$={() => pickVisibility(v)}
               class={[
@@ -387,19 +423,26 @@ export const SelectionBar = component$<Props>(
             </button>
           ))}
         </div>
-        <div class="col-span-full grid grid-cols-3 gap-1 sm:contents">
+        <div
+          class={[
+            "col-span-full grid gap-1 sm:contents",
+            folderOnly ? "grid-cols-1" : "grid-cols-3",
+          ]}
+        >
+          {!folderOnly && (
+            <button
+              type="button"
+              disabled={busy.value}
+              onClick$={openMove}
+              class={quietTool}
+            >
+              <Icon d={MOVE_ICON} />
+              移動…
+            </button>
+          )}
           <button
             type="button"
-            disabled={busy.value}
-            onClick$={openMove}
-            class={quietTool}
-          >
-            <Icon d={MOVE_ICON} />
-            移動…
-          </button>
-          <button
-            type="button"
-            disabled={busy.value || photos.length === 0}
+            disabled={busy.value || noPhotos}
             aria-haspopup="menu"
             aria-expanded={infoMenu.value !== null}
             // The photos' information: camera, platform, what is public.
@@ -412,19 +455,21 @@ export const SelectionBar = component$<Props>(
             <Icon d={INFO_ICON} />
             情報…
           </button>
-          <button
-            type="button"
-            disabled={busy.value}
-            title="ゴミ箱へ (Delete)"
-            onClick$={() => onAction$({ kind: "trash" })}
-            class={[
-              tool,
-              "text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40",
-            ]}
-          >
-            <Icon d={TRASH_ICON} />
-            ゴミ箱へ
-          </button>
+          {!folderOnly && (
+            <button
+              type="button"
+              disabled={busy.value}
+              title="ゴミ箱へ (Delete)"
+              onClick$={() => onAction$({ kind: "trash" })}
+              class={[
+                tool,
+                "text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40",
+              ]}
+            >
+              <Icon d={TRASH_ICON} />
+              ゴミ箱へ
+            </button>
+          )}
         </div>
 
         {infoMenu.value && (
