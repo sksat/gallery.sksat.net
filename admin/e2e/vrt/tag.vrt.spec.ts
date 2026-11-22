@@ -12,6 +12,15 @@ test.describe("desktop", () => {
       fullPage: true,
     });
   });
+
+  test("admin: tag name being edited", async ({ page }) => {
+    await page.goto("/tag/");
+    await page.getByRole("button", { name: "VRChatの名前を変更" }).click();
+    await expect(page.getByLabel("タグ名")).toBeFocused();
+    await expect(page).toHaveScreenshot("admin-tag-rename.png", {
+      fullPage: true,
+    });
+  });
 });
 
 test.describe("phone", () => {

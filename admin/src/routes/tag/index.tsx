@@ -1,4 +1,10 @@
-import { $, component$, useSignal, useTask$ } from "@builder.io/qwik";
+import {
+  $,
+  component$,
+  useSignal,
+  useTask$,
+  useVisibleTask$,
+} from "@builder.io/qwik";
 import {
   Form,
   routeAction$,
@@ -47,8 +53,10 @@ import {
   type FieldEdit,
   type RemovedField,
 } from "~/lib/db-tag-field";
+import { renameTag, unrenameTag, type TagRename } from "~/lib/db-tag-rename";
 import { getDB } from "~/lib/env";
 import { contentChanged } from "~/lib/last-good";
+import { validateTagName } from "~/lib/tag-rename";
 
 // /tag/: every tag, how many photos have it, and whether it is public.
 // The public site only ever shows public tags; new ones start private.
@@ -88,6 +96,69 @@ export const useSetTagPublic = routeAction$(
     return { ok: true, name: data.name, public: data.public === "1" };
   },
   zod$({ name: z.string().min(1).max(200), public: z.enum(["0", "1"]) }),
+);
+
+/**
+ * Rename a tag; to a name that is a tag already, a merge (only with
+ * `merge`, which the page sets after asking). Returns what the undo needs.
+ */
+export const useRenameTag = routeAction$(
+  async (data, { platform, fail }) => {
+    const v = validateTagName(data.to);
+    if (!v.ok) return fail(400, { message: v.error, code: "invalid" });
+    const r = await renameTag(getDB(platform), data.from, v.value, data.merge);
+    if (!r.ok) return fail(409, { message: r.error, code: r.code });
+    return { ok: true as const, rename: r.value };
+  },
+  zod$({
+    from: z.string().min(1).max(200),
+    to: z.string().max(400),
+    merge: z.boolean(),
+  }),
+);
+
+const tagList = z.array(z.string().max(200)).max(1000);
+
+/** Undo of a rename (or merge): what useRenameTag returned. */
+export const useUnrenameTag = routeAction$(
+  async (data, { platform, fail }) => {
+    const r = await unrenameTag(getDB(platform), data.rename as TagRename);
+    if (!r.ok) return fail(409, { message: r.error });
+    return { ok: true as const };
+  },
+  zod$({
+    rename: z.object({
+      from: z.string().min(1).max(200),
+      to: z.string().min(1).max(200),
+      merged: z.boolean(),
+      fromRow: z
+        .object({
+          id: z.number().int().positive(),
+          public: z.boolean(),
+          createdAt: z.string().max(40),
+        })
+        .nullable(),
+      toHadRow: z.boolean(),
+      movedFields: z.array(z.number().int().positive()).max(1000),
+      cameras: z
+        .array(
+          z.object({
+            cameraId: z.number().int().positive(),
+            tag: z.string().min(1).max(200),
+            propagate: z.boolean(),
+            position: z.number().int(),
+            createdAt: z.string().max(40),
+          }),
+        )
+        .max(10_000),
+      rules: z
+        .array(z.object({ id: z.string().max(100), tags: tagList }))
+        .max(1000),
+      photos: z
+        .array(z.object({ id: z.number().int().positive(), tags: tagList }))
+        .max(100_000),
+    }),
+  }),
 );
 
 export const useAddField = routeAction$(
@@ -233,6 +304,7 @@ export const useRestoreField = routeAction$(
 /** The last change, for the toast's 元に戻す. */
 type Undo =
   | { kind: "public"; name: string; public: boolean }
+  | { kind: "rename"; rename: TagRename }
   | { kind: "add"; id: number }
   | { kind: "edit"; id: number; before: FieldEdit }
   | { kind: "move"; id: number; delta: -1 | 1 }
@@ -268,6 +340,10 @@ export default component$(() => {
   const move = useMoveField();
   const remove = useRemoveField();
   const restore = useRestoreField();
+  const rename = useRenameTag();
+  const unrename = useUnrenameTag();
+  /** The tag whose name is being edited. */
+  const editing = useSignal<string | null>(null);
   const toast = useSignal<ToastState | null>(null);
   const last = useSignal<Undo | null>(null);
   /** The tag whose fields are open (?tag= opens one from a photo). */
@@ -299,6 +375,43 @@ export default component$(() => {
       public: !v.public,
     });
   });
+  // The name field, focused with its text selected when it opens.
+  useVisibleTask$(({ track }) => {
+    if (!track(() => editing.value)) return;
+    document.querySelector<HTMLInputElement>("#tag-name")?.select();
+  });
+
+  /** Save the edited name of `from` (Enter, or leaving the field). */
+  const saveName = $(async (from: string, typed: string) => {
+    if (editing.value !== from) return;
+    editing.value = null;
+    const to = typed.trim();
+    if (to === "" || to === from) return;
+    const list = data.value.kind === "ok" ? data.value.tags : [];
+    const n = list.find((t) => t.name === from)?.count ?? 0;
+    const ask = () =>
+      confirm(
+        `『${to}』はもうあります。『${from}』（${n} 枚）を『${to}』にまとめますか？`,
+      );
+    const listed = list.some((t) => t.name === to);
+    if (listed && !ask()) return;
+    let v = (await rename.submit({ from, to, merge: listed })).value;
+    // A name only elsewhere (a photo in the trash, an upload rule): asked
+    // when the server finds it.
+    if (v.failed && v.code === "exists") {
+      if (!ask()) return;
+      v = (await rename.submit({ from, to, merge: true })).value;
+    }
+    if (v.failed) return failed(v.message);
+    if (open.value === from) open.value = v.rename.to;
+    await done(
+      v.rename.merged
+        ? `『${from}』を『${v.rename.to}』にまとめました。`
+        : `『${from}』を『${v.rename.to}』にしました。`,
+      { kind: "rename", rename: v.rename },
+    );
+  });
+
   useTask$(({ track }) => {
     const v = track(() => add.value);
     if (!v) return;
@@ -344,6 +457,16 @@ export default component$(() => {
     last.value = null;
     if (l.kind === "public") {
       await toggle.submit({ name: l.name, public: l.public ? "1" : "0" });
+      return;
+    }
+    if (l.kind === "rename") {
+      const r = (await unrename.submit({ rename: l.rename })).value;
+      if (!r.failed && !l.rename.merged && open.value === l.rename.to) {
+        open.value = l.rename.from;
+      }
+      toast.value = r.failed
+        ? { tone: "error", message: `元に戻せませんでした: ${r.message ?? ""}` }
+        : { tone: "success", message: "元に戻しました。" };
       return;
     }
     let ok = true;
@@ -399,7 +522,58 @@ export default component$(() => {
               <li key={t.name} data-testid="tag-row">
                 <div class="flex flex-wrap items-center gap-x-3 px-4 py-2">
                   <span class="min-w-0 flex-1">
-                    <span class="block truncate font-medium">{t.name}</span>
+                    {editing.value === t.name ? (
+                      <form
+                        class="py-1"
+                        preventdefault:submit
+                        onSubmit$={(_, form) =>
+                          saveName(
+                            t.name,
+                            (
+                              form.elements.namedItem(
+                                "name",
+                              ) as HTMLInputElement
+                            ).value,
+                          )
+                        }
+                      >
+                        <label for="tag-name" class="sr-only">
+                          タグ名
+                        </label>
+                        <input
+                          id="tag-name"
+                          name="name"
+                          value={t.name}
+                          required
+                          maxLength={200}
+                          enterKeyHint="done"
+                          autoComplete="off"
+                          onKeyDown$={(e) => {
+                            if (e.key === "Escape") editing.value = null;
+                          }}
+                          onBlur$={(_, el) => saveName(t.name, el.value)}
+                          class={field}
+                        />
+                      </form>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`${t.name}の名前を変更`}
+                        disabled={rename.isRunning || unrename.isRunning}
+                        onClick$={() => (editing.value = t.name)}
+                        class="group flex min-h-11 max-w-full items-center gap-1.5 rounded text-left font-medium sm:min-h-0"
+                      >
+                        <span class="truncate">{t.name}</span>
+                        <svg
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden="true"
+                          class="size-3.5 shrink-0 text-zinc-400 group-hover:text-sky-600 dark:text-zinc-500 dark:group-hover:text-sky-400"
+                        >
+                          <path d="M13.6 2.9a1.75 1.75 0 0 1 2.47 0l1.03 1.03a1.75 1.75 0 0 1 0 2.47l-8.6 8.6a1 1 0 0 1-.45.26l-3.8 1.05a.6.6 0 0 1-.74-.74l1.05-3.8a1 1 0 0 1 .26-.45l8.6-8.6Z" />
+                        </svg>
+                      </button>
+                    )}
                     {own.length > 0 && (
                       <span
                         class={["block truncate text-xs", muted]}
