@@ -32,6 +32,7 @@ const groups: Record<string, string[]> = {
     "resized",
     "smoke",
     "tag-field",
+    "tag-rename",
     "theme",
     "trash",
   ],

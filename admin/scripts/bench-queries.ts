@@ -17,6 +17,7 @@ import {
 } from "../../workers/api/src/query";
 import { CREATE_FOLDER_SQL, filesQuery } from "../src/lib/db-files";
 import { IMAGE_SOURCE_SQL } from "../src/lib/media-file";
+import { FIND_TAGGED_SQL, SET_TAGS_SQL } from "../src/lib/db-tag-rename";
 import {
   initLookups,
   numberedPaths,
@@ -234,6 +235,29 @@ const nowCases: [string, Case][] = [
   ],
   ["upload init: name taken (numbered)", initCase(NEW_SHA, (a) => a.path)],
   ["create folder (empty name check)", createFolderCase("/VRChat/new")],
+  // Every 20th photo has t3 (setup).
+  [
+    "tag rename: find the photos",
+    () => ({
+      before: [],
+      after: [{ sql: FIND_TAGGED_SQL, args: ["t3", "x"] }],
+    }),
+  ],
+  [
+    "tag rename: rewrite the photos",
+    () => {
+      const rows = Array.from({ length: N }, (_, i) => i)
+        .filter((i) => i % 20 === 3)
+        .map((i) => {
+          const tags = [`t${i % 20}`, `u${i % 7}`];
+          return [i + 1, JSON.stringify(tags), JSON.stringify(["x", tags[1]])];
+        });
+      return {
+        before: [],
+        after: [{ sql: SET_TAGS_SQL, args: [JSON.stringify(rows)] }],
+      };
+    },
+  ],
 ];
 
 // Migration 0013 (media_file): the API's queries before it (as they were:
