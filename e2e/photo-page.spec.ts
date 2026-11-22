@@ -74,12 +74,6 @@ test.describe("desktop", () => {
       "/camera/virtuallens2/",
       VIRTUALLENS2_ORDER,
     );
-    // Resumed: the info panel answers its key.
-    await page.keyboard.press("i");
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(
       /\/photo\/vrcxxxxxxc\/detail\/\?camera=virtuallens2$/,
@@ -123,11 +117,7 @@ test.describe("desktop", () => {
   }) => {
     await openInOverlay(page, "vrcxxxxxxa");
     const tag = page.getByTestId("info-tag");
-    // Its details are open.
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    await expect(tag).toBeVisible();
     await tag.focus();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/\?tag=VRChat$/);

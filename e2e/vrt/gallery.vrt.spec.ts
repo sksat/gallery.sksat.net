@@ -47,9 +47,8 @@ const openPhoto = async (page: Page, id = "vrcxxxxxxa") => {
         .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth),
     )
     .toBeGreaterThan(0);
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    /true|false/,
+  await expect(overlay.getByTestId("overlay-progress")).toHaveClass(
+    /opacity-0/,
   );
 };
 
@@ -87,17 +86,6 @@ test("photo overlay", async ({ page }) => {
   await openPhoto(page);
   await settled(page);
   await expect(page).toHaveScreenshot("photo-1.png");
-});
-
-// The info hidden.
-test("photo overlay: info hidden", async ({ page }) => {
-  await openPhoto(page);
-  await page.getByTestId("info-toggle").click();
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
-  await expect(page).toHaveScreenshot("photo-1-info-closed.png");
 });
 
 // reaxxxxxxa (3:4): its film tag's fields under the tag.

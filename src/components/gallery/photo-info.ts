@@ -202,18 +202,6 @@ export const photoInfo = (m: MediaInfo): PhotoInfo => {
   };
 };
 
-/**
- * The overlay's info: shown or hidden, the viewer's last choice. Without
- * one, shown (photo-overlay.tsx).
- */
-export const INFO_SHOWN_KEY = "gallery.photo-info";
-export const INFO_SHOWN = "shown";
-export const INFO_HIDDEN = "hidden";
-
-/** The stored choice: shown, hidden, or none made. */
-export const infoChoiceFrom = (stored: string | null): boolean | null =>
-  stored === INFO_SHOWN ? true : stored === INFO_HIDDEN ? false : null;
-
 /** Whether the panel has anything besides the tags to show. */
 export const hasDetails = (info: PhotoInfo): boolean =>
   Boolean(

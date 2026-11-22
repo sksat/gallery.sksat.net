@@ -16,8 +16,6 @@ interface InfoPanelProps {
   tagLinks: TagLink[];
   /** Filter the gallery by a tag (and close the photo). */
   onTag$: QRL<(tag: string) => void>;
-  /** Shown, or hidden (the ⓘ button or `i`, in photo-overlay.tsx). */
-  shown: boolean;
 }
 
 /**
@@ -25,9 +23,8 @@ interface InfoPanelProps {
  * row under the photo, each value once: when it was taken, the world or
  * place, the camera and its exposure, the tags and their fields, and the
  * file name. It wraps where the width runs out. On wide screens at the
- * bottom left, in the band under the photo (photo-overlay.tsx), which it
- * keeps while hidden; on narrow ones right under the photo. Never over
- * it.
+ * bottom left, in the band under the photo (photo-overlay.tsx); on narrow
+ * ones right under the photo. Never over it.
  *
  * Rendered on the server so the metadata is in the page without JS. It
  * takes its own clicks, so the overlay's "click outside closes" never
@@ -43,11 +40,8 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
       // A horizontal swipe on it steps like one on the photo.
       stoppropagation:click
       class={[
-        // Hidden: gone on narrow screens; on wide ones its band stays, so
-        // the photo does not move.
-        props.shown ? "flex" : "hidden lg:invisible lg:flex",
         // One translucent box.
-        "overflow-y-auto overscroll-contain rounded-2xl bg-black/70 px-4 py-2.5 text-sm leading-snug text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md",
+        "flex overflow-y-auto overscroll-contain rounded-2xl bg-black/70 px-4 py-2.5 text-sm leading-snug text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-md",
         // Narrow: right under the photo (--info-top); room under it for
         // the corner's buttons.
         "relative mx-auto mt-(--info-top) mb-20 w-fit max-w-[calc(100%-1.5rem)]",

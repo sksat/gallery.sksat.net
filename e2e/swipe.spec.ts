@@ -58,11 +58,6 @@ const shown = (page: Page, date: string) =>
 const open = async (page: Page, id: string) => {
   await openInOverlay(page, id);
   await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
-  // Resumed: the info panel's visible task has run.
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
   // The swipe listeners are added by a visible task; wait for them (the
   // overlay takes its touch-action then), and make a vertical drag (never
   // a step) first.
@@ -147,15 +142,3 @@ test("a swipe on the info under the photo steps too", async ({ page }) => {
   await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\/$/);
 });
 
-test("with the info hidden, the photo takes the screen", async ({ page }) => {
-  await open(page, "reaxxxxxxb");
-  await page.getByTestId("info-toggle").click();
-  await expect(page.getByTestId("info-panel")).toBeHidden();
-  await drag(page, { x: 300, y: 400, dx: -200, dy: 0 });
-  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/$/);
-  // Still hidden on the next photo.
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "false",
-  );
-});

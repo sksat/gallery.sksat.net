@@ -6,9 +6,6 @@ import {
   splitTaken,
   groupTagFields,
   hasDetails,
-  INFO_HIDDEN,
-  INFO_SHOWN,
-  infoChoiceFrom,
   placeOf,
   photoInfo,
   worldHref,
@@ -84,15 +81,6 @@ describe("splitTaken", () => {
       time: "23:12",
     });
     expect(splitTaken("2023/12")).toEqual({ date: "2023/12", time: null });
-  });
-});
-
-describe("infoChoiceFrom", () => {
-  it("reads the viewer's choice, or none", () => {
-    expect(infoChoiceFrom(INFO_SHOWN)).toBe(true);
-    expect(infoChoiceFrom(INFO_HIDDEN)).toBe(false);
-    expect(infoChoiceFrom(null)).toBeNull();
-    expect(infoChoiceFrom("something else")).toBeNull();
   });
 });
 

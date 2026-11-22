@@ -15,12 +15,8 @@ const panel = (page: Page) => page.getByTestId("info-panel");
 
 const openPhoto = openInOverlay;
 
-/** The info is shown (as it is until the viewer hides it). */
+/** The info is on screen (as it always is). */
 const expectShown = async (page: Page) => {
-  await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
   await expect(panel(page)).toBeInViewport();
 };
 
@@ -143,7 +139,7 @@ test.describe("desktop", () => {
     expect(await page.content()).not.toContain("draft memo");
   });
 
-  test("under the photo, which stays centred and where it is", async ({
+  test("under the photo, which stays centred", async ({
     page,
   }) => {
     const photo = page.getByTestId("overlay-box");
@@ -159,95 +155,36 @@ test.describe("desktop", () => {
       // Wrapped or not, all of it on the screen.
       expect(block.y + block.height).toBeLessThanOrEqual(800);
     }
-
-    // Hidden, the photo stays where it was.
-    const shown = await photo.boundingBox();
-    await page.getByTestId("info-toggle").click();
-    await expect(panel(page)).toBeHidden();
-    expect(await photo.boundingBox()).toEqual(shown);
   });
 
-  test("i and the button hide and show the info, remembered", async ({
-    page,
-  }) => {
+  test("always shown, each value once, on every photo", async ({ page }) => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
-    const toggle = page.getByTestId("info-toggle");
-
-    // Shown at first, each value once.
     await expectShown(page);
     await expect(page.getByTestId("info-taken")).toHaveCount(1);
     for (const value of ["Fixture World", "VirtualLens2", "f/2.8"]) {
-      await expect(page.getByTestId("overlay").getByText(value)).toHaveCount(1);
+      // Once on screen.
+      await expect(
+        page.getByTestId("overlay").getByText(value).filter({ visible: true }),
+      ).toHaveCount(1);
     }
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(p).toBeHidden();
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(p).toBeInViewport();
-
-    // Open, it stays open on the next photo.
-    await page.keyboard.press("ArrowRight");
-    await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\//);
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    await page.keyboard.press("ArrowLeft");
-    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\//);
-    await expect(page.getByTestId("info-taken")).toHaveText(
-      /2023\/12\/02 00:00/,
-    );
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-
-    // Closed, it stays closed on the next photo, on reopening and on a
-    // reload.
+    // Nothing hides it.
+    await expect(page.getByTestId("info-toggle")).toHaveCount(0);
     await page.keyboard.press("i");
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await page.keyboard.press("ArrowRight");
-    // Newest first: vrcxxxxxxa is followed by reaxxxxxxa.
-    await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\//);
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    await page.getByTestId("overlay").click({ position: { x: 5, y: 400 } });
-    await expect(page.getByTestId("overlay")).toHaveCount(0);
-    await page.getByTestId("gallery-image").nth(3).dispatchEvent("click");
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    await page.reload();
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    await expect(p).toBeHidden();
-
-    // The button shows it again; clicks on it do not close the photo.
-    await page.getByTestId("info-toggle").click();
-    await expect(page.getByTestId("info-toggle")).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
     await expect(p).toBeInViewport();
-    await p.getByTestId("info-camera").click();
+
+    // Shown on the next photo too.
+    await page.keyboard.press("ArrowRight");
+    await expect(page).toHaveURL(/\/photo\/reaxxxxxxa\//);
+    await expectShown(page);
+
+    // A click on it (off its links) does not close the photo.
+    await p.click({ position: { x: 4, y: 4 } });
     await expect(page.getByTestId("overlay")).toBeVisible();
-
-    // `i` with the focus in the panel hides it and hands the focus to the
-    // button.
-    await p.getByTestId("info-tag").focus();
-    await page.keyboard.press("i");
-    await expect(page.getByTestId("info-toggle")).toBeFocused();
-    await expect(p).toBeHidden();
-    await page.keyboard.press("i");
-    await expect(p).toBeInViewport();
 
     // Arrows still browse; a click outside still closes.
     await page.keyboard.press("ArrowLeft");
-    await expect(page).toHaveURL(/\/photo\/reaxxxxxxb\//);
+    await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\//);
     await page.getByTestId("overlay").click({ position: { x: 5, y: 400 } });
     await expect(page.getByTestId("overlay")).toHaveCount(0);
   });
@@ -338,13 +275,8 @@ test.describe("phone", () => {
     await openPhoto(page, "vrcxxxxxxa");
     const p = panel(page);
     await expect(p.getByTestId("info-exposure")).toBeInViewport();
-
-    // The button hides it; `i` too.
-    await page.getByTestId("info-toggle").click();
-    await expect(p).toBeHidden();
-    await expect(page.getByTestId("overlay")).toBeVisible();
-    await page.keyboard.press("i");
-    await expect(p).toBeInViewport();
+    // Nothing hides it.
+    await expect(page.getByTestId("info-toggle")).toHaveCount(0);
   });
 
   test("hidden fields are absent", async ({ page }) => {
