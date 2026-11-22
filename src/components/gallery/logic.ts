@@ -1,8 +1,14 @@
 import { inDate, parseDateKey } from "@shared/calendar/calendar";
 
-import { cameraHref, cameraSlugFromPath, takenWith } from "./cameras";
+import {
+  cameraLabel,
+  cameraSlug,
+  cameraSlugFromPath,
+  takenWith,
+} from "./cameras";
 import { DEFAULT_SORT, parseSort, serializeSort, type SortOrder } from "./sort";
 import {
+  DEFAULT_TAG_MODE,
   filterMediaByTags,
   parseTagFilter,
   serializeTagFilter,
@@ -11,8 +17,9 @@ import {
 import { PUBLIC_ID_RE, type MediaIndex, type MediaInfo } from "./types";
 
 /**
- * Photos passing the tag filter and, on a camera page, taken with that
- * camera, and with a date (from the calendar), taken then. Indices stay
+ * Photos passing the tag filter, taken with the camera `camera` (the
+ * camera filter, or a camera page's), and with a date (from the
+ * calendar), taken then. Indices stay
  * those of the full media array (they order ties when sorting); the caller
  * sorts.
  */
@@ -84,34 +91,33 @@ const withQuery = (path: string, params: URLSearchParams) => {
   return query === "" ? path : `${path}?${query}`;
 };
 
-/** The list's own query: a calendar date, the tag filter, the sort. */
-const appendList = (
-  params: URLSearchParams,
+/** A list's query: its camera, a calendar date, the tag filter, the sort. */
+const listParams = (
   filter: TagFilter,
   sort: SortOrder,
+  camera: string | null,
   date: string | null,
-) => {
+): URLSearchParams => {
+  const params = new URLSearchParams();
+  if (camera !== null) params.set("camera", camera);
   if (date !== null) params.set("date", date);
   for (const [key, value] of new URLSearchParams(serializeTagFilter(filter)))
     params.append(key, value);
   for (const [key, value] of serializeSort(sort)) params.append(key, value);
+  return params;
 };
 
 /**
- * URL of a list: the gallery (`/`) or a camera page (`/camera/{slug}/`),
- * with a date from the calendar, the tag filter and sort order, so
- * reloading or going Back keeps them.
+ * URL of a list: the gallery (`/`) with its filters (the camera, a date
+ * from the calendar, the tags) and sort order in the query, so reloading
+ * or going Back keeps them.
  */
 export const galleryUrl = (
   filter: TagFilter,
   sort: SortOrder = DEFAULT_SORT,
   camera: string | null = null,
   date: string | null = null,
-): string => {
-  const params = new URLSearchParams();
-  appendList(params, filter, sort, date);
-  return withQuery(camera === null ? "/" : cameraHref(camera), params);
-};
+): string => withQuery("/", listParams(filter, sort, camera, date));
 
 /** A photo's URL under `/photo/{id}/`, with the list it is in. */
 const photoPath =
@@ -122,17 +128,16 @@ const photoPath =
     sort: SortOrder = DEFAULT_SORT,
     camera: string | null = null,
     date: string | null = null,
-  ): string => {
-    const params = new URLSearchParams();
-    if (camera !== null) params.set("camera", camera);
-    appendList(params, filter, sort, date);
-    return withQuery(`/photo/${imageId}/${suffix}`, params);
-  };
+  ): string =>
+    withQuery(
+      `/photo/${imageId}/${suffix}`,
+      listParams(filter, sort, camera, date),
+    );
 
 /**
  * The photo's URL, `/photo/{id}/` (its canonical URL, the one shared): the
- * list it is in (`?camera=`, date, tags, sort; the whole gallery without
- * them) with the photo open over it in the overlay. Loaded directly, it
+ * list it is in (the gallery's query: camera, date, tags, sort; the whole
+ * gallery without one) with the photo open over it in the overlay. Loaded directly, it
  * shows the same as a click on the photo's tile.
  */
 export const photoUrl = photoPath("");
@@ -155,7 +160,7 @@ export type GalleryUrlState = {
   selectedImageId: string | null;
   filter: TagFilter;
   sort: SortOrder;
-  /** Camera slug of the list, else null. */
+  /** The camera filter (`?camera=`), or a camera page's camera; else null. */
   camera: string | null;
   /** A year, month or day picked in the calendar (`?date=`), else null. */
   date: string | null;
@@ -163,22 +168,60 @@ export type GalleryUrlState = {
 
 /**
  * The gallery state a URL encodes: a list URL (`galleryUrl`), or a photo
- * URL (`photoUrl`), the overlay over a list, whose list is in its
- * query (`?camera=` for a camera page). The calendar leads to the whole
- * gallery only; a camera's list has no date.
+ * URL (`photoUrl`), the overlay over the list in its query. A camera page
+ * (`/camera/{slug}/`) lists its camera's photos, newest first, with no
+ * other filter.
  */
 export const galleryStateFromUrl = (url: URL): GalleryUrlState => {
   const params = url.searchParams;
   const selectedImageId = photoIdFromPath(url.pathname);
-  const camera =
-    selectedImageId === null
-      ? cameraSlugFromPath(url.pathname)
-      : params.get("camera") || null;
+  const cameraPage =
+    selectedImageId === null ? cameraSlugFromPath(url.pathname) : null;
+  if (cameraPage !== null) {
+    return {
+      selectedImageId,
+      filter: { tags: [], mode: DEFAULT_TAG_MODE },
+      sort: DEFAULT_SORT,
+      camera: cameraPage,
+      date: null,
+    };
+  }
   return {
     selectedImageId,
     filter: parseTagFilter(params),
     sort: parseSort(params),
-    camera,
-    date: camera === null ? dateParam(params) : null,
+    camera: params.get("camera") || null,
+    date: dateParam(params),
   };
+};
+
+/**
+ * The camera filter's choices: each camera the photos in `media` were
+ * taken with (the gallery's other filters applied), with how many, most
+ * first, then by name. The chosen camera stays even when none are left.
+ */
+export const cameraCounts = (
+  media: readonly MediaInfo[],
+  selected: { slug: string; name: string } | null,
+): { slug: string; name: string; count: number }[] => {
+  const bySlug = new Map<
+    string,
+    { slug: string; name: string; count: number }
+  >();
+  for (const m of media) {
+    if (!m.camera) continue;
+    const slug = cameraSlug(m.camera);
+    const entry = bySlug.get(slug);
+    if (entry) entry.count++;
+    else bySlug.set(slug, { slug, name: cameraLabel(m.camera), count: 1 });
+  }
+  if (selected && !bySlug.has(selected.slug)) {
+    bySlug.set(selected.slug, { ...selected, count: 0 });
+  }
+  return [...bySlug.values()].sort(
+    (a, b) =>
+      b.count - a.count ||
+      a.name.localeCompare(b.name, "ja") ||
+      (a.slug < b.slug ? -1 : 1),
+  );
 };

@@ -254,6 +254,91 @@ test("camera: an unknown ?camera= on a photo link is ignored", async ({
   await expect(page.getByTestId("gallery-image")).toHaveCount(5);
 });
 
+test("camera filter: picks a camera on the gallery, with tags, in the URL", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const images = page.getByTestId("gallery-image");
+  await expect(images).toHaveCount(5, { timeout: 10000 });
+  const select = page.getByTestId("camera-select");
+  // The cameras of the public photos shown at "model", most photos first.
+  await expect(select.locator("option")).toHaveText([
+    "すべてのカメラ",
+    "VirtualLens2 (2)",
+    "PENTAX SP (1)",
+  ]);
+
+  await select.selectOption("virtuallens2");
+  await expect(page).toHaveURL(/\/\?camera=virtuallens2$/);
+  await expect(images).toHaveCount(2);
+  await expect(page.getByTestId("result-count")).toHaveText("2 枚");
+  // Tags are counted over that camera's photos.
+  await expect(chip(page, "VRChat")).toHaveText("VRChat2");
+  await expect(chip(page, "Real")).toHaveCount(0);
+
+  // Combined with a tag; the camera's count follows the tags.
+  await chip(page, "Neos VR").click();
+  await expect(page).toHaveURL(/\/\?camera=virtuallens2&tag=Neos\+VR$/);
+  await expect(images).toHaveCount(1);
+  await expect(select.locator("option:checked")).toHaveText(
+    "VirtualLens2 (1)",
+  );
+
+  // A photo opened over it carries the list, and closing returns to it.
+  await images.first().dispatchEvent("click");
+  await expect(page).toHaveURL(
+    /\/photo\/vrcxxxxxxc\/\?camera=virtuallens2&tag=Neos\+VR$/,
+  );
+  await page.getByTestId("overlay").click({ position: { x: 5, y: 5 } });
+  await expect(page).toHaveURL(/\/\?camera=virtuallens2&tag=Neos\+VR$/);
+
+  // Loading the URL again keeps it.
+  await page.goto("/?camera=virtuallens2&tag=Neos+VR");
+  await expect(images).toHaveCount(1, { timeout: 10000 });
+  await expect(select).toHaveValue("virtuallens2");
+
+  // Clearing the camera keeps the tag.
+  await select.selectOption("");
+  await expect(page).toHaveURL(/\/\?tag=Neos\+VR$/);
+  await expect(images).toHaveCount(1);
+  await chip(page, "Neos VR").click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(images).toHaveCount(5);
+});
+
+test("camera filter: a photo URL with ?camera= closes to the filtered gallery", async ({
+  page,
+}) => {
+  await page.goto("/photo/vrcxxxxxxc/?camera=virtuallens2");
+  const overlay = page.getByTestId("overlay");
+  await expect(overlay).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId("gallery-image")).toHaveCount(2);
+  // Arrow keys stay within the camera's photos.
+  await page.keyboard.press("ArrowRight");
+  await expect(page).toHaveURL(/\/photo\/vrcxxxxxxa\/\?camera=virtuallens2$/);
+  await overlay.click({ position: { x: 5, y: 5 } });
+  await expect(overlay).toHaveCount(0);
+  await expect(page).toHaveURL(/\/\?camera=virtuallens2$/);
+  await expect(page.getByTestId("camera-select")).toHaveValue("virtuallens2");
+
+  // Its detail page goes back to the same list.
+  await page.goto("/photo/vrcxxxxxxc/detail/?camera=virtuallens2");
+  await expect(page.getByTestId("back-link")).toHaveAttribute(
+    "href",
+    "/?camera=virtuallens2",
+  );
+});
+
+test("camera filter: an old camera page link with a filter opens the gallery", async ({
+  page,
+}) => {
+  await page.goto("/camera/virtuallens2/?tag=VRChat&sort=old");
+  await expect(page).toHaveURL(/\/\?camera=virtuallens2&tag=VRChat&sort=old$/);
+  await expect(page.getByTestId("gallery-image")).toHaveCount(2, {
+    timeout: 10000,
+  });
+});
+
 test("camera: an unknown slug is a 404", async ({ page }) => {
   const res = await page.goto("/camera/no-such-camera/");
   expect(res?.status()).toBe(404);

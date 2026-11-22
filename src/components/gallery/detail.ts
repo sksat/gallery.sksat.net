@@ -15,9 +15,9 @@ import type { CameraJSON, MediaIndex } from "./types";
 export type PhotoContext = {
   filter: TagFilter;
   sort: SortOrder;
-  /** The camera page it came from; an unknown `?camera=` is dropped. */
+  /** The list's camera filter; an unknown `?camera=` is dropped. */
   camera: string | null;
-  /** A calendar date (`?date=`) of the list, when not a camera's. */
+  /** The list's calendar date (`?date=`). */
   date: string | null;
   /** The list itself. */
   backHref: string;
@@ -43,8 +43,8 @@ export const photoContext = (
   const slug = params.get("camera");
   const camera =
     slug && findCamera(cameras, media, slug) !== null ? slug : null;
-  // A calendar date, as the gallery reads it (not on a camera's list).
-  const date = camera === null ? dateParam(params) : null;
+  // A calendar date, as the gallery reads it.
+  const date = dateParam(params);
   const ids = (f: TagFilter, d: string | null) =>
     sortMedia(visibleMedia(media, f, camera, d), sort).map((m) => m.value.id);
   // The arrows' fallback, as in the gallery: the date's photos when this

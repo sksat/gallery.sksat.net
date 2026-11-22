@@ -1,5 +1,9 @@
 import { component$ } from "@builder.io/qwik";
-import { routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
+import {
+  routeLoader$,
+  type DocumentHead,
+  type RequestHandler,
+} from "@builder.io/qwik-city";
 
 import Gallery from "~/components/gallery/gallery";
 import type { CameraJSON } from "~/components/gallery/types";
@@ -8,6 +12,22 @@ import { loadCamera, UNAVAILABLE } from "~/lib/api";
 import { useGalleryIndex } from "../../layout";
 
 type CameraPage = { camera: CameraJSON; ogp: Ogp };
+
+const OLD_LIST_PARAMS = new Set(["tag", "mode", "sort", "seed"]);
+
+/**
+ * The camera page's filters and sort order moved to the gallery's camera
+ * filter: a shared link with them opens the same photos there.
+ */
+export const onGet: RequestHandler = ({ url, params, redirect }) => {
+  const query = new URLSearchParams(url.search);
+  if ([...query.keys()].some((key) => OLD_LIST_PARAMS.has(key))) {
+    const to = new URLSearchParams([["camera", params.slug]]);
+    for (const [key, value] of query)
+      if (OLD_LIST_PARAMS.has(key)) to.append(key, value);
+    throw redirect(301, `/?${to}`);
+  }
+};
 
 /**
  * The camera, from the API: 404 when there is none, or when only private

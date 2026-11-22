@@ -18,6 +18,7 @@ import {
 } from "./types";
 import {
   galleryStateFromUrl,
+  cameraCounts,
   galleryUrl,
   neighborIds,
   photoDetailUrl,
@@ -64,7 +65,10 @@ const IMAGE_BASE = import.meta.env.VITE_IMAGE_BASE_URL;
 type GalleryState = GalleryUrlState;
 
 type GalleryProps = {
-  /** The camera of a /camera/<slug>/ page, from its route. */
+  /**
+   * The camera of a /camera/<slug>/ page, from its route: the gallery is
+   * then that camera's photos alone, newest first, with no filters.
+   */
   camera?: CameraJSON;
   /**
    * The photo of a /photo/<id>/ page, from its route: what the overlay
@@ -96,9 +100,9 @@ const MODE_LABELS: Record<TagMatchMode, string> = {
 const OVERLAY_ENTRY = "galleryOverlay";
 
 /**
- * The list's URL (`/` or `/camera/<slug>/` with its query). `camera` is
- * the list's known camera: an unknown `?camera=` of a photo URL is dropped
- * rather than turned into a 404 page.
+ * The list's URL (`/` with its query). `camera` is the list's known
+ * camera: an unknown `?camera=` is dropped rather than turned into a 404
+ * page.
  */
 const listUrl = (s: GalleryState, camera: string | null) =>
   galleryUrl(s.filter, s.sort, camera, s.date);
@@ -164,7 +168,8 @@ export default component$<GalleryProps>((props) => {
           (props.photo?.id === state.selectedImageId
             ? transformMediaInfo(props.photo)
             : undefined));
-    // An unknown /camera/<slug>/ is already a 404 from its route loader.
+    // An unknown /camera/<slug>/ is already a 404 from its route loader;
+    // an unknown `?camera=` is no filter.
     const cameraInfo =
       state.camera === null
         ? null
@@ -172,9 +177,9 @@ export default component$<GalleryProps>((props) => {
           ? props.camera
           : findCamera(index.value.cameras, media, state.camera);
     const camera = cameraInfo === null ? null : state.camera;
-    // On a camera page, "every photo" means every photo taken with that
-    // camera (and on a calendar date, then): the tag counts and the
-    // arrow-key fallback use it.
+    // With a camera or a calendar date, "every photo" means every photo
+    // taken with that camera, then: the tag counts and the arrow-key
+    // fallback use it.
     const scope = visibleMedia(
       media,
       { tags: [], mode: state.filter.mode },
@@ -204,6 +209,13 @@ export default component$<GalleryProps>((props) => {
       camera,
       scope,
       filteredMedia,
+      /** The camera filter's choices: counted with the other filters. */
+      cameraChoices: cameraCounts(
+        visibleMedia(media, state.filter, null, state.date).map((m) => m.value),
+        cameraInfo && camera !== null
+          ? { slug: camera, name: cameraInfo.name }
+          : null,
+      ),
       /** Every listed photo's id in display order (arrow-key fallback). */
       allIds,
       /** The filtered photos' ids in display order. */
@@ -229,6 +241,11 @@ export default component$<GalleryProps>((props) => {
   const setSort = $((sort: SortOrder) => {
     state.sort = sort;
     window.history.replaceState(null, "", listUrl(state, view.value.camera));
+  });
+
+  const setCamera = $((camera: string | null) => {
+    state.camera = camera;
+    window.history.replaceState(null, "", listUrl(state, camera));
   });
 
   // Opening a photo pushes its URL over the list's.
@@ -260,15 +277,22 @@ export default component$<GalleryProps>((props) => {
   });
 
   // A tag in the info panel: close the photo and show the photos with
-  // that tag, as a new history entry (Back returns to the photo).
+  // that tag (of the camera, when there is one), as a new history entry
+  // (Back returns to the photo). A camera page leaves for the gallery.
   const filterByTag = $((tag: string) => {
     const filter = tagOnly(tag);
-    // An unknown `?camera=` is dropped rather than turned into a 404 page.
+    // An unknown `?camera=` is dropped.
     const camera = view.value.camera;
+    const url = galleryUrl(filter, state.sort, camera);
+    if (props.camera) {
+      window.location.assign(url);
+      return;
+    }
     state.filter = filter;
     state.selectedImageId = null;
     state.camera = camera;
-    window.history.pushState(null, "", galleryUrl(filter, state.sort, camera));
+    state.date = null;
+    window.history.pushState(null, "", url);
   });
 
   // Arrow keys replace the entry, so one Back returns to the list. It
@@ -356,157 +380,187 @@ export default component$<GalleryProps>((props) => {
           const { selected, cameraInfo, camera, scope, filteredMedia } =
             view.value;
           const selectedTags = state.filter.tags;
+          const cameraPage = props.camera !== undefined;
 
           return (
             <>
-              {camera !== null && (
+              {cameraPage && cameraInfo && (
                 <CameraHeader
-                  slug={camera}
+                  slug={cameraInfo.slug}
                   camera={cameraInfo}
                   count={scope.length}
                 />
               )}
               {state.date !== null && <DateHeader date={state.date} />}
-              <div class="mb-3 flex flex-col gap-3 px-1">
-                <div class="flex min-h-8 flex-wrap items-center gap-4 text-sm">
-                  <span
-                    data-testid="result-count"
-                    aria-live="polite"
-                    // Room for 3 digits, so the controls after it stay put.
-                    class="min-w-[4.5em] tabular-nums"
-                  >
-                    {filteredMedia.length} 枚
-                  </span>
-                  <span class="flex items-center gap-1">
-                    <select
-                      data-testid="sort-select"
-                      aria-label="並び順"
-                      // Fixed width so the control doesn't resize with the
-                      // selected label.
-                      class="w-32 rounded border border-white/30 bg-transparent px-2 py-1 [&>option]:bg-[var(--color-bg)]"
-                      onChange$={(_, el) => {
-                        const kind = el.value as SortKind;
-                        setSort({
-                          kind,
-                          seed: kind === "random" ? newSeed() : 0,
-                        });
-                      }}
+              {!cameraPage && (
+                <div class="mb-3 flex flex-col gap-3 px-1">
+                  <div class="flex min-h-8 flex-wrap items-center gap-4 text-sm">
+                    <span
+                      data-testid="result-count"
+                      aria-live="polite"
+                      // Room for 3 digits, so the controls after it stay put.
+                      class="min-w-[4.5em] tabular-nums"
                     >
-                      {SORT_KINDS.map((kind) => (
-                        <option
-                          key={kind}
-                          value={kind}
-                          selected={state.sort.kind === kind}
-                        >
-                          {SORT_LABELS[kind]}
-                        </option>
-                      ))}
-                    </select>
-                    {state.sort.kind === "random" && (
-                      <button
-                        type="button"
-                        data-testid="reshuffle"
-                        aria-label="再シャッフル"
-                        title="再シャッフル"
-                        class="rounded p-1 opacity-80 hover:opacity-100"
-                        onClick$={() =>
-                          setSort({ kind: "random", seed: newSeed() })
-                        }
+                      {filteredMedia.length} 枚
+                    </span>
+                    <span class="flex items-center gap-1">
+                      <select
+                        data-testid="sort-select"
+                        aria-label="並び順"
+                        // Fixed width so the control doesn't resize with the
+                        // selected label.
+                        class="w-32 rounded border border-white/30 bg-transparent px-2 py-1 [&>option]:bg-[var(--color-bg)]"
+                        onChange$={(_, el) => {
+                          const kind = el.value as SortKind;
+                          setSort({
+                            kind,
+                            seed: kind === "random" ? newSeed() : 0,
+                          });
+                        }}
                       >
-                        {/* Shuffle arrows */}
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="18"
-                          height="18"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M16 3h5v5" />
-                          <path d="M4 20 21 3" />
-                          <path d="M21 16v5h-5" />
-                          <path d="m15 15 6 6" />
-                          <path d="M4 4l5 5" />
-                        </svg>
-                      </button>
-                    )}
-                  </span>
-                  {/* The site's other places, at the right of the first
-                    line (on a camera or date page, in its header's). */}
-                  {camera === null && state.date === null && (
-                    <SiteNav compact />
-                  )}
-                </div>
-                <div
-                  role="group"
-                  aria-label="タグで絞り込む"
-                  class="flex flex-wrap items-center gap-2"
-                >
-                  {tagCounts(scope.map((m) => m.value)).map(
-                    ({ tag, count }) => {
-                      const pressed = selectedTags.includes(tag);
-                      return (
+                        {SORT_KINDS.map((kind) => (
+                          <option
+                            key={kind}
+                            value={kind}
+                            selected={state.sort.kind === kind}
+                          >
+                            {SORT_LABELS[kind]}
+                          </option>
+                        ))}
+                      </select>
+                      {state.sort.kind === "random" && (
                         <button
-                          key={tag}
                           type="button"
-                          data-testid="tag-chip"
-                          aria-pressed={pressed}
+                          data-testid="reshuffle"
+                          aria-label="再シャッフル"
+                          title="再シャッフル"
+                          class="rounded p-1 opacity-80 hover:opacity-100"
                           onClick$={() =>
-                            setFilter({
-                              tags: toggleTag(state.filter.tags, tag),
-                              mode: state.filter.mode,
-                            })
+                            setSort({ kind: "random", seed: newSeed() })
                           }
-                          class={[
-                            "rounded-full border px-3 py-1.5 text-sm transition-colors",
-                            pressed
-                              ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-bg)]"
-                              : "border-white/30 hover:border-white/70",
-                          ]}
                         >
-                          {tag}
-                          <span class="ml-1.5 tabular-nums opacity-70">
-                            {count}
-                          </span>
+                          {/* Shuffle arrows */}
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="18"
+                            height="18"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M16 3h5v5" />
+                            <path d="M4 20 21 3" />
+                            <path d="M21 16v5h-5" />
+                            <path d="m15 15 6 6" />
+                            <path d="M4 4l5 5" />
+                          </svg>
                         </button>
-                      );
-                    },
-                  )}
-                  {selectedTags.length >= 2 && (
-                    <fieldset class="ml-2 flex items-center gap-3 text-sm">
-                      <legend class="sr-only">複数タグの条件</legend>
-                      {(["and", "or"] as const).map((mode) => (
-                        <label key={mode} class="flex items-center gap-1.5">
-                          <input
-                            type="radio"
-                            name="tag-mode"
-                            value={mode}
-                            checked={state.filter.mode === mode}
-                            onChange$={() =>
-                              setFilter({ tags: state.filter.tags, mode })
-                            }
-                          />
-                          {MODE_LABELS[mode]}
-                        </label>
-                      ))}
-                    </fieldset>
-                  )}
-                  {selectedTags.length > 0 && (
-                    <button
-                      type="button"
-                      class="ml-2 text-sm underline opacity-80 hover:opacity-100"
-                      onClick$={() =>
-                        setFilter({ tags: [], mode: state.filter.mode })
-                      }
+                      )}
+                    </span>
+                    {/* The site's other places, at the right of the first
+                    line (on a date's page, in its header's). */}
+                    {state.date === null && <SiteNav compact />}
+                  </div>
+                  {/* The filters: the camera, then the tags. */}
+                  <div class="flex flex-wrap items-center gap-2">
+                    {view.value.cameraChoices.length > 0 && (
+                      <select
+                        data-testid="camera-select"
+                        aria-label="カメラ"
+                        class={[
+                          "max-w-full rounded-full border px-3 py-1.5 text-sm transition-colors sm:max-w-64 [&>option]:bg-[var(--color-bg)] [&>option]:text-[var(--color-text)]",
+                          camera === null
+                            ? "border-white/30 bg-transparent hover:border-white/70"
+                            : "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-bg)]",
+                        ]}
+                        onChange$={(_, el) => setCamera(el.value || null)}
+                      >
+                        <option value="" selected={camera === null}>
+                          すべてのカメラ
+                        </option>
+                        {view.value.cameraChoices.map((c) => (
+                          <option
+                            key={c.slug}
+                            value={c.slug}
+                            selected={camera === c.slug}
+                          >
+                            {`${c.name} (${c.count})`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div
+                      role="group"
+                      aria-label="タグで絞り込む"
+                      class="contents"
                     >
-                      クリア
-                    </button>
-                  )}
+                      {tagCounts(scope.map((m) => m.value)).map(
+                        ({ tag, count }) => {
+                          const pressed = selectedTags.includes(tag);
+                          return (
+                            <button
+                              key={tag}
+                              type="button"
+                              data-testid="tag-chip"
+                              aria-pressed={pressed}
+                              onClick$={() =>
+                                setFilter({
+                                  tags: toggleTag(state.filter.tags, tag),
+                                  mode: state.filter.mode,
+                                })
+                              }
+                              class={[
+                                "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                                pressed
+                                  ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-bg)]"
+                                  : "border-white/30 hover:border-white/70",
+                              ]}
+                            >
+                              {tag}
+                              <span class="ml-1.5 tabular-nums opacity-70">
+                                {count}
+                              </span>
+                            </button>
+                          );
+                        },
+                      )}
+                      {selectedTags.length >= 2 && (
+                        <fieldset class="ml-2 flex items-center gap-3 text-sm">
+                          <legend class="sr-only">複数タグの条件</legend>
+                          {(["and", "or"] as const).map((mode) => (
+                            <label key={mode} class="flex items-center gap-1.5">
+                              <input
+                                type="radio"
+                                name="tag-mode"
+                                value={mode}
+                                checked={state.filter.mode === mode}
+                                onChange$={() =>
+                                  setFilter({ tags: state.filter.tags, mode })
+                                }
+                              />
+                              {MODE_LABELS[mode]}
+                            </label>
+                          ))}
+                        </fieldset>
+                      )}
+                      {selectedTags.length > 0 && (
+                        <button
+                          type="button"
+                          class="ml-2 text-sm underline opacity-80 hover:opacity-100"
+                          onClick$={() =>
+                            setFilter({ tags: [], mode: state.filter.mode })
+                          }
+                        >
+                          クリア
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
               {/*
                 Justified rows (tile.ts): each tile keeps its photo's
                 aspect ratio and a row's tiles widen by the same factor, so
@@ -635,9 +689,8 @@ export default component$<GalleryProps>((props) => {
           );
         })()}
       </div>
-      {/* A camera's list ends with the photos digitised with it, on its
-          page and on a photo URL over it alike. */}
-      {view.value.camera !== null && (
+      {/* A camera page ends with the photos digitised with it. */}
+      {props.camera !== undefined && (
         <DigitizedList media={view.value.digitized} />
       )}
     </>

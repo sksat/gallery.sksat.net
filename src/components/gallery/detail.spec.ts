@@ -47,7 +47,7 @@ describe("photoContext", () => {
     });
     expect(ctx("aaaaaaaaaa", "camera=cam&sort=old")).toMatchObject({
       camera: "cam",
-      backHref: "/camera/cam/?sort=old",
+      backHref: "/?camera=cam&sort=old",
       prevHref: null,
       nextHref: "/photo/cccccccccc/detail/?camera=cam&sort=old",
     });
