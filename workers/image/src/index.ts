@@ -73,6 +73,7 @@ import {
   type PresetName,
   type TransformOptions,
 } from "./request";
+import { handleWorldImage, parseWorldImageUrl } from "./world-image";
 
 /** Where a file is (the API's FileSource; admin migration 0013). */
 type FileSource = { storage: "b2" | "r2"; key: string };
@@ -102,6 +103,8 @@ interface Api extends Omit<CopiesApi, "photo"> {
   pathAccess(path: string): Promise<PathAccess | null>;
   /** A public or unlisted photo by public id, with its files (RPC). */
   photo(publicId: string): Promise<Photo | null>;
+  /** The picture of a photo's VRChat world, if it links one (RPC). */
+  worldImage(publicId: string): Promise<string | null>;
 }
 
 interface Env extends OriginEnv {
@@ -280,6 +283,21 @@ export default {
     }
 
     const url = new URL(request.url);
+    // The picture of a photo's VRChat world (world-image.ts): passed on
+    // from VRChat, never transformed.
+    const world = parseWorldImageUrl(url);
+    if (world !== null) {
+      if (typeof world !== "string") return plain(400, "Bad Request");
+      const res = await handleWorldImage(world, {
+        worldImage: (id) => env.API.worldImage(id),
+        cache: caches.default,
+        fetch: (input, init) => fetch(input, init),
+        waitUntil: (p) => ctx.waitUntil(p),
+      });
+      return request.method === "HEAD"
+        ? new Response(null, { status: res.status, headers: res.headers })
+        : res;
+    }
     const parsed = parseImageUrl(url);
     if (!parsed) return plain(404, "Not Found");
     if ("status" in parsed) return plain(400, "Bad Request");

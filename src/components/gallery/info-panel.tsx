@@ -12,6 +12,8 @@ export type { TagLink };
 
 interface InfoPanelProps {
   info: PhotoInfo;
+  /** The photo's public id (its world's preview). */
+  photoId: string;
   /** Each tag of the photo with the gallery URL filtered by it. */
   tagLinks: TagLink[];
   /** Filter the gallery by a tag (and close the photo). */
@@ -60,7 +62,7 @@ export const InfoPanel = component$<InfoPanelProps>((props) => {
             </dd>
           </div>
         )}
-        <PhotoTitle info={i} inline />
+        <PhotoTitle info={i} photoId={props.photoId} inline />
         <PhotoInfoList
           info={i}
           tagLinks={props.tagLinks}

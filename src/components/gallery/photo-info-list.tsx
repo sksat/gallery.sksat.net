@@ -2,6 +2,7 @@ import { $, component$, Slot, sync$, type QRL } from "@builder.io/qwik";
 
 import { splitTaken, type ExposureSpec, type PhotoInfo } from "./photo-info";
 import type { TakenAt } from "./taken";
+import { WorldLink } from "./world-link";
 
 export type TagLink = { tag: string; href: string };
 
@@ -117,6 +118,8 @@ export const TakenText = component$<{ taken: TakenAt }>(({ taken }) => {
 
 interface PhotoTitleProps {
   info: PhotoInfo;
+  /** The photo's public id (its world's preview). */
+  photoId: string;
   /** Larger, on the photo page. */
   large?: boolean;
   /** Its items among the overlay's one-line info (no box of its own). */
@@ -142,15 +145,16 @@ export const PhotoTitle = component$<PhotoTitleProps>((props) => {
           </dt>
           <dd>
             {world.href ? (
-              <a
+              // With a card previewing the world (world-link.tsx).
+              <WorldLink
+                photoId={props.photoId}
+                name={world.name}
                 href={world.href}
-                target="_blank"
-                rel="noopener noreferrer"
                 class={LINK}
               >
                 {world.name}
                 <External />
-              </a>
+              </WorldLink>
             ) : (
               world.name
             )}

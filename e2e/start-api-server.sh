@@ -6,6 +6,9 @@
 set -euo pipefail
 
 PORT="${1:-5178}"
+# Where the world pages are (workers/api/src/world.ts): the dev server's
+# fixture (public/test-media/vrchat/), so no test reaches vrchat.com.
+VRCHAT_ORIGIN="${2:-http://127.0.0.1:5174/test-media/vrchat}"
 PERSIST_DIR=".wrangler-e2e"
 CONFIG="workers/api/wrangler.jsonc"
 
@@ -21,4 +24,5 @@ pnpm exec wrangler d1 execute gallery-admin -c "$CONFIG" \
 
 exec pnpm exec wrangler dev -c "$CONFIG" \
   --persist-to "$PERSIST_DIR" \
+  --var "VRCHAT_ORIGIN:$VRCHAT_ORIGIN" \
   --ip 127.0.0.1 --port "$PORT" --inspector-port $((PORT + 4000))

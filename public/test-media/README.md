@@ -24,6 +24,8 @@ For the overlay's info panel (`e2e/info-panel.spec.ts`) the fixture also covers 
 
 Positions (the map; hidden by default): `reaxxxxxxa` at its exact position (Tokyo Station, 35.68124, 139.76713) and `reaxxxxxxb` only to the city (35.66, 139.70, drawn as an area). `vrcxxxxxxa` and the private photo also have public-level positions, but VRChat and private photos never reach the map, and `vrcxxxxxxc`'s position stays hidden. `map-style.json` is the map style tests use (`VITE_MAP_STYLE_URL`): a plain background with no tiles, so no test reaches the tile server.
 
+`vrchat/home/world/wrld_0123abcd-…` is the world page of `vrcxxxxxxa`'s world (Fixture World by Fixture Author) as vrchat.com serves it: the local API Worker reads world pages from here (`VRCHAT_ORIGIN`, set by `e2e/start-api-server.sh`) for the world link's preview card (`e2e/world-preview.spec.ts`), so no test reaches vrchat.com. Without the image Worker the card has no picture.
+
 Platforms are the admin's `platform` rows: Real and VRChat (from migration 0014) and `Neos-VR`, named "Neos VR" (virtual), which the fixture adds for `vrcxxxxxxc`; that photo keeps its `VRChat` tag.
 
 Only the five public photos are listed. The gallery treats the platform (by name) as one more tag, so the tag counts are **VRChat 3**, **Real 2**, **night 2**, **film 1**, **Neos VR 1**. `e2e/gallery.spec.ts` relies on these, e.g. `Real` AND `night` = `reaxxxxxxb`, `Real` OR `night` = three photos. The unlisted and the private photo are the newest and carry tags of their own, so a leak into a list, a count or the top page's card shows up in the tests.

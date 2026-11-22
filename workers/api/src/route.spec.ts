@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { CACHE_CONTROL, jsonResponse, parseRoute } from "./route";
+import {
+  CACHE_CONTROL,
+  jsonResponse,
+  parseRoute,
+  parseWorldRoute,
+} from "./route";
+
+describe("parseWorldRoute", () => {
+  it("takes a photo's world preview path", () => {
+    expect(parseWorldRoute("/api/media/abcdefghjk/world")).toBe("abcdefghjk");
+    expect(parseWorldRoute("/api/media/abcdefghjk/world/")).toBe(
+      "abcdefghjk",
+    );
+  });
+
+  it("rejects anything else", () => {
+    for (const path of [
+      "/api/media/abcdefghjo/world",
+      "/api/media/abcdefghjk",
+      "/api/media/abcdefghjk/world/x",
+      "/api/world/wrld_00000000-0000-0000-0000-000000000000",
+    ]) {
+      expect(parseWorldRoute(path), path).toBeNull();
+    }
+  });
+});
 
 describe("parseRoute", () => {
   it("routes the list and item paths", () => {
