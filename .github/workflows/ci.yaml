@@ -243,12 +243,12 @@ jobs:
       - env:
           CHANGES: ${{ needs.admin-changes.result }}
           RUN: ${{ needs.admin-changes.outputs.run }}
-          GROUPS: ${{ needs.admin-e2e-group.result }}
+          GROUP_RESULT: ${{ needs.admin-e2e-group.result }}
         run: |
-          echo "admin-changes: $CHANGES (run=$RUN), groups: $GROUPS"
+          echo "admin-changes: $CHANGES (run=$RUN), groups: $GROUP_RESULT"
           [ "$CHANGES" = success ] || exit 1
           if [ "$RUN" = true ]; then
-            [ "$GROUPS" = success ]
+            [ "$GROUP_RESULT" = success ]
           else
-            [ "$GROUPS" = skipped ]
+            [ "$GROUP_RESULT" = skipped ]
           fi
