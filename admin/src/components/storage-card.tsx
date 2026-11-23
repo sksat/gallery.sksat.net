@@ -1,9 +1,6 @@
 import { component$ } from "@builder.io/qwik";
 import {
-  B2_PRICE_USD_PER_GB_MONTH,
   formatDecimalBytes,
-  formatUsd,
-  monthlyCostUsd,
   percentOf,
   type StorageSlice,
   type StorageSummary,
@@ -15,8 +12,6 @@ const VISIBILITY_ROWS = [
   { key: "unlisted", label: "限定公開", bar: "bg-amber-500" },
   { key: "private", label: "非公開", bar: "bg-zinc-400 dark:bg-zinc-500" },
 ] as const;
-
-const PRICE_PER_TB = (B2_PRICE_USD_PER_GB_MONTH * 1000).toFixed(2);
 
 const sliceText = (s: StorageSlice) =>
   `${formatDecimalBytes(s.bytes)} · ${s.count} 枚`;
@@ -88,11 +83,6 @@ export const StorageCard = component$<{
         </span>
         <span class={["text-sm", muted]}>{total.count} 枚</span>
       </p>
-      <p class="mt-1 text-sm" data-testid="storage-cost">
-        保存容量 {formatDecimalBytes(total.bytes)} · 月額の目安 約{" "}
-        {formatUsd(monthlyCostUsd(total.bytes))}
-      </p>
-
       <div class="mt-5 grid gap-6 sm:grid-cols-2">
         <div>
           <h3 class="text-sm font-semibold">公開状態別</h3>
@@ -142,21 +132,9 @@ export const StorageCard = component$<{
         </p>
       )}
       <p class={["mt-4 text-xs leading-relaxed", muted]}>
-        D1 の各ファイルのサイズ (1 GB = 10<sup>9</sup> バイト)
-        から計算した目安で、B2 の請求額ではありません。B2
-        は古いバージョンや完了していないアップロードも数え、1
-        か月の平均で請求するため、実際はこれより大きくなることがあります。アップロード中のファイルとカメラの写真
-        (/camera) は合計に含みません。料金は ${PRICE_PER_TB} /
-        TB・月で計算しています (
-        <a
-          href="https://www.backblaze.com/cloud-storage/pricing"
-          class="underline underline-offset-2"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          B2 の料金
-        </a>
-        )。
+        写真の元ファイルの D1 にあるサイズ (1 GB = 10<sup>9</sup> バイト)
+        の合計です。アップロード中のファイルとカメラの写真 (/camera)
+        は含みません。
       </p>
     </section>
   );

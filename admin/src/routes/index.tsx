@@ -1,10 +1,12 @@
 import { component$ } from "@builder.io/qwik";
 import { Link, routeLoader$, type DocumentHead } from "@builder.io/qwik-city";
 import { AccessCard } from "~/components/access-card";
+import { CostCard } from "~/components/cost-card";
 import { D1Card } from "~/components/d1-card";
 import { StorageCard } from "~/components/storage-card";
 import { buttonSecondary, card, muted } from "~/components/ui";
 import { defaultCache, graphqlEndpoint } from "~/lib/cf-graphql";
+import { loadCost, type CostSummary } from "~/lib/cost";
 import {
   fetchD1Usage,
   getAnalyticsConfig,
@@ -27,6 +29,7 @@ type DashboardData = {
   /** The default range (24 hours); the others are on /analytics/. */
   access: AccessData;
   imageBase: string | null;
+  cost: CostSummary;
 };
 
 /** How many of the most viewed photos the summary shows. */
@@ -58,7 +61,8 @@ export const useDashboard = routeLoader$<DashboardData>(
       { photos: SUMMARY_PHOTOS, pages: 0 },
       "/ loader",
     );
-    const [storage, usage, access] = await Promise.all([
+    const costPromise = loadCost(platform, db, usagePromise, deps, "/ loader");
+    const [storage, usage, access, cost] = await Promise.all([
       db
         ? fetchStorageRows(db).catch((err) => {
             console.error("/ loader: storage query failed:", err);
@@ -67,8 +71,9 @@ export const useDashboard = routeLoader$<DashboardData>(
         : null,
       usagePromise,
       accessPromise,
+      costPromise,
     ]);
-    const common = { usage, access, imageBase };
+    const common = { usage, access, imageBase, cost };
     if (storage === null || storage === "error") {
       return { ...common, storage, dbBytes: null };
     }
@@ -100,6 +105,8 @@ export default component$(() => {
         </div>
         <D1Card dbBytes={data.value.dbBytes} usage={data.value.usage} />
       </div>
+
+      <CostCard summary={data.value.cost} />
 
       <AccessCard data={data.value.access} imageBase={data.value.imageBase} />
 

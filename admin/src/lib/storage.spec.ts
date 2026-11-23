@@ -5,7 +5,6 @@ import {
   formatDecimalBytes,
   formatPercent,
   formatUsd,
-  monthlyCostUsd,
   percentOf,
   summarizeStorage,
 } from "./storage";
@@ -32,19 +31,6 @@ describe("formatDecimalBytes (base 1000)", () => {
   it("does not format nonsense", () => {
     expect(formatDecimalBytes(-1)).toBe("—");
     expect(formatDecimalBytes(Number.NaN)).toBe("—");
-  });
-});
-
-describe("monthlyCostUsd", () => {
-  it("charges every byte, with no free tier", () => {
-    expect(monthlyCostUsd(0)).toBe(0);
-    expect(monthlyCostUsd(30e6)).toBeCloseTo(0.0002085, 9);
-    expect(monthlyCostUsd(10e9)).toBeCloseTo(0.0695);
-  });
-
-  it("charges $0.00695 per GB ($6.95 per TB)", () => {
-    expect(monthlyCostUsd(1e9)).toBeCloseTo(0.00695);
-    expect(monthlyCostUsd(1e12)).toBeCloseTo(6.95);
   });
 });
 
