@@ -18,6 +18,11 @@
       "description": "The CI image must ship the browser build @playwright/test expects, and VRT baselines are tied to it; bump both in one PR.",
       "groupName": "playwright",
       "matchPackageNames": ["@playwright/test", "mcr.microsoft.com/playwright"]
+    },
+    {
+      "description": "TypeScript 7 waits for typescript-eslint (it has no JS API yet), so 6.x updates must keep coming in their own PRs; with a later major out too, each major gets its own PR rather than only the newest.",
+      "matchPackageNames": ["typescript"],
+      "separateMultipleMajor": true
     }
   ]
 }
