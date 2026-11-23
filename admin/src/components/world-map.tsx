@@ -33,6 +33,8 @@ const RAMP =
 
 type Tip = { name: string; views: number; x: number; y: number };
 
+const MAPPED = new Set(WORLD_COUNTRIES.map((c) => c.code));
+
 // The countries, apart from the tooltip so that hovering re-renders only
 // the tooltip, never the paths.
 const Shapes = component$<{ fills: Record<string, number> }>(({ fills }) => (
@@ -85,7 +87,12 @@ export const WorldMap = component$<{
 }>(({ countries }) => {
   const tip = useSignal<Tip | null>(null);
   const views = viewsByCode(countries);
-  const max = Math.max(0, ...views.values());
+  // The shades span the countries the map can show: one too small for it
+  // (Singapore, Hong Kong) must not take the darkest.
+  const max = Math.max(
+    0,
+    ...[...views].filter(([code]) => MAPPED.has(code)).map(([, v]) => v),
+  );
   const bounds = mapClassBounds(max);
   const steps = rampSteps(bounds.length);
   const labels = mapClassLabels(bounds, max);
@@ -149,6 +156,25 @@ export const WorldMap = component$<{
           </span>
         ))}
       </figcaption>
+      {/* Every country with views, for screen readers (the list beside
+          the map has the first ten). */}
+      <table class="sr-only">
+        <caption>国ごとのページビュー (すべて)</caption>
+        <thead>
+          <tr>
+            <th scope="col">国</th>
+            <th scope="col">ページビュー</th>
+          </tr>
+        </thead>
+        <tbody>
+          {countries.map((c, i) => (
+            <tr key={i}>
+              <th scope="row">{countryLabel(c.country)}</th>
+              <td>{c.pageViews}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </figure>
   );
 });

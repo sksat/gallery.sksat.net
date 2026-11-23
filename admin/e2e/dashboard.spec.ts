@@ -130,7 +130,10 @@ test("analytics page: ranges, photos, pages, referrers", async ({ page }) => {
   const countries = page.getByRole("region", { name: "国", exact: true });
   await expect(countries.getByRole("listitem")).toHaveCount(10);
   await expect(countries.getByRole("listitem").first()).toHaveText("日本150");
-  await expect(countries).not.toContainText("シンガポール");
+  await expect(countries.getByRole("list")).not.toContainText("シンガポール");
+  // Screen readers get every country (Singapore is too small for the map).
+  await expect(countries.locator("table tbody tr")).toHaveCount(11);
+  await expect(countries.locator("table")).toContainText("シンガポール1");
   const map = countries.getByTestId("world-map");
   await expect(map.getByRole("img", { name: /地図/ })).toBeVisible();
   // The most viewed country gets the darkest step, one without views none.
