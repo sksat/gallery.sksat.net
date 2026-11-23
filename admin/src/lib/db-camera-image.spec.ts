@@ -271,11 +271,12 @@ describe("photos as pictures (0019)", () => {
     return t;
   };
 
-  it("adds public and unlisted photos at the end, with the content version", async () => {
+  it("adds public photos at the end, with the content version", async () => {
     const { raw, db } = photos();
-    // 1 is a picture of camera 1 already; 4-6 cannot be pictures.
+    // 1 is a picture of camera 1 already; 3-6 cannot be pictures (3 is
+    // unlisted: a camera page would show it).
     const added = await addPhotoPictures(db, 1, [3, 4, 1, 5, 6, 2]);
-    expect(added).toHaveLength(2);
+    expect(added).toHaveLength(1);
     expect(
       raw
         .prepare(
@@ -283,7 +284,7 @@ describe("photos as pictures (0019)", () => {
         )
         .all()
         .map((r) => r.media_id),
-    ).toEqual([null, null, null, 1, 3, 2]);
+    ).toEqual([null, null, null, 1, 2]);
     expect(version(raw)).toBeDefined();
     // Undo: those pictures only.
     await removePhotoPictures(db, 1, added);
@@ -324,6 +325,11 @@ describe("photos as pictures (0019)", () => {
     ).rejects.toBeInstanceOf(PhotoNotPickableError);
     expect(order(raw, 2)).toEqual([20, 21]);
     raw.exec("UPDATE media SET visibility = 'unlisted' WHERE id = 2");
+    await expect(
+      restoreCameraImage(db, 2, removed!, removed!.index),
+    ).rejects.toBeInstanceOf(PhotoNotPickableError);
+    expect(order(raw, 2)).toEqual([20, 21]);
+    raw.exec("UPDATE media SET visibility = 'public' WHERE id = 2");
     await restoreCameraImage(db, 2, removed!, 0);
     expect(
       raw

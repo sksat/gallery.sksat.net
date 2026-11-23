@@ -587,20 +587,20 @@ describe("cameras", () => {
     expect(await getCamera(db, "nope")).toBeNull();
   });
 
-  it("shows a picture that is a photo only while the photo may be opened", async () => {
+  it("shows a picture that is a photo only while the photo is public", async () => {
     const { raw, db } = setup();
-    // Camera 1's pictures: its own two, then photo 1 (public), photo 3
-    // (unlisted) and photo 4 (private), photo 1 as the default.
+    // Camera 1's pictures: photo 3 (unlisted), photo 1 (public), its own
+    // two, then photo 4 (private). The unlisted one is skipped, so photo 1
+    // is the default.
     run(
       raw,
       `INSERT INTO camera_image (id, camera_id, media_id, position, caption) VALUES
-         (10, 1, 1, -1, 'Public'), (11, 1, 3, 5, NULL), (12, 1, 4, 6, 'Private')`,
+         (11, 1, 3, -2, 'Unlisted'), (10, 1, 1, -1, 'Public'), (12, 1, 4, 6, 'Private')`,
     );
     const images = [
       { file: "/camera/virtuallens2/10.photo.jpg", caption: "Public" },
       { file: "/c/a.png", caption: "Front" },
       { file: "/c/b.png", caption: null },
-      { file: "/camera/virtuallens2/11.photo.jpg", caption: null },
     ];
     expect((await getCamera(db, "virtuallens2"))?.images).toEqual(images);
     expect(
@@ -616,10 +616,11 @@ describe("cameras", () => {
       file: "/p1.png",
       source: { storage: "b2", key: "/p1.png" },
     });
+    // The unlisted and the private photo's pictures, another camera's
+    // slug, an unknown id.
     expect(
-      (await getPathAccess(db, "/camera/virtuallens2/11.photo.jpg"))?.kind,
-    ).toBe("camera-image");
-    // The private photo's picture, another camera's slug, an unknown id.
+      await getPathAccess(db, "/camera/virtuallens2/11.photo.jpg"),
+    ).toBeNull();
     expect(
       await getPathAccess(db, "/camera/virtuallens2/12.photo.jpg"),
     ).toBeNull();
@@ -627,6 +628,16 @@ describe("cameras", () => {
     expect(
       await getPathAccess(db, "/camera/virtuallens2/99.photo.jpg"),
     ).toBeNull();
+
+    // Made public, the unlisted photo's picture is shown, first.
+    run(raw, "UPDATE media SET visibility = 'public' WHERE id = 3");
+    expect((await getCamera(db, "virtuallens2"))?.images).toEqual([
+      { file: "/camera/virtuallens2/11.photo.jpg", caption: "Unlisted" },
+      ...images,
+    ]);
+    expect(
+      (await getPathAccess(db, "/camera/virtuallens2/11.photo.jpg"))?.kind,
+    ).toBe("camera-image");
 
     // Made private, trashed or still uploading: gone from both.
     run(raw, "UPDATE media SET visibility = 'private' WHERE id = 1");

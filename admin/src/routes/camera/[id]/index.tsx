@@ -328,8 +328,8 @@ export const useAddCameraImage = routeAction$(
 );
 
 /**
- * 写真から選ぶ: the photos as pictures after the last one (only public or
- * unlisted ones; addPhotoPictures checks it in its INSERTs), with the
+ * 写真から選ぶ: the photos as pictures after the last one (only public
+ * ones; addPhotoPictures checks it in its INSERTs), with the
  * content version. Returns the new pictures, for 元に戻す.
  */
 export const useAddPhotoPictures = routeAction$(
@@ -512,7 +512,7 @@ export const useRestoreCameraImage = routeAction$(
       }
       if (err instanceof PhotoNotPickableError) {
         return fail(409, {
-          message: "写真が非公開になったか、ゴミ箱にあります",
+          message: "写真が公開でなくなったか、ゴミ箱にあります",
         });
       }
       if (err instanceof PhotoFileError) {
@@ -870,7 +870,7 @@ export default component$(() => {
       message:
         `${added.length} 枚を追加しました。` +
         (skipped > 0
-          ? `${skipped} 枚は追加できませんでした（非公開か追加済み）。`
+          ? `${skipped} 枚は追加できませんでした（公開でないか追加済み）。`
           : ""),
       actionLabel: added.length > 0 ? "元に戻す" : undefined,
     };
@@ -1328,15 +1328,17 @@ export default component$(() => {
                             {img.photo.path}
                           </Link>
                         </div>
-                        {(img.photo.visibility === "private" ||
+                        {(img.photo.visibility !== "public" ||
                           !img.photo.live) && (
                           <p
                             data-testid="picture-hidden"
                             class="text-xs text-amber-700 dark:text-amber-400"
                           >
-                            {img.photo.live
-                              ? "写真が非公開なので、公開サイトには出ません"
-                              : "写真がゴミ箱にあるので、公開サイトには出ません"}
+                            {!img.photo.live
+                              ? "写真がゴミ箱にあるので、公開サイトには出ません"
+                              : img.photo.visibility === "unlisted"
+                                ? "写真が限定公開なので、公開サイトには出ません"
+                                : "写真が非公開なので、公開サイトには出ません"}
                           </p>
                         )}
                       </div>

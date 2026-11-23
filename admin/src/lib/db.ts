@@ -787,21 +787,22 @@ const photoFileError = (err: unknown, file: string | null): unknown =>
     : err;
 
 /**
- * A photo that may be a camera picture (0019): one the public site may
- * show (public or unlisted, ready, not in the trash), as the API Worker's
- * PHOTO_PICTURE_SQL checks again when serving it. `param` binds its id.
+ * A photo that may be a camera picture (0019): a public one (ready, not
+ * in the trash), as the API Worker's PHOTO_PICTURE_SQL checks again when
+ * serving it. Never an unlisted one: a camera page is public, and an
+ * unlisted photo opens only by its own URL. `param` binds its id.
  */
 const pickablePhotoSql = (param: string) => `SELECT 1 FROM media
-  WHERE id = ${param} AND visibility IN ('public', 'unlisted') AND ${LIVE_PHOTO}`;
+  WHERE id = ${param} AND visibility = 'public' AND ${LIVE_PHOTO}`;
 
 /** At most this many photos are added as pictures in one request. */
 export const MAX_PICTURE_PHOTOS = 50;
 
 /**
  * Add photos `mediaIds` as pictures after the camera's last one, in that
- * order, with the content version (one batch). A photo that is private (or
- * in the trash, or not uploaded yet) or already a picture of the camera is
- * left out. Returns the new pictures' ids.
+ * order, with the content version (one batch). A photo that is not public
+ * (or in the trash, or not uploaded yet) or already a picture of the
+ * camera is left out. Returns the new pictures' ids.
  */
 export const addPhotoPictures = async (
   db: D1Database,
@@ -970,7 +971,7 @@ export const restoreCameraImageStatements = (
   return [
     {
       // A file only while no upload or 削除 holds its path; a photo only
-      // while it may be a picture (made private meanwhile: not again).
+      // while it may be a picture (no longer public meanwhile: not again).
       sql: `INSERT INTO camera_image (camera_id, file, media_id, caption, position)
      SELECT ?1, ?2, ?5, ?3, COALESCE(
        (SELECT position FROM camera_image WHERE camera_id = ?1
@@ -1008,11 +1009,11 @@ export const restoreCameraImageStatements = (
 
 /**
  * Thrown by restoreCameraImage when the photo of a removed picture may no
- * longer be one (made private, or in the trash, meanwhile).
+ * longer be one (no longer public, or in the trash, meanwhile).
  */
 export class PhotoNotPickableError extends Error {
   constructor() {
-    super("the photo is private or gone");
+    super("the photo is not public or gone");
     this.name = "PhotoNotPickableError";
   }
 }

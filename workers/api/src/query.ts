@@ -602,13 +602,14 @@ const PHOTO_PICTURE_RE =
 
 /**
  * The file to resize for the photo picture ?2 of the camera with slug ?1,
- * while its photo may be opened (public or unlisted, ready, not in the
- * trash): a private photo chosen as a picture is never served.
+ * while its photo is listed (public, ready, not in the trash): a camera
+ * page is public, so an unlisted photo, which opens only by its own URL,
+ * or a private one chosen as a picture is never served.
  */
 export const PHOTO_PICTURE_SQL = `SELECT m.file${SOURCE_COLUMNS}
   FROM camera_image i JOIN camera c ON c.id = i.camera_id
   JOIN media m ON m.id = i.media_id${SOURCE_JOINS}
-  WHERE i.id = ?2 AND c.slug = ?1 AND ${VIEWABLE}`;
+  WHERE i.id = ?2 AND c.slug = ?1 AND ${LISTED}`;
 
 /**
  * What the image Worker may serve at /img/<path>: a public photo whose
@@ -617,7 +618,7 @@ export const PHOTO_PICTURE_SQL = `SELECT m.file${SOURCE_COLUMNS}
  * comes back in `photo.file`, and the file to resize in `photo.source`;
  * the rest is projected, for captions); a camera picture whose bucket path
  * is `path`; or a camera picture that is a photo, at photoPicturePath,
- * while the photo may be opened. Null for anything else, in particular
+ * while the photo is public. Null for anything else, in particular
  * unlisted and private photos, whose predictable paths must not give them
  * away, and a moved photo's old path.
  */
@@ -669,13 +670,14 @@ const cameraUsed = (visibility: string) =>
 /**
  * Camera pictures as the API gives them: a picture of its own by its
  * bucket path, a photo (admin 0019) at photoPicturePath and only while the
- * photo may be opened (public or unlisted, ready, not in the trash).
+ * photo is public (ready, not in the trash; never unlisted, which would
+ * show it on a public page).
  */
 export const CAMERA_IMAGES_SQL = `SELECT i.id, i.camera_id, i.position, i.caption,
     COALESCE(i.file, ${PHOTO_PICTURE_PATH_SQL}) AS file
   FROM camera_image i JOIN camera c ON c.id = i.camera_id
   LEFT JOIN media m ON m.id = i.media_id
-  WHERE (i.media_id IS NULL OR (${VIEWABLE}))`;
+  WHERE (i.media_id IS NULL OR (${LISTED}))`;
 
 /** Cameras with at least one public photo, by slug. */
 export const listCameras = async (db: D1Database): Promise<CameraJSON[]> => {
