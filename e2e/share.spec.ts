@@ -129,8 +129,8 @@ test("opens the share sheet with the photo URL", async ({ page }) => {
 test("no share button on a camera picture", async ({ page }) => {
   await page.goto("/camera/virtuallens2/");
   const picture = page.getByTestId("camera-image");
-  await expect(picture).toHaveCount(3, { timeout: 10000 });
-  await picture.first().click();
+  await expect(picture).toHaveCount(1, { timeout: 10000 });
+  await picture.click();
   await expect(page.getByTestId("overlay")).toBeVisible();
   await expect(page.getByTestId("share-button")).toHaveCount(0);
 });

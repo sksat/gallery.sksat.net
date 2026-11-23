@@ -48,6 +48,8 @@ export type CameraJSON = {
    * by the image Worker).
    */
   images: CameraImageJSON[];
+  /** The camera's own public tags, in order. */
+  tags: string[];
 };
 
 export type CameraImageJSON = {

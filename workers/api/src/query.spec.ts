@@ -676,8 +676,29 @@ describe("cameras", () => {
         { file: "/c/a.png", caption: "Front" },
         { file: "/c/b.png", caption: null },
       ],
+      tags: [],
     });
     expect(cameras[0].images).toEqual([]);
+  });
+
+  it("gives a camera's public tags, passed on or not, in order", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `INSERT INTO tag (name, public) VALUES ('night', 1);
+       INSERT INTO camera_tag (camera_id, tag, propagate, position) VALUES
+         (1, 'night', 0, 0), (1, 'secret', 1, 1), (1, 'film', 1, 2);`,
+    );
+    expect((await getCamera(db, "virtuallens2"))?.tags).toEqual([
+      "night",
+      "film",
+    ]);
+    const listed = await listCameras(db);
+    expect(listed.find((c) => c.slug === "virtuallens2")?.tags).toEqual([
+      "night",
+      "film",
+    ]);
+    expect(listed.find((c) => c.slug === "b-public")?.tags).toEqual([]);
   });
 
   it("gets a camera of a public or unlisted photo by slug", async () => {

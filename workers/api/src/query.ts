@@ -95,6 +95,8 @@ export type CameraRow = {
   product_url: string | null;
 };
 
+export type CameraTagRow = { camera_id: number; tag: string };
+
 export type CameraImageRow = {
   camera_id: number;
   file: string;
@@ -483,6 +485,7 @@ export const projectPhoto = (
 export const rowToCamera = (
   row: CameraRow,
   images: readonly CameraImageRow[],
+  tags: readonly CameraTagRow[] = [],
 ): CameraJSON => ({
   slug: row.slug,
   name: row.name,
@@ -499,6 +502,8 @@ export const rowToCamera = (
     .filter((img) => img.camera_id === row.id)
     .sort((a, b) => a.position - b.position || a.id - b.id)
     .map(({ file, caption }): CameraImageJSON => ({ file, caption })),
+  // In CAMERA_TAGS_SQL's order.
+  tags: tags.filter((t) => t.camera_id === row.id).map((t) => t.tag),
 });
 
 /** Every public photo, newest first (undated last). */
@@ -686,17 +691,29 @@ export const CAMERA_IMAGES_SQL = `SELECT i.id, i.camera_id, i.position, i.captio
   LEFT JOIN media m ON m.id = i.media_id
   WHERE (i.media_id IS NULL OR (${LISTED}))`;
 
+/**
+ * Cameras' own tags as the API gives them: public tags only (the `tag`
+ * table), passed on to the photos or not (a few rows).
+ */
+export const CAMERA_TAGS_SQL = `SELECT ct.camera_id, ct.tag FROM camera_tag ct
+  JOIN tag t ON t.name = ct.tag AND t.public = 1
+  JOIN camera c ON c.id = ct.camera_id`;
+
+const CAMERA_TAGS_ORDER = "ORDER BY ct.camera_id, ct.position, ct.tag";
+
 /** Cameras with at least one public photo, by slug. */
 export const listCameras = async (db: D1Database): Promise<CameraJSON[]> => {
-  const [cameras, images] = await db.batch([
+  const [cameras, images, tags] = await db.batch([
     db.prepare(
       `SELECT c.* FROM camera c WHERE ${cameraUsed(LISTED)} ORDER BY c.slug`,
     ),
     db.prepare(CAMERA_IMAGES_SQL),
+    db.prepare(`${CAMERA_TAGS_SQL} ${CAMERA_TAGS_ORDER}`),
   ]);
   const imageRows = (images.results ?? []) as CameraImageRow[];
+  const tagRows = (tags.results ?? []) as CameraTagRow[];
   return ((cameras.results ?? []) as CameraRow[]).map((c) =>
-    rowToCamera(c, imageRows),
+    rowToCamera(c, imageRows, tagRows),
   );
 };
 
@@ -704,17 +721,24 @@ export const getCamera = async (
   db: D1Database,
   slug: string,
 ): Promise<CameraJSON | null> => {
-  const [cameras, images] = await db.batch([
+  const [cameras, images, tags] = await db.batch([
     db
       .prepare(
         `SELECT c.* FROM camera c WHERE c.slug = ? AND ${cameraUsed(VIEWABLE)}`,
       )
       .bind(slug),
     db.prepare(`${CAMERA_IMAGES_SQL} AND c.slug = ?`).bind(slug),
+    db
+      .prepare(`${CAMERA_TAGS_SQL} WHERE c.slug = ? ${CAMERA_TAGS_ORDER}`)
+      .bind(slug),
   ]);
   const row = (cameras.results ?? [])[0] as CameraRow | undefined;
   return row
-    ? rowToCamera(row, (images.results ?? []) as CameraImageRow[])
+    ? rowToCamera(
+        row,
+        (images.results ?? []) as CameraImageRow[],
+        (tags.results ?? []) as CameraTagRow[],
+      )
     : null;
 };
 

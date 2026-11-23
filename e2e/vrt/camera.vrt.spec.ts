@@ -18,12 +18,12 @@ const loaded = async (page: Page, images: Locator, count: number) => {
   await page.evaluate(() => window.scrollTo(0, 0));
 };
 
-// /camera/virtuallens2/: header with three camera pictures, then its two
-// public photos.
+// /camera/virtuallens2/: the camera (its default picture and three
+// thumbnails, its details), then its two public photos.
 const cameraPage = async (page: Page) => {
   await page.goto("/camera/virtuallens2/");
   await loaded(page, page.getByTestId("gallery-image"), 2);
-  await loaded(page, page.getByTestId("camera-header").locator("img"), 3);
+  await loaded(page, page.getByTestId("camera-header").locator("img"), 4);
   // The tiles have their photos' shapes.
   await imagesSettled(page, "[data-testid=gallery-image]");
 };

@@ -43,6 +43,7 @@ export const camerasFromMedia = (media: MediaIndex): CameraJSON[] => {
       description: null,
       productUrl: null,
       images: [],
+      tags: [],
     });
   }
   return [...bySlug.values()];
@@ -96,6 +97,10 @@ export const parseCameras = (data: unknown): CameraJSON[] | null => {
             return isImagePath(file) ? [{ file, caption: str(caption) }] : [];
           })
         : [],
+      // An older API has none.
+      tags: Array.isArray(o.tags)
+        ? [...new Set(o.tags.filter((t): t is string => str(t) !== null))]
+        : [],
     });
   }
   return out;
@@ -136,6 +141,37 @@ export const takenWith = (m: MediaInfo, slug: string): boolean =>
  */
 export const digitizedWith = (media: MediaIndex, slug: string): MediaIndex =>
   media.filter((m) => m.digitizer && cameraSlug(m.digitizer) === slug);
+
+/** What a camera page says about the camera's photos. */
+export type CameraFacts = {
+  /** Public photos taken with it. */
+  count: number;
+  /**
+   * The first and last dates they were taken, as public (calendar keys:
+   * "2023-12-04", "2023-12" or "2023"); null when none is dated.
+   */
+  first: string | null;
+  last: string | null;
+  /** Public photos digitised (スキャン) with it. */
+  digitized: number;
+};
+
+export const cameraFacts = (media: MediaIndex, slug: string): CameraFacts => {
+  let count = 0;
+  let first: string | null = null;
+  let last: string | null = null;
+  for (const m of media) {
+    if (!takenWith(m, slug)) continue;
+    count++;
+    const key = m.takenDate ?? null;
+    if (key === null) continue;
+    // Keys of one shape order as text; a coarser key ("2023-12") sorts
+    // before the days in it, and after the days of the months before.
+    if (first === null || key < first) first = key;
+    if (last === null || key > last) last = key;
+  }
+  return { count, first, last, digitized: digitizedWith(media, slug).length };
+};
 
 export type CameraSummary = {
   camera: CameraJSON;

@@ -133,4 +133,9 @@ export type CameraJSON = {
   description: string | null;
   productUrl: string | null;
   images: CameraImageJSON[];
+  /**
+   * The camera's public tags (admin 0011, camera_tag), whether or not
+   * they also go to its photos, in the admin's order.
+   */
+  tags: string[];
 };

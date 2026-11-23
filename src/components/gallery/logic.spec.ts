@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  cameraCounts,
   dateParam,
   galleryUrl,
   navigateImage,
@@ -92,15 +93,15 @@ describe("galleryUrl", () => {
     expect(galleryUrl(none, { kind: "new", seed: 0 })).toBe("/");
   });
 
-  it("is the camera page for a camera", () => {
+  it("puts the camera filter first", () => {
     const newest = { kind: "new" as const, seed: 0 };
     expect(galleryUrl(none, newest, "virtuallens2")).toBe(
-      "/camera/virtuallens2/",
+      "/?camera=virtuallens2",
     );
     const filter = { tags: ["VRChat"], mode: "and" as const };
     const oldest = { kind: "old" as const, seed: 0 };
-    expect(galleryUrl(filter, oldest, "virtuallens2")).toBe(
-      "/camera/virtuallens2/?tag=VRChat&sort=old",
+    expect(galleryUrl(filter, oldest, "virtuallens2", "2023-12")).toBe(
+      "/?camera=virtuallens2&date=2023-12&tag=VRChat&sort=old",
     );
   });
 });
@@ -179,7 +180,17 @@ describe("galleryStateFromUrl", () => {
       camera: null,
       date: "2023-12",
     });
-    expect(at("/camera/virtuallens2/?date=2023-12")).toEqual({
+    expect(at("/?camera=virtuallens2&date=2023-12&tag=night")).toEqual({
+      selectedImageId: null,
+      filter: { tags: ["night"], mode: "and" },
+      sort: newest,
+      camera: "virtuallens2",
+      date: "2023-12",
+    });
+  });
+
+  it("reads a camera page as its camera's photos, newest first", () => {
+    expect(at("/camera/virtuallens2/?date=2023-12&tag=a&sort=old")).toEqual({
       selectedImageId: null,
       filter: none,
       sort: newest,
@@ -317,6 +328,56 @@ describe("dateParam", () => {
     expect(p("date=2023-02-30")).toBeNull();
     expect(p("date=")).toBeNull();
     expect(p("")).toBeNull();
+  });
+});
+
+describe("cameraCounts", () => {
+  const cam = (slug: string, name: string) => ({
+    slug,
+    name,
+    manufacturer: null,
+    model: null,
+  });
+  const photo = (
+    id: string,
+    camera: MediaInfo["camera"],
+  ): MediaInfo => ({
+    id,
+    file: `/${id}`,
+    platform: "Real",
+    timestamp: null,
+    camera,
+    tags: [],
+  });
+
+  it("counts the photos of each camera, most first, then by name", () => {
+    const b = cam("b", "B");
+    const a = cam("a", "A");
+    expect(
+      cameraCounts(
+        [
+          photo("1", b),
+          photo("2", null),
+          photo("3", a),
+          photo("4", b),
+          photo("5", cam("c", "C")),
+        ],
+        null,
+      ),
+    ).toEqual([
+      { slug: "b", name: "B", count: 2 },
+      { slug: "a", name: "A", count: 1 },
+      { slug: "c", name: "C", count: 1 },
+    ]);
+  });
+
+  it("keeps the chosen camera when the other filters leave none", () => {
+    expect(
+      cameraCounts([photo("1", cam("a", "A"))], { slug: "z", name: "Z" }),
+    ).toEqual([
+      { slug: "a", name: "A", count: 1 },
+      { slug: "z", name: "Z", count: 0 },
+    ]);
   });
 });
 

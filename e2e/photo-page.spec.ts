@@ -81,23 +81,20 @@ test.describe("desktop", () => {
     await expect(page.getByTestId("back-link")).toHaveText("← VirtualLens2");
     await expect(page.getByTestId("back-link")).toHaveAttribute(
       "href",
-      "/camera/virtuallens2/",
+      "/?camera=virtuallens2",
     );
     await expect(detail(page)).toBeVisible();
-    // Back returns to the photo open over the camera's list.
+    // Back returns to the photo open over the camera's photos.
     await page.goBack();
     await expect(page).toHaveURL(
       /\/photo\/vrcxxxxxxc\/\?camera=virtuallens2$/,
     );
     await expect(page.getByTestId("overlay")).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("gallery-image")).toHaveCount(2);
-    await expect(page.getByTestId("camera-header")).toBeVisible();
   });
 
-  test("the page button on a camera page keeps the camera", async ({
-    page,
-  }) => {
-    await openInOverlay(page, "vrcxxxxxxa", "/camera/virtuallens2/?sort=old", [
+  test("the page button keeps the camera filter", async ({ page }) => {
+    await openInOverlay(page, "vrcxxxxxxa", "/?camera=virtuallens2&sort=old", [
       ...VIRTUALLENS2_ORDER,
     ].reverse());
     await page.getByTestId("detail-link").click();
