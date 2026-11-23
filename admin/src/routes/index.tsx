@@ -30,7 +30,7 @@ type DashboardData = {
 };
 
 /** How many of the most viewed photos the summary shows. */
-const SUMMARY_PHOTOS = 4;
+const SUMMARY_PHOTOS = 6;
 
 // The dashboard renders without D1 or the analytics token (the cards then
 // say so), so neither is an error page here.
