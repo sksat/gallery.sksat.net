@@ -21,7 +21,7 @@ import { PUBLIC_ID_RE } from "./public-id";
 
 export const ACCESS_RANGES = ["24h", "7d", "30d"] as const;
 export type AccessRange = (typeof ACCESS_RANGES)[number];
-export const DEFAULT_ACCESS_RANGE: AccessRange = "7d";
+export const DEFAULT_ACCESS_RANGE: AccessRange = "24h";
 
 export const ACCESS_RANGE_LABELS: Record<AccessRange, string> = {
   "24h": "24 時間",
@@ -40,13 +40,12 @@ export const parseAccessRange = (
 const HOUR_MS = 3600_000;
 const DAY_MS = 24 * HOUR_MS;
 
-/** Hourly buckets for 24 h, daily (UTC) ones for 7 d / 30 d. */
-export const bucketUnit = (range: AccessRange): "hour" | "day" =>
-  range === "24h" ? "hour" : "day";
+/** Days start at midnight JST, like the rest of the admin. */
+const JST_MS = 9 * HOUR_MS;
 
 /**
- * The query window: the last 24 h, or the last N UTC days including today
- * (so each daily bucket is a whole day, today's so far).
+ * The query window: the last 24 h, or the last N days (JST) including
+ * today (so each daily bucket is a whole day, today's so far).
  */
 export const rangeWindow = (
   range: AccessRange,
@@ -56,7 +55,8 @@ export const rangeWindow = (
   const start =
     range === "24h"
       ? Math.floor(end / HOUR_MS) * HOUR_MS - 23 * HOUR_MS
-      : Math.floor(end / DAY_MS) * DAY_MS -
+      : Math.floor((end + JST_MS) / DAY_MS) * DAY_MS -
+        JST_MS -
         ((range === "7d" ? 7 : 30) - 1) * DAY_MS;
   return {
     since: new Date(start).toISOString().replace(/\.\d{3}Z$/, "Z"),
@@ -64,16 +64,65 @@ export const rangeWindow = (
   };
 };
 
+/**
+ * The window just before rangeWindow, as long as it: the 7 d window at
+ * 10:00 (6 days and 10 hours) is compared with the 6 days and 10 hours
+ * before it, so today's partial day is not set against a whole one.
+ * Both ends inclusive (datetime_leq), so it ends a second before `since`.
+ */
+export const previousWindow = (
+  range: AccessRange,
+  now: Date,
+): { prevSince: string; prevUntil: string } => {
+  const { since, until } = rangeWindow(range, now);
+  const s = Date.parse(since);
+  const len = Date.parse(until) - s;
+  const iso = (t: number) =>
+    new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
+  return { prevSince: iso(s - len), prevUntil: iso(s - 1000) };
+};
+
+/**
+ * The change from `prev` to `cur` as a ratio (0.12 = +12%), or null when
+ * there is nothing to compare with (prev is 0).
+ */
+export const changeRatio = (cur: number, prev: number): number | null =>
+  prev > 0 ? (cur - prev) / prev : null;
+
+/**
+ * The bucket a time falls in: its UTC hour "2026-11-18T03" for 24 h, its
+ * JST day "2026-11-18" otherwise.
+ */
+export const bucketKeyOf = (range: AccessRange, t: number): string =>
+  range === "24h"
+    ? new Date(t).toISOString().slice(0, 13)
+    : new Date(t + JST_MS).toISOString().slice(0, 10);
+
 /** Bucket keys of the window, oldest first: "2026-11-18T03" or "2026-11-18". */
 export const bucketKeys = (range: AccessRange, now: Date): string[] => {
   const { since } = rangeWindow(range, now);
   const start = Date.parse(since);
   const n = range === "24h" ? 24 : range === "7d" ? 7 : 30;
   const step = range === "24h" ? HOUR_MS : DAY_MS;
-  const len = range === "24h" ? 13 : 10;
   return Array.from({ length: n }, (_, i) =>
-    new Date(start + i * step).toISOString().slice(0, len),
+    bucketKeyOf(range, start + i * step),
   );
+};
+
+/**
+ * Series rows are read per hour (datetimeHour) for every range: the API's
+ * `date` is a UTC day, so JST days are added up from hours. 30 days is
+ * 720 rows (per path for a photo), well inside a query's 10,000.
+ */
+export const SERIES_ROWS = 30 * 24;
+
+/** The bucket of a datetimeHour value, null when it is not a time. */
+export const bucketOfValue = (
+  range: AccessRange,
+  value: string,
+): string | null => {
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? bucketKeyOf(range, t) : null;
 };
 
 export type WebAnalyticsConfig = {
@@ -104,33 +153,38 @@ export const getWebAnalyticsConfig = (
 /** How many pages are read per range (the ranking adds up their forms). */
 export const PAGE_LIMIT = 1000;
 export const TOP_LIMIT = 10;
+/** Countries are read in full (there are fewer than 250) for the map. */
+export const COUNTRY_LIMIT = 250;
 // Referrers are read with room for the site's own hosts, which are dropped.
 const REFERRER_LIMIT = 20;
 
 // One request, aliased groups over the same filter (scalar variables, the
 // filter inline). `count` is page views, `sum.visits` visits. Checked
 // against the live API (max range per query 93 days, so 30 d fits).
-export const accessQuery = (range: AccessRange): string => {
-  const bucket = bucketUnit(range) === "hour" ? "datetimeHour" : "date";
+export const accessQuery = (): string => {
   const f = `filter: { siteTag: $siteTag, requestHost: $host, datetime_geq: $since, datetime_leq: $until }`;
-  return `query Access($accountTag: string!, $siteTag: string!, $host: string!, $since: Time!, $until: Time!) {
+  return `query Access($accountTag: string!, $siteTag: string!, $host: string!, $since: Time!, $until: Time!, $prevSince: Time!, $prevUntil: Time!) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
       total: rumPageloadEventsAdaptiveGroups(limit: 1, ${f}) {
         count
         sum { visits }
       }
-      series: rumPageloadEventsAdaptiveGroups(limit: 100, ${f}, orderBy: [${bucket}_ASC]) {
+      previous: rumPageloadEventsAdaptiveGroups(limit: 1, filter: { siteTag: $siteTag, requestHost: $host, datetime_geq: $prevSince, datetime_leq: $prevUntil }) {
         count
         sum { visits }
-        dimensions { bucket: ${bucket} }
+      }
+      series: rumPageloadEventsAdaptiveGroups(limit: ${SERIES_ROWS}, ${f}, orderBy: [datetimeHour_ASC]) {
+        count
+        sum { visits }
+        dimensions { bucket: datetimeHour }
       }
       pages: rumPageloadEventsAdaptiveGroups(limit: ${PAGE_LIMIT}, ${f}, orderBy: [count_DESC]) {
         count
         sum { visits }
         dimensions { requestPath }
       }
-      countries: rumPageloadEventsAdaptiveGroups(limit: ${TOP_LIMIT}, ${f}, orderBy: [count_DESC]) {
+      countries: rumPageloadEventsAdaptiveGroups(limit: ${COUNTRY_LIMIT}, ${f}, orderBy: [count_DESC]) {
         count
         dimensions { countryName }
       }
@@ -148,12 +202,13 @@ export const accessRequestBody = (
   range: AccessRange,
   now: Date,
 ) => ({
-  query: accessQuery(range),
+  query: accessQuery(),
   variables: {
     accountTag: cfg.accountId,
     siteTag: cfg.siteTag,
     host: cfg.host,
     ...rangeWindow(range, now),
+    ...previousWindow(range, now),
   },
 });
 
@@ -161,6 +216,8 @@ export type Counts = { pageViews: number; visits: number };
 export type AccessStats = {
   range: AccessRange;
   total: Counts;
+  /** The same counts over previousWindow. */
+  previous: Counts;
   /** One entry per bucket of the window (zeros where nothing came). */
   series: ({ key: string } & Counts)[];
   pages: ({ path: string } & Counts)[];
@@ -168,32 +225,71 @@ export type AccessStats = {
   referrers: { host: string; pageViews: number }[];
 };
 
-type Group = {
+// Helpers shared with photo-analytics.ts, which reads the same dataset.
+
+export type Group = {
   count?: unknown;
   sum?: { visits?: unknown } | null;
   dimensions?: Record<string, unknown> | null;
 };
 
-const groupsOf = (node: Record<string, unknown>, alias: string) => {
+export const groupsOf = (node: Record<string, unknown>, alias: string) => {
   const g = node[alias];
   return Array.isArray(g) ? (g as (Group | null)[]) : null;
 };
 
-const countsOf = (g: Group | null, withVisits: boolean): Counts | null => {
+export const countsOf = (
+  g: Group | null,
+  withVisits: boolean,
+): Counts | null => {
   const pageViews = finiteNumber(g?.count);
   const visits = withVisits ? finiteNumber(g?.sum?.visits) : 0;
   return pageViews === null || visits === null ? null : { pageViews, visits };
 };
 
-const dimOf = (g: Group | null, name: string): string | null => {
+export const dimOf = (g: Group | null, name: string): string | null => {
   const v = g?.dimensions?.[name];
   return typeof v === "string" ? v : null;
 };
 
+/** A `limit: 1` total: no group is no traffic. */
+export const totalOf = (groups: (Group | null)[]): Counts | null =>
+  groups.length === 0 ? { pageViews: 0, visits: 0 } : countsOf(groups[0], true);
+
+export const countriesOf = (
+  groups: (Group | null)[],
+): AccessStats["countries"] | null => {
+  const out: AccessStats["countries"] = [];
+  for (const g of groups) {
+    const country = dimOf(g, "countryName");
+    const c = countsOf(g, false);
+    if (country === null || !c) return null;
+    out.push({ country, pageViews: c.pageViews });
+  }
+  return out;
+};
+
+/** Referrers without the site's own hosts, the first TOP_LIMIT. */
+export const referrersOf = (
+  groups: (Group | null)[],
+  siteHost: string,
+): AccessStats["referrers"] | null => {
+  const out: AccessStats["referrers"] = [];
+  for (const g of groups) {
+    const host = dimOf(g, "refererHost");
+    const c = countsOf(g, false);
+    if (host === null || !c) return null;
+    if (!isSelfReferrer(host, siteHost)) {
+      out.push({ host, pageViews: c.pageViews });
+    }
+  }
+  return out.slice(0, TOP_LIMIT);
+};
+
 /**
  * AccessStats from a GraphQL response body, or null when it has errors or
- * another shape. Bucket values may come back as "2026-11-18" or
- * "2026-11-18T03:00:00Z"; they are matched by their prefix.
+ * another shape. Hourly rows ("2026-11-18T03:00:00Z") are added up into
+ * the window's buckets (bucketOfValue); rows outside it are dropped.
  */
 export const parseAccess = (
   body: unknown,
@@ -204,27 +300,33 @@ export const parseAccess = (
   const node = accountNode(body);
   if (!node) return null;
   const totalG = groupsOf(node, "total");
+  const previousG = groupsOf(node, "previous");
   const seriesG = groupsOf(node, "series");
   const pagesG = groupsOf(node, "pages");
   const countriesG = groupsOf(node, "countries");
   const referrersG = groupsOf(node, "referrers");
-  if (!totalG || !seriesG || !pagesG || !countriesG || !referrersG) {
+  if (
+    !totalG ||
+    !previousG ||
+    !seriesG ||
+    !pagesG ||
+    !countriesG ||
+    !referrersG
+  ) {
     return null;
   }
-  const total =
-    totalG.length === 0
-      ? { pageViews: 0, visits: 0 }
-      : countsOf(totalG[0], true);
-  if (!total) return null;
+  const total = totalOf(totalG);
+  const previous = totalOf(previousG);
+  if (!total || !previous) return null;
 
   const keys = bucketKeys(range, now);
-  const len = keys[0]?.length ?? 10;
   const byKey = new Map(keys.map((k) => [k, { pageViews: 0, visits: 0 }]));
   for (const g of seriesG) {
-    const b = dimOf(g, "bucket");
+    const v = dimOf(g, "bucket");
+    const b = v === null ? null : bucketOfValue(range, v);
     const c = countsOf(g, true);
     if (b === null || !c) return null;
-    const slot = byKey.get(b.slice(0, len));
+    const slot = byKey.get(b);
     if (slot) {
       slot.pageViews += c.pageViews;
       slot.visits += c.visits;
@@ -238,29 +340,17 @@ export const parseAccess = (
     if (path === null || !c) return null;
     pages.push({ path, ...c });
   }
-  const countries: AccessStats["countries"] = [];
-  for (const g of countriesG) {
-    const country = dimOf(g, "countryName");
-    const c = countsOf(g, false);
-    if (country === null || !c) return null;
-    countries.push({ country, pageViews: c.pageViews });
-  }
-  const referrers: AccessStats["referrers"] = [];
-  for (const g of referrersG) {
-    const host = dimOf(g, "refererHost");
-    const c = countsOf(g, false);
-    if (host === null || !c) return null;
-    if (!isSelfReferrer(host, siteHost)) {
-      referrers.push({ host, pageViews: c.pageViews });
-    }
-  }
+  const countries = countriesOf(countriesG);
+  const referrers = referrersOf(referrersG, siteHost);
+  if (!countries || !referrers) return null;
   return {
     range,
     total,
+    previous,
     series: keys.map((key) => ({ key, ...byKey.get(key)! })),
     pages,
     countries,
-    referrers: referrers.slice(0, TOP_LIMIT),
+    referrers,
   };
 };
 
@@ -313,36 +403,11 @@ export const fetchAccess = async (
 };
 
 /**
- * The public id of a photo's pages, /photo/<public_id> (the photo, open
- * over the list) and /photo/<public_id>/detail (its detail page), with or
- * without the trailing slash; null for any other path (including old
- * /photo/<N> URLs).
+ * Referrer host for display: "" is a direct visit or one whose referrer
+ * was not sent, "Direct / None" as Plausible calls it (untranslated: the
+ * usual name in analytics tools).
  */
-export const parsePhotoPath = (path: string): string | null => {
-  const m = /^\/photo\/([^/?#]+)(?:\/detail)?\/?$/.exec(path);
-  return m && PUBLIC_ID_RE.test(m[1]) ? m[1] : null;
-};
-
-/**
- * Page views and visits of one photo, adding up its pages and both forms
- * of their paths.
- */
-export const photoCounts = (
-  pages: AccessStats["pages"],
-  publicId: string,
-): Counts => {
-  const out = { pageViews: 0, visits: 0 };
-  for (const p of pages) {
-    if (parsePhotoPath(p.path) === publicId) {
-      out.pageViews += p.pageViews;
-      out.visits += p.visits;
-    }
-  }
-  return out;
-};
-
-/** Referrer host for display: "" is a direct visit (no referrer). */
-export const referrerLabel = (host: string): string => host || "(直接)";
+export const referrerLabel = (host: string): string => host || "Direct / None";
 
 /**
  * Country name in Japanese for the ISO 3166-1 alpha-2 code Web Analytics

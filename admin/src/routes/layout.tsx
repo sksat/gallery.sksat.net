@@ -27,7 +27,12 @@ export const usePlatformList = routeLoader$<Platform[]>(
 );
 
 const NAV = [
-  { href: "/", label: "Dashboard", match: (p: string) => p === "/" },
+  {
+    href: "/",
+    label: "Dashboard",
+    // /analytics/ is the dashboard's access card in full.
+    match: (p: string) => p === "/" || p.startsWith("/analytics"),
+  },
   {
     href: "/media/",
     label: "Media",

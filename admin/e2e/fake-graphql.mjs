@@ -6,6 +6,7 @@
 //
 // Usage: node e2e/fake-graphql.mjs <port> <token> <siteTag> <host>
 import { createServer } from "node:http";
+import { deflateSync } from "node:zlib";
 
 const [port, token, siteTag, host] = process.argv.slice(2);
 
@@ -26,24 +27,30 @@ const g = (count, visits, dimensions) => ({
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
 
-const access = (query, vars) => {
-  const hourly = query.includes("datetimeHour");
+// Series rows are always per hour (datetimeHour). A 24 h window gets one
+// row per hour; a longer one one row per day, in the first hour of each
+// (JST) day the window starts at, so the page's days add up to it.
+const slots = (vars) => {
   const start = Date.parse(vars.since);
-  const n = hourly
-    ? 24
-    : Math.floor((Date.parse(vars.until) - start) / DAY) + 1;
-  const series = [];
-  for (let i = 0; i < n; i++) {
-    const t = new Date(start + i * (hourly ? HOUR : DAY)).toISOString();
+  const len = Date.parse(vars.until) - start;
+  const hourly = len < DAY;
+  const n = hourly ? 24 : Math.floor(len / DAY) + 1;
+  return Array.from({ length: n }, (_, i) =>
+    new Date(start + i * (hourly ? HOUR : DAY))
+      .toISOString()
+      .replace(/\.\d{3}Z$/, "Z"),
+  );
+};
+
+const access = (vars) => {
+  const series = slots(vars).map((bucket, i) => {
     const count = 5 + ((i * 7) % 13) * 3;
-    series.push(
-      g(count, Math.ceil(count / 2), {
-        bucket: hourly ? t.replace(/\.\d{3}Z$/, "Z") : t.slice(0, 10),
-      }),
-    );
-  }
+    return g(count, Math.ceil(count / 2), { bucket });
+  });
   return account({
     total: [g(250, 140)],
+    // +25% page views, −30% visits.
+    previous: [g(200, 200)],
     series,
     pages: [
       g(120, 80, { requestPath: "/" }),
@@ -70,17 +77,136 @@ const access = (query, vars) => {
       g(150, null, { countryName: "JP" }),
       g(40, null, { countryName: "US" }),
       g(10, null, { countryName: "DE" }),
+      g(6, null, { countryName: "KR" }),
+      g(4, null, { countryName: "TW" }),
+      g(3, null, { countryName: "FR" }),
+      g(2, null, { countryName: "GB" }),
+      g(2, null, { countryName: "BR" }),
+      g(1, null, { countryName: "AU" }),
+      g(1, null, { countryName: "CA" }),
+      // Too small for the map: in the list only (11th, so not even there).
+      g(1, null, { countryName: "SG" }),
     ],
     referrers: [
       g(100, null, { refererHost: "" }),
       g(30, null, { refererHost: `admin.${host}` }),
       g(20, null, { refererHost: "t.co" }),
       g(5, null, { refererHost: "github.com" }),
+      // Not well known: their favicons through /api/favicon (the fake
+      // above), one found and one not.
+      g(4, null, { refererHost: "friends-blog.net" }),
+      g(3, null, { refererHost: "misskey.io" }),
+      g(2, null, { refererHost: "nofavicon.net" }),
     ],
   });
 };
 
+// One photo's numbers (a query filtered with requestPath_in): fixture
+// photo 2 (aaaaaaaaa3) has views on its viewer and detail pages in every
+// bucket, any other photo none.
+const photoAccess = (query, vars) => {
+  const id = /"\/photo\/([^"/]+)"/.exec(query)?.[1];
+  if (id !== "aaaaaaaaa3") {
+    return account({
+      total: [],
+      previous: [],
+      series: [],
+      countries: [],
+      referrers: [],
+    });
+  }
+  const series = [];
+  for (const [i, bucket] of slots(vars).entries()) {
+    series.push(
+      g(2 + (i % 3), null, { bucket, requestPath: `/photo/${id}/` }),
+      g(1, null, { bucket, requestPath: `/photo/${id}` }),
+      g(i % 2, null, { bucket, requestPath: `/photo/${id}/detail/` }),
+    );
+  }
+  const total = series.reduce((s, x) => s + x.count, 0);
+  return account({
+    total: [g(total, 9)],
+    // The period before: twice as many (−50%), as many visits (±0%).
+    previous: [g(total * 2, 9)],
+    series,
+    countries: [
+      g(24, null, { countryName: "JP" }),
+      g(6, null, { countryName: "TW" }),
+    ],
+    referrers: [
+      g(20, null, { refererHost: host }),
+      g(7, null, { refererHost: "" }),
+      g(3, null, { refererHost: "bsky.app" }),
+    ],
+  });
+};
+
+// A 16×16 PNG of one colour, made here so the fake needs no image file.
+const crc32 = (buf) => {
+  let c = ~0;
+  for (const b of buf) {
+    c ^= b;
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+};
+const chunk = (type, data) => {
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, "ascii");
+  data.copy(out, 8);
+  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+  return out;
+};
+const solidPng = (r, g, b) => {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(16, 0);
+  ihdr.writeUInt32BE(16, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8); // 8-bit RGB
+  const row = Buffer.from([
+    0,
+    ...Array.from({ length: 16 }, () => [r, g, b]).flat(),
+  ]);
+  const raw = Buffer.concat(Array.from({ length: 16 }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+};
+const ICON = solidPng(0x16, 0xa3, 0x4a);
+
+// Referrer sites for /api/favicon (bound as E2E_FAKE_FAVICON_URL): every
+// request the admin would send to https://<host>/<path> comes here as
+// GET /__favicon/<host>/<path>. friends-blog.net has no
+// /favicon.ico but links its icon from its home page; any other host has
+// nothing (the admin then answers its globe).
+const favicon = (req, res) => {
+  const [, , site = "", ...rest] = new URL(req.url, "http://x").pathname.split(
+    "/",
+  );
+  const path = `/${rest.join("/")}`;
+  if (site === "friends-blog.net") {
+    if (path === "/") {
+      res.writeHead(200, { "content-type": "text/html" });
+      return res.end(
+        '<html><head><link rel="icon" href="/static/icon.png"></head></html>',
+      );
+    }
+    if (path === "/static/icon.png") {
+      res.writeHead(200, { "content-type": "image/png" });
+      return res.end(ICON);
+    }
+  }
+  res.writeHead(404, { "content-type": "text/html" });
+  res.end("<html>not found</html>");
+};
+
 createServer((req, res) => {
+  if (req.method === "GET" && req.url?.startsWith("/__favicon/")) {
+    return favicon(req, res);
+  }
   if (req.method !== "POST") return json(res, 405, {});
   if (req.headers.authorization !== `Bearer ${token}`) {
     return json(res, 200, { data: null, errors: [{ message: "auth" }] });
@@ -111,7 +237,13 @@ createServer((req, res) => {
       if (vars.siteTag !== siteTag || vars.host !== host) {
         return json(res, 200, { data: null, errors: [{ message: "filter" }] });
       }
-      return json(res, 200, access(query, vars));
+      return json(
+        res,
+        200,
+        query.includes("requestPath_in")
+          ? photoAccess(query, vars)
+          : access(vars),
+      );
     }
     json(res, 200, { data: null, errors: [{ message: "unknown query" }] });
   });
