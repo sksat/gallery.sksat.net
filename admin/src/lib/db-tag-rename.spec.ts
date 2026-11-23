@@ -226,7 +226,9 @@ describe("renameTag", () => {
     const { raw, db } = setup();
     const r = ok(await renameTag(db, "旅", "たび", false));
     // Hidden after the rename: still hidden under the old name.
-    raw.exec(`UPDATE media SET tag_visibility = '{"たび":"hidden"}' WHERE id = 1`);
+    raw.exec(
+      `UPDATE media SET tag_visibility = '{"たび":"hidden"}' WHERE id = 1`,
+    );
     expect(await unrenameTag(db, r)).toEqual({ ok: true });
     expect(
       raw.prepare("SELECT tag_visibility AS tv FROM media WHERE id = 1").get(),

@@ -143,7 +143,9 @@ test("media files: create an empty folder", async ({ page }) => {
     ]),
   ).toEqual([0, "new-folder".length]);
   await expect(page.getByText("new-folder を作りました。")).toBeVisible();
-  await expect(page.getByRole("button", { name: "新しいフォルダ" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "新しいフォルダ" }),
+  ).toBeVisible();
   await field.fill(" new-1 ");
   await field.press("Enter");
   await expect(page.getByText("new-1 を作りました。")).toBeVisible();
@@ -194,6 +196,17 @@ test("media files: a new folder's name that is taken, then Esc and undo", async 
   await expect(page.getByText("元に戻しました。")).toBeVisible();
   await expect(tile(page, "new-folder-2")).toHaveCount(0);
   await expect(tile(page, "new-folder")).toHaveCount(1);
+
+  // Also while a name is being typed: the folder goes, not renamed first.
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  await expect(field).toHaveValue("new-folder-2");
+  await field.fill("typed");
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+  await expect(field).toHaveCount(0);
+  await expect(tile(page, "new-folder-2")).toHaveCount(0);
+  await expect(tile(page, "typed")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("media files: a folder's name in its tile with F2, checked as typed", async ({
@@ -249,9 +262,9 @@ test.describe("media files on a phone", () => {
     await expect(field).toBeFocused();
     expect((await field.boundingBox())?.height).toBeGreaterThanOrEqual(40);
     // 16px: iOS does not zoom in on it.
-    expect(
-      await field.evaluate((el) => getComputedStyle(el).fontSize),
-    ).toBe("16px");
+    expect(await field.evaluate((el) => getComputedStyle(el).fontSize)).toBe(
+      "16px",
+    );
     await field.fill("phone-1");
     // The keyboard's 完了: the field loses the focus.
     await field.blur();

@@ -366,14 +366,18 @@ export const storeResized = async (
   );
   if (!row) return { ok: false };
   for (const i of input.items) {
-    await bucket.put(resizedKey(row.public_id, row.source_key, i.preset), i.bytes, {
-      httpMetadata: {
-        contentType: i.type,
-        // Served by the Worker, which sets its own; this is for the record.
-        cacheControl: "public, max-age=3600",
+    await bucket.put(
+      resizedKey(row.public_id, row.source_key, i.preset),
+      i.bytes,
+      {
+        httpMetadata: {
+          contentType: i.type,
+          // Served by the Worker, which sets its own; this is for the record.
+          cacheControl: "public, max-age=3600",
+        },
+        customMetadata: itemMetadata(i),
       },
-      customMetadata: itemMetadata(i),
-    });
+    );
   }
   if (!(await finishCopies(db, input.id, input.claim, "made", nowMs))) {
     return { ok: false };
@@ -453,10 +457,7 @@ export type CardBucket = {
   }): Promise<
     {
       objects: { key: string; customMetadata?: Record<string, string> }[];
-    } & (
-      | { truncated: true; cursor: string }
-      | { truncated: false }
-    )
+    } & ({ truncated: true; cursor: string } | { truncated: false })
   >;
   delete(keys: string[]): Promise<void>;
 };

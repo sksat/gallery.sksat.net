@@ -80,7 +80,9 @@ test("a camera rule sets the camera of a VRChat upload, shown in the panel", asy
   const sheet = editor(page);
   await expect(sheet).toBeVisible();
   await sheet.getByLabel("名前").fill("VirtualLens2 で撮った");
-  await sheet.getByTestId("add-condition").selectOption({ label: "ファイル名" });
+  await sheet
+    .getByTestId("add-condition")
+    .selectOption({ label: "ファイル名" });
   // VRChat's names are the first choice.
   await expect(sheet.locator("#rule-cond-name")).toHaveValue("vrchat");
   await sheet.getByTestId("add-action").selectOption({ label: "カメラ" });
@@ -103,7 +105,9 @@ test("a camera rule sets the camera of a VRChat upload, shown in the panel", asy
   await dropZoneOf(page, "/mock/rule-cam");
   await page.getByTestId("upload-input").setInputFiles([png(VRCHAT, "rule")]);
   const panel = page.getByTestId("upload-panel");
-  await expect(panel.getByRole("heading")).toHaveText("1 件アップロードしました");
+  await expect(panel.getByRole("heading")).toHaveText(
+    "1 件アップロードしました",
+  );
   const applied = panel.getByTestId("upload-applied");
   await expect(applied.locator('[data-field="camera"]')).toHaveText(
     "VirtualLens2 ← VirtualLens2 で撮った",
@@ -202,9 +206,7 @@ test("a rule without a condition is not saved", async ({ page }) => {
   await expect(cards(page)).toHaveCount(2);
 });
 
-test("apply the rules to photos already uploaded", async ({
-  page,
-}) => {
+test("apply the rules to photos already uploaded", async ({ page }) => {
   await folderWith(page, "rule-apply", ["a.png", "b.png"]);
 
   await open(page);
@@ -221,7 +223,9 @@ test("apply the rules to photos already uploaded", async ({
   await saved(page, "ルールを追加しました");
 
   const apply = page.getByTestId("apply-existing");
-  await apply.getByLabel("フォルダ (下のフォルダも含む)").fill("/mock/rule-apply");
+  await apply
+    .getByLabel("フォルダ (下のフォルダも含む)")
+    .fill("/mock/rule-apply");
   await apply.getByRole("button", { name: "確認" }).click();
   await expect(page.getByTestId("apply-preview")).toContainText(
     "/mock/rule-apply の 2 枚のうち 2 枚が変わります",
@@ -240,7 +244,9 @@ test("apply the rules to photos already uploaded", async ({
 
   // Applied again: nothing left to change.
   await open(page);
-  await apply.getByLabel("フォルダ (下のフォルダも含む)").fill("/mock/rule-apply");
+  await apply
+    .getByLabel("フォルダ (下のフォルダも含む)")
+    .fill("/mock/rule-apply");
   await apply.getByRole("button", { name: "確認" }).click();
   await expect(page.getByTestId("apply-preview")).toContainText(
     "2 枚のうち 0 枚が変わります",
@@ -290,7 +296,9 @@ test("undo of applying to existing photos", async ({ page }) => {
   );
 
   const apply = page.getByTestId("apply-existing");
-  await apply.getByLabel("フォルダ (下のフォルダも含む)").fill("/mock/rule-undo");
+  await apply
+    .getByLabel("フォルダ (下のフォルダも含む)")
+    .fill("/mock/rule-undo");
   await apply.getByRole("button", { name: "確認" }).click();
   await apply.getByRole("button", { name: "1 枚に適用" }).click();
   await saved(page, "1 枚に適用しました");
@@ -316,14 +324,20 @@ test.describe("on a phone", () => {
     for (const b of [
       cards(page).nth(0).getByRole("switch"),
       cards(page).nth(0).getByRole("button", { name: "編集" }),
-      cards(page).nth(0).getByRole("button", { name: /を下へ$/ }),
+      cards(page)
+        .nth(0)
+        .getByRole("button", { name: /を下へ$/ }),
     ]) {
       expect((await b.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     }
     await page.getByRole("button", { name: "＋ ルールを追加" }).click();
     const sheet = editor(page);
-    await sheet.getByTestId("add-condition").selectOption({ label: "位置情報" });
-    await sheet.getByTestId("add-action").selectOption({ label: "公開する情報" });
+    await sheet
+      .getByTestId("add-condition")
+      .selectOption({ label: "位置情報" });
+    await sheet
+      .getByTestId("add-action")
+      .selectOption({ label: "公開する情報" });
     await sheet.getByTestId("rule-metadata-location").selectOption("hidden");
     // The sheet sits along the bottom of the screen and scrolls inside.
     const box = (await page.locator("dialog[open]").boundingBox())!;

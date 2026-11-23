@@ -105,7 +105,9 @@ describe("renameInChoices / unrenameInChoices (0021)", () => {
   });
 
   it("parses and stores", () => {
-    expect(parseChoiceMap('{"a":"hidden","b":1,"c":null,"d":"shown"}')).toEqual({ a: H, b: H, d: "shown" });
+    expect(parseChoiceMap('{"a":"hidden","b":1,"c":null,"d":"shown"}')).toEqual(
+      { a: H, b: H, d: "shown" },
+    );
     expect(parseChoiceMap("[]")).toBeNull();
     expect(parseChoiceMap(null)).toBeNull();
     expect(storedChoiceMap({})).toBeNull();

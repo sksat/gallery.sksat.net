@@ -300,8 +300,6 @@ describe("faviconResponse", () => {
     expect(res.headers.get("content-type")).toBe("image/svg+xml");
     expect(res.headers.get("content-security-policy")).toContain("sandbox");
     expect(await res.text()).toContain("<circle");
-    expect(cache.m.get("k")?.headers.get("cache-control")).toBe(
-      "max-age=3600",
-    );
+    expect(cache.m.get("k")?.headers.get("cache-control")).toBe("max-age=3600");
   });
 });

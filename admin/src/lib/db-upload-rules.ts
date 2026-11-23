@@ -71,9 +71,7 @@ export const decideUpload = async (
   const stored = await getUploadRules(db);
   // The cameras the rules name (their names for the chips); a rule whose
   // camera is gone does not set one, so a lower rule's camera still can.
-  const ids = [
-    ...new Set(stored.flatMap((r) => r.actions.cameraId ?? [])),
-  ];
+  const ids = [...new Set(stored.flatMap((r) => r.actions.cameraId ?? []))];
   const names = new Map<number, string>();
   if (ids.length > 0) {
     const res = await db
@@ -164,8 +162,7 @@ const changeOf = (rules: readonly UploadRule[], r: Row) => {
   };
   // Until the original has been read, no world / GPS says nothing.
   // (A time; a reader may later also park "reading:…" / "failed:…" here.)
-  const read =
-    r.metadata_read_at !== null && /^\d/.test(r.metadata_read_at);
+  const read = r.metadata_read_at !== null && /^\d/.test(r.metadata_read_at);
   const d = applyUploadRules(rules, {
     path: r.path,
     hasWorld: read ? r.world_id !== null || r.world_name !== null : undefined,

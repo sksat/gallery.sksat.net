@@ -42,7 +42,8 @@ export const chipPatch = (
   for (const tag of new Set([...hiddenThen, ...hiddenNow])) {
     if (!publicTags.has(tag)) continue;
     const now = hiddenNow.includes(tag);
-    if (now !== hiddenThen.includes(tag)) setOwn(out, tag, now ? "hidden" : null);
+    if (now !== hiddenThen.includes(tag))
+      setOwn(out, tag, now ? "hidden" : null);
   }
   return out;
 };

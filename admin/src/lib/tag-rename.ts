@@ -137,8 +137,7 @@ export const unrenameInChoices = (
   if (!has(out, from)) {
     if (toEdited && has(current, to) && current[to] === "hidden") {
       put(out, from, "hidden");
-    }
-    else if (has(before, from)) put(out, from, before[from]);
+    } else if (has(before, from)) put(out, from, before[from]);
   }
   return sameChoices(out, current) ? current : out;
 };

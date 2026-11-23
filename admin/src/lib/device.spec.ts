@@ -74,9 +74,9 @@ describe("deviceOf", () => {
     expect(
       deviceOf({ exif: x, fileExif: x }, "Neos-VR", virtual),
     ).toMatchObject({ create: false });
-    expect(deviceOf({ exif: x, fileExif: x }, "Real", virtual)).toMatchObject(
-      { create: true },
-    );
+    expect(deviceOf({ exif: x, fileExif: x }, "Real", virtual)).toMatchObject({
+      create: true,
+    });
     expect(deviceOf({ exif: { make: "FUJIFILM" } }, "Real")).toBeNull();
     expect(
       deviceOf({ exif: null, fileExif: { make: "GCMC" } }, "Real"),

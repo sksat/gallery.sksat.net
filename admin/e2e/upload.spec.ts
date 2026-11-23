@@ -212,12 +212,7 @@ const pngHeaderOnly = (name: string, width: number, height: number) => {
  * A real PNG of one colour, `width` × `height`: large in pixels, a few KB
  * in bytes (its rows deflate to almost nothing).
  */
-const solidPng = (
-  name: string,
-  width: number,
-  height: number,
-  grey = 0x60,
-) => {
+const solidPng = (name: string, width: number, height: number, grey = 0x60) => {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
     const out = Buffer.alloc(body.length + 8);
@@ -252,7 +247,11 @@ const jpegSize = (b: Buffer): { width: number; height: number } | null => {
   while (i + 9 < b.length && b[i] === 0xff) {
     const marker = b[i + 1];
     const len = b.readUInt16BE(i + 2);
-    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      ![0xc4, 0xc8, 0xcc].includes(marker)
+    ) {
       return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
     }
     i += 2 + len;
@@ -797,10 +796,7 @@ test("VRCX's metadata: the photographer, the instance and who was there", async 
     await expect(players.locator("summary")).toContainText(
       "一緒にいた人（2人）",
     );
-    await expect(players.getByRole("listitem")).toHaveText([
-      "Someone",
-      "ねこ",
-    ]);
+    await expect(players.getByRole("listitem")).toHaveText(["Someone", "ねこ"]);
   }
 });
 

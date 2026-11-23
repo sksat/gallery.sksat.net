@@ -90,8 +90,7 @@ export const listPlatformsWithCounts = async (
 };
 
 export type PlatformWriteResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: string };
+  { ok: true; value: T } | { ok: false; error: string };
 
 const isNameTaken = (err: unknown) =>
   err instanceof Error &&
@@ -101,7 +100,7 @@ const isKeyTaken = (err: unknown) =>
   err instanceof Error &&
   /UNIQUE constraint failed: platform\.key/.test(err.message);
 
-const NAME_TAKEN ="その名前のプラットフォームはもうあります";
+const NAME_TAKEN = "その名前のプラットフォームはもうあります";
 
 /** Add a platform at the end; its key comes from its name. */
 export const addPlatform = async (
@@ -132,7 +131,10 @@ export const addPlatform = async (
     if (isNameTaken(err)) return { ok: false, error: NAME_TAKEN };
     // Another add took the same key in between: try again.
     if (isKeyTaken(err)) {
-      return { ok: false, error: "追加できませんでした。もう一度追加してください" };
+      return {
+        ok: false,
+        error: "追加できませんでした。もう一度追加してください",
+      };
     }
     throw err;
   }
@@ -249,7 +251,10 @@ export const restorePlatform = async (
     if (isNameTaken(err)) return { ok: false, error: NAME_TAKEN };
     // A platform added since took the key back.
     if (isKeyTaken(err)) {
-      return { ok: false, error: "同じキーのプラットフォームが追加されています" };
+      return {
+        ok: false,
+        error: "同じキーのプラットフォームが追加されています",
+      };
     }
     throw err;
   }

@@ -40,8 +40,7 @@ export const isAllowedUrl = (url: URL): boolean =>
 
 /** The image type of the first bytes, or null when not an allowed one. */
 export const sniffImage = (b: Uint8Array): string | null => {
-  const at = (i: number, ...xs: number[]) =>
-    xs.every((x, j) => b[i + j] === x);
+  const at = (i: number, ...xs: number[]) => xs.every((x, j) => b[i + j] === x);
   if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) {
     return "image/png";
   }
@@ -69,7 +68,8 @@ export const iconHrefsOf = (html: string, base: URL): URL[] => {
   const found: { rank: number; href: string }[] = [];
   for (const [tag] of html.matchAll(/<link\b[^>]*>/gi)) {
     const rel = /\brel\s*=\s*(["']?)([^"'>]*)\1/i.exec(tag)?.[2];
-    const href = /\bhref\s*=\s*(["'])(.*?)\1/i.exec(tag)?.[2] ??
+    const href =
+      /\bhref\s*=\s*(["'])(.*?)\1/i.exec(tag)?.[2] ??
       /\bhref\s*=\s*([^\s"'>]+)/i.exec(tag)?.[1];
     if (!rel || !href) continue;
     const rels = rel.toLowerCase().split(/\s+/);
@@ -96,7 +96,10 @@ export const iconHrefsOf = (html: string, base: URL): URL[] => {
 };
 
 const decodeEntities = (s: string) =>
-  s.replace(/&amp;/g, "&").replace(/&#x2f;/gi, "/").replace(/&#47;/g, "/");
+  s
+    .replace(/&amp;/g, "&")
+    .replace(/&#x2f;/gi, "/")
+    .replace(/&#47;/g, "/");
 
 /** Reads at most `max` bytes of a body; null when it is longer. */
 const readCapped = async (
@@ -198,7 +201,8 @@ export const GLOBE_SVG =
 /** Headers every answer carries: an image that is nothing else. */
 const SAFE_HEADERS = {
   "x-content-type-options": "nosniff",
-  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+  "content-security-policy":
+    "default-src 'none'; style-src 'unsafe-inline'; sandbox",
 };
 
 type Cache = {
@@ -276,10 +280,7 @@ export const fetchFavicon = async (
     const html = await readCapped(page.res, MAX_HTML_BYTES, true);
     if (!html) return null;
     // Relative hrefs resolve against the page after its redirects.
-    for (const href of iconHrefsOf(
-      new TextDecoder().decode(html),
-      page.url,
-    )) {
+    for (const href of iconHrefsOf(new TextDecoder().decode(html), page.url)) {
       const found = await icon(href, deps, signal);
       if (found) return found;
     }

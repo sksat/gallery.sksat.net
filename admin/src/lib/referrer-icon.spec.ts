@@ -49,12 +49,15 @@ describe("brandOf", () => {
 });
 
 describe("isPublicHostname", () => {
-  it.each(["example.com", "www.bing.com", "a-b.co.jp", "xn--wgv71a.jp", "t.co"])(
-    "%s is allowed",
-    (host) => {
-      expect(isPublicHostname(host)).toBe(true);
-    },
-  );
+  it.each([
+    "example.com",
+    "www.bing.com",
+    "a-b.co.jp",
+    "xn--wgv71a.jp",
+    "t.co",
+  ])("%s is allowed", (host) => {
+    expect(isPublicHostname(host)).toBe(true);
+  });
 
   it.each([
     "",

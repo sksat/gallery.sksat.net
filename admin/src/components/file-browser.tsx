@@ -226,6 +226,8 @@ const itemOf = (t: EventTarget | null) => {
   return el?.closest?.<HTMLElement>("[data-sel-key]") ?? null;
 };
 const optionId = (key: SelKey) => `opt-${key}`;
+/** The toolbar's 名前を変更 of the open folder. */
+const RENAME_OPEN_ID = "rename-open-folder";
 
 /**
  * A tile's tick mark. Not a control of its own (the option carries the
@@ -799,7 +801,14 @@ export const FileBrowser = component$<Props>(
     /** Back to the item from its name's field (keyboard users stay put). */
     const refocus = $(async (key: SelKey) => {
       await new Promise((r) => setTimeout(r, 50));
-      const el = document.getElementById(optionId(key));
+      // The open folder's name: back to its 名前を変更.
+      const el = document.getElementById(
+        key === folderKey(dir) ? RENAME_OPEN_ID : optionId(key),
+      );
+      if (el && key === folderKey(dir)) {
+        el.focus();
+        return;
+      }
       if (!el) return;
       focusKey.value = key;
       el.focus();
@@ -1712,6 +1721,7 @@ export const FileBrowser = component$<Props>(
               {selectable && dir !== "/" && (
                 <button
                   type="button"
+                  id={RENAME_OPEN_ID}
                   onClick$={() => startRename(folderKey(dir))}
                   class={toolbarButton}
                 >

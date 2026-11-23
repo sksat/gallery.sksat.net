@@ -1,12 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import {
-  folderWith,
-  newFolder,
-  png,
-  tick,
-  tile,
-  tiles,
-} from "./files-helpers";
+import { folderWith, newFolder, png, tick, tile, tiles } from "./files-helpers";
 import { mapLoaded, stubMaps } from "./map-helpers";
 
 // The Files view's selection: picking tiles and what the selection bar
@@ -18,7 +11,10 @@ const bar = (page: Page) => page.getByTestId("selection-bar");
 /** The bar's 情報… menu, then one of its items. */
 const info = async (page: Page, item: string) => {
   await bar(page).getByRole("button", { name: "情報…" }).click();
-  await page.getByRole("menu", { name: "情報" }).getByRole("menuitem", { name: item }).click();
+  await page
+    .getByRole("menu", { name: "情報" })
+    .getByRole("menuitem", { name: item })
+    .click();
 };
 const levelButton = (page: Page, name: "公開" | "限定公開" | "非公開") =>
   bar(page)
@@ -191,7 +187,9 @@ test("more photos than one request takes go in chunks, and undo all", async ({
   const confirm = page.getByTestId("visibility-confirm");
   // The first 48 as thumbnails, then how many more.
   await expect(confirm.getByTestId("thumb-placeholder")).toHaveCount(48);
-  await expect(confirm.getByTestId("visibility-confirm-more")).toContainText("+57");
+  await expect(confirm.getByTestId("visibility-confirm-more")).toContainText(
+    "+57",
+  );
   await confirm.getByRole("button", { name: "105 枚を公開" }).click();
   await expect(
     page.getByText("105 selected, 105 changed to Public."),
@@ -233,14 +231,12 @@ test("the look before making many photos public keeps its button on screen", asy
     await levelButton(page, "公開").click();
     const apply = confirm.getByRole("button", { name: "150 枚を公開" });
     await expect(apply).toBeInViewport({ ratio: 1 });
-    await expect(
-      confirm.getByRole("button", { name: "戻る" }),
-    ).toBeInViewport({ ratio: 1 });
+    await expect(confirm.getByRole("button", { name: "戻る" })).toBeInViewport({
+      ratio: 1,
+    });
     // The whole bar stays inside the screen.
     const box = await bar(page).boundingBox();
-    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(
-      size.height,
-    );
+    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(size.height);
     expect(box?.y ?? -1).toBeGreaterThanOrEqual(0);
     await apply.click();
     await expect(
@@ -324,9 +320,7 @@ test("a platform for the selection, and undo", async ({ page }) => {
   await expect(picker.locator("[aria-pressed=true]")).toHaveCount(0);
 });
 
-test("tags and shooting data for the selection, and undo", async ({
-  page,
-}) => {
+test("tags and shooting data for the selection, and undo", async ({ page }) => {
   const external = await stubMaps(page);
   await folderWith(page, "sel-info", ["a.png", "b.png"]);
   const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
@@ -410,7 +404,9 @@ test("tags and shooting data for the selection, and undo", async ({
   await page.keyboard.press("ControlOrMeta+a");
   await open();
   await expect(chip("roll-a")).toHaveAttribute("aria-checked", "true");
-  await expect(sheet.getByLabel("日付", { exact: true })).toHaveValue("1999-08-01");
+  await expect(sheet.getByLabel("日付", { exact: true })).toHaveValue(
+    "1999-08-01",
+  );
   await expect(sheet.getByLabel("時刻", { exact: true })).toHaveAttribute(
     "placeholder",
     "そのまま（写真ごと）",
@@ -535,7 +531,6 @@ test("tags shown or hidden on the selected photos, and undo", async ({
   await sheet.getByRole("button", { name: "やめる" }).click();
 });
 
-
 test("a reload that lacks a selected item for a while keeps it selected", async ({
   page,
   context,
@@ -648,6 +643,7 @@ test.describe("keyboard, menu and drag in the Files view", () => {
     await expect(tile(page, "d.png")).toBeFocused();
     // A name that cannot be used is said there; the field stays.
     await page.keyboard.press("F2");
+    await expect(field).toBeFocused();
     await page.keyboard.type("a/b");
     await page.keyboard.press("Enter");
     await expect(field).toHaveAttribute("aria-invalid", "true");

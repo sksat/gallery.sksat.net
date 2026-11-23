@@ -64,9 +64,7 @@ export type AdminImages = {
   makeCopies(
     accessJwt: string | null,
     id: number,
-  ): Promise<
-    { ok: true; outcome: string } | { ok: false; status: number }
-  >;
+  ): Promise<{ ok: true; outcome: string } | { ok: false; status: number }>;
   /**
    * The caption the public `og` card of the photo draws now; null when it
    * has no public card.

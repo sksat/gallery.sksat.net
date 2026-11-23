@@ -37,9 +37,7 @@ const TRIES = 3;
  * The version write as a statement, for an action to put in the same D1
  * batch as its change: both commit, or neither does.
  */
-export const contentVersionStatement = (
-  db: D1Database,
-): D1PreparedStatement =>
+export const contentVersionStatement = (db: D1Database): D1PreparedStatement =>
   db
     .prepare(
       `INSERT INTO setting (key, value) VALUES (?1, json_quote(?2))

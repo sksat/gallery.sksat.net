@@ -81,8 +81,8 @@ const canonicalPath = (path: string, page: PageKind): string =>
     : page.kind === "photo"
       ? `/photo/${page.publicId}/`
       : page.kind === "other" || path.endsWith("/")
-      ? path
-      : `${path}/`;
+        ? path
+        : `${path}/`;
 
 /**
  * The top `limit` pages by page views (most first, then by path), forms

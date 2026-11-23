@@ -112,7 +112,7 @@ describe("decideUpload", () => {
       photographer: null,
       vrcx: null,
     };
-    const photo =(file: string, sha: string) => ({
+    const photo = (file: string, sha: string) => ({
       ...init,
       file,
       sha256: sha.repeat(64),
@@ -125,7 +125,12 @@ describe("decideUpload", () => {
     });
     expect(cameras()).toBe(3);
     await setUploadRules(db, [
-      { ...LENS, id: "r", conditions: { folder: "/r" }, actions: { cameraId: 2 } },
+      {
+        ...LENS,
+        id: "r",
+        conditions: { folder: "/r" },
+        actions: { cameraId: 2 },
+      },
     ]);
     const decided = await decideUpload(db, photo("/r/b.jpg", "c"));
     await initUpload(db, photo("/r/b.jpg", "c"), {
@@ -160,14 +165,20 @@ describe("decideUpload", () => {
   it("looks at CreatorTool and size only when the browser sent them", async () => {
     const { db } = setup();
     await setUploadRules(db, [
-      { ...LENS, conditions: { creatorTool: "vrchat", orientation: "landscape" }, actions: { platform: "VRChat" } },
+      {
+        ...LENS,
+        conditions: { creatorTool: "vrchat", orientation: "landscape" },
+        actions: { platform: "VRChat" },
+      },
     ]);
     const file = { ...init, file: "/a/b.png" };
     expect((await decideUpload(db, file)).row.platform).toBe("Real");
     const hints = { creatorTool: "VRChat" };
     // The size is the init's own (from the header, image-size.ts).
     const dimensions = { width: 1920, height: 1080 };
-    expect((await decideUpload(db, { ...file, hints })).row.platform).toBe("Real");
+    expect((await decideUpload(db, { ...file, hints })).row.platform).toBe(
+      "Real",
+    );
     expect(
       (await decideUpload(db, { ...file, hints, dimensions })).row.platform,
     ).toBe("VRChat");
@@ -216,10 +227,38 @@ describe("applying to existing photos", () => {
     const previous = await applyExisting(db, rules, [1, 2, 3, 4]);
     expect(previous.map((p) => p.id)).toEqual([1, 2, 3]);
     expect(read()).toEqual([
-      { id: 1, platform: "VRChat", camera_id: 1, tags: '["x","vr"]', visibility: "private", metadata_visibility: '{"location":"hidden"}' },
-      { id: 2, platform: "VRChat", camera_id: 2, tags: '["vr"]', visibility: "private", metadata_visibility: '{"location":"exact"}' },
-      { id: 3, platform: "VRChat", camera_id: null, tags: "[]", visibility: "private", metadata_visibility: null },
-      { id: 4, platform: "Real", camera_id: null, tags: "[]", visibility: "private", metadata_visibility: null },
+      {
+        id: 1,
+        platform: "VRChat",
+        camera_id: 1,
+        tags: '["x","vr"]',
+        visibility: "private",
+        metadata_visibility: '{"location":"hidden"}',
+      },
+      {
+        id: 2,
+        platform: "VRChat",
+        camera_id: 2,
+        tags: '["vr"]',
+        visibility: "private",
+        metadata_visibility: '{"location":"exact"}',
+      },
+      {
+        id: 3,
+        platform: "VRChat",
+        camera_id: null,
+        tags: "[]",
+        visibility: "private",
+        metadata_visibility: null,
+      },
+      {
+        id: 4,
+        platform: "Real",
+        camera_id: null,
+        tags: "[]",
+        visibility: "private",
+        metadata_visibility: null,
+      },
     ]);
     // The new tag got its (private) row.
     expect(raw.prepare("SELECT name, public FROM tag").all()).toEqual([

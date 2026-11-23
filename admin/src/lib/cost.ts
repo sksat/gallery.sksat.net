@@ -134,9 +134,7 @@ export const getCostConfig = (
 
 /** A measurement from Analytics, or why there is none. */
 export type Measured<T> =
-  | { kind: "ok"; value: T }
-  | { kind: "no-token" }
-  | { kind: "error" };
+  { kind: "ok"; value: T } | { kind: "no-token" } | { kind: "error" };
 
 export type R2Usage = {
   /** The bucket's newest size (payload + metadata), bytes. */
@@ -167,11 +165,7 @@ const R2_FREE_OPS = new Set([
   "AbortMultipartUpload",
 ]);
 export const r2OpClass = (actionType: string): "A" | "B" | "free" =>
-  R2_FREE_OPS.has(actionType)
-    ? "free"
-    : R2_CLASS_B.has(actionType)
-      ? "B"
-      : "A";
+  R2_FREE_OPS.has(actionType) ? "free" : R2_CLASS_B.has(actionType) ? "B" : "A";
 
 // Storage: the newest sample of the last 31 days (the longest range the
 // API takes; a bucket that changes nothing may have no recent one, and

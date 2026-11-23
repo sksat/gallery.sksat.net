@@ -147,13 +147,11 @@ const card = (
 
 /** The copies of a `w` x `h` photo and its og-site card. */
 const itemsFor = (w: number, h: number): ResizedItem[] => [
-  ...planResized(w, h).map(
-    (p): ResizedItem => ({
-      ...p,
-      type: "image/webp",
-      bytes: p.sameAs ? new Uint8Array() : WEBP,
-    }),
-  ),
+  ...planResized(w, h).map((p): ResizedItem => ({
+    ...p,
+    type: "image/webp",
+    bytes: p.sameAs ? new Uint8Array() : WEBP,
+  })),
   card("og-site"),
 ];
 
@@ -261,7 +259,9 @@ describe("the claim", () => {
       const sql = waitingSql(maker, setting)!;
       const plan = (
         raw
-          .prepare(`EXPLAIN QUERY PLAN SELECT id FROM media WHERE ${sql} LIMIT 3`)
+          .prepare(
+            `EXPLAIN QUERY PLAN SELECT id FROM media WHERE ${sql} LIMIT 3`,
+          )
           .all(...(sql.includes("?1") ? waitingArgs(NOW) : [])) as {
           detail: string;
         }[]
@@ -553,9 +553,9 @@ describe("storeResized", () => {
       UPDATE media SET active_file_id = 70 WHERE id = 2;
     `);
     expect(await make(800, 600)).toEqual({ ok: true, stored: 7, removed: 7 });
-    expect(
-      b.copies("3333333333").every((k) => k.includes("public_edit")),
-    ).toBe(true);
+    expect(b.copies("3333333333").every((k) => k.includes("public_edit"))).toBe(
+      true,
+    );
   });
 });
 

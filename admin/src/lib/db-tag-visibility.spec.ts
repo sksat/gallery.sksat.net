@@ -13,9 +13,11 @@ const setup = () => {
       (1, '/a.png', 'Real', '["night","secret"]', 1);
   `);
   const tv = () =>
-    (raw.prepare("SELECT tag_visibility AS tv FROM media").get() as {
-      tv: string | null;
-    }).tv;
+    (
+      raw.prepare("SELECT tag_visibility AS tv FROM media").get() as {
+        tv: string | null;
+      }
+    ).tv;
   return { db: sqliteD1(raw), tv };
 };
 

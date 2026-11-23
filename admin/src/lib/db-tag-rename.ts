@@ -302,7 +302,8 @@ export const renameTag = async (
   // Photos that name `from`: in their tags, or in their choices (a tag
   // they have only through a camera).
   const fromPhotos = photos.filter(
-    (p) => p.tags.includes(from) || (p.tv !== null && Object.hasOwn(p.tv, from)),
+    (p) =>
+      p.tags.includes(from) || (p.tv !== null && Object.hasOwn(p.tv, from)),
   );
   const fromCams = new Set(
     cams.filter((c) => c.tag === from).map((c) => c.camera_id),

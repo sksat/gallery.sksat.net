@@ -8,7 +8,14 @@ import { folderWith, tiles, uploadedKeys } from "./files-helpers";
 test("rename the open folder in its path, and undo it", async ({ page }) => {
   await folderWith(page, "ops-rename", ["a.png"]);
   const path = page.getByRole("navigation", { name: "Folder path" });
-  await page.getByRole("button", { name: "名前を変更" }).click();
+  const rename = page.getByRole("button", { name: "名前を変更" });
+  // Esc: the name stays, the focus goes back to the button.
+  await rename.click();
+  await expect(path.getByRole("textbox")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(path.getByRole("textbox")).toHaveCount(0);
+  await expect(rename).toBeFocused();
+  await rename.click();
   // The toolbar stays; the name is edited where it is shown.
   await expect(
     page.getByRole("button", { name: "フォルダをゴミ箱へ" }),
@@ -26,7 +33,9 @@ test("rename the open folder in its path, and undo it", async ({ page }) => {
   await field.press("Enter");
   await expect(page).toHaveURL(/dir=\/mock\/ops-renamed$/);
   await expect(tiles(page)).toHaveCount(1);
-  await expect(page.getByText("ops-renamed に名前を変えました。")).toBeVisible();
+  await expect(
+    page.getByText("ops-renamed に名前を変えました。"),
+  ).toBeVisible();
   await expect(field).toHaveCount(0);
 
   await page.getByRole("button", { name: "元に戻す" }).click();
