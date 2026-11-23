@@ -101,12 +101,12 @@ export default component$(() => {
 
       <div class="grid gap-4 lg:grid-cols-3">
         <div class="lg:col-span-2">
-          <CostCard summary={data.value.cost} />
+          <StorageCard summary={data.value.storage} />
         </div>
         <D1Card dbBytes={data.value.dbBytes} usage={data.value.usage} />
       </div>
 
-      <StorageCard summary={data.value.storage} />
+      <CostCard summary={data.value.cost} />
 
       <AccessCard data={data.value.access} imageBase={data.value.imageBase} />
 
