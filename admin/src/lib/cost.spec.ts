@@ -218,7 +218,7 @@ describe("fetchCostUsage", () => {
     expect(r2.variables).toEqual({
       accountTag: "acc",
       bucket: "gallery-media-cache",
-      storageSince: "2026-11-21T03:00:00Z",
+      storageSince: "2026-10-23T03:00:00Z",
       monthStart: "2026-11-01T00:00:00Z",
       now: "2026-11-23T03:00:00Z",
     });
@@ -239,7 +239,7 @@ describe("fetchCostUsage", () => {
 });
 
 describe("B2 from D1", () => {
-  it("adds up every B2 file but failed uploads, trash included", async () => {
+  it("adds up every ready B2 file, trash included", async () => {
     const raw = migratedSqlite();
     raw.exec(`INSERT INTO media (id, file, platform, size, status) VALUES
         (1, '/a.png', 'VRChat', 1000, 'ready'),
@@ -249,8 +249,8 @@ describe("B2 from D1", () => {
         (1, 'edit', '/a-edit.jpg', 'ready', 300),
         (1, 'edit', '/a-failed.jpg', 'failed', 99999);`);
     expect(await fetchB2Usage(sqliteD1(raw))).toEqual({
-      bytes: 3300,
-      files: 3,
+      bytes: 1300,
+      files: 2,
     });
   });
 });

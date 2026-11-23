@@ -173,9 +173,10 @@ export const r2OpClass = (actionType: string): "A" | "B" | "free" =>
       ? "B"
       : "A";
 
-// Storage: the newest sample of the last two days (R2 reports it every
-// hour or so; an idle bucket may have no newer one). Operations: this
-// month so far, by action type.
+// Storage: the newest sample of the last 31 days (the longest range the
+// API takes; a bucket that changes nothing may have no recent one, and
+// none at all is an empty bucket). Operations: this month so far, by
+// action type.
 export const R2_USAGE_QUERY = `query R2Usage($accountTag: string!, $bucket: string!, $storageSince: Time!, $monthStart: Time!, $now: Time!) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
@@ -213,7 +214,7 @@ export const r2UsageRequestBody = (accountId: string, now: Date) => ({
   variables: {
     accountTag: accountId,
     bucket: R2_BUCKET,
-    storageSince: iso(new Date(slot(now).getTime() - 2 * 86_400_000)),
+    storageSince: iso(new Date(slot(now).getTime() - 31 * 86_400_000)),
     monthStart: iso(monthStart(now)),
     now: iso(slot(now)),
   },
@@ -413,11 +414,12 @@ export const loadCost = async (
 /**
  * Every file the gallery keeps in B2 (originals, edits, display copies;
  * photos in the trash too, which B2 still stores), from the sizes D1 has.
- * Not B2's own count: old versions and unfinished uploads are missing, and
- * camera pictures have no size in D1.
+ * Not B2's own count: old versions and unfinished uploads (whose rows
+ * carry only the announced size) are missing, and camera pictures have no
+ * size in D1.
  */
 export const B2_BYTES_SQL = `SELECT COALESCE(SUM(size), 0) AS bytes, COUNT(*) AS files
-FROM media_file WHERE storage = 'b2' AND status <> 'failed'`;
+FROM media_file WHERE storage = 'b2' AND status = 'ready'`;
 
 export type B2Usage = { bytes: number; files: number };
 
