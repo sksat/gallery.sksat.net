@@ -1,6 +1,7 @@
 // Fake Cloudflare GraphQL Analytics API for E2E/VRT (bound as
 // E2E_FAKE_GRAPHQL_URL by start-test-server.sh): fixed answers for the
-// dashboard's D1 usage and Web Analytics queries, so the cards render with
+// dashboard's D1 usage, cost (R2, Image Transformations, Workers) and Web
+// Analytics queries, so the cards render with
 // data without a real token. Counts are deterministic; the time buckets
 // follow the request's `since` so they line up with the page's window.
 //
@@ -232,6 +233,69 @@ createServer((req, res) => {
                 rowsWritten: 300,
               },
             },
+          ],
+        }),
+      );
+    }
+    // The cost card (src/lib/cost.ts). Small enough that even carried on
+    // from the 1st to a whole month they stay in the free tiers, so the
+    // charges do not move with the date. R2: 4.2 GB, operations by type
+    // (Class A 12,000; Class B 250,000; deletes free).
+    if (query.includes("r2StorageAdaptiveGroups")) {
+      if (vars.bucket !== "gallery-media-cache") {
+        return json(res, 200, { data: null, errors: [{ message: "bucket" }] });
+      }
+      const op = (actionType, requests) => ({
+        sum: { requests },
+        dimensions: { actionType },
+      });
+      return json(
+        res,
+        200,
+        account({
+          storage: [
+            {
+              max: {
+                payloadSize: 4_199_000_000,
+                metadataSize: 1_000_000,
+                objectCount: 13_000,
+              },
+              dimensions: { datetime: vars.now },
+            },
+          ],
+          operations: [
+            op("PutObject", 11_500),
+            op("ListObjects", 500),
+            op("GetObject", 240_000),
+            op("HeadObject", 10_000),
+            op("DeleteObject", 300),
+          ],
+        }),
+      );
+    }
+    // Unique transformations, a running total per day since the 1st.
+    if (
+      query.includes("imagesUniqueTransformationsAccumulatedSinceStartOfMonth")
+    ) {
+      return json(
+        res,
+        200,
+        account({
+          imagesUniqueTransformationsAccumulatedSinceStartOfMonth: [
+            { date: vars.today, transformations: 150 },
+            { date: vars.monthStart, transformations: 20 },
+          ],
+        }),
+      );
+    }
+    if (query.includes("workersInvocationsAdaptive")) {
+      return json(
+        res,
+        200,
+        account({
+          workersInvocationsAdaptive: [
+            { sum: { requests: 8000 } },
+            { sum: { requests: 4345 } },
           ],
         }),
       );

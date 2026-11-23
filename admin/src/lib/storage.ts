@@ -6,13 +6,6 @@
 
 import type { Visibility } from "./types";
 
-// Backblaze B2 storage pricing
-// (https://www.backblaze.com/cloud-storage/pricing, checked 2026-11-20):
-// $6.95 per TB-month. B2 counts in decimal units (1 GB = 10^9 bytes). Its
-// first 10 GB are free per account, and the account already uses them
-// elsewhere, so the estimate charges every byte.
-export const B2_PRICE_USD_PER_GB_MONTH = 0.00695;
-
 /** One GROUP BY row of storageQuery. */
 export type StorageRow = {
   status: "uploading" | "ready";
@@ -133,10 +126,6 @@ export const formatDecimalBytes = (bytes: number): string => {
   }
   return `${v.toFixed(digits)} ${UNITS[i]}`;
 };
-
-/** Estimated monthly B2 storage charge for `bytes` stored all month. */
-export const monthlyCostUsd = (bytes: number): number =>
-  (bytes / 1e9) * B2_PRICE_USD_PER_GB_MONTH;
 
 /** "$0.00", "$1.23"; a charge below a cent but above zero is "< $0.01". */
 export const formatUsd = (usd: number): string =>
