@@ -62,6 +62,13 @@ export const newFolder = async (
   await field.press("Enter");
   await expect(page.getByText(`${name} を作りました。`)).toBeVisible();
   await expect(field).toHaveCount(0);
+  // Out of the way of what the spec does next (it stays a while, being
+  // undoable, at the bottom of the window).
+  await page
+    .getByTestId("toast")
+    .getByRole("button", { name: "Dismiss" })
+    .click();
+  await expect(page.getByText(`${name} を作りました。`)).toHaveCount(0);
   if (!open) return;
   await tile(page, name).click();
   await expect(page).toHaveURL(
