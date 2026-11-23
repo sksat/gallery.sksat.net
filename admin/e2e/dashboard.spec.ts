@@ -173,10 +173,7 @@ test("analytics page: ranges, photos, pages, referrers", async ({ page }) => {
     "fediverse",
   );
   for (const host of ["friends-blog.net", "nofavicon.net"]) {
-    await expect(icon(host)).toHaveAttribute(
-      "src",
-      `/api/favicon/${host}/`,
-    );
+    await expect(icon(host)).toHaveAttribute("src", `/api/favicon/${host}/`);
     await expect(icon(host)).toHaveAttribute("alt", "");
   }
   // Both load as images: the site's own and the globe.
@@ -194,7 +191,12 @@ test("analytics page: ranges, photos, pages, referrers", async ({ page }) => {
   expect(missing.headers()["content-type"]).toBe("image/svg+xml");
   expect(missing.headers()["x-favicon"]).toBe("missing");
   // Never a fetch to a local or private place.
-  for (const host of ["localhost", "127.0.0.1", "169.254.169.254", "a.internal"]) {
+  for (const host of [
+    "localhost",
+    "127.0.0.1",
+    "169.254.169.254",
+    "a.internal",
+  ]) {
     const res = await page.request.get(`/api/favicon/${host}/`);
     expect(res.status(), host).toBe(400);
   }
@@ -312,3 +314,49 @@ test("media edit page: a photo nobody viewed", async ({ page }) => {
   await expect(card).toContainText("ページビュー0前の 24 時間 0");
   await expect(card).toContainText("参照元なし");
 });
+
+// The time axis follows the clock, so any label can be at either end of
+// it: wherever they are, the pages stay inside a phone's screen. Each
+// label is moved through the whole axis (its --p) to stand for every hour.
+for (const width of [320, 390]) {
+  test(`access charts: no wider than a ${width}px phone at any hour`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    for (const path of [
+      "/",
+      "/analytics/",
+      "/analytics/?range=7d",
+      "/media/2/",
+    ]) {
+      await page.goto(path);
+      if (path === "/media/2/") {
+        await page.getByTestId("photo-access").scrollIntoViewIfNeeded();
+      }
+      await expect(page.getByTestId("chart-ticks").first()).toBeVisible();
+      const wider = await page.evaluate(async () => {
+        const labels = [
+          ...document.querySelectorAll<HTMLElement>(
+            '[data-testid="chart-ticks"] > *, [data-testid="chart-days"] > *',
+          ),
+        ];
+        const root = document.documentElement;
+        for (let i = 0; i <= 20; i++) {
+          const p = i / 20;
+          for (const el of labels) el.style.setProperty("--p", String(p));
+          await new Promise((r) => requestAnimationFrame(r));
+          if (root.scrollWidth > root.clientWidth)
+            return `page ${root.scrollWidth}px wide at --p ${p}`;
+          for (const el of labels) {
+            const a = el.parentElement!.getBoundingClientRect();
+            const r = el.getBoundingClientRect();
+            if (r.left < a.left - 0.5 || r.right > a.right + 0.5)
+              return `"${el.textContent}" out of its axis at --p ${p}`;
+          }
+        }
+        return null;
+      });
+      expect(wider, path).toBeNull();
+    }
+  });
+}

@@ -20,6 +20,32 @@ export const SERIES_COLORS = [
   "bg-[#eb6834] dark:bg-[#d95926]",
 ] as const;
 
+/**
+ * Places an axis label at a fraction `p` of its axis (an `@container`):
+ * centred on that point, or starting there (`offset`: 1px after a
+ * midnight line), but moved in as far as it must to stay inside the axis
+ * at either end. `translate` percentages are the label's own width and
+ * `cqw` the axis', so this needs no measuring. `--p` is a property so
+ * that a test can move the label.
+ */
+const axisLabelStyle = (
+  p: number,
+  align: "centre" | "start",
+  offset = false,
+): Record<string, string> => {
+  const o = offset ? " + 1px" : "";
+  // How far the label must move left to end at the axis' right end.
+  const overRight = `100% - (1 - var(--p)) * 100cqw${o}`;
+  return {
+    "--p": String(p),
+    left: `calc(var(--p) * 100%${o})`,
+    translate:
+      align === "centre"
+        ? `calc(-1 * clamp(${overRight}, 50%, var(--p) * 100cqw))`
+        : `calc(-1 * max(0px, ${overRight}))`,
+  };
+};
+
 export type ChartBucket = {
   /** A bucket key of web-analytics.ts (JST day or UTC hour). */
   key: string;
@@ -308,17 +334,23 @@ export const ColumnChart = component$<Props>(
               )}
             </div>
             {/* Time axis (timeAxis): hours or dates under their columns,
-                then on an hourly chart the days, from their midnight. */}
+                then on an hourly chart the days, from their midnight.
+                Labels follow the clock, so any of them can be at an end:
+                each is kept inside the axis (AXIS_LABEL_STYLE), or the
+                page would get wider than a phone's screen. */}
             <div
               aria-hidden="true"
-              class={["relative mt-1 h-4 text-[11px] tabular-nums", muted]}
+              class={[
+                "@container relative mt-1 h-4 overflow-x-clip text-[11px] tabular-nums",
+                muted,
+              ]}
               data-testid="chart-ticks"
             >
               {axis.ticks.map((t) => (
                 <span
                   key={t.index}
-                  class="absolute -translate-x-1/2 whitespace-nowrap"
-                  style={{ left: `${((t.index + 0.5) / n) * 100}%` }}
+                  class="absolute whitespace-nowrap"
+                  style={axisLabelStyle((t.index + 0.5) / n, "centre")}
                   data-clock
                 >
                   {t.label}
@@ -328,22 +360,31 @@ export const ColumnChart = component$<Props>(
             {!compact && axis.days.length > 0 && (
               <div
                 aria-hidden="true"
-                class="relative h-4 text-[11px] font-medium text-zinc-700 tabular-nums dark:text-zinc-300"
+                class="@container relative h-4 overflow-x-clip text-[11px] font-medium text-zinc-700 tabular-nums dark:text-zinc-300"
                 data-testid="chart-days"
               >
                 {axis.days.map((d) => (
-                  <span
-                    key={d.index}
-                    class={[
-                      "absolute whitespace-nowrap",
-                      d.index > 0 &&
-                        "border-l border-dashed border-zinc-300 pl-1 dark:border-zinc-600",
-                    ]}
-                    style={{ left: `${(d.index / n) * 100}%` }}
-                    data-clock
-                  >
-                    {d.label}
-                  </span>
+                  <Fragment key={d.index}>
+                    {d.index > 0 && (
+                      // The midnight line, under its label when the label
+                      // has to move left of it at the right end.
+                      <span
+                        class="absolute inset-y-0 w-0 border-l border-dashed border-zinc-300 dark:border-zinc-600"
+                        style={{ left: `${(d.index / n) * 100}%` }}
+                        data-clock
+                      />
+                    )}
+                    <span
+                      class={[
+                        "absolute whitespace-nowrap",
+                        d.index > 0 && "bg-white pl-1 dark:bg-zinc-900",
+                      ]}
+                      style={axisLabelStyle(d.index / n, "start", d.index > 0)}
+                      data-clock
+                    >
+                      {d.label}
+                    </span>
+                  </Fragment>
                 ))}
               </div>
             )}
@@ -364,48 +405,51 @@ export const ColumnChart = component$<Props>(
               />
               {n > 0 && (
                 <span>
-                  薄い棒は集計中 (
+                  薄い棒は集計中
                   <span data-clock>
-                    {currentBucketName(buckets[current].key)}
+                    {` (${currentBucketName(buckets[current].key)})`}
                   </span>
-                  )
                 </span>
               )}
             </span>
             <span>日本時間 (JST)</span>
           </figcaption>
         )}
-        <table class="sr-only">
-          <caption>{label}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{hourly ? "時間" : "日"}</th>
-              {series.map((name) => (
-                <th key={name} scope="col">
-                  {name}
-                </th>
-              ))}
-              {extraNames.map((name) => (
-                <th key={name} scope="col">
-                  {name}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {buckets.map((bk, k) => (
-              <tr key={bk.key}>
-                <th scope="row">{titleOf(k)}</th>
-                {series.map((name, s) => (
-                  <td key={name}>{bk.values[s] ?? 0}</td>
+        {/* sr-only on the table itself would not do: a table is never
+            narrower than its cells, so it would widen the page. */}
+        <div class="sr-only">
+          <table>
+            <caption>{label}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{hourly ? "時間" : "日"}</th>
+                {series.map((name) => (
+                  <th key={name} scope="col">
+                    {name}
+                  </th>
                 ))}
-                {extraNames.map((name, x) => (
-                  <td key={name}>{bk.extra?.[x] ?? 0}</td>
+                {extraNames.map((name) => (
+                  <th key={name} scope="col">
+                    {name}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {buckets.map((bk, k) => (
+                <tr key={bk.key}>
+                  <th scope="row">{titleOf(k)}</th>
+                  {series.map((name, s) => (
+                    <td key={name}>{bk.values[s] ?? 0}</td>
+                  ))}
+                  {extraNames.map((name, x) => (
+                    <td key={name}>{bk.extra?.[x] ?? 0}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </figure>
     );
   },
