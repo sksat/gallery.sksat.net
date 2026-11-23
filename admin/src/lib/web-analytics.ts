@@ -402,8 +402,12 @@ export const fetchAccess = async (
   return stats ? { kind: "ok", stats } : { kind: "error" };
 };
 
-/** Referrer host for display: "" is a direct visit (no referrer). */
-export const referrerLabel = (host: string): string => host || "(直接)";
+/**
+ * Referrer host for display: "" is a direct visit or one whose referrer
+ * was not sent, "Direct / None" as Plausible calls it (untranslated: the
+ * usual name in analytics tools).
+ */
+export const referrerLabel = (host: string): string => host || "Direct / None";
 
 /**
  * Country name in Japanese for the ISO 3166-1 alpha-2 code Web Analytics

@@ -13,6 +13,7 @@ import {
   type AccessRange,
   type AccessStats,
 } from "~/lib/web-analytics";
+import { ReferrerIcon } from "./referrer-icon";
 import { Thumb } from "./thumb";
 import { muted } from "./ui";
 import { VisibilityBadge } from "./visibility-badge";
@@ -102,14 +103,17 @@ export const StatTile = ({
   </div>
 );
 
-/** One line per row: name, a thin bar, the count. */
+/**
+ * One line per row: name (after its referrer's icon, for referrer rows),
+ * a thin bar, the count.
+ */
 export const BarList = ({
   title,
   rows,
 }: {
   /** Its heading; none when the section around it has one. */
   title?: string;
-  rows: { label: string; value: number }[];
+  rows: { label: string; value: number; referrer?: string }[];
 }) => {
   const max = Math.max(0, ...rows.map((r) => r.value));
   return (
@@ -124,9 +128,18 @@ export const BarList = ({
               key={i}
               class="grid grid-cols-[minmax(0,8rem)_1fr_3rem] items-center gap-3 text-sm"
             >
-              <span class="truncate" title={r.label}>
-                {r.label}
-              </span>
+              {r.referrer === undefined ? (
+                <span class="truncate" title={r.label}>
+                  {r.label}
+                </span>
+              ) : (
+                <span class="flex min-w-0 items-center gap-2">
+                  <ReferrerIcon host={r.referrer} />
+                  <span class="truncate" title={r.label}>
+                    {r.label}
+                  </span>
+                </span>
+              )}
               <span
                 aria-hidden="true"
                 class="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800"
@@ -158,6 +171,7 @@ export const referrerRows = (stats: Pick<AccessStats, "referrers">) =>
   stats.referrers.map((r) => ({
     label: referrerLabel(r.host),
     value: r.pageViews,
+    referrer: r.host,
   }));
 
 /** Segmented control look, for links and buttons alike. */

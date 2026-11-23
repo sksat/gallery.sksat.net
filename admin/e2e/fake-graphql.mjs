@@ -6,6 +6,7 @@
 //
 // Usage: node e2e/fake-graphql.mjs <port> <token> <siteTag> <host>
 import { createServer } from "node:http";
+import { deflateSync } from "node:zlib";
 
 const [port, token, siteTag, host] = process.argv.slice(2);
 
@@ -91,6 +92,11 @@ const access = (vars) => {
       g(30, null, { refererHost: `admin.${host}` }),
       g(20, null, { refererHost: "t.co" }),
       g(5, null, { refererHost: "github.com" }),
+      // Not well known: their favicons through /api/favicon (the fake
+      // above), one found and one not.
+      g(4, null, { refererHost: "friends-blog.net" }),
+      g(3, null, { refererHost: "misskey.io" }),
+      g(2, null, { refererHost: "nofavicon.net" }),
     ],
   });
 };
@@ -135,7 +141,72 @@ const photoAccess = (query, vars) => {
   });
 };
 
+// A 16×16 PNG of one colour, made here so the fake needs no image file.
+const crc32 = (buf) => {
+  let c = ~0;
+  for (const b of buf) {
+    c ^= b;
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+};
+const chunk = (type, data) => {
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, "ascii");
+  data.copy(out, 8);
+  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+  return out;
+};
+const solidPng = (r, g, b) => {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(16, 0);
+  ihdr.writeUInt32BE(16, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8); // 8-bit RGB
+  const row = Buffer.from([
+    0,
+    ...Array.from({ length: 16 }, () => [r, g, b]).flat(),
+  ]);
+  const raw = Buffer.concat(Array.from({ length: 16 }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+};
+const ICON = solidPng(0x16, 0xa3, 0x4a);
+
+// Referrer sites for /api/favicon (bound as E2E_FAKE_FAVICON_URL): every
+// request the admin would send to https://<host>/<path> comes here as
+// GET /__favicon/<host>/<path>. friends-blog.net has no
+// /favicon.ico but links its icon from its home page; any other host has
+// nothing (the admin then answers its globe).
+const favicon = (req, res) => {
+  const [, , site = "", ...rest] = new URL(req.url, "http://x").pathname.split(
+    "/",
+  );
+  const path = `/${rest.join("/")}`;
+  if (site === "friends-blog.net") {
+    if (path === "/") {
+      res.writeHead(200, { "content-type": "text/html" });
+      return res.end(
+        '<html><head><link rel="icon" href="/static/icon.png"></head></html>',
+      );
+    }
+    if (path === "/static/icon.png") {
+      res.writeHead(200, { "content-type": "image/png" });
+      return res.end(ICON);
+    }
+  }
+  res.writeHead(404, { "content-type": "text/html" });
+  res.end("<html>not found</html>");
+};
+
 createServer((req, res) => {
+  if (req.method === "GET" && req.url?.startsWith("/__favicon/")) {
+    return favicon(req, res);
+  }
   if (req.method !== "POST") return json(res, 405, {});
   if (req.headers.authorization !== `Bearer ${token}`) {
     return json(res, 200, { data: null, errors: [{ message: "auth" }] });

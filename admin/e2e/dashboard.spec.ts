@@ -122,9 +122,56 @@ test("analytics page: ranges, photos, pages, referrers", async ({ page }) => {
 
   const refs = page.getByRole("region", { name: "参照元" });
   await expect(refs).toContainText("t.co");
-  await expect(refs).toContainText("(直接)");
+  await expect(refs).toContainText("Direct / None");
   // The admin is not a referrer.
   await expect(refs).not.toContainText("admin.gallery.sksat.net");
+
+  // Each referrer with its icon: bundled for well-known sites, the site's
+  // favicon through the admin for others (a globe when it has none).
+  const icon = (name: string) =>
+    refs
+      .getByRole("listitem")
+      .filter({ hasText: name })
+      .locator("[data-referrer-icon]");
+  await expect(icon("Direct / None")).toHaveAttribute(
+    "data-referrer-icon",
+    "direct",
+  );
+  await expect(icon("t.co")).toHaveAttribute("data-referrer-icon", "x");
+  await expect(icon("github.com")).toHaveAttribute(
+    "data-referrer-icon",
+    "github",
+  );
+  await expect(icon("misskey.io")).toHaveAttribute(
+    "data-referrer-icon",
+    "fediverse",
+  );
+  for (const host of ["friends-blog.net", "nofavicon.net"]) {
+    await expect(icon(host)).toHaveAttribute(
+      "src",
+      `/api/favicon/${host}/`,
+    );
+    await expect(icon(host)).toHaveAttribute("alt", "");
+  }
+  // Both load as images: the site's own and the globe.
+  await expect
+    .poll(() =>
+      icon("friends-blog.net").evaluate(
+        (img: HTMLImageElement) => img.complete && img.naturalWidth,
+      ),
+    )
+    .toBe(16);
+  const found = await page.request.get("/api/favicon/friends-blog.net/");
+  expect(found.headers()["content-type"]).toBe("image/png");
+  expect(found.headers()["x-favicon"]).toBe("found");
+  const missing = await page.request.get("/api/favicon/nofavicon.net/");
+  expect(missing.headers()["content-type"]).toBe("image/svg+xml");
+  expect(missing.headers()["x-favicon"]).toBe("missing");
+  // Never a fetch to a local or private place.
+  for (const host of ["localhost", "127.0.0.1", "169.254.169.254", "a.internal"]) {
+    const res = await page.request.get(`/api/favicon/${host}/`);
+    expect(res.status(), host).toBe(400);
+  }
 
   // Countries: a map shaded by views, and the first ten as a list.
   const countries = page.getByRole("region", { name: "国", exact: true });

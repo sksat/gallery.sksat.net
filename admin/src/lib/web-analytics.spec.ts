@@ -302,7 +302,7 @@ describe("getWebAnalyticsConfig", () => {
 
 describe("labels", () => {
   it("labels a direct visit", () => {
-    expect(referrerLabel("")).toBe("(直接)");
+    expect(referrerLabel("")).toBe("Direct / None");
     expect(referrerLabel("x.com")).toBe("x.com");
   });
 

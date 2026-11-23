@@ -51,6 +51,7 @@ FAKE_B2_PID=$!
 
 # The dashboard's usage and access cards ask a fake GraphQL Analytics API
 # on PORT+3 (e2e/fake-graphql.mjs) with this test token. Never the real one.
+# The same server stands in for referrer sites' favicons (/api/favicon).
 FAKE_GRAPHQL_PORT=$((PORT + 3))
 node e2e/fake-graphql.mjs "$FAKE_GRAPHQL_PORT" e2e-analytics-token \
   e02811320c7d4106aaa1e7ef097b03a6 gallery.sksat.net &
@@ -79,5 +80,6 @@ pnpm exec wrangler pages dev ./dist \
   --binding "E2E_FAKE_CAPTION_URL=http://127.0.0.1:${FAKE_B2_PORT}/__caption" \
   --binding CF_ANALYTICS_API_TOKEN=e2e-analytics-token \
   --binding "E2E_FAKE_GRAPHQL_URL=http://127.0.0.1:${FAKE_GRAPHQL_PORT}/" \
+  --binding "E2E_FAKE_FAVICON_URL=http://127.0.0.1:${FAKE_GRAPHQL_PORT}/__favicon/" \
   --ip 127.0.0.1 --port "$PORT" &
 wait $!
