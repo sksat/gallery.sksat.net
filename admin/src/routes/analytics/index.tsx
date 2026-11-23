@@ -143,7 +143,9 @@ export default component$(() => {
             />
           </section>
 
-          <div class="grid gap-6 lg:grid-cols-2">
+          {/* grid-cols-1, not the implicit column: that one is as wide as
+              the longest page or referrer name, past a narrow phone. */}
+          <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <section aria-label="ページ" class={[card, "p-5"]}>
               <PageRanking pages={data.pages} imageBase={data.imageBase} />
             </section>
