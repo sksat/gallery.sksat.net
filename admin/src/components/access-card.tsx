@@ -1,6 +1,7 @@
 import { component$ } from "@builder.io/qwik";
 import { Link } from "@builder.io/qwik-city";
 import type { AccessData } from "~/lib/access-load";
+import { ACCESS_RANGE_LABELS } from "~/lib/web-analytics";
 import { ColumnChart } from "./column-chart";
 import { PhotoRanking, SampledBadge, StatTile } from "./access-parts";
 import { card, link, muted } from "./ui";
@@ -30,7 +31,7 @@ export const AccessUnavailable = ({
   </>
 );
 
-// The dashboard's summary of the last 7 days: the two headline numbers
+// The dashboard's summary of the last 24 hours: the two headline numbers
 // with their change, a small chart and the most viewed photos. The rest
 // (other ranges, pages, referrers, countries) is on /analytics/.
 export const AccessCard = component$<{
@@ -47,7 +48,9 @@ export const AccessCard = component$<{
           </h2>
           {access.kind === "ok" && (
             <>
-              <span class={["text-sm", muted]}>過去 7 日</span>
+              <span class={["text-sm", muted]}>
+                過去 {ACCESS_RANGE_LABELS[range]}
+              </span>
               <SampledBadge />
             </>
           )}
@@ -82,7 +85,7 @@ export const AccessCard = component$<{
             <ColumnChart
               compact
               height="h-16"
-              label="日ごとのページビュー"
+              label={`${range === "24h" ? "時間" : "日"}ごとのページビュー`}
               series={["ページビュー"]}
               extraNames={["訪問"]}
               buckets={access.stats.series.map((b) => ({

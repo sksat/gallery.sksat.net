@@ -1,7 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import { CLOCK_STYLE } from "./clock";
 
 // The access card loads once on screen (e2e/fake-graphql.mjs numbers);
-// its dates move with the clock, so they are masked.
+// its dates move with the clock, so they are masked, and the hourly
+// chart's time labels and midnight line, whose places move too, hidden.
 const open = async (page: Page) => {
   await page.goto("/media/2/");
   await expect(page.getByRole("heading", { name: "Edit #2" })).toBeVisible();
@@ -10,11 +12,13 @@ const open = async (page: Page) => {
   await expect(access).toContainText("ビューア");
   await page.evaluate(() => window.scrollTo(0, 0));
 };
-const shoot = (page: Page, name: string) =>
-  expect(page).toHaveScreenshot(name, {
+const shoot = async (page: Page, name: string) => {
+  await page.addStyleTag({ content: CLOCK_STYLE });
+  await expect(page).toHaveScreenshot(name, {
     fullPage: true,
     mask: [page.locator("[data-date]")],
   });
+};
 
 test.describe("desktop", () => {
   test.use({ viewport: { width: 1280, height: 800 } });

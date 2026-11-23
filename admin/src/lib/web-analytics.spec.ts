@@ -17,10 +17,11 @@ const now = new Date("2026-11-18T03:04:05.678Z");
 
 describe("ranges", () => {
   it("parses the query value", () => {
-    expect(parseAccessRange("24h")).toBe("24h");
+    expect(parseAccessRange("7d")).toBe("7d");
     expect(parseAccessRange("30d")).toBe("30d");
-    expect(parseAccessRange("1y")).toBe("7d");
-    expect(parseAccessRange(null)).toBe("7d");
+    // The default is the last 24 hours.
+    expect(parseAccessRange("1y")).toBe("24h");
+    expect(parseAccessRange(null)).toBe("24h");
   });
 
   it("covers 24 whole hours, or whole JST days up to now", () => {
@@ -32,12 +33,12 @@ describe("ranges", () => {
     expect(rangeWindow("7d", now).since).toBe("2026-11-11T15:00:00Z");
     expect(rangeWindow("30d", now).since).toBe("2026-10-19T15:00:00Z");
     // Just after midnight JST, today is the new day.
-    expect(
-      rangeWindow("7d", new Date("2026-11-17T15:00:00Z")).since,
-    ).toBe("2026-11-11T15:00:00Z");
-    expect(
-      rangeWindow("7d", new Date("2026-11-17T14:59:59Z")).since,
-    ).toBe("2026-11-10T15:00:00Z");
+    expect(rangeWindow("7d", new Date("2026-11-17T15:00:00Z")).since).toBe(
+      "2026-11-11T15:00:00Z",
+    );
+    expect(rangeWindow("7d", new Date("2026-11-17T14:59:59Z")).since).toBe(
+      "2026-11-10T15:00:00Z",
+    );
   });
 
   it("lists the buckets oldest first", () => {

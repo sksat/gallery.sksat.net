@@ -21,7 +21,7 @@ import { PUBLIC_ID_RE } from "./public-id";
 
 export const ACCESS_RANGES = ["24h", "7d", "30d"] as const;
 export type AccessRange = (typeof ACCESS_RANGES)[number];
-export const DEFAULT_ACCESS_RANGE: AccessRange = "7d";
+export const DEFAULT_ACCESS_RANGE: AccessRange = "24h";
 
 export const ACCESS_RANGE_LABELS: Record<AccessRange, string> = {
   "24h": "24 時間",
@@ -153,6 +153,8 @@ export const getWebAnalyticsConfig = (
 /** How many pages are read per range (the ranking adds up their forms). */
 export const PAGE_LIMIT = 1000;
 export const TOP_LIMIT = 10;
+/** Countries are read in full (there are fewer than 250) for the map. */
+export const COUNTRY_LIMIT = 250;
 // Referrers are read with room for the site's own hosts, which are dropped.
 const REFERRER_LIMIT = 20;
 
@@ -182,7 +184,7 @@ export const accessQuery = (): string => {
         sum { visits }
         dimensions { requestPath }
       }
-      countries: rumPageloadEventsAdaptiveGroups(limit: ${TOP_LIMIT}, ${f}, orderBy: [count_DESC]) {
+      countries: rumPageloadEventsAdaptiveGroups(limit: ${COUNTRY_LIMIT}, ${f}, orderBy: [count_DESC]) {
         count
         dimensions { countryName }
       }

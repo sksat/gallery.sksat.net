@@ -9,6 +9,7 @@ import {
   changeRatio,
   countryLabel,
   referrerLabel,
+  TOP_LIMIT,
   type AccessRange,
   type AccessStats,
 } from "~/lib/web-analytics";
@@ -106,17 +107,18 @@ export const BarList = ({
   title,
   rows,
 }: {
-  title: string;
+  /** Its heading; none when the section around it has one. */
+  title?: string;
   rows: { label: string; value: number }[];
 }) => {
   const max = Math.max(0, ...rows.map((r) => r.value));
   return (
     <div>
-      <h3 class="text-sm font-semibold">{title}</h3>
+      {title && <h3 class="mb-2 text-sm font-semibold">{title}</h3>}
       {rows.length === 0 ? (
-        <p class={["mt-2 text-sm", muted]}>なし</p>
+        <p class={["text-sm", muted]}>なし</p>
       ) : (
-        <ol class="mt-2 space-y-1.5">
+        <ol class="space-y-1.5">
           {rows.map((r, i) => (
             <li
               key={i}
@@ -145,8 +147,9 @@ export const BarList = ({
   );
 };
 
+/** The first TOP_LIMIT countries (the site's stats read all, for the map). */
 export const countryRows = (stats: Pick<AccessStats, "countries">) =>
-  stats.countries.map((c) => ({
+  stats.countries.slice(0, TOP_LIMIT).map((c) => ({
     label: countryLabel(c.country),
     value: c.pageViews,
   }));

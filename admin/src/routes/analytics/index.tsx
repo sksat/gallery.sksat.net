@@ -13,6 +13,7 @@ import {
 } from "~/components/access-parts";
 import { ColumnChart } from "~/components/column-chart";
 import { PageRanking } from "~/components/page-ranking";
+import { WorldMap } from "~/components/world-map";
 import { backLink, card } from "~/components/ui";
 import { loadAccess, type AccessData } from "~/lib/access-load";
 import { defaultCache, graphqlEndpoint } from "~/lib/cf-graphql";
@@ -27,8 +28,8 @@ import {
 
 // The public site's access numbers in full: a range, the headline numbers
 // with their change, the chart, the most viewed photos and pages, the
-// referrers and countries. The dashboard shows a 7-day summary of the
-// same (cached) answer.
+// referrers, and the countries as a map and a list. The dashboard shows a
+// summary of the default range's (cached) answer.
 
 export const useAnalytics = routeLoader$<
   AccessData & { imageBase: string | null }
@@ -146,11 +147,20 @@ export default component$(() => {
             <section aria-label="ページ" class={[card, "p-5"]}>
               <PageRanking pages={data.pages} imageBase={data.imageBase} />
             </section>
-            <section aria-label="参照元と国" class={[card, "space-y-6 p-5"]}>
+            <section aria-label="参照元" class={[card, "p-5"]}>
               <BarList title="参照元" rows={referrerRows(access.stats)} />
-              <BarList title="国" rows={countryRows(access.stats)} />
             </section>
           </div>
+
+          <section aria-labelledby="countries-heading" class={[card, "p-5"]}>
+            <h2 id="countries-heading" class="mb-3 text-base font-semibold">
+              国
+            </h2>
+            <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+              <WorldMap countries={access.stats.countries} />
+              <BarList rows={countryRows(access.stats)} />
+            </div>
+          </section>
         </>
       )}
     </div>

@@ -1,9 +1,9 @@
 import { $, component$, Fragment, sync$, useSignal } from "@builder.io/qwik";
 import {
-  bucketAxisLabel,
   bucketTitle,
-  labelledIndexes,
+  currentBucketName,
   niceScale,
+  timeAxis,
 } from "~/lib/chart";
 import { formatCount } from "~/lib/cf-graphql";
 import { muted } from "./ui";
@@ -60,7 +60,14 @@ export const ColumnChart = component$<Props>(
     const sums = buckets.map((b) => b.values.reduce((s, v) => s + v, 0));
     const { top, ticks } = niceScale(Math.max(0, ...sums));
     const hourly = (buckets[0]?.key.length ?? 10) > 10;
-    const labelled = new Set(labelledIndexes(n, hourly));
+    const axis = timeAxis(buckets.map((bk) => bk.key));
+    const midnights = axis.days.filter((d) => d.index > 0);
+    // The newest bucket ends now: it is still filling.
+    const current = n - 1;
+    const titleOf = (k: number) =>
+      k === current
+        ? `${bucketTitle(buckets[k].key)} (集計中)`
+        : bucketTitle(buckets[k].key);
     const total = series.length > 1;
 
     const pick = $((ev: PointerEvent, el: HTMLElement) => {
@@ -181,6 +188,17 @@ export const ColumnChart = component$<Props>(
                   class="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-zinc-200 dark:bg-zinc-700"
                 />
               )}
+              {/* Midnight (JST) on an hourly chart: a dashed hairline. */}
+              {midnights.map((d) => (
+                <span
+                  key={d.index}
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-y-0 w-0 border-l border-dashed border-zinc-300 dark:border-zinc-600"
+                  style={{ left: `${(d.index / n) * 100}%` }}
+                  data-testid="chart-midnight"
+                  data-clock
+                />
+              ))}
               {buckets.map((bk, k) => (
                 <div
                   key={bk.key}
@@ -192,9 +210,14 @@ export const ColumnChart = component$<Props>(
                 >
                   {/* Columns: at most 24px, 4px round tops, square at the
                       baseline; a 2px gap between stacked parts. */}
+                  {/* The newest bucket is still filling: drawn lighter. */}
                   <div
-                    class="flex w-3/5 max-w-6 flex-col-reverse gap-[2px]"
+                    class={[
+                      "flex w-3/5 max-w-6 flex-col-reverse gap-[2px]",
+                      k === current && "opacity-45",
+                    ]}
                     style={{ height: `${(sums[k] / top) * 100}%` }}
+                    data-current={k === current ? "" : undefined}
                   >
                     {bk.values.map((v, s) =>
                       v > 0 ? (
@@ -218,7 +241,7 @@ export const ColumnChart = component$<Props>(
               <p class="sr-only" aria-live="polite">
                 {b
                   ? [
-                      bucketTitle(b.key),
+                      titleOf(i!),
                       ...series.map(
                         (name, s) => `${name} ${formatCount(b.values[s] ?? 0)}`,
                       ),
@@ -237,7 +260,7 @@ export const ColumnChart = component$<Props>(
                   data-testid="chart-tooltip"
                 >
                   <p class={["mb-1", muted]} data-date>
-                    {bucketTitle(b.key)}
+                    {titleOf(i!)}
                   </p>
                   <dl class="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-0.5">
                     {total && (
@@ -284,28 +307,74 @@ export const ColumnChart = component$<Props>(
                 </div>
               )}
             </div>
-            {!compact && (
-              // Time axis: some buckets labelled, the newest always.
+            {/* Time axis (timeAxis): hours or dates under their columns,
+                then on an hourly chart the days, from their midnight. */}
+            <div
+              aria-hidden="true"
+              class={["relative mt-1 h-4 text-[11px] tabular-nums", muted]}
+              data-testid="chart-ticks"
+            >
+              {axis.ticks.map((t) => (
+                <span
+                  key={t.index}
+                  class="absolute -translate-x-1/2 whitespace-nowrap"
+                  style={{ left: `${((t.index + 0.5) / n) * 100}%` }}
+                  data-clock
+                >
+                  {t.label}
+                </span>
+              ))}
+            </div>
+            {!compact && axis.days.length > 0 && (
               <div
                 aria-hidden="true"
-                class={["mt-1 flex text-[11px] tabular-nums", muted]}
+                class="relative h-4 text-[11px] font-medium text-zinc-700 tabular-nums dark:text-zinc-300"
+                data-testid="chart-days"
               >
-                {buckets.map((bk, k) => (
-                  <span key={bk.key} class="relative h-4 flex-1">
-                    {labelled.has(k) && (
-                      <span
-                        class="absolute left-1/2 -translate-x-1/2 whitespace-nowrap"
-                        data-date
-                      >
-                        {bucketAxisLabel(bk.key)}
-                      </span>
-                    )}
+                {axis.days.map((d) => (
+                  <span
+                    key={d.index}
+                    class={[
+                      "absolute whitespace-nowrap",
+                      d.index > 0 &&
+                        "border-l border-dashed border-zinc-300 pl-1 dark:border-zinc-600",
+                    ]}
+                    style={{ left: `${(d.index / n) * 100}%` }}
+                    data-clock
+                  >
+                    {d.label}
                   </span>
                 ))}
               </div>
             )}
           </div>
         </div>
+        {!compact && (
+          // Which column is still filling, and the time zone, once.
+          <figcaption
+            class={[
+              "mt-2 flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs",
+              muted,
+            ]}
+          >
+            <span class="flex items-center gap-1.5" data-testid="chart-current">
+              <span
+                aria-hidden="true"
+                class={["size-2.5 rounded-sm opacity-45", SERIES_COLORS[0]]}
+              />
+              {n > 0 && (
+                <span>
+                  薄い棒は集計中 (
+                  <span data-clock>
+                    {currentBucketName(buckets[current].key)}
+                  </span>
+                  )
+                </span>
+              )}
+            </span>
+            <span>日本時間 (JST)</span>
+          </figcaption>
+        )}
         <table class="sr-only">
           <caption>{label}</caption>
           <thead>
@@ -324,9 +393,9 @@ export const ColumnChart = component$<Props>(
             </tr>
           </thead>
           <tbody>
-            {buckets.map((bk) => (
+            {buckets.map((bk, k) => (
               <tr key={bk.key}>
-                <th scope="row">{bucketTitle(bk.key)}</th>
+                <th scope="row">{titleOf(k)}</th>
                 {series.map((name, s) => (
                   <td key={name}>{bk.values[s] ?? 0}</td>
                 ))}

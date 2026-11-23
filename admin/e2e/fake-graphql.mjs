@@ -76,6 +76,15 @@ const access = (vars) => {
       g(150, null, { countryName: "JP" }),
       g(40, null, { countryName: "US" }),
       g(10, null, { countryName: "DE" }),
+      g(6, null, { countryName: "KR" }),
+      g(4, null, { countryName: "TW" }),
+      g(3, null, { countryName: "FR" }),
+      g(2, null, { countryName: "GB" }),
+      g(2, null, { countryName: "BR" }),
+      g(1, null, { countryName: "AU" }),
+      g(1, null, { countryName: "CA" }),
+      // Too small for the map: in the list only (11th, so not even there).
+      g(1, null, { countryName: "SG" }),
     ],
     referrers: [
       g(100, null, { refererHost: "" }),

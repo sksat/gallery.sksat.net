@@ -37,3 +37,4 @@ package-lock.json
 yarn.lock
 server
 test-results
+admin/src/lib/world-map.gen.ts

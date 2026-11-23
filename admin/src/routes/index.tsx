@@ -17,13 +17,14 @@ import {
   summarizeStorage,
   type StorageSummary,
 } from "~/lib/storage";
+import { DEFAULT_ACCESS_RANGE } from "~/lib/web-analytics";
 
 type DashboardData = {
   /** null without a D1 binding (pnpm dev, previews); "error" if the query failed. */
   storage: StorageSummary | null | "error";
   dbBytes: number | null;
   usage: D1UsageResult;
-  /** The last 7 days; other ranges are on /analytics/. */
+  /** The default range (24 hours); the others are on /analytics/. */
   access: AccessData;
   imageBase: string | null;
 };
@@ -52,7 +53,7 @@ export const useDashboard = routeLoader$<DashboardData>(
     const accessPromise = loadAccess(
       platform,
       db,
-      "7d",
+      DEFAULT_ACCESS_RANGE,
       deps,
       { photos: SUMMARY_PHOTOS, pages: 0 },
       "/ loader",

@@ -21,27 +21,22 @@ export const niceScale = (max: number): { top: number; ticks: number[] } => {
   return { top, ticks };
 };
 
-/**
- * Indexes of the buckets that get an axis label: every one up to 7, else
- * every 6th (hours) or 7th (days), counted back from the newest so the
- * latest bucket is always labelled.
- */
-export const labelledIndexes = (n: number, hourly: boolean): number[] => {
-  const step = n <= 7 ? 1 : hourly ? 6 : 7;
-  const out: number[] = [];
-  for (let i = n - 1; i >= 0; i -= step) out.unshift(i);
-  return out;
-};
-
 const JST_MS = 9 * 3600_000;
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 /**
  * Bucket keys (web-analytics.ts): "2026-11-18" is a JST day, shown as it
  * is; "2026-11-18T03" a UTC hour, shown in JST like the rest of the admin.
+ * Both as a Date whose UTC fields are the JST ones.
  */
 const hourJst = (key: string): Date =>
   new Date(Date.parse(`${key.slice(0, 13)}:00:00Z`) + JST_MS);
+const dayOf = (key: string): Date =>
+  key.length > 10 ? hourJst(key) : new Date(`${key}T00:00:00Z`);
+
+/** "11/18 (水)" of a Date in JST fields. */
+const dayName = (d: Date): string =>
+  `${d.getUTCMonth() + 1}/${d.getUTCDate()} (${WEEKDAYS[d.getUTCDay()]})`;
 
 /** Short axis label: "11/18", or the hour "12時" (JST). */
 export const bucketAxisLabel = (key: string): string => {
@@ -49,16 +44,61 @@ export const bucketAxisLabel = (key: string): string => {
   return `${Number(key.slice(5, 7))}/${Number(key.slice(8, 10))}`;
 };
 
-/** Tooltip heading: "11/18 (水)", or "11/18 12:00–13:00" (JST). */
-export const bucketTitle = (key: string): string => {
-  if (key.length > 10) {
+export type AxisTick = { index: number; label: string };
+
+/**
+ * The time axis of a run of bucket keys, oldest first:
+ * - hours: a tick at every 6th JST hour ("0時", "6時", "12時", "18時"),
+ *   and a day label ("11/23 (月)") under the first bucket and at each
+ *   midnight, where the chart also draws a line. The first bucket's day
+ *   is left out when a midnight follows within 4 hours (they would
+ *   overlap).
+ * - days: every day up to 7, else every 7th day counted back from the
+ *   newest (so today is always labelled), as "11/23"; no day labels.
+ */
+export const timeAxis = (
+  keys: string[],
+): { ticks: AxisTick[]; days: AxisTick[] } => {
+  const n = keys.length;
+  if (n === 0 || keys[0].length <= 10) {
+    const step = n <= 7 ? 1 : 7;
+    const ticks: AxisTick[] = [];
+    for (let i = n - 1; i >= 0; i -= step) {
+      ticks.unshift({ index: i, label: bucketAxisLabel(keys[i]) });
+    }
+    return { ticks, days: [] };
+  }
+  const ticks: AxisTick[] = [];
+  const days: AxisTick[] = [];
+  keys.forEach((key, index) => {
     const d = hourJst(key);
     const h = d.getUTCHours();
-    return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${h}:00–${h + 1}:00`;
+    if (h % 6 === 0) ticks.push({ index, label: `${h}時` });
+    if (h === 0 && index > 0) days.push({ index, label: dayName(d) });
+  });
+  if (!(days.length > 0 && days[0].index < 4)) {
+    days.unshift({ index: 0, label: dayName(hourJst(keys[0])) });
   }
-  const d = new Date(`${key}T00:00:00Z`);
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()} (${WEEKDAYS[d.getUTCDay()]})`;
+  return { ticks, days };
 };
+
+/**
+ * Tooltip heading, the bucket's whole span in JST: "11/18 (水)", or
+ * "11/18 (水) 12:00–13:00" for an hour.
+ */
+export const bucketTitle = (key: string): string => {
+  const d = dayOf(key);
+  if (key.length <= 10) return dayName(d);
+  const h = d.getUTCHours();
+  return `${dayName(d)} ${h}:00–${h + 1}:00`;
+};
+
+/**
+ * What the note under a chart calls its newest bucket, which is still
+ * filling: "14時台" for an hour, "今日" for a day.
+ */
+export const currentBucketName = (key: string): string =>
+  key.length > 10 ? `${hourJst(key).getUTCHours()}時台` : "今日";
 
 /** "+12%", "−8%" (a real minus sign) or "±0%". */
 export const formatChange = (ratio: number): string => {
