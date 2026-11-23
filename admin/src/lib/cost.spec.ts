@@ -6,6 +6,7 @@ import {
   fetchCostUsage,
   getCostConfig,
   imagesCostUsd,
+  meterLevel,
   monthElapsed,
   parseImagesUsage,
   parseR2Usage,
@@ -47,6 +48,20 @@ describe("cost math", () => {
   it("charges unique transformations past 5,000 at $0.50 per 1,000", () => {
     expect(imagesCostUsd(5000)).toBe(0);
     expect(imagesCostUsd(7000)).toBeCloseTo(1);
+  });
+
+  it("marks a meter near its free tier from 80%, over past it", () => {
+    const m = (used: number, free: number | null) => ({
+      label: "x",
+      used,
+      free,
+      unit: "count" as const,
+    });
+    expect(meterLevel(m(5, null))).toBe("none");
+    expect(meterLevel(m(79, 100))).toBe("ok");
+    expect(meterLevel(m(80, 100))).toBe("near");
+    expect(meterLevel(m(100, 100))).toBe("near");
+    expect(meterLevel(m(101, 100))).toBe("over");
   });
 
   it("classes R2 operations, unknown ones as Class A", () => {

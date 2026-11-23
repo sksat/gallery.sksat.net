@@ -22,32 +22,45 @@ test("dashboard: storage card adds up the fixture", async ({ page }) => {
 
 // B2 from the fixture's file sizes, the rest from e2e/fake-graphql.mjs,
 // whose usage stays in the free tiers.
-test("dashboard: cost card, one row per service", async ({ page }) => {
+test("dashboard: cost card, one tile per service", async ({ page }) => {
   await page.goto("/");
   const cost = page.getByRole("region", { name: "費用" });
-  await expect(cost.getByTestId("cost-total")).toHaveText("< $0.01");
-  await expect(cost).toContainText("/ 月 (見込み)");
+  // Estimates read as such ("≈" on screen, or "<" for under a cent;
+  // "見込み" to screen readers).
+  await expect(cost.getByTestId("cost-total")).toHaveText("見込み < $0.01");
   await expect(cost).not.toContainText("取得できなかった分を除く");
-  const row = (key: string) => cost.locator(`[data-cost="${key}"]`);
-  await expect(row("b2")).toContainText("Backblaze B2現在料金保存 30.0 MB");
-  await expect(row("b2").locator("[data-cost-usd]")).toHaveText("< $0.01");
-  await expect(row("r2")).toContainText(
-    "保存 4.20 GB / 10.0 GBClass A 12,000 / 1,000,000Class B 250,000 / 10,000,000",
-  );
-  await expect(row("r2").locator("[data-cost-usd]")).toHaveText("$0.00");
-  await expect(row("images")).toContainText("今月");
-  await expect(row("images")).toContainText("変換 150 / 5,000");
-  await expect(row("d1")).toContainText(
-    "読み取り 45,000 / 5,000,000書き込み 300 / 100,000",
-  );
-  await expect(row("d1").locator("[data-cost-usd]")).toHaveText("無料");
-  await expect(row("workers")).toContainText("今日");
-  await expect(row("workers")).toContainText("リクエスト 12,345 / 100,000");
-  await expect(row("free").locator("[data-cost-usd]")).toHaveText("無料");
-  await expect(row("r2").getByRole("link", { name: "料金" })).toHaveAttribute(
-    "href",
-    "https://developers.cloudflare.com/r2/pricing/",
-  );
+  await expect(
+    cost
+      .getByRole("list", { name: "サービス別の見込み" })
+      .getByRole("listitem"),
+  ).toHaveText([
+    "Backblaze B2見込み < $0.01",
+    "R2≈見込み $0.00",
+    "画像変換≈見込み $0.00",
+  ]);
+
+  const tile = (name: string) =>
+    cost.getByRole("article", { name, exact: true });
+  const usd = (name: string) => tile(name).locator("[data-cost-usd]");
+  await expect(usd("Backblaze B2")).toContainText("< $0.01");
+  await expect(tile("Backblaze B2")).toContainText("保存30.0 MB");
+  await expect(tile("Backblaze B2")).toContainText("無料枠なし");
+  await expect(usd("R2")).toContainText("$0.00今月の使用量");
+  await expect(tile("R2")).toContainText("保存4.20 GB / 10.0 GB");
+  await expect(tile("R2")).toContainText("Class A12,000 / 1,000,000");
+  await expect(tile("R2")).toContainText("Class B250,000 / 10,000,000");
+  await expect(tile("Image Transformations")).toContainText("変換150 / 5,000");
+  await expect(usd("D1")).toHaveText("無料今日の使用量");
+  await expect(tile("D1")).toContainText("読み取り45,000 / 5,000,000");
+  await expect(tile("D1")).toContainText("書き込み300 / 100,000");
+  await expect(usd("Workers")).toHaveText("無料今日の使用量");
+  await expect(tile("Workers")).toContainText("リクエスト12,345 / 100,000");
+  await expect(usd("Pages · GitHub Actions")).toHaveText("無料");
+  // Nothing is near a limit.
+  await expect(cost).not.toContainText("上限");
+  await expect(
+    tile("R2").getByRole("link", { name: "R2 の料金" }),
+  ).toHaveAttribute("href", "https://developers.cloudflare.com/r2/pricing/");
 });
 
 test("dashboard: cost card without the token, and refused", async ({
@@ -55,27 +68,25 @@ test("dashboard: cost card without the token, and refused", async ({
 }) => {
   await page.goto("/e2e/cost/?token=none");
   const cost = page.getByRole("region", { name: "費用" });
+  const tile = (name: string) =>
+    cost.getByRole("article", { name, exact: true });
   // B2 is from D1 and needs no token.
-  await expect(cost.locator('[data-cost="b2"]')).toContainText("保存 30.0 MB");
-  for (const key of ["r2", "images", "d1", "workers"]) {
-    await expect(cost.locator(`[data-cost="${key}"]`)).toContainText(
-      "API トークン設定後に表示",
-    );
+  await expect(tile("Backblaze B2")).toContainText("保存30.0 MB");
+  for (const name of ["R2", "Image Transformations", "D1", "Workers"]) {
+    await expect(tile(name)).toContainText("API トークン設定後に表示");
   }
-  await expect(cost.getByTestId("cost-total")).toHaveText("< $0.01");
+  await expect(cost.getByTestId("cost-total")).toContainText("< $0.01");
   await expect(cost).toContainText("取得できなかった分を除く");
 
   await page.goto("/e2e/cost/?token=wrong");
-  const images = cost.locator('[data-cost="images"]');
+  const images = tile("Image Transformations");
   await expect(images).toContainText("取得できませんでした");
   await expect(
     images.getByRole("link", { name: "Cloudflare の請求画面で確認" }),
   ).toHaveAttribute("href", /dash\.cloudflare\.com/);
   await expect(images.locator("[data-cost-usd]")).toHaveText("—");
   // Free plans stay free when unmeasured.
-  await expect(
-    cost.locator('[data-cost="workers"] [data-cost-usd]'),
-  ).toHaveText("無料");
+  await expect(tile("Workers").locator("[data-cost-usd]")).toHaveText("無料");
 });
 
 // The analytics numbers come from e2e/fake-graphql.mjs (the E2E server's

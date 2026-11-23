@@ -438,6 +438,13 @@ export type Meter = {
   unit: "bytes" | "count";
 };
 
+/** How close a meter is to its free tier: "near" from 80%, "over" past it. */
+export const meterLevel = (m: Meter): "none" | "ok" | "near" | "over" => {
+  if (m.free === null) return "none";
+  if (m.used > m.free) return "over";
+  return m.free > 0 && m.used >= m.free * 0.8 ? "near" : "ok";
+};
+
 export type CostRow = {
   key: "b2" | "r2" | "images" | "d1" | "workers" | "free";
   name: string;
