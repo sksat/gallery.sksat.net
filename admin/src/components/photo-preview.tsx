@@ -101,7 +101,6 @@ export const PhotoPreview = component$<Props>((props) => {
   const notice = useSignal<Notice | null>(null);
   /** The 反映 step that shows what becomes visible, before applying. */
   const confirming = useSignal(false);
-  const touchStart = useSignal<{ x: number; y: number } | null>(null);
   const nav = useNavigate();
   const loc = useLocation();
   const boxClass =
@@ -179,27 +178,60 @@ export const PhotoPreview = component$<Props>((props) => {
 
   // A horizontal swipe steps like ←/→: on the viewer, and on the page's
   // photo (only there, so the form scrolls and works as usual).
-  const swipeStart = $((e: TouchEvent) => {
-    const t = e.touches[0];
-    // Not a swipe: two fingers (pinch), panning a zoomed-in photo, or
-    // starting at the screen's edge (the browser's own back).
-    touchStart.value = canStartSwipe({
-      fingers: e.touches.length,
-      x: t.clientX,
-      width: window.innerWidth,
-      scale: window.visualViewport?.scale ?? 1,
-    })
-      ? { x: t.clientX, y: t.clientY }
-      : null;
-  });
-  const swipeEnd = $((e: TouchEvent) => {
-    const start = touchStart.value;
-    touchStart.value = null;
-    const t = e.changedTouches[0];
-    if (!start || !t) return;
-    const dir = swipe(t.clientX - start.x, t.clientY - start.y);
-    if (dir) go(dir);
-  });
+  // Plain DOM listeners, added by a visible task (then data-swipe-ready is
+  // set): with Qwik's, whose code loads on the first touch, the end's
+  // handler could run before the start's once it had loaded, and the
+  // swipe was lost. A swipe before the task has run does nothing, as in
+  // the public gallery's overlay (use-swipe.ts).
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(
+    ({ cleanup }) => {
+      const areas: HTMLElement[] = [];
+      if (trigger.value) areas.push(trigger.value);
+      if (dialog.value) areas.push(dialog.value);
+      let start: { x: number; y: number } | null = null;
+      const onStart = (e: TouchEvent) => {
+        const t = e.touches[0];
+        // Not a swipe: two fingers (pinch), panning a zoomed-in photo, or
+        // starting at the screen's edge (the browser's own back).
+        start =
+          t &&
+          canStartSwipe({
+            fingers: e.touches.length,
+            x: t.clientX,
+            width: window.innerWidth,
+            scale: window.visualViewport?.scale ?? 1,
+          })
+            ? { x: t.clientX, y: t.clientY }
+            : null;
+      };
+      const onEnd = (e: TouchEvent) => {
+        const s = start;
+        start = null;
+        const t = e.changedTouches[0];
+        if (!s || !t) return;
+        const dir = swipe(t.clientX - s.x, t.clientY - s.y);
+        if (dir) go(dir);
+      };
+      const onCancel = () => (start = null);
+      const passive = { passive: true };
+      for (const el of areas) {
+        el.addEventListener("touchstart", onStart, passive);
+        el.addEventListener("touchend", onEnd, passive);
+        el.addEventListener("touchcancel", onCancel, passive);
+        el.setAttribute("data-swipe-ready", "");
+      }
+      cleanup(() => {
+        for (const el of areas) {
+          el.removeEventListener("touchstart", onStart);
+          el.removeEventListener("touchend", onEnd);
+          el.removeEventListener("touchcancel", onCancel);
+          el.removeAttribute("data-swipe-ready");
+        }
+      });
+    },
+    { strategy: "document-ready" },
+  );
 
   /** Mark (or unmark) this photo's new visibility, then move on. */
   const mark = $(async (choice: Visibility) => {
@@ -396,9 +428,6 @@ export const PhotoPreview = component$<Props>((props) => {
         aria-label="写真を全画面で表示"
         aria-haspopup="dialog"
         onClick$={openViewer}
-        onTouchStart$={swipeStart}
-        onTouchCancel$={() => (touchStart.value = null)}
-        onTouchEnd$={swipeEnd}
         class="block w-full cursor-zoom-in rounded-xl"
       >
         <Thumb
@@ -435,9 +464,6 @@ export const PhotoPreview = component$<Props>((props) => {
           const active = document.activeElement;
           if (!active || active === document.body) trigger.value?.focus();
         }}
-        onTouchStart$={swipeStart}
-        onTouchCancel$={() => (touchStart.value = null)}
-        onTouchEnd$={swipeEnd}
         class="m-0 h-dvh max-h-none w-screen max-w-none bg-transparent p-0 backdrop:bg-transparent"
       >
         <div class={[overlayClass.backdrop, "px-3"]}>
