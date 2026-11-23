@@ -1363,11 +1363,16 @@ export default component$(() => {
     toast.value = { tone: "success", message: "元に戻しました。" };
   });
   useTask$(({ track }) => {
-    // Another folder (e.g. the one just created): the form starts closed,
-    // also when coming back. The same folder's data again: left as it is.
-    const shown = track(
-      () => (data.value.kind === "ok" && data.value.files?.dir) || null,
-    );
+    // Another folder (e.g. the one just created), or no Files view (a
+    // filter that matches nothing hides it with the form): the form starts
+    // closed, also when coming back. The same folder's data again: left as
+    // it is.
+    const shown = track(() => {
+      const d = data.value;
+      if (d.kind !== "ok" || !d.files) return null;
+      const filtered = Boolean(d.platform || d.visibility || d.q || d.date);
+      return d.total === 0 && filtered ? null : d.files.dir;
+    });
     if (newFolderIn.value !== shown) newFolderIn.value = null;
   });
   useTask$(({ track }) => {

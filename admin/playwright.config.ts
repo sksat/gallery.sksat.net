@@ -75,7 +75,9 @@ export default defineConfig({
     // Qwik loads a handler's code on the first interaction, from wrangler
     // pages dev, whose static files once took 4.8 s on a CI runner (all
     // the requests in that window answered at once): the default 5 s,
-    // counted from the click, was then too short for its result.
+    // counted from the click, was then too short for its result. Every
+    // spec's first interaction with a page waits for such code, so this is
+    // set for all of them rather than for the assertion that failed once.
     timeout: 10_000,
     toHaveScreenshot: {
       maxDiffPixelRatio: 0.01,

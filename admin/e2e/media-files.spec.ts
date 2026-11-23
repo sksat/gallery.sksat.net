@@ -161,6 +161,26 @@ test("media files: create an empty folder", async ({ page }) => {
   await expect(page).toHaveURL(/dir=\/mock$/);
 });
 
+test("media files: a filter that hides the view closes the New folder form", async ({
+  page,
+}) => {
+  await page.goto("/media/?view=files&dir=/mock");
+  await page.getByRole("button", { name: "New folder" }).click();
+  await page.getByLabel("Folder name").fill("half");
+  // Nothing matches: the empty state replaces the view and its form.
+  await page.getByLabel("File contains").fill("nothing-matches");
+  await page.getByRole("button", { name: "Filter" }).click();
+  await expect(
+    page.getByRole("heading", { name: "No media match these filters" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Clear filters" }).click();
+  await expect(page).toHaveURL(/\?view=files&dir=\/mock$/);
+  // Back in the same folder: closed, not open again with an empty name.
+  await expect(page.getByTestId("file-tile")).toHaveCount(5);
+  await expect(page.getByRole("button", { name: "New folder" })).toBeVisible();
+  await expect(page.getByLabel("Folder name")).toHaveCount(0);
+});
+
 test("media files: a folder name is checked on the server too", async ({
   page,
 }) => {
