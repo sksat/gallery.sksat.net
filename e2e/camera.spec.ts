@@ -58,17 +58,22 @@ test("camera: the caption links a photo to its camera page", async ({
   ).toHaveAttribute("alt", "VirtualLens2: Front");
 
   // What was taken with it: its two public photos (not the unlisted one),
-  // their dates, and its own tag, which links to the gallery.
+  // their dates, and its own tag, which links to its photos with the tag.
   const facts = header.getByTestId("camera-facts");
   await expect(facts).toContainText("写真2 枚");
   await expect(facts).toContainText("撮影期間2023年12月2日 – 2023年12月5日");
   await expect(facts.getByRole("link", { name: "VRChat" })).toHaveAttribute(
     "href",
-    "/?tag=VRChat",
+    "/?camera=virtuallens2&tag=VRChat",
   );
 
-  // The photos come after the camera, with no filters of their own.
+  // The photos come after the camera, with no filters of their own, and
+  // all of them are shown (fewer than a page): no 「さらに表示」.
+  await expect(
+    page.getByRole("heading", { name: "このカメラで撮影した写真" }),
+  ).toBeVisible();
   await expect(images).toHaveCount(2);
+  await expect(page.getByTestId("show-more")).toHaveCount(0);
   await expect(page.getByTestId("tag-chip")).toHaveCount(0);
   await expect(page.getByTestId("camera-select")).toHaveCount(0);
   await expect(page.getByTestId("camera-all-photos")).toHaveAttribute(

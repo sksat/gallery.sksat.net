@@ -17,7 +17,9 @@ export const DigitizedList = component$<{ media: MediaIndex }>(({ media }) =>
       class="mt-8 px-2 sm:px-3"
       data-testid="digitized-list"
     >
-      <SectionHeading id="camera-digitized">スキャンした写真</SectionHeading>
+      <SectionHeading id="camera-digitized">
+        このカメラでスキャンした写真
+      </SectionHeading>
       <ul class="flex flex-wrap gap-1">
         {media.map((m) => (
           <li key={m.id}>

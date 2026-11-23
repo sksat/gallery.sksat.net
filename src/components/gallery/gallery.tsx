@@ -67,8 +67,14 @@ type GalleryProps = {
    * then that camera's photos alone, newest first, with no filters.
    */
   camera?: CameraJSON;
-  /** Show at most this many tiles (the overlay still steps through all). */
+  /**
+   * Show this many tiles first, and as many more each time the end of the
+   * grid scrolls into view or 「さらに表示」 is pressed (the photos are all
+   * loaded already; the overlay steps through all of them).
+   */
   limit?: number;
+  /** Where 「さらに表示」 leads without JavaScript. */
+  moreHref?: string;
   /**
    * The photo of a /photo/<id>/ page, from its route: what the overlay
    * shows for it when it is in no list (unlisted).
@@ -139,6 +145,29 @@ export default component$<GalleryProps>((props) => {
   // Aspect ratios of loaded photos whose size the API did not give.
   const natural = useStore<Record<string, number>>({});
   const grid = useSignal<HTMLElement>();
+  // How many tiles are shown, when not all (`limit`).
+  const shown = useSignal<number | undefined>(props.limit);
+  const sentinel = useSignal<HTMLElement>();
+  const showMore = $(() => {
+    if (shown.value !== undefined && props.limit !== undefined)
+      shown.value += props.limit;
+  });
+  // More as the end of the grid comes near (it is re-rendered, and so
+  // observed again, after each step).
+  // eslint-disable-next-line qwik/no-use-visible-task
+  useVisibleTask$(({ track, cleanup }) => {
+    track(() => shown.value);
+    const el = track(() => sentinel.value);
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) showMore();
+      },
+      { rootMargin: "400px" },
+    );
+    observer.observe(el);
+    cleanup(() => observer.disconnect());
+  });
   // Photos of unknown size that loaded before the page resumed (cached
   // ones) fired their load event before anything could hear it.
   // eslint-disable-next-line qwik/no-use-visible-task
@@ -619,7 +648,7 @@ export default component$<GalleryProps>((props) => {
                 }
                 {
                   // 画像の一覧表示
-                  filteredMedia.slice(0, props.limit).map((m) => {
+                  filteredMedia.slice(0, shown.value).map((m) => {
                     const id = m.value.id;
                     const known = hasKnownSize(m.value);
                     return (
@@ -701,6 +730,21 @@ export default component$<GalleryProps>((props) => {
                   style={{ "flex-grow": String(FILLER_GROW) }}
                 />
               </div>
+              {shown.value !== undefined &&
+                filteredMedia.length > shown.value && (
+                  <div ref={sentinel} class="mt-4 flex justify-center">
+                    {/* Without JS, the gallery with all of them. */}
+                    <a
+                      href={props.moreHref}
+                      data-testid="show-more"
+                      preventdefault:click
+                      onClick$={showMore}
+                      class="inline-flex min-h-11 items-center rounded-full border border-white/30 px-4 text-sm text-[var(--color-text)] hover:border-white/70"
+                    >
+                      さらに表示
+                    </a>
+                  </div>
+                )}
             </>
           );
         })()}

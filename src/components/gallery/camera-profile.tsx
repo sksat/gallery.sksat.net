@@ -12,6 +12,7 @@ import {
 import { GRID_CANDIDATES, imageUrl, srcSet, type PresetName } from "./images";
 import { galleryUrl } from "./logic";
 import { PhotoOverlay } from "./photo-overlay";
+import { DEFAULT_SORT } from "./sort";
 import { DEFAULT_TAG_MODE } from "./tags";
 import type { CameraImageJSON, CameraJSON } from "./types";
 
@@ -59,7 +60,8 @@ const BackLinks = component$(() => (
  * large, the others as thumbnails that bring it up; the large one opens in
  * the photo overlay), its name and maker, description, and a sheet of
  * what it is and what was taken with it. `taggedTags` are the camera's
- * tags some public photo has: they link to the gallery filtered by them.
+ * tags some of its public photos have: they link to the gallery filtered
+ * by the camera and that tag.
  */
 export const CameraProfile = component$<{
   camera: CameraJSON;
@@ -194,10 +196,11 @@ export const CameraProfile = component$<{
                         <li key={tag}>
                           {taggedTags.includes(tag) ? (
                             <a
-                              href={galleryUrl({
-                                tags: [tag],
-                                mode: DEFAULT_TAG_MODE,
-                              })}
+                              href={galleryUrl(
+                                { tags: [tag], mode: DEFAULT_TAG_MODE },
+                                DEFAULT_SORT,
+                                camera.slug,
+                              )}
                               class="inline-block rounded-full border border-white/30 px-2.5 py-0.5 text-[var(--color-text)] hover:border-white/70"
                             >
                               {tag}

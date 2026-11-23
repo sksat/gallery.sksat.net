@@ -6,7 +6,11 @@ import {
 } from "@builder.io/qwik-city";
 
 import { CameraProfile } from "~/components/gallery/camera-profile";
-import { cameraFacts, digitizedWith } from "~/components/gallery/cameras";
+import {
+  cameraFacts,
+  digitizedWith,
+  takenWith,
+} from "~/components/gallery/cameras";
 import {
   DigitizedList,
   SectionHeading,
@@ -70,18 +74,25 @@ export const useCameraPage = routeLoader$<CameraPage>(async (event) => {
   };
 });
 
-/** How many of the camera's photos its page shows (newest first). */
-const PREVIEW = 12;
+/**
+ * How many of the camera's photos its page shows first (newest first), and
+ * how many more each time the end of them scrolls into view.
+ */
+const PAGE = 12;
 
-// The camera first, then the photos taken with it (the newest, and a link
-// to them all in the gallery), then the ones digitised with it.
+// The camera first, then the photos taken with it (more as the page
+// scrolls, and a link to them in the gallery), then the ones digitised
+// with it.
 export default component$(() => {
   const page = useCameraPage();
   const index = useGalleryIndex();
   const data = useComputed$(() => {
     const media = index.value.media.map(transformMediaInfo);
     const slug = page.value.camera.slug;
-    const tagged = new Set(media.flatMap(mediaTags));
+    // A tag links to the camera's photos with it: only when there are any.
+    const tagged = new Set(
+      media.filter((m) => takenWith(m, slug)).flatMap(mediaTags),
+    );
     return {
       facts: cameraFacts(media, slug),
       digitized: digitizedWith(media, slug),
@@ -90,6 +101,11 @@ export default component$(() => {
   });
   const { camera } = page.value;
   const { facts, digitized, taggedTags } = data.value;
+  const galleryHref = galleryUrl(
+    { tags: [], mode: DEFAULT_TAG_MODE },
+    DEFAULT_SORT,
+    camera.slug,
+  );
   return (
     <div class="py-2">
       <div class="px-1 sm:px-2">
@@ -104,23 +120,14 @@ export default component$(() => {
           <div class="px-2 sm:px-3">
             <SectionHeading
               id="camera-photos"
-              href={galleryUrl(
-                { tags: [], mode: DEFAULT_TAG_MODE },
-                DEFAULT_SORT,
-                camera.slug,
-              )}
-              // All of them, or (when all are here) with the gallery's
-              // filters and sort order.
-              linkText={
-                facts.count > PREVIEW
-                  ? `すべて見る（${facts.count} 枚）`
-                  : "ギャラリーで見る"
-              }
+              // With the gallery's tag filter and sort order.
+              href={galleryHref}
+              linkText="ギャラリーで見る"
             >
-              このカメラで撮った写真
+              このカメラで撮影した写真
             </SectionHeading>
           </div>
-          <Gallery camera={camera} limit={PREVIEW} />
+          <Gallery camera={camera} limit={PAGE} moreHref={galleryHref} />
         </section>
       )}
       <DigitizedList media={digitized} />
