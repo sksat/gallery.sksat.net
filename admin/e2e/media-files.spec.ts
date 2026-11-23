@@ -181,6 +181,8 @@ test("media files: a new folder's name that is taken, then Esc and undo", async 
     "/mock/new-1 はすでにあります",
   );
   await expect(field).toHaveValue("new-1");
+  // The folder is still there, and 元に戻す still takes it away.
+  await expect(page.getByRole("button", { name: "元に戻す" })).toBeVisible();
   // Esc keeps the name it was made with.
   await field.press("Escape");
   await expect(field).toHaveCount(0);

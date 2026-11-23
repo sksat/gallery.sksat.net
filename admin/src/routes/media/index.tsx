@@ -1179,6 +1179,12 @@ export default component$(() => {
           toast.value = {
             tone: "error",
             message: r.value.message ?? "名前を変えられませんでした",
+            // A folder just made is still there under its first name:
+            // 元に戻す still takes it away.
+            actionLabel:
+              a.created && lastFolderUndo.value?.remove
+                ? "元に戻す"
+                : undefined,
           };
           return false;
         }
