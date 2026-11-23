@@ -8,6 +8,7 @@ import {
   markManual,
   nextTagState,
   shared,
+  tagShownCount,
   tagVisState,
   visChanges,
   sourcePatch,
@@ -414,6 +415,15 @@ describe("tags public on the photos (0021)", () => {
     expect(tagVisState("night", photos, ctx.publicTags)).toBe("hidden");
     // No photo has it: the tag's setting.
     expect(tagVisState("other", photos, ctx.publicTags)).toBe("hidden");
+    // How many of the photos that have it show it.
+    expect(tagShownCount("film", photos, ctx.publicTags)).toEqual({
+      shown: 1,
+      of: 2,
+    });
+    expect(tagShownCount("night", photos, ctx.publicTags)).toEqual({
+      shown: 0,
+      of: 1,
+    });
   });
 
   it("sends the changed states, and the state of a tag put on all", () => {

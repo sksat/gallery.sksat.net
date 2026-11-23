@@ -15,6 +15,7 @@ import {
   shared,
   tagChanges,
   tagCounts,
+  tagShownCount,
   tagVisState,
   timeParts,
   validateInfoEdit,
@@ -49,8 +50,9 @@ import { validateTagName } from "~/lib/tag-rename";
 // click puts it on all, then off all (then back as it was), and a new one
 // can be typed (picked from the site's tags; a new tag starts private).
 // Beside each, whether the site shows it on the photos that have it
-// (0021): 表示 / 非表示, or そのまま while they differ; a private tag is
-// never shown (非公開タグ). Values (the time taken, the world, the
+// (0021): 表示 / 非表示 for all of them; while they differ neither is
+// picked, nothing changes unless one is, and how many show it is said
+// (「3 枚中 2 枚で表示」); a private tag is never shown (非公開タグ). Values (the time taken, the world, the
 // position, the shooting settings) start at what the photos share, or empty with そのまま（写真ごと） when
 // they differ; × clears one. Only what was touched is applied, through the
 // same checks as the edit page. A sheet along the bottom on phones, a
@@ -216,6 +218,8 @@ type TagRow = {
   /** Public on the photos that have it (0021): as loaded, and now. */
   visInitial: TagVisState;
   visNow: TagVisState;
+  /** Of the photos that have it, how many show it (as loaded). */
+  shownCount: number;
 };
 
 export const BulkInfoDialog = component$<Props>(
@@ -254,6 +258,7 @@ export const BulkInfoDialog = component$<Props>(
             public: pub.has(t.tag),
             visInitial: vis,
             visNow: vis,
+            shownCount: tagShownCount(t.tag, photos, pub).shown,
           };
         });
         loaded.value = { photos, tags: siteTags };
@@ -292,6 +297,7 @@ export const BulkInfoDialog = component$<Props>(
           public: site?.public ?? false,
           visInitial: vis,
           visNow: vis,
+          shownCount: 0,
         },
       ];
     });
@@ -442,14 +448,12 @@ export const BulkInfoDialog = component$<Props>(
                               ? 0
                               : row.count;
                         const off = row.now === "none";
-                        // The site's display: そのまま only while the
-                        // photos differ.
+                        // The site's display: 表示 or 非表示. While the
+                        // photos differ neither is picked (nothing changes
+                        // for the tag) and the state is said beside it.
                         const options: [TagVisState, string][] = [
                           ["shown", "表示"],
                           ["hidden", "非表示"],
-                          ...(row.visInitial === "mixed"
-                            ? [["mixed", "そのまま"] as [TagVisState, string]]
-                            : []),
                         ];
                         return (
                           <li
@@ -500,42 +504,52 @@ export const BulkInfoDialog = component$<Props>(
                             </button>
                             {/* Shown on the site or not (0021). */}
                             {row.public ? (
-                              <div
-                                role="radiogroup"
-                                aria-label={`${row.tag}のサイトでの表示`}
-                                class="inline-flex shrink-0 rounded-lg border border-zinc-300 p-0.5 dark:border-zinc-700"
-                              >
-                                {options.map(([v, text]) => (
-                                  // Native radios: arrow keys move
-                                  // between them.
-                                  <label
-                                    key={v}
-                                    class={[
-                                      "inline-flex h-10 cursor-pointer items-center rounded-md px-2.5 text-xs has-focus-visible:outline-2 has-focus-visible:outline-sky-500 has-disabled:cursor-default has-disabled:opacity-40 sm:h-7",
-                                      row.visNow === v
-                                        ? v === "hidden"
-                                          ? "bg-zinc-700 text-white dark:bg-zinc-200 dark:text-zinc-900"
-                                          : v === "shown"
-                                            ? "bg-sky-600 text-white dark:bg-sky-500 dark:text-zinc-950"
-                                            : "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
-                                        : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
-                                    ]}
+                              <div class="inline-flex shrink-0 items-center gap-2">
+                                {row.visNow === "mixed" && (
+                                  <span
+                                    data-testid="bulk-tag-mixed"
+                                    class={["text-xs tabular-nums", muted]}
                                   >
-                                    <input
-                                      type="radio"
-                                      name={`bulk-vis:${row.tag}`}
-                                      value={v}
-                                      checked={row.visNow === v}
-                                      disabled={off}
-                                      onChange$={() => {
-                                        row.visNow = v;
-                                        tags.rows = [...tags.rows];
-                                      }}
-                                      class="sr-only"
-                                    />
-                                    {text}
-                                  </label>
-                                ))}
+                                    {`${row.count} 枚中 ${row.shownCount} 枚で表示`}
+                                  </span>
+                                )}
+                                <div
+                                  role="radiogroup"
+                                  aria-label={`${row.tag}のサイトでの表示`}
+                                  class="inline-flex shrink-0 rounded-lg border border-zinc-300 p-0.5 dark:border-zinc-700"
+                                >
+                                  {options.map(([v, text]) => (
+                                    // Native radios: arrow keys move
+                                    // between them.
+                                    <label
+                                      key={v}
+                                      class={[
+                                        "inline-flex h-10 cursor-pointer items-center rounded-md px-2.5 text-xs has-focus-visible:outline-2 has-focus-visible:outline-sky-500 has-disabled:cursor-default has-disabled:opacity-40 sm:h-7",
+                                        row.visNow === v
+                                          ? v === "hidden"
+                                            ? "bg-zinc-700 text-white dark:bg-zinc-200 dark:text-zinc-900"
+                                            : v === "shown"
+                                              ? "bg-sky-600 text-white dark:bg-sky-500 dark:text-zinc-950"
+                                              : "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
+                                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                                      ]}
+                                    >
+                                      <input
+                                        type="radio"
+                                        name={`bulk-vis:${row.tag}`}
+                                        value={v}
+                                        checked={row.visNow === v}
+                                        disabled={off}
+                                        onChange$={() => {
+                                          row.visNow = v;
+                                          tags.rows = [...tags.rows];
+                                        }}
+                                        class="sr-only"
+                                      />
+                                      {text}
+                                    </label>
+                                  ))}
+                                </div>
                               </div>
                             ) : (
                               <span

@@ -441,7 +441,7 @@ test("tags shown or hidden on the selected photos, and undo", async ({
 }) => {
   await folderWith(page, "sel-tag-public", ["a.png", "b.png"]);
   const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
-  /** The site's display of a tag: its 表示 / 非表示 / そのまま. */
+  /** The site's display of a tag: its 表示 / 非表示. */
   const display = (name: string) =>
     sheet.getByRole("radiogroup", { name: `${name}のサイトでの表示` });
   const choice = (name: string, text: string) =>
@@ -474,7 +474,8 @@ test("tags shown or hidden on the selected photos, and undo", async ({
 
   // Hidden on these two.
   await open();
-  await expect(choice("VRChat", "そのまま")).toHaveCount(0);
+  await expect(display("VRChat").getByRole("radio")).toHaveCount(2);
+  await expect(sheet.getByTestId("bulk-tag-mixed")).toHaveCount(0);
   await pick("VRChat", "非表示");
   await expect(choice("VRChat", "非表示")).toBeChecked();
   await apply("2 枚のタグと撮影データを変えました。");
@@ -497,7 +498,20 @@ test("tags shown or hidden on the selected photos, and undo", async ({
   await page.goBack();
   await expect(tile(page, "a.png")).toBeVisible();
   await open();
-  await expect(choice("VRChat", "そのまま")).toBeChecked();
+  // They differ: neither picked, and how many show it.
+  await expect(choice("VRChat", "表示")).not.toBeChecked();
+  await expect(choice("VRChat", "非表示")).not.toBeChecked();
+  await expect(sheet.getByTestId("bulk-tag-mixed")).toHaveText(
+    "2 枚中 1 枚で表示",
+  );
+  // Nothing picked: applying another change leaves it as it is.
+  await sheet.getByLabel("ISO", { exact: true }).fill("100");
+  await apply("2 枚のタグと撮影データを変えました。");
+  await open();
+  await expect(sheet.getByTestId("bulk-tag-mixed")).toHaveText(
+    "2 枚中 1 枚で表示",
+  );
+  // Picked: all of them.
   await pick("VRChat", "表示");
   await apply("1 枚のタグと撮影データを変えました。");
 
@@ -505,7 +519,9 @@ test("tags shown or hidden on the selected photos, and undo", async ({
   await page.getByRole("button", { name: "元に戻す" }).click();
   await expect(page.getByText("元に戻しました。")).toBeVisible();
   await open();
-  await expect(choice("VRChat", "そのまま")).toBeChecked();
+  await expect(sheet.getByTestId("bulk-tag-mixed")).toHaveText(
+    "2 枚中 1 枚で表示",
+  );
   // A tag taken off: nothing to show or hide.
   await sheet.getByRole("checkbox", { name: /^VRChat/ }).click();
   await expect(choice("VRChat", "表示")).toBeDisabled();

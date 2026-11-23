@@ -672,6 +672,20 @@ export const tagVisState = (
   return states.size > 1 ? "mixed" : states.has(true) ? "shown" : "hidden";
 };
 
+/** Of the photos that have `tag` (as their own), how many show it. */
+export const tagShownCount = (
+  tag: string,
+  photos: readonly { tags: readonly string[]; tag_visibility: TagChoices }[],
+  publicTags: { has(tag: string): boolean },
+): { shown: number; of: number } => {
+  const having = photos.filter((p) => p.tags.includes(tag));
+  return {
+    shown: having.filter((p) => tagShown(tag, p.tag_visibility, publicTags))
+      .length,
+    of: having.length,
+  };
+};
+
 /**
  * The tags to make public or not: those whose state changed from what it
  * was, and those put on every photo (so the ones that get the tag get the
