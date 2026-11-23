@@ -102,7 +102,6 @@ test("site defaults on /setting/", async ({ page }) => {
   }
 });
 
-
 test("tags: a public tag can be hidden on a photo; a private tag never shows", async ({
   page,
 }) => {
@@ -111,10 +110,7 @@ test("tags: a public tag can be hidden on a photo; a private tag never shows", a
     page.getByRole("switch", { name: `${name}をサイトに表示` });
   const fieldPublic = page.getByTestId("tag-field-public-1");
   const tagSwitch = (name: string) =>
-    page
-      .getByTestId("tag-row")
-      .filter({ hasText: name })
-      .getByRole("switch");
+    page.getByTestId("tag-row").filter({ hasText: name }).getByRole("switch");
   try {
     // VRChat is public: shown here, and its field イベント (with a value).
     await expect(chip(page, "VRChat")).toHaveAttribute("data-public", "true");

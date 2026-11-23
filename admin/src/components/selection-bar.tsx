@@ -57,7 +57,8 @@ export type SelectionAction =
   | { kind: "metadata"; levels: LevelChange }
   /** Tag field values: field id → typed value, null clears. */
   | { kind: "tag-values"; values: Record<string, string | null> }
-  | { kind: "rename"; name: string }
+  /** `created`: the name typed for a folder 新しいフォルダ just made. */
+  | { kind: "rename"; name: string; created?: boolean }
   | { kind: "camera"; cameraId: number | null; cameraName: string | null }
   | { kind: "platform"; platform: MediaPlatform }
   | { kind: "info"; edit: InfoEdit }

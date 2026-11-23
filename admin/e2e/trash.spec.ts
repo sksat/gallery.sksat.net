@@ -5,16 +5,38 @@ import { folderWith, tiles, uploadedKeys } from "./files-helpers";
 // folder (files-helpers.ts), so the fixture rows other specs count stay as
 // they are.
 
-test("rename a folder, and undo it", async ({ page }) => {
+test("rename the open folder in its path, and undo it", async ({ page }) => {
   await folderWith(page, "ops-rename", ["a.png"]);
-  await page.getByRole("button", { name: "名前を変更" }).click();
-  await page.getByLabel("新しい名前").fill("ops-renamed");
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+  const path = page.getByRole("navigation", { name: "Folder path" });
+  const rename = page.getByRole("button", { name: "名前を変更" });
+  // Esc: the name stays, the focus goes back to the button.
+  await rename.click();
+  await expect(path.getByRole("textbox")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(path.getByRole("textbox")).toHaveCount(0);
+  await expect(rename).toBeFocused();
+  await rename.click();
+  // The toolbar stays; the name is edited where it is shown.
+  await expect(
+    page.getByRole("button", { name: "フォルダをゴミ箱へ" }),
+  ).toBeVisible();
+  const field = path.getByRole("textbox", { name: "フォルダ名" });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue("ops-rename");
+  // A name the folder rule refuses is said there, before the server.
+  await field.fill("日本語");
+  await field.press("Enter");
+  await expect(path.getByRole("alert")).toHaveText(
+    "使える文字は英数字と . _ - だけです",
+  );
+  await field.fill("ops-renamed");
+  await field.press("Enter");
   await expect(page).toHaveURL(/dir=\/mock\/ops-renamed$/);
   await expect(tiles(page)).toHaveCount(1);
   await expect(
-    page.getByText("/mock/ops-renamed に名前を変えました。"),
+    page.getByText("ops-renamed に名前を変えました。"),
   ).toBeVisible();
+  await expect(field).toHaveCount(0);
 
   await page.getByRole("button", { name: "元に戻す" }).click();
   await expect(page).toHaveURL(/dir=\/mock\/ops-rename$/);

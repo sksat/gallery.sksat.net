@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { folderNameField, tile } from "./files-helpers";
 
 // Files view of /media (?view=files&dir=...). Fixture: 5 rows, all under
 // /mock/ (2 Real, 3 VRChat).
@@ -127,72 +128,127 @@ test("media files: an unknown folder says so", async ({ page }) => {
 // created inside /mock (nothing else counts the folder tiles there).
 test("media files: create an empty folder", async ({ page }) => {
   await page.goto("/media/?view=files&dir=/mock");
-  await page.getByRole("button", { name: "New folder" }).click();
-  const form = page.getByRole("form", { name: "New folder" });
-  await form.getByLabel("Folder name").fill(" new-1 ");
-  await form.getByRole("button", { name: "Create" }).click();
-
-  // Opened right away, empty, and in the tree with no files.
-  await expect(page).toHaveURL(/\/media\/\?view=files&dir=\/mock\/new-1$/);
+  // Made at once under a default name, typed over in its tile; the
+  // toolbar stays as it is.
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  const field = tile(page, "new-folder").getByRole("textbox", {
+    name: "フォルダ名",
+  });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue("new-folder");
+  expect(
+    await field.evaluate((el: HTMLInputElement) => [
+      el.selectionStart,
+      el.selectionEnd,
+    ]),
+  ).toEqual([0, "new-folder".length]);
+  await expect(page.getByText("new-folder を作りました。")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "This folder is empty" }),
+    page.getByRole("button", { name: "新しいフォルダ" }),
   ).toBeVisible();
+  await field.fill(" new-1 ");
+  await field.press("Enter");
+  await expect(page.getByText("new-1 を作りました。")).toBeVisible();
+  await expect(tile(page, "new-1")).toBeFocused();
+  await expect(tile(page, "new-folder")).toHaveCount(0);
   const tree = page.getByRole("navigation", { name: "Folders" });
-  await expect(tree.getByRole("link", { name: /^new-1/ })).toHaveAttribute(
-    "aria-current",
-    "location",
-  );
   await expect(tree.getByRole("link", { name: /^new-1/ })).toContainText("0");
 
-  // Survives a reload, and is a folder tile in its parent.
+  // Survives a reload, and opens empty.
   await page.goto("/media/?view=files&dir=/mock");
   await expect(
     page.getByTestId("folder-tile").filter({ hasText: "new-1" }),
   ).toHaveText(/new-1.*0 \/ 0 公開/);
   await expect(page.getByTestId("file-tile")).toHaveCount(5);
+  await tile(page, "new-1").click();
+  await expect(page).toHaveURL(/\/media\/\?view=files&dir=\/mock\/new-1$/);
+  await expect(
+    page.getByRole("heading", { name: "This folder is empty" }),
+  ).toBeVisible();
+});
 
-  // Again: refused, with the reason in the toast.
-  await page.getByRole("button", { name: "New folder" }).click();
-  await form.getByLabel("Folder name").fill("new-1");
-  await form.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("alert")).toContainText(
+test("media files: a new folder's name that is taken, then Esc and undo", async ({
+  page,
+}) => {
+  await page.goto("/media/?view=files&dir=/mock");
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  const field = folderNameField(page);
+  await expect(field).toHaveValue("new-folder");
+  // Taken (the test above): refused with the reason, the field stays.
+  await field.fill("new-1");
+  await field.press("Enter");
+  await expect(page.getByRole("alert").first()).toContainText(
     "/mock/new-1 はすでにあります",
   );
-  await expect(page).toHaveURL(/dir=\/mock$/);
+  await expect(field).toHaveValue("new-1");
+  // The folder is still there, and 元に戻す still takes it away.
+  await expect(page.getByRole("button", { name: "元に戻す" })).toBeVisible();
+  // Esc keeps the name it was made with.
+  await field.press("Escape");
+  await expect(field).toHaveCount(0);
+  await expect(tile(page, "new-folder")).toBeFocused();
+
+  // The next one takes the next free name.
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  await expect(field).toHaveValue("new-folder-2");
+  await field.press("Escape");
+  await expect(tile(page, "new-folder-2")).toHaveCount(1);
+  // 元に戻す takes the last one away again.
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+  await expect(tile(page, "new-folder-2")).toHaveCount(0);
+  await expect(tile(page, "new-folder")).toHaveCount(1);
+
+  // Also while a name is being typed: the folder goes, not renamed first.
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  await expect(field).toHaveValue("new-folder-2");
+  await field.fill("typed");
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+  await expect(field).toHaveCount(0);
+  await expect(tile(page, "new-folder-2")).toHaveCount(0);
+  await expect(tile(page, "typed")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("media files: a filter that hides the view closes the New folder form", async ({
+test("media files: a folder's name in its tile with F2, checked as typed", async ({
   page,
 }) => {
   await page.goto("/media/?view=files&dir=/mock");
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill("half");
-  // Nothing matches: the empty state replaces the view and its form.
-  await page.getByLabel("File contains").fill("nothing-matches");
-  await page.getByRole("button", { name: "Filter" }).click();
-  await expect(
-    page.getByRole("heading", { name: "No media match these filters" }),
-  ).toBeVisible();
-  await page.getByRole("link", { name: "Clear filters" }).click();
+  await tile(page, "new-folder").focus();
+  await page.keyboard.press("F2");
+  const field = folderNameField(page);
+  await expect(field).toBeFocused();
+  await page.keyboard.type("../etc");
+  await page.keyboard.press("Enter");
+  await expect(field).toHaveAttribute("aria-invalid", "true");
+  await expect(tile(page, "new-folder").getByRole("alert")).toContainText(
+    "英数字",
+  );
+  // Typing again clears it.
+  await field.fill("renamed-1");
+  await expect(field).not.toHaveAttribute("aria-invalid", "true");
+  // Leaving the field (a click elsewhere) commits it.
+  await page.getByRole("heading", { level: 1 }).click();
+  await expect(page.getByText("renamed-1 に名前を変えました。")).toBeVisible();
+  await expect(tile(page, "renamed-1")).toHaveCount(1);
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(tile(page, "new-folder")).toHaveCount(1);
+});
+
+test("media files: a new folder while a filter is on shows the folder unfiltered", async ({
+  page,
+}) => {
+  await page.goto("/media/?view=files&dir=/mock&platform=Real");
+  await expect(page.getByTestId("file-tile")).toHaveCount(2);
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  // An empty folder shows only without a filter.
   await expect(page).toHaveURL(/\?view=files&dir=\/mock$/);
-  // Back in the same folder: closed, not open again with an empty name.
-  await expect(page.getByTestId("file-tile")).toHaveCount(5);
-  await expect(page.getByRole("button", { name: "New folder" })).toBeVisible();
-  await expect(page.getByLabel("Folder name")).toHaveCount(0);
-});
-
-test("media files: a folder name is checked on the server too", async ({
-  page,
-}) => {
-  await page.goto("/media/?view=files&dir=/mock");
-  await page.getByRole("button", { name: "New folder" }).click();
-  const input = page.getByLabel("Folder name");
-  // Skip the browser's own pattern check to reach the action.
-  await input.evaluate((el) => el.removeAttribute("pattern"));
-  await input.fill("../etc");
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("alert")).toContainText("英数字");
-  await expect(page).toHaveURL(/dir=\/mock$/);
+  const field = folderNameField(page);
+  await expect(field).toBeFocused();
+  await field.fill("from-filter");
+  await field.press("Enter");
+  await expect(tile(page, "from-filter")).toBeFocused();
 });
 
 test.describe("media files on a phone", () => {
@@ -200,12 +256,22 @@ test.describe("media files on a phone", () => {
 
   test("create a folder", async ({ page }) => {
     await page.goto("/media/?view=files&dir=/mock");
-    const button = page.getByRole("button", { name: "New folder" });
+    const button = page.getByRole("button", { name: "新しいフォルダ" });
     // Full width, a comfortable tap target.
     expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     await button.click();
-    await page.getByLabel("Folder name").fill("phone-1");
-    await page.getByRole("button", { name: "Create" }).click();
+    const field = folderNameField(page);
+    await expect(field).toBeFocused();
+    expect((await field.boundingBox())?.height).toBeGreaterThanOrEqual(40);
+    // 16px: iOS does not zoom in on it.
+    expect(await field.evaluate((el) => getComputedStyle(el).fontSize)).toBe(
+      "16px",
+    );
+    await field.fill("phone-1");
+    // The keyboard's 完了: the field loses the focus.
+    await field.blur();
+    await expect(page.getByText("phone-1 を作りました。")).toBeVisible();
+    await tile(page, "phone-1").click();
     await expect(page).toHaveURL(/dir=\/mock\/phone-1$/);
     await expect(
       page.getByRole("heading", { name: "This folder is empty" }),

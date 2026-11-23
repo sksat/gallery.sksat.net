@@ -80,6 +80,10 @@ export const Toast = component$<Props>(({ toast, onAction$ }) => {
         {t?.actionLabel && onAction$ && (
           <button
             type="button"
+            // A press does not take the focus: a name being typed (a new
+            // folder's) is not committed by the blur first, so 元に戻す
+            // undoes what the toast says.
+            preventdefault:mousedown
             onClick$={async () => {
               toast.value = null;
               await onAction$();

@@ -143,7 +143,11 @@ export const MAX_GLOB_STARS = 4;
 export const globToRegExp = (glob: string): RegExp =>
   new RegExp(
     `^${Array.from(glob.replace(/\*+/g, "*"), (c) =>
-      c === "*" ? ".*" : c === "?" ? "." : c.replace(/[.+^${}()|[\]\\]/g, "\\$&"),
+      c === "*"
+        ? ".*"
+        : c === "?"
+          ? "."
+          : c.replace(/[.+^${}()|[\]\\]/g, "\\$&"),
     ).join("")}$`,
     "is",
   );
@@ -157,10 +161,7 @@ const shownOrientation = (
   return w === h ? "square" : w > h ? "landscape" : "portrait";
 };
 
-export const matchesConditions = (
-  c: RuleConditions,
-  f: RuleFacts,
-): boolean => {
+export const matchesConditions = (c: RuleConditions, f: RuleFacts): boolean => {
   let any = false;
   const check = (ok: boolean) => {
     any = true;
@@ -194,7 +195,8 @@ export const matchesConditions = (
   }
   if (c.orientation !== undefined) {
     const d = f.dimensions;
-    const ok = !!d && shownOrientation(d, f.exif?.orientation) === c.orientation;
+    const ok =
+      !!d && shownOrientation(d, f.exif?.orientation) === c.orientation;
     if (!check(ok)) return false;
   }
   if (
@@ -303,7 +305,11 @@ const conditions = (v: unknown): Result<RuleConditions> => {
   }
   if (v.name !== undefined) {
     const n = v.name;
-    if (isObject(n) && typeof n.preset === "string" && n.preset in NAME_PRESETS) {
+    if (
+      isObject(n) &&
+      typeof n.preset === "string" &&
+      n.preset in NAME_PRESETS
+    ) {
       out.name = { preset: n.preset as NamePreset };
     } else if (isObject(n) && n.glob !== undefined) {
       const g = text(n.glob, "ファイル名のパターン");
@@ -368,7 +374,10 @@ const actions = (v: unknown): Result<RuleActions> => {
     const tags = [
       ...new Set((v.tags as string[]).map((t) => t.trim()).filter(Boolean)),
     ];
-    if (tags.length > MAX_RULE_TAGS || tags.some((t) => t.length > MAX_TAG_LEN)) {
+    if (
+      tags.length > MAX_RULE_TAGS ||
+      tags.some((t) => t.length > MAX_TAG_LEN)
+    ) {
       return { ok: false, error: "タグが多すぎるか長すぎます" };
     }
     if (tags.length > 0) out.tags = tags;
@@ -445,7 +454,9 @@ export const validateRules = (v: unknown): Result<UploadRule[]> => {
  * The stored rules, read leniently: no row = the defaults; a rule that
  * no longer validates is left out rather than breaking uploads.
  */
-export const parseStoredRules = (raw: string | null | undefined): UploadRule[] => {
+export const parseStoredRules = (
+  raw: string | null | undefined,
+): UploadRule[] => {
   if (raw == null) return DEFAULT_UPLOAD_RULES.map((r) => structuredClone(r));
   let v: unknown;
   try {
@@ -477,7 +488,8 @@ export const conditionLabels = (c: RuleConditions): string[] => {
   }
   if (c.ext !== undefined) out.push(`.${c.ext}`);
   if (c.creatorTool !== undefined) out.push(`作成ソフト「${c.creatorTool}」`);
-  if (c.world !== undefined) out.push(c.world ? "ワールドあり" : "ワールドなし");
+  if (c.world !== undefined)
+    out.push(c.world ? "ワールドあり" : "ワールドなし");
   if (c.camera !== undefined) out.push(`EXIF カメラ「${c.camera}」`);
   if (c.orientation !== undefined) out.push(ORIENTATION_LABELS[c.orientation]);
   if (c.gps !== undefined) out.push(c.gps ? "位置情報あり" : "位置情報なし");
@@ -534,7 +546,11 @@ export const appliedChips = (
   };
   const out: AppliedChip[] = [];
   if (d.platform) {
-    out.push({ field: "platform", value: d.platform.value, rule: title(d.platform.ruleId) });
+    out.push({
+      field: "platform",
+      value: d.platform.value,
+      rule: title(d.platform.ruleId),
+    });
   }
   if (d.cameraId) {
     out.push({
@@ -555,7 +571,12 @@ export const appliedChips = (
   }
   for (const f of EDITABLE_FIELDS) {
     const m = d.metadata[f];
-    if (m) out.push({ field: `metadata.${f}`, value: levelLabel(f, m.value), rule: title(m.ruleId) });
+    if (m)
+      out.push({
+        field: `metadata.${f}`,
+        value: levelLabel(f, m.value),
+        rule: title(m.ruleId),
+      });
   }
   return out;
 };

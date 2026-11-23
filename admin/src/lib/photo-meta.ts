@@ -632,9 +632,7 @@ const person = (v: unknown): PersonMeta | null => {
 
 /** A stored or written instance id, if it has VRChat's shape. */
 const instanceId = (v: unknown): string | null =>
-  typeof v === "string" &&
-  v.length <= MAX_INSTANCE_ID &&
-  INSTANCE_ID_RE.test(v)
+  typeof v === "string" && v.length <= MAX_INSTANCE_ID && INSTANCE_ID_RE.test(v)
     ? v
     : null;
 

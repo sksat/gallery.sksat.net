@@ -34,7 +34,10 @@ export const parseInstance = (id: string | null): InstanceInfo | null => {
   const worldId = id.slice(0, sep);
   if (!/^wrld_[0-9A-Za-z-]+$/.test(worldId)) return null;
   const parts = new Map<string, string>();
-  for (const s of id.slice(sep + 1).split("~").slice(1)) {
+  for (const s of id
+    .slice(sep + 1)
+    .split("~")
+    .slice(1)) {
     const open = s.indexOf("(");
     const close = open >= 0 ? s.lastIndexOf(")") : -1;
     if (close > open) parts.set(s.slice(0, open), s.slice(open + 1, close));

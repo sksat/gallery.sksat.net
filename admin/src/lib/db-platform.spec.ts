@@ -44,12 +44,10 @@ describe("platforms", () => {
   it("counts listed photos, and every row for delete", async () => {
     const { db } = setup();
     const rows = await listPlatformsWithCounts(db);
-    expect(rows.map(({ key, count, used }) => ({ key, count, used }))).toEqual(
-      [
-        { key: "Real", count: 1, used: 1 },
-        { key: "VRChat", count: 1, used: 2 },
-      ],
-    );
+    expect(rows.map(({ key, count, used }) => ({ key, count, used }))).toEqual([
+      { key: "Real", count: 1, used: 1 },
+      { key: "VRChat", count: 1, used: 2 },
+    ]);
   });
 
   it("adds one at the end with a key from its name; names are unique", async () => {

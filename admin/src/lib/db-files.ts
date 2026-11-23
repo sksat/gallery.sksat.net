@@ -138,6 +138,27 @@ export const createFolder = async (
   return (res.meta.changes ?? 0) > 0;
 };
 
+/** CREATE_FOLDER_SQL undone: the row goes only while nothing is below it. */
+export const REMOVE_EMPTY_FOLDER_SQL = `DELETE FROM folder WHERE path = ?1
+  AND NOT EXISTS (
+    SELECT 1 FROM media WHERE trashed_at IS NULL
+      AND path >= ?1 || '/' AND path < ?1 || '0'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM folder WHERE path >= ?1 || '/' AND path < ?1 || '0'
+  )`;
+
+/**
+ * Remove the created folder `path` (元に戻す of 新しいフォルダ). False when
+ * there is no such row or something was put in it meanwhile.
+ */
+export const removeEmptyFolder = async (
+  db: D1Database,
+  path: string,
+): Promise<boolean> => {
+  const res = await db.prepare(REMOVE_EMPTY_FOLDER_SQL).bind(path).run();
+  return (res.meta.changes ?? 0) > 0;
+};
+
 /**
  * The bounds of everything below `folder` ("/" = everywhere) on the path
  * index: the paths in [start, end) are those starting with `folder` + "/"

@@ -20,7 +20,9 @@ const openEditor = async (page: Page) => {
   for (const label of ["カメラ", "タグ", "公開範囲"]) {
     await sheet.getByTestId("add-action").selectOption({ label });
   }
-  await sheet.getByTestId("add-condition").selectOption({ label: "ファイル名" });
+  await sheet
+    .getByTestId("add-condition")
+    .selectOption({ label: "ファイル名" });
   await sheet.getByLabel("名前").focus();
   return sheet;
 };

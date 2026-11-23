@@ -47,7 +47,9 @@ test("a camera's tag goes to its photos, or stays on the camera", async ({
     await expect(toggle).toHaveAttribute("aria-checked", "true");
 
     // Taken off, and put back with 元に戻す.
-    await tagRow(page).getByRole("button", { name: `${TAG}を外す` }).click();
+    await tagRow(page)
+      .getByRole("button", { name: `${TAG}を外す` })
+      .click();
     await expect(page.getByText(`『${TAG}』を外しました。`)).toBeVisible();
     await expect(tagRow(page)).toHaveCount(0);
     await page.getByRole("button", { name: "元に戻す" }).click();
@@ -62,7 +64,9 @@ test("a camera's tag goes to its photos, or stays on the camera", async ({
   } finally {
     await page.goto("/camera/1/");
     if ((await tagRow(page).count()) > 0) {
-      await tagRow(page).getByRole("button", { name: `${TAG}を外す` }).click();
+      await tagRow(page)
+        .getByRole("button", { name: `${TAG}を外す` })
+        .click();
       await expect(tagRow(page)).toHaveCount(0);
     }
   }

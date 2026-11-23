@@ -133,7 +133,9 @@ describe("matchesConditions", () => {
   it("tells the orientation as the photo is shown", () => {
     const d = { width: 4000, height: 3000 };
     const c = (o: "landscape" | "portrait" | "square") => ({ orientation: o });
-    expect(matchesConditions(c("landscape"), facts("/a", { dimensions: d }))).toBe(true);
+    expect(
+      matchesConditions(c("landscape"), facts("/a", { dimensions: d })),
+    ).toBe(true);
     // EXIF orientation 6: turned a quarter.
     const turned = facts("/a", { dimensions: d, exif: { orientation: 6 } });
     expect(matchesConditions(c("portrait"), turned)).toBe(true);
@@ -145,13 +147,25 @@ describe("matchesConditions", () => {
 describe("applyUploadRules", () => {
   const rules = [
     rule("a", { folder: "/VRChat" }, { platform: "VRChat", tags: ["vr"] }),
-    rule("b", { name: { preset: "vrchat" } }, {
-      platform: "Real",
-      cameraId: 3,
-      tags: ["vr", "shot"],
-      metadata: { location: "hidden" },
-    }),
-    rule("c", { ext: "png" }, { cameraId: 4, visibility: "unlisted", metadata: { location: "city", world: "name" } }),
+    rule(
+      "b",
+      { name: { preset: "vrchat" } },
+      {
+        platform: "Real",
+        cameraId: 3,
+        tags: ["vr", "shot"],
+        metadata: { location: "hidden" },
+      },
+    ),
+    rule(
+      "c",
+      { ext: "png" },
+      {
+        cameraId: 4,
+        visibility: "unlisted",
+        metadata: { location: "city", world: "name" },
+      },
+    ),
     rule("off", { ext: "png" }, { visibility: "public" }, false),
   ];
   const name = "/VRChat/VRChat_2026-11-18_01-02-03.456_3840x2160.png";
@@ -183,13 +197,31 @@ describe("applyUploadRules", () => {
   });
 
   it("is labelled for the upload panel", () => {
-    const named = rules.map((r) => (r.id === "a" ? { ...r, name: "VR フォルダ" } : r));
+    const named = rules.map((r) =>
+      r.id === "a" ? { ...r, name: "VR フォルダ" } : r,
+    );
     const d = applyUploadRules(named, facts(name));
     const chips = appliedChips(d, named, new Map([[3, "VirtualLens2"]]));
-    expect(chips).toContainEqual({ field: "platform", value: "VRChat", rule: "VR フォルダ" });
-    expect(chips).toContainEqual({ field: "camera", value: "VirtualLens2", rule: "VRChat のファイル名" });
-    expect(chips).toContainEqual({ field: "visibility", value: "限定公開", rule: ".png" });
-    expect(chips).toContainEqual({ field: "metadata.location", value: "撮影場所: 出さない", rule: "VRChat のファイル名" });
+    expect(chips).toContainEqual({
+      field: "platform",
+      value: "VRChat",
+      rule: "VR フォルダ",
+    });
+    expect(chips).toContainEqual({
+      field: "camera",
+      value: "VirtualLens2",
+      rule: "VRChat のファイル名",
+    });
+    expect(chips).toContainEqual({
+      field: "visibility",
+      value: "限定公開",
+      rule: ".png",
+    });
+    expect(chips).toContainEqual({
+      field: "metadata.location",
+      value: "撮影場所: 出さない",
+      rule: "VRChat のファイル名",
+    });
   });
 });
 
@@ -205,7 +237,10 @@ describe("validateRule", () => {
         name: { glob: " DSCF* " },
         folder: "VRChat/2026/",
       },
-      actions: { tags: [" a ", "a", ""], metadata: { location: "", world: "name" } },
+      actions: {
+        tags: [" a ", "a", ""],
+        metadata: { location: "", world: "name" },
+      },
     });
     expect(res).toEqual({
       ok: true,
@@ -251,7 +286,11 @@ describe("validateRule", () => {
 describe("labels", () => {
   it("describe conditions and actions", () => {
     expect(
-      conditionLabels({ folder: "/VRChat", name: { preset: "vrchat" }, gps: false }),
+      conditionLabels({
+        folder: "/VRChat",
+        name: { preset: "vrchat" },
+        gps: false,
+      }),
     ).toEqual(["/VRChat/ フォルダ", "VRChat のファイル名", "位置情報なし"]);
     expect(
       actionLabels(
@@ -275,12 +314,21 @@ describe("applyScope", () => {
     });
   });
 
-  it.each(["", "  ", "/", "//", ".", "..", "/.", "/..", "/a/../b", "a//b", "/a b"])(
-    "refuses %j instead of falling back to every photo",
-    (raw) => {
-      expect(applyScope(false, raw).ok).toBe(false);
-    },
-  );
+  it.each([
+    "",
+    "  ",
+    "/",
+    "//",
+    ".",
+    "..",
+    "/.",
+    "/..",
+    "/a/../b",
+    "a//b",
+    "/a b",
+  ])("refuses %j instead of falling back to every photo", (raw) => {
+    expect(applyScope(false, raw).ok).toBe(false);
+  });
 });
 
 describe("existingChange", () => {
@@ -298,7 +346,12 @@ describe("existingChange", () => {
     expect(
       existingChange(
         photo,
-        decide({ platform: "VRChat", cameraId: 2, tags: ["x", "y"], metadata: { location: "hidden" } }),
+        decide({
+          platform: "VRChat",
+          cameraId: 2,
+          tags: ["x", "y"],
+          metadata: { location: "hidden" },
+        }),
       ),
     ).toEqual({
       id: 1,
@@ -320,7 +373,13 @@ describe("existingChange", () => {
     expect(
       existingChange(
         set,
-        decide({ platform: "Real", cameraId: 2, tags: ["x"], visibility: "public", metadata: { location: "hidden" } }),
+        decide({
+          platform: "Real",
+          cameraId: 2,
+          tags: ["x"],
+          visibility: "public",
+          metadata: { location: "hidden" },
+        }),
       ),
     ).toBeNull();
   });

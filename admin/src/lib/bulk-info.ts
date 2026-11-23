@@ -216,7 +216,10 @@ export const validateInfoEdit = (
   }
   if (o.tagVisibility !== undefined) {
     const v = o.tagVisibility;
-    const bad = { ok: false as const, error: "tagVisibility: tag → true / false" };
+    const bad = {
+      ok: false as const,
+      error: "tagVisibility: tag → true / false",
+    };
     if (typeof v !== "object" || v === null || Array.isArray(v)) return bad;
     const entries = Object.entries(v);
     const names = tagList(
@@ -300,7 +303,8 @@ export const takenAtFor = (
   const time = edit.time === KEEP ? (parts?.time ?? null) : edit.time;
   const offset =
     edit.offset === KEEP ? (parts?.offset ?? DEFAULT_OFFSET) : edit.offset;
-  const hms = time === null ? "00:00:00" : time.length === 5 ? `${time}:00` : time;
+  const hms =
+    time === null ? "00:00:00" : time.length === 5 ? `${time}:00` : time;
   return { timestamp: `${date}T${hms}${offset}`, withTime: time !== null };
 };
 
@@ -360,7 +364,10 @@ export const applyInfo = (
    * The tags public by their own setting, and the tags the photo's camera
    * passes on; needed for tags (their choices, 0021).
    */
-  tagContext?: { publicTags: { has(tag: string): boolean }; passedOn: readonly string[] },
+  tagContext?: {
+    publicTags: { has(tag: string): boolean };
+    passedOn: readonly string[];
+  },
 ): InfoRow => {
   const out = { ...row };
   if (edit.tagsAdd || edit.tagsRemove || edit.tagVisibility) {
@@ -475,11 +482,7 @@ export const infoValues = (row: InfoRow): InfoValues => ({
 });
 
 const optText = (v: unknown, max: number): string | null | undefined =>
-  v === null
-    ? null
-    : typeof v === "string" && v.length <= max
-      ? v
-      : undefined;
+  v === null ? null : typeof v === "string" && v.length <= max ? v : undefined;
 
 const optNumber = (v: unknown, limit: number): number | null | undefined =>
   v === null

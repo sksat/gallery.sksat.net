@@ -95,9 +95,7 @@ export const setInfo = async (
     // What a tag's choice is measured against (tag-visibility.ts; a few
     // rows, and none read unless tags are edited).
     db.prepare(
-      tagsEdited
-        ? "SELECT name FROM tag WHERE public = 1"
-        : "SELECT 1 WHERE 0",
+      tagsEdited ? "SELECT name FROM tag WHERE public = 1" : "SELECT 1 WHERE 0",
     ),
     db.prepare(
       tagsEdited
@@ -163,8 +161,13 @@ export const setInfo = async (
 export const listInfo = async (
   db: D1Database,
   ids: readonly number[],
-): Promise<{ photos: InfoValues[]; tags: { name: string; public: boolean }[] }> => {
-  const [photos, tags] = await db.batch<InfoRow | { name: string; public: number }>([
+): Promise<{
+  photos: InfoValues[];
+  tags: { name: string; public: boolean }[];
+}> => {
+  const [photos, tags] = await db.batch<
+    InfoRow | { name: string; public: number }
+  >([
     db
       .prepare(
         `SELECT ${INFO_SELECT} FROM media

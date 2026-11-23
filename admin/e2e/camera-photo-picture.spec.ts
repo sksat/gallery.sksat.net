@@ -82,9 +82,9 @@ test("pick library photos as pictures, undo, take one off and put it back", asyn
   await expect(images(page)).toHaveCount(0);
   await undo(page);
   await expect(toast(page)).toContainText("元に戻しました。");
-  await expect(
-    images(page).getByTestId("picture-photo-link"),
-  ).toHaveText("/mock/real2.png");
+  await expect(images(page).getByTestId("picture-photo-link")).toHaveText(
+    "/mock/real2.png",
+  );
 
   // Already a picture: shown as added.
   const third = await openPicker(page);

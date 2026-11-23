@@ -35,7 +35,10 @@ const sample = body({
     g(6, null, { bucket: D18, requestPath: `/photo/${ID}/` }),
     g(1, null, { bucket: D18, requestPath: `/photo/${ID}/detail` }),
     // Before the window (11/11 23:00 JST): dropped.
-    g(5, null, { bucket: "2026-11-11T14:00:00Z", requestPath: `/photo/${ID}/` }),
+    g(5, null, {
+      bucket: "2026-11-11T14:00:00Z",
+      requestPath: `/photo/${ID}/`,
+    }),
     // Not this photo's: ignored.
     g(9, null, { bucket: D18, requestPath: "/" }),
   ],

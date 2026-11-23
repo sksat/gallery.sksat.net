@@ -1030,13 +1030,7 @@ export const restoreCameraImageStatements = (
        (SELECT position, id FROM camera_image WHERE camera_id = ?1 AND NOT (${self})
         ORDER BY position, id LIMIT 1 OFFSET ?3)
        AND EXISTS (SELECT 1 FROM camera_image WHERE camera_id = ?1 AND ${self})`,
-      args: [
-        cameraId,
-        image.file,
-        Math.max(0, index),
-        null,
-        image.media_id,
-      ],
+      args: [cameraId, image.file, Math.max(0, index), null, image.media_id],
     },
   ];
 };

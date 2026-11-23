@@ -165,7 +165,11 @@ describe("validateInfoRestore", () => {
   });
 
   it("keeps a position cleared by hand, and refuses one read from no file", () => {
-    const cleared = row({ latitude: null, longitude: null, location_source: "manual" });
+    const cleared = row({
+      latitude: null,
+      longitude: null,
+      location_source: "manual",
+    });
     const r = validateInfoRestore([cleared], 100);
     expect(r.ok && r.rows[0].location_source).toBe("manual");
     expect(
@@ -179,7 +183,9 @@ describe("validateInfoRestore", () => {
 
 describe("sourcePatch", () => {
   it("puts back the sheet's fields only, removing those that had none", () => {
-    expect(JSON.parse(sourcePatch('{"taken_at":"exif","digitized_with":"manual"}'))).toEqual({
+    expect(
+      JSON.parse(sourcePatch('{"taken_at":"exif","digitized_with":"manual"}')),
+    ).toEqual({
       taken_at: "exif",
       exif: null,
       world: null,
@@ -221,9 +227,12 @@ describe("applyInfo", () => {
   });
 
   it("a date alone shows the date only on the public site", () => {
-    const after = applyInfo(row({ metadata_visibility: '{"camera":"hidden"}' }), {
-      takenAt: { date: "1999-08-01", time: null, offset: "keep" },
-    });
+    const after = applyInfo(
+      row({ metadata_visibility: '{"camera":"hidden"}' }),
+      {
+        takenAt: { date: "1999-08-01", time: null, offset: "keep" },
+      },
+    );
     expect(after.timestamp).toBe("1999-08-01T00:00:00+09:00");
     expect(JSON.parse(after.metadata_visibility ?? "")).toEqual({
       camera: "hidden",
@@ -268,8 +277,9 @@ describe("applyInfo", () => {
 
   it("finds a photo that would have more tags than one may", () => {
     const many = JSON.stringify(Array.from({ length: 100 }, (_, i) => `t${i}`));
-    expect(infoProblem(applyInfo(row({ tags: many }), { tagsRemove: ["t0"] })))
-      .toBeNull();
+    expect(
+      infoProblem(applyInfo(row({ tags: many }), { tagsRemove: ["t0"] })),
+    ).toBeNull();
     expect(
       infoProblem(applyInfo(row({ tags: many }), { tagsAdd: ["one more"] })),
     ).toMatch(/100/);
@@ -279,7 +289,10 @@ describe("applyInfo", () => {
     const r = row();
     expect(infoChanged(r, applyInfo(r, { tagsAdd: ["night"] }))).toBe(false);
     expect(
-      infoChanged(r, applyInfo(r, { location: { latitude: 35, longitude: 139 } })),
+      infoChanged(
+        r,
+        applyInfo(r, { location: { latitude: 35, longitude: 139 } }),
+      ),
     ).toBe(false);
     expect(infoChanged(r, applyInfo(r, { tagsAdd: ["x"] }))).toBe(true);
   });
@@ -310,9 +323,9 @@ describe("applyInfo", () => {
     ]) {
       expect(applyInfo(r, e).metadata_source).toBe(r.metadata_source);
     }
-    expect(
-      src({ exif: { iso: 400 } }, row({ metadata_source: null })),
-    ).toEqual({ exif: "manual" });
+    expect(src({ exif: { iso: 400 } }, row({ metadata_source: null }))).toEqual(
+      { exif: "manual" },
+    );
   });
 });
 
@@ -368,9 +381,10 @@ describe("tags public on the photos (0021)", () => {
   });
 
   it("validates the edit and its undo", () => {
-    expect(validateInfoEdit({ tagVisibility: { a: true, b: false } })).toEqual(
-      { ok: true, value: { tagVisibility: { a: true, b: false } } },
-    );
+    expect(validateInfoEdit({ tagVisibility: { a: true, b: false } })).toEqual({
+      ok: true,
+      value: { tagVisibility: { a: true, b: false } },
+    });
     for (const bad of [
       { a: "yes" },
       [true],
@@ -429,11 +443,41 @@ describe("tags public on the photos (0021)", () => {
   it("sends the changed states, and the state of a tag put on all", () => {
     expect(
       visChanges([
-        { tag: "a", initial: "all", now: "all", visInitial: "shown", visNow: "hidden" },
-        { tag: "b", initial: "all", now: "all", visInitial: "shown", visNow: "shown" },
-        { tag: "c", initial: "some", now: "all", visInitial: "shown", visNow: "shown" },
-        { tag: "d", initial: "some", now: "all", visInitial: "mixed", visNow: "mixed" },
-        { tag: "e", initial: "all", now: "none", visInitial: "shown", visNow: "hidden" },
+        {
+          tag: "a",
+          initial: "all",
+          now: "all",
+          visInitial: "shown",
+          visNow: "hidden",
+        },
+        {
+          tag: "b",
+          initial: "all",
+          now: "all",
+          visInitial: "shown",
+          visNow: "shown",
+        },
+        {
+          tag: "c",
+          initial: "some",
+          now: "all",
+          visInitial: "shown",
+          visNow: "shown",
+        },
+        {
+          tag: "d",
+          initial: "some",
+          now: "all",
+          visInitial: "mixed",
+          visNow: "mixed",
+        },
+        {
+          tag: "e",
+          initial: "all",
+          now: "none",
+          visInitial: "shown",
+          visNow: "hidden",
+        },
       ]),
     ).toEqual({ a: false, c: true });
   });

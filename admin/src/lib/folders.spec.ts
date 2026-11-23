@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ancestors,
   buildFolderTree,
+  defaultFolderName,
   dirOf,
   filesInDir,
   folderTotals,
@@ -196,6 +197,17 @@ describe("buildFolderTree with created folders", () => {
       publicCount: 0,
       children: [],
     });
+  });
+});
+
+describe("defaultFolderName", () => {
+  it("numbers the tries after the first, each a valid folder name", () => {
+    expect([1, 2, 3].map(defaultFolderName)).toEqual([
+      "new-folder",
+      "new-folder-2",
+      "new-folder-3",
+    ]);
+    expect(validateFolderName(defaultFolderName(50)).ok).toBe(true);
   });
 });
 

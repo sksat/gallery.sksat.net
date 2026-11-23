@@ -9,7 +9,11 @@ describe("parseInstance", () => {
       [`${W}:1~hidden(usr_a)~region(use)`, "Friends+", "US East"],
       [`${W}:1~private(usr_a)~canRequestInvite~region(eu)`, "Invite+", "EU"],
       [`${W}:1~private(usr_a)`, "Invite", null],
-      [`${W}:1~group(grp_a)~groupAccessType(plus)~region(us)`, "Group+", "US West"],
+      [
+        `${W}:1~group(grp_a)~groupAccessType(plus)~region(us)`,
+        "Group+",
+        "US West",
+      ],
       [`${W}:1~group(grp_a)~groupAccessType(public)`, "Group Public", null],
       [`${W}:1~group(grp_a)~groupAccessType(members)`, "Group", null],
       [`${W}:12345`, "Public", null],

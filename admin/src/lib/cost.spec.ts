@@ -154,7 +154,10 @@ describe("parsing", () => {
     const rows = (...n: number[]) =>
       account({
         imagesUniqueTransformationsAccumulatedSinceStartOfMonth: n.map(
-          (transformations, i) => ({ date: `2026-11-0${i + 1}`, transformations }),
+          (transformations, i) => ({
+            date: `2026-11-0${i + 1}`,
+            transformations,
+          }),
         ),
       });
     expect(parseImagesUsage(rows(1234, 200))).toBe(1234);

@@ -9,7 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { dropZoneOf } from "./files-helpers";
+import {
+  dropZoneOf,
+  folderNameField,
+  newFolder as newFolderIn,
+} from "./files-helpers";
 import { addTags } from "./tag-editor-helpers";
 
 // Uploads from the Files view into a fake bucket (e2e/fake-b2.mjs on
@@ -38,10 +42,7 @@ const jpeg = (name: string, seed: string) => ({
 
 const newFolder = async (page: Page, parent: string, name: string) => {
   await page.goto(`/media/?view=files&dir=${parent}`);
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill(name);
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(new RegExp(`dir=${parent}/${name}$`));
+  await newFolderIn(page, parent, name);
   await dropZoneOf(page, `${parent}/${name}`);
 };
 
@@ -211,12 +212,7 @@ const pngHeaderOnly = (name: string, width: number, height: number) => {
  * A real PNG of one colour, `width` × `height`: large in pixels, a few KB
  * in bytes (its rows deflate to almost nothing).
  */
-const solidPng = (
-  name: string,
-  width: number,
-  height: number,
-  grey = 0x60,
-) => {
+const solidPng = (name: string, width: number, height: number, grey = 0x60) => {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
     const out = Buffer.alloc(body.length + 8);
@@ -251,7 +247,11 @@ const jpegSize = (b: Buffer): { width: number; height: number } | null => {
   while (i + 9 < b.length && b[i] === 0xff) {
     const marker = b[i + 1];
     const len = b.readUInt16BE(i + 2);
-    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      ![0xc4, 0xc8, 0xcc].includes(marker)
+    ) {
       return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
     }
     i += 2 + len;
@@ -624,16 +624,20 @@ test("a photo opened while the view reloads after an upload stays open", async (
   ).toHaveCount(0);
 });
 
-test("the New folder form stays open while the view reloads after an upload", async ({
+test("a new folder's name being typed stays while the view reloads after an upload", async ({
   page,
 }) => {
   await newFolder(page, "/mock", "up-new-folder");
-  // The reload when the batch ends answers only once the form is open
-  // and has a name in it.
+  // The reload when the batch ends (the first action after this) answers
+  // only once a new folder's name is being typed.
   let release!: () => void;
   const released = new Promise<void>((r) => (release = r));
+  let held = false;
   await page.route(/qaction=/, async (route) => {
-    await released;
+    if (!held) {
+      held = true;
+      await released;
+    }
     await route.continue();
   });
   const reloaded = page.waitForResponse(/qaction=/);
@@ -643,14 +647,22 @@ test("the New folder form stays open while the view reloads after an upload", as
   await expect(
     page.getByTestId("upload-panel").getByRole("heading"),
   ).toHaveText("1 件アップロードしました");
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill("half");
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  const field = folderNameField(page);
+  await expect(field).toHaveValue("new-folder");
+  await field.fill("half");
   release();
   await (await reloaded).finished();
   await expect(
     page.getByRole("option", { name: "a.png", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Folder name")).toHaveValue("half");
+  await expect(field).toHaveValue("half");
+  await expect(field).toBeFocused();
+  await field.press("Enter");
+  await expect(page.getByText("half を作りました。")).toBeVisible();
+  await expect(
+    page.getByRole("option", { name: "half", exact: true }),
+  ).toBeFocused();
 });
 
 /** A tiny synthetic image from src/lib/fixtures (Pillow, no real photo). */
@@ -784,10 +796,7 @@ test("VRCX's metadata: the photographer, the instance and who was there", async 
     await expect(players.locator("summary")).toContainText(
       "一緒にいた人（2人）",
     );
-    await expect(players.getByRole("listitem")).toHaveText([
-      "Someone",
-      "ねこ",
-    ]);
+    await expect(players.getByRole("listitem")).toHaveText(["Someone", "ねこ"]);
   }
 });
 
@@ -1078,11 +1087,7 @@ test("drop files read during the event itself", async ({ page }) => {
 test("drop files on a folder to upload them into it", async ({ page }) => {
   const parent = `/mock/up-target${browserSuffix()}`;
   await newFolder(page, "/mock", `up-target${browserSuffix()}`);
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill("sub");
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(new RegExp(`dir=${parent}/sub$`));
-  await page.goBack();
+  await newFolderIn(page, parent, "sub", { open: false });
   const zone = await dropZoneOf(page, parent);
   const sub = page.getByTestId("folder-tile").filter({ hasText: "sub" });
   await expect(sub).toHaveCount(1);

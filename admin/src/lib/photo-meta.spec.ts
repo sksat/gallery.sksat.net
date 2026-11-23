@@ -569,10 +569,7 @@ describe("VRCX", () => {
         0x1a,
         0x0a,
         ...meta("XML:com.adobe.xmp", xmp),
-        ...meta(
-          "Description",
-          JSON.stringify({ application: "VRCX", author }),
-        ),
+        ...meta("Description", JSON.stringify({ application: "VRCX", author })),
       ]);
     };
     const OLD = `<xmp:CreatorTool>VRChat</xmp:CreatorTool><xmp:Author>${ID}</xmp:Author>`;

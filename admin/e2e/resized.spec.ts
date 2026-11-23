@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { dropZoneOf } from "./files-helpers";
+import { dropZoneOf, newFolder } from "./files-helpers";
 
 // Resized copies made in the browser, the alternative to the image
 // Worker's Image Transformations (src/lib/resized.ts,
@@ -73,10 +73,7 @@ test("an upload gets its resized copies from the file in hand", async ({
   page,
 }) => {
   await page.goto("/media/?view=files&dir=/mock");
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill("resized");
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(/dir=\/mock\/resized$/);
+  await newFolder(page, "/mock", "resized");
   await dropZoneOf(page, "/mock/resized");
   const sources: string[] = [];
   page.on("request", (r) => {

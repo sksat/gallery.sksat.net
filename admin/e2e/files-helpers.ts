@@ -41,13 +41,45 @@ export const dropZoneOf = async (page: Page, dir: string) => {
   return zone;
 };
 
+/** The field of a folder's name being edited (新しいフォルダ, 名前を変更). */
+export const folderNameField = (page: Page) =>
+  page.getByRole("textbox", { name: "フォルダ名", exact: true });
+
+/**
+ * 新しいフォルダ in the open folder `dir`, named `name` in its tile, and
+ * then opened (unless `open` is false).
+ */
+export const newFolder = async (
+  page: Page,
+  dir: string,
+  name: string,
+  { open = true } = {},
+) => {
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  const field = folderNameField(page);
+  await expect(field).toBeFocused();
+  await field.fill(name);
+  await field.press("Enter");
+  await expect(page.getByText(`${name} を作りました。`)).toBeVisible();
+  await expect(field).toHaveCount(0);
+  // Out of the way of what the spec does next (it stays a while, being
+  // undoable, at the bottom of the window).
+  await page
+    .getByTestId("toast")
+    .getByRole("button", { name: "Dismiss" })
+    .click();
+  await expect(page.getByText(`${name} を作りました。`)).toHaveCount(0);
+  if (!open) return;
+  await tile(page, name).click();
+  await expect(page).toHaveURL(
+    new RegExp(`dir=${dir === "/" ? "" : dir}/${name}$`),
+  );
+};
+
 /** A new folder under /mock with the given files uploaded into it. */
 export const folderWith = async (page: Page, name: string, files: string[]) => {
   await page.goto("/media/?view=files&dir=/mock");
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill(name);
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(new RegExp(`dir=/mock/${name}$`));
+  await newFolder(page, "/mock", name);
   await dropZoneOf(page, `/mock/${name}`);
   await page
     .getByTestId("upload-input")

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { dropZoneOf, newFolder } from "../files-helpers";
 
 // The Files view's upload panel after a batch with one photo uploaded and
 // one failed (PUTs to the fake bucket of "bad.png" are reset), and one
@@ -44,10 +45,10 @@ const uploadBatch = async (page: Page, folder: string, seed: string) => {
       : route.continue(),
   );
   await page.goto("/media/?view=files&dir=/mock");
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill(folder);
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(new RegExp(`dir=/mock/${folder}$`));
+  await newFolder(page, "/mock", folder, { open: false });
+  // Opened afresh: without the toast of the new folder.
+  await page.goto(`/media/?view=files&dir=/mock/${folder}`);
+  await dropZoneOf(page, `/mock/${folder}`);
   await page
     .getByTestId("upload-input")
     .setInputFiles([
@@ -82,10 +83,9 @@ test.describe("desktop", () => {
 
   test("admin: upload panel while uploading", async ({ page }) => {
     await page.goto("/media/?view=files&dir=/mock");
-    await page.getByRole("button", { name: "New folder" }).click();
-    await page.getByLabel("Folder name").fill("vrt-up-slow");
-    await page.getByRole("button", { name: "Create" }).click();
-    await expect(page).toHaveURL(/dir=\/mock\/vrt-up-slow$/);
+    await newFolder(page, "/mock", "vrt-up-slow", { open: false });
+    await page.goto("/media/?view=files&dir=/mock/vrt-up-slow");
+    await dropZoneOf(page, "/mock/vrt-up-slow");
     // The fake bucket reads a key with "slow" in it at 1 MiB/s. The test
     // ends before it is done (the row stays an incomplete upload).
     await page.getByTestId("upload-input").setInputFiles([

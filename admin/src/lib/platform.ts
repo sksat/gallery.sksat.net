@@ -55,10 +55,7 @@ export const PLATFORM_NAME_MAX = 40;
  * The platform with `key` in `list`; a key missing from it (the list could
  * not be read) is shown as itself, VRChat's kind kept.
  */
-export const platformOf = (
-  list: readonly Platform[],
-  key: string,
-): Platform =>
+export const platformOf = (list: readonly Platform[], key: string): Platform =>
   list.find((p) => p.key === key) ??
   BUILTIN_PLATFORMS.find((p) => p.key === key) ?? {
     key,

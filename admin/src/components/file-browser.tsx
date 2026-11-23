@@ -33,11 +33,15 @@ import {
 } from "~/lib/file-view";
 import {
   ancestors,
+  dirOf,
   findFolder,
   folderTotals,
   isWithin,
+  joinFolder,
+  MAX_FOLDER_NAME_LEN,
   normalizeDir,
   type FolderNode,
+  validateFolderName,
 } from "~/lib/folders";
 import { formatJst, mediaEditHref, mediaListHref } from "~/lib/format";
 import type { CameraChoice } from "~/lib/db-photo-bulk";
@@ -67,6 +71,7 @@ import {
 import { formatDecimalBytes } from "~/lib/storage";
 import { VISIBILITIES, type MediaPlatform, type Visibility } from "~/lib/types";
 import { ContextMenu, type MenuItem } from "./context-menu";
+import { InlineName } from "./inline-name";
 import { CameraGlyph, CameraOverlay } from "./camera-label";
 import { PlatformBadge } from "./platform-badge";
 import {
@@ -78,14 +83,7 @@ import { StatePanel } from "./state-panel";
 import { Thumb } from "./thumb";
 import { VisibilityBadge } from "./visibility-badge";
 import { VISIBILITY_LABELS_JA, VisibilityIcon } from "./visibility-style";
-import {
-  buttonPrimary,
-  buttonSecondary,
-  card,
-  field,
-  label,
-  muted,
-} from "./ui";
+import { buttonSecondary, card, field, muted, toolbarButton } from "./ui";
 
 // File-manager view of /media: the folder tree built from the file paths on
 // the left (a disclosure on phones) and the open folder's subfolders and
@@ -149,6 +147,12 @@ type Props = {
   onSelection$?: QRL<
     (a: SelectionAction, items: SelectedItems) => Promise<boolean>
   >;
+  /**
+   * 新しいフォルダ: makes a folder in `dir` under a default name and
+   * resolves its path (null: it failed); its name is then edited in its
+   * tile. Without it there is no such button.
+   */
+  onNewFolder$?: QRL<() => Promise<string | null>>;
 };
 
 export type SelectedItems = { photos: number[]; folders: string[] };
@@ -211,10 +215,19 @@ const ROOT_LABEL = "All files";
 const LONG_PRESS_MS = 450;
 
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
-/** The tile an event is on. (Module level: handlers cannot capture it.) */
-const itemOf = (t: EventTarget | null) =>
-  (t as HTMLElement | null)?.closest?.<HTMLElement>("[data-sel-key]") ?? null;
+/**
+ * The tile an event is on; none in the field of a name being edited (a
+ * click or a key there is the field's). (Module level: handlers cannot
+ * capture it.)
+ */
+const itemOf = (t: EventTarget | null) => {
+  const el = t as HTMLElement | null;
+  if (el?.closest?.("[data-inline-name]")) return null;
+  return el?.closest?.<HTMLElement>("[data-sel-key]") ?? null;
+};
 const optionId = (key: SelKey) => `opt-${key}`;
+/** The toolbar's 名前を変更 of the open folder. */
+const RENAME_OPEN_ID = "rename-open-folder";
 
 /**
  * A tile's tick mark. Not a control of its own (the option carries the
@@ -228,7 +241,8 @@ const TickMark = ({ list }: { list?: boolean }) => (
     data-testid="tile-check"
     class={[
       "z-10 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg sm:size-8",
-      list ? "relative" : "absolute top-1 right-1",
+      // (A tile whose name is being edited gives the name its room.)
+      list ? "relative" : "absolute top-1 right-1 group-data-editing:hidden",
       // Shown on hover (pointer devices), when selected, while selecting,
       // and always on touch screens.
       "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-aria-selected:opacity-100 [[data-selecting]_&]:opacity-100",
@@ -439,15 +453,21 @@ const listKeys = sync$((e: KeyboardEvent) => {
  * selects instead).
  */
 const dragOnlyWithMouse = sync$((e: PointerEvent) => {
-  const el = (e.target as HTMLElement).closest<HTMLElement>("[data-sel-key]");
+  const t = e.target as HTMLElement;
+  const el = t.closest<HTMLElement>("[data-sel-key]");
   if (el && el.closest("[data-selectable]")) {
-    el.draggable = e.pointerType === "mouse";
+    // (In a name's field the mouse selects text.)
+    el.draggable =
+      e.pointerType === "mouse" && !t.closest("[data-inline-name]");
   }
 });
 
-/** No native context menu (or callout) on a tile. */
+/** No native context menu (or callout) on a tile, but in a name's field. */
 const noNativeMenu = sync$((e: MouseEvent) => {
-  if ((e.target as HTMLElement).closest("[data-sel-key]")) e.preventDefault();
+  const t = e.target as HTMLElement;
+  if (t.closest("[data-sel-key]") && !t.closest("[data-inline-name]")) {
+    e.preventDefault();
+  }
 });
 
 /** No native menu on a folder of the tree: it has its own. */
@@ -473,6 +493,7 @@ export const FileBrowser = component$<Props>(
     tagFields,
     progress,
     onSelection$,
+    onNewFolder$,
   }) => {
     const href = (path: string) =>
       mediaListHref({
@@ -545,8 +566,13 @@ export const FileBrowser = component$<Props>(
     } | null>(null);
     /** Openings so far: each menu is a fresh instance (key). */
     const menuOpens = useSignal(0);
-    const renaming = useSignal<{ key: SelKey; name: string } | null>(null);
-    const renameDialog = useSignal<HTMLDialogElement>();
+    /**
+     * The item whose name is being edited where it is shown (its tile or
+     * row; the open folder's in the path), and whether 新しいフォルダ just
+     * made it. Kept by key: a reload of the same folder keeps it and what
+     * was typed, and it is shown only while that item is.
+     */
+    const editing = useSignal<{ key: SelKey; created?: boolean } | null>(null);
     const command = useSignal<BarCommand | null>(null);
     /** A pending long press, and whether one just selected (eat its click). */
     const press = useSignal<{ timer: number; x: number; y: number } | null>(
@@ -580,6 +606,10 @@ export const FileBrowser = component$<Props>(
         }
       });
       if (!shown) return;
+      // Another folder: no name stays open for when it is shown again.
+      if (shown.view.split("\n")[0] !== selView.value.split("\n")[0]) {
+        editing.value = null;
+      }
       sel.value = reconcileSelection(
         [
           ...shown.folders.map((c) => folderKey(c.path)),
@@ -764,19 +794,61 @@ export const FileBrowser = component$<Props>(
         sel.value = { keys: [key], anchor: key };
       }
     });
+    /** Edit the name of `key` (a tile, or the open folder) where it is. */
     const startRename = $((key: SelKey) => {
-      sel.value = { keys: [key], anchor: key };
-      const name = key.startsWith("p:")
-        ? nameOf(files.find((f) => photoKey(f.id) === key)?.path ?? "")
-        : nameOf(key.slice(2));
-      renaming.value = { key, name };
-      const input = renameDialog.value?.querySelector("input");
-      if (input) input.value = name;
-      renameDialog.value?.showModal();
-      // The name without its extension, ready to type over.
-      if (input) {
-        const dot = name.lastIndexOf(".");
-        input.setSelectionRange(0, dot > 0 ? dot : name.length);
+      if (key !== folderKey(dir)) sel.value = { keys: [key], anchor: key };
+      editing.value = { key };
+    });
+    /** Back to the item from its name's field (keyboard users stay put). */
+    const refocus = $(async (key: SelKey) => {
+      await new Promise((r) => setTimeout(r, 50));
+      // The open folder's name: back to its 名前を変更.
+      const el = document.getElementById(
+        key === folderKey(dir) ? RENAME_OPEN_ID : optionId(key),
+      );
+      if (el && key === folderKey(dir)) {
+        el.focus();
+        return;
+      }
+      if (!el) return;
+      focusKey.value = key;
+      el.focus();
+    });
+    const cancelName = $(async (key: SelKey) => {
+      editing.value = null;
+      await refocus(key);
+    });
+    /** Save the name typed for `key`; true when it went through. */
+    const commitName = $(
+      async (key: SelKey, name: string, created: boolean) => {
+        if (!(await run({ kind: "rename", name, created }, [key]))) {
+          return false;
+        }
+        editing.value = null;
+        // The open folder is opened under its new name; a tile is focused
+        // where it is now (a folder's key is its path).
+        if (key === folderKey(dir)) return true;
+        await refocus(
+          key.startsWith("f:")
+            ? folderKey(joinFolder(dirOf(key.slice(2)), name))
+            : key,
+        );
+        return true;
+      },
+    );
+    /** 新しいフォルダ: made, then its name edited in its tile. */
+    const newFolder = $(async () => {
+      if (!onNewFolder$ || busy.value) return;
+      busy.value = true;
+      try {
+        const path = await onNewFolder$();
+        if (!path) return;
+        const key = folderKey(path);
+        sel.value = EMPTY_SELECTION;
+        focusKey.value = key;
+        editing.value = { key, created: true };
+      } finally {
+        busy.value = false;
       }
     });
     const openMenu = $(async (key: SelKey, x: number, y: number) => {
@@ -1377,17 +1449,47 @@ export const FileBrowser = component$<Props>(
       outside.value = path;
       await pickMenu(id, folderKey(path));
     });
-    const submitRename = $(async (form: HTMLFormElement) => {
-      const name = String(new FormData(form).get("name") ?? "").trim();
-      const r = renaming.value;
-      if (!r || !name) return;
-      // The item the dialog was opened for, not whatever is selected now:
-      // the selection follows the shown items and can change meanwhile
-      // (a reload that briefly lacks it, a click elsewhere).
-      if (await run({ kind: "rename", name }, [r.key])) {
-        renameDialog.value?.close();
-      }
+    // The same rules as the server's (useRenameItem), said at once.
+    const checkFolderName = $((name: string) => {
+      const v = validateFolderName(name);
+      return v.ok ? null : v.error;
     });
+    const checkFileName = $((name: string) =>
+      name === ""
+        ? "名前を入力してください"
+        : name.includes("/")
+          ? "名前に / は使えません"
+          : null,
+    );
+    /**
+     * `shown` (the name of `key`), or its field while it is being edited.
+     * The field commits for the item it was opened for, not whatever is
+     * selected by then.
+     */
+    const nameOrField = (
+      key: SelKey,
+      name: string,
+      shown: JSXOutput,
+      cls?: string,
+    ): JSXOutput => {
+      const e = editing.value;
+      if (e?.key !== key) return shown;
+      const folder = key.startsWith("f:");
+      const created = e.created === true;
+      return (
+        <InlineName
+          key={key}
+          value={name}
+          label={folder ? "フォルダ名" : "ファイル名"}
+          stem={!folder}
+          maxLength={folder ? MAX_FOLDER_NAME_LEN : 200}
+          check$={folder ? checkFolderName : checkFileName}
+          onCommit$={(n) => commitName(key, n, created)}
+          onCancel$={() => cancelName(key)}
+          class={cls}
+        />
+      );
+    };
 
     // Nested link list: the root's children are always shown, and a folder's
     // children once the selection is in it (like a file manager's sidebar).
@@ -1457,6 +1559,7 @@ export const FileBrowser = component$<Props>(
       // draggable: set per gesture (dragOnlyWithMouse).
       "data-sel-key": key,
       "data-href": hrefOf[key],
+      "data-editing": editing.value?.key === key ? "" : undefined,
     });
     const itemClass = [
       "group relative cursor-pointer outline-none select-none [-webkit-touch-callout:none]",
@@ -1593,9 +1696,14 @@ export const FileBrowser = component$<Props>(
                       </span>
                     )}
                     {i === crumbs.length - 1 ? (
-                      <span aria-current="location" class="font-semibold">
-                        {c.name || ROOT_LABEL}
-                      </span>
+                      nameOrField(
+                        folderKey(c.path),
+                        c.name,
+                        <span aria-current="location" class="font-semibold">
+                          {c.name || ROOT_LABEL}
+                        </span>,
+                        "w-48 max-w-full",
+                      )
                     ) : (
                       <Link
                         prefetch="js"
@@ -1611,8 +1719,32 @@ export const FileBrowser = component$<Props>(
                 ))}
               </ol>
             </nav>
-            {/* Folder actions (new folder, upload) from the page. */}
-            <Slot name="toolbar" />
+            <div class="flex flex-wrap gap-2 max-sm:w-full">
+              {selectable && dir !== "/" && (
+                <button
+                  type="button"
+                  id={RENAME_OPEN_ID}
+                  onClick$={() => startRename(folderKey(dir))}
+                  class={toolbarButton}
+                >
+                  名前を変更
+                </button>
+              )}
+              {/* The folder's other actions from the page. */}
+              <Slot name="toolbar" />
+              {onNewFolder$ && (
+                <button
+                  type="button"
+                  disabled={busy.value}
+                  onClick$={newFolder}
+                  class={toolbarButton}
+                >
+                  <span aria-hidden="true">＋</span>
+                  新しいフォルダ
+                </button>
+              )}
+              <Slot name="upload" />
+            </div>
           </div>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <nav
@@ -1757,7 +1889,7 @@ export const FileBrowser = component$<Props>(
                             ]
                           : [
                               card,
-                              "flex items-center gap-2 px-3 py-3 pr-12 text-sm transition-colors hover:border-sky-300 hover:bg-sky-50/60 aria-selected:ring-2 aria-selected:ring-sky-500 data-drop-over:bg-sky-50 sm:pr-9 dark:hover:border-sky-800 dark:hover:bg-sky-950/30",
+                              "flex items-center gap-2 px-3 py-3 pr-12 text-sm transition-colors hover:border-sky-300 hover:bg-sky-50/60 aria-selected:ring-2 aria-selected:ring-sky-500 data-drop-over:bg-sky-50 data-editing:pr-3 sm:pr-9 sm:data-editing:pr-3 dark:hover:border-sky-800 dark:hover:bg-sky-950/30",
                             ],
                       ]}
                     >
@@ -1770,10 +1902,14 @@ export const FileBrowser = component$<Props>(
                       >
                         <FolderIcon class={listLayout ? "size-6" : "size-4"} />
                       </span>
-                      <span class="min-w-0">
-                        <span class="block truncate font-medium">
-                          {child.name}
-                        </span>
+                      <span class="min-w-0 flex-1">
+                        {nameOrField(
+                          key,
+                          child.name,
+                          <span class="block truncate font-medium">
+                            {child.name}
+                          </span>,
+                        )}
                         {listLayout ? (
                           <span class="sm:hidden">
                             <FolderStats node={child} />
@@ -1835,9 +1971,13 @@ export const FileBrowser = component$<Props>(
                             class="h-8 w-10 rounded object-cover"
                           />
                           <span class="min-w-0">
-                            <span class="block truncate font-medium break-all">
-                              {name}
-                            </span>
+                            {nameOrField(
+                              key,
+                              name,
+                              <span class="block truncate font-medium break-all">
+                                {name}
+                              </span>,
+                            )}
                             <span
                               class={[
                                 // Below lg the camera has no column: it
@@ -1912,9 +2052,14 @@ export const FileBrowser = component$<Props>(
                           </span>
                           {/* Two lines, broken anywhere: VRChat names only
                               differ near the end. */}
-                          <span class="line-clamp-2 px-2 pt-1.5 text-xs font-medium break-all">
-                            {name}
-                          </span>
+                          {nameOrField(
+                            key,
+                            name,
+                            <span class="line-clamp-2 px-2 pt-1.5 text-xs font-medium break-all">
+                              {name}
+                            </span>,
+                            "px-1 pt-1",
+                          )}
                           <span
                             class={[
                               "block px-2 pb-1.5 text-xs tabular-nums",
@@ -1982,51 +2127,6 @@ export const FileBrowser = component$<Props>(
             }
           />
         )}
-
-        <dialog
-          ref={renameDialog}
-          aria-labelledby="rename-item-title"
-          onClose$={() => (renaming.value = null)}
-          class="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/40 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-        >
-          <form
-            preventdefault:submit
-            onSubmit$={(_, form) => submitRename(form)}
-            class="space-y-4 p-4"
-          >
-            <h2 id="rename-item-title" class="text-base font-semibold">
-              名前を変更
-            </h2>
-            <div>
-              <label for="rename-item-name" class={label}>
-                名前
-              </label>
-              <input
-                id="rename-item-name"
-                name="name"
-                // Filled in by startRename.
-                required
-                maxLength={200}
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellcheck={false}
-                class={field}
-              />
-            </div>
-            <div class="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick$={() => renameDialog.value?.close()}
-                class={buttonSecondary}
-              >
-                やめる
-              </button>
-              <button type="submit" disabled={busy.value} class={buttonPrimary}>
-                変更
-              </button>
-            </div>
-          </form>
-        </dialog>
       </div>
     );
   },
