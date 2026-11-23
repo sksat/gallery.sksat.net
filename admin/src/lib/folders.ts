@@ -189,6 +189,14 @@ export const validateFolderName = (
   return { ok: true, name };
 };
 
+/**
+ * The name 新しいフォルダ gives its `n`th try (1, 2, …): "new-folder",
+ * "new-folder-2", …, like a file manager's "New folder (2)". In ASCII,
+ * as every folder name must be.
+ */
+export const defaultFolderName = (n: number): string =>
+  n <= 1 ? "new-folder" : `new-folder-${n}`;
+
 /** `name` inside folder `dir` ("/" + "a" → "/a"; "/a" + "b" → "/a/b"). */
 export const joinFolder = (dir: string, name: string): string =>
   dir === "/" ? `/${name}` : `${dir}/${name}`;

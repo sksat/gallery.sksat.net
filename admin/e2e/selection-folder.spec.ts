@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { dropZoneOf, folderWith, png, tick, tile } from "./files-helpers";
+import {
+  dropZoneOf,
+  folderWith,
+  newFolder,
+  png,
+  tick,
+  tile,
+} from "./files-helpers";
 
 // A folder in the Files view's selection stands for every photo below it,
 // subfolders included: the bar counts them and its photo actions (tags,
@@ -31,12 +38,8 @@ const uploadHere = async (page: Page, dir: string, files: string[]) => {
 };
 
 /** A new folder `name` inside the open one, opened. */
-const subfolder = async (page: Page, dir: string, name: string) => {
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill(name);
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(new RegExp(`dir=${dir}/${name}$`));
-};
+const subfolder = (page: Page, dir: string, name: string) =>
+  newFolder(page, dir, name);
 
 /**
  * /mock/<name> with a.png, sub/ with b.png and c.png, and sub/deep/ with

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { dropZoneOf, folderWith, png, tile } from "./files-helpers";
+import { dropZoneOf, folderWith, newFolder, png, tile } from "./files-helpers";
 
 // /setting/upload-rule/: the rules that decide a new photo's platform,
 // camera, tags, ... (src/lib/upload-rules.ts), and applying them to photos
@@ -99,10 +99,7 @@ test("a camera rule sets the camera of a VRChat upload, shown in the panel", asy
 
   // Upload a VRChat screenshot.
   await page.goto("/media/?view=files&dir=/mock");
-  await page.getByRole("button", { name: "New folder" }).click();
-  await page.getByLabel("Folder name").fill("rule-cam");
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page).toHaveURL(/dir=\/mock\/rule-cam$/);
+  await newFolder(page, "/mock", "rule-cam");
   await dropZoneOf(page, "/mock/rule-cam");
   await page.getByTestId("upload-input").setInputFiles([png(VRCHAT, "rule")]);
   const panel = page.getByTestId("upload-panel");

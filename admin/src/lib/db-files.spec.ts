@@ -9,6 +9,8 @@ import {
   listPhotosUnder,
   outermostFolders,
   PHOTOS_UNDER_SQL,
+  REMOVE_EMPTY_FOLDER_SQL,
+  removeEmptyFolder,
 } from "./db-files";
 import { migratedSqlite, sqliteD1 } from "./sqlite-d1";
 
@@ -86,6 +88,21 @@ describe("folders (on the real schema)", () => {
     expect(await createFolder(db, "/VRChat/2023-1")).toBe(true);
   });
 
+  it("removes a created folder only while it is empty", async () => {
+    const raw = migratedSqlite();
+    const db = sqliteD1(raw);
+    expect(await createFolder(db, "/a")).toBe(true);
+    expect(await createFolder(db, "/b")).toBe(true);
+    expect(await createFolder(db, "/c")).toBe(true);
+    raw.exec(`INSERT INTO folder (path) VALUES ('/b/sub');
+      INSERT INTO media (file, platform, status) VALUES ('/c/x.png', 'Real', 'uploading');`);
+    expect(await removeEmptyFolder(db, "/a")).toBe(true);
+    expect(await removeEmptyFolder(db, "/a")).toBe(false);
+    expect(await removeEmptyFolder(db, "/b")).toBe(false);
+    expect(await removeEmptyFolder(db, "/c")).toBe(false);
+    expect(await listFolders(db)).toEqual(["/b", "/b/sub", "/c"]);
+  });
+
   it("lists only ready photos in the files view", async () => {
     const db = setup();
     const { rows } = await listMediaFiles(db, { limit: 10 });
@@ -119,19 +136,22 @@ describe("folders (on the real schema)", () => {
     expect(await createFolder(db, "/e")).toBe(false);
   });
 
-  it("reads ranges of the path indexes, not every path", () => {
-    const raw = migratedSqlite();
-    const plan = (
-      raw.prepare(`EXPLAIN QUERY PLAN ${CREATE_FOLDER_SQL}`).all("/a") as {
-        detail: string;
-      }[]
-    )
-      .map((r) => r.detail)
-      .join("\n");
-    expect(plan).not.toMatch(/SCAN (media|folder)\b/);
-    expect(plan).toMatch(/SEARCH media USING INDEX idx_media_path_live/);
-    expect(plan).toMatch(/SEARCH folder USING COVERING INDEX/);
-  });
+  it.each([CREATE_FOLDER_SQL, REMOVE_EMPTY_FOLDER_SQL])(
+    "reads ranges of the path indexes, not every path",
+    (sql) => {
+      const raw = migratedSqlite();
+      const plan = (
+        raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all("/a") as {
+          detail: string;
+        }[]
+      )
+        .map((r) => r.detail)
+        .join("\n");
+      expect(plan).not.toMatch(/SCAN (media|folder)\b/);
+      expect(plan).toMatch(/SEARCH media USING INDEX idx_media_path_live/);
+      expect(plan).toMatch(/SEARCH folder USING COVERING INDEX/);
+    },
+  );
 });
 
 describe("folderRange", () => {

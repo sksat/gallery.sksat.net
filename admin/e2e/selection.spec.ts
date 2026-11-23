@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { folderWith, png, tick, tile, tiles } from "./files-helpers";
+import {
+  folderWith,
+  newFolder,
+  png,
+  tick,
+  tile,
+  tiles,
+} from "./files-helpers";
 import { mapLoaded, stubMaps } from "./map-helpers";
 
 // The Files view's selection: picking tiles and what the selection bar
@@ -621,15 +628,38 @@ test.describe("keyboard, menu and drag in the Files view", () => {
     // F2: rename the focused photo, and undo it.
     await page.keyboard.press("ArrowRight");
     await expect(tile(page, "d.png")).toBeFocused();
+    // In the tile: the name without its extension is selected, Esc keeps
+    // the name and gives the focus back to the tile.
     await page.keyboard.press("F2");
-    const dialog = page.getByRole("dialog", { name: "名前を変更" });
-    await expect(dialog.getByLabel("名前")).toHaveValue("d.png");
-    await dialog.getByLabel("名前").fill("renamed.png");
-    await dialog.getByRole("button", { name: "変更" }).click();
+    const field = tile(page, "d.png").getByRole("textbox", {
+      name: "ファイル名",
+    });
+    await expect(field).toBeFocused();
+    await expect(field).toHaveValue("d.png");
+    expect(
+      await field.evaluate((el: HTMLInputElement) => [
+        el.selectionStart,
+        el.selectionEnd,
+      ]),
+    ).toEqual([0, 1]);
+    await page.keyboard.type("x");
+    await page.keyboard.press("Escape");
+    await expect(field).toHaveCount(0);
+    await expect(tile(page, "d.png")).toBeFocused();
+    // A name that cannot be used is said there; the field stays.
+    await page.keyboard.press("F2");
+    await page.keyboard.type("a/b");
+    await page.keyboard.press("Enter");
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await expect(tile(page, "d.png").getByRole("alert")).toHaveText(
+      "名前に / は使えません",
+    );
+    await field.fill("renamed.png");
+    await page.keyboard.press("Enter");
     await expect(
       page.getByText("renamed.png に名前を変えました。"),
     ).toBeVisible();
-    await expect(tile(page, "renamed.png")).toHaveCount(1);
+    await expect(tile(page, "renamed.png")).toBeFocused();
     await page.getByRole("button", { name: "元に戻す" }).click();
     await expect(tile(page, "d.png")).toHaveCount(1);
 
@@ -677,11 +707,7 @@ test.describe("keyboard, menu and drag in the Files view", () => {
 
   test("drag selected tiles onto a folder, then undo", async ({ page }) => {
     await folderWith(page, "drag", ["a.png", "b.png", "c.png"]);
-    await page.getByRole("button", { name: "New folder" }).click();
-    await page.getByLabel("Folder name").fill("inner");
-    await page.getByRole("button", { name: "Create" }).click();
-    await expect(page).toHaveURL(/dir=\/mock\/drag\/inner$/);
-    await page.goBack();
+    await newFolder(page, "/mock/drag", "inner", { open: false });
     await expect(tiles(page)).toHaveCount(3);
 
     await tick(page, "a.png").click();
@@ -1011,9 +1037,10 @@ test.describe("selection on a phone", () => {
     await expect(page).toHaveURL(/dir=\/mock\/sel-long$/);
 
     await bar(page).getByRole("button", { name: "名前を変更" }).tap();
-    const dialog = page.getByRole("dialog", { name: "名前を変更" });
-    await dialog.getByLabel("名前").fill("long.png");
-    await dialog.getByRole("button", { name: "変更" }).tap();
+    const field = page.getByRole("textbox", { name: "ファイル名" });
+    await field.fill("long.png");
+    // Done on the phone's keyboard: the field loses the focus.
+    await field.blur();
     await expect(tile(page, "long.png")).toHaveCount(1);
   });
 });
