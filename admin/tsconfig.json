@@ -15,6 +15,7 @@
     "incremental": true,
     "isolatedModules": true,
     "outDir": "tmp",
+    "rootDir": "..",
     "noEmit": true,
     "types": [
       "node",
