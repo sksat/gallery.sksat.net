@@ -6,9 +6,9 @@
  * The admin rewrites the `setting` row `content_version` after every
  * change to what this API answers (admin/src/lib/last-good.ts). Every
  * answer, HTTP and RPC alike, is kept in the data centre's Cache API
- * under that version (dataKey: `https://gallery-api/data/v/<version>/
- * <name>`, for DATA_TTL), 404s and nulls included, so ids that do not
- * exist do not reach D1 again either. A request:
+ * under that version (dataKey: `https://gallery-api/data/v/<rules>/
+ * <version>/<name>`, for DATA_TTL), 404s and nulls included, so ids that
+ * do not exist do not reach D1 again either. A request:
  * 1. learns the current version: from the isolate's memo or the data
  *    centre's VERSION_KEY entry while either is younger than VERSION_MS,
  *    else from D1 (one single-row read), which refreshes both and the
@@ -56,9 +56,18 @@ const BASE = "https://gallery-api/data";
 export const VERSION_KEY = `${BASE}/version`;
 export const LATEST_KEY = `${BASE}/latest`;
 
+/**
+ * Part of every entry's key. Change it when a deploy changes what an
+ * answer holds for the same data (a stricter visibility rule, say), so
+ * that entries built by the older code are never served again, outage or
+ * not; an outage right after such a deploy answers 503 until the entries
+ * are built again. 2: a photo is a camera picture only while it is public.
+ */
+export const ANSWER_RULES = "2";
+
 /** The cache key of an entry. */
 export const dataKey = (version: string, name: string): string =>
-  `${BASE}/v/${encodeURIComponent(version)}/${name}`;
+  `${BASE}/v/${ANSWER_RULES}/${encodeURIComponent(version)}/${name}`;
 
 /** The part of the Cache API used here. */
 export interface CacheLike {

@@ -42,11 +42,13 @@ test("pick library photos as pictures, undo, take one off and put it back", asyn
   ).toBeVisible();
 
   const picker = await openPicker(page);
-  // A private photo cannot be picked.
+  // Only public photos can be picked: not a private one, nor an unlisted
+  // one, which opens only by its own URL.
   await expect(picker.getByLabel("vrchat3.png を選ぶ")).toBeDisabled();
-  await expect(picker.getByText("非公開の写真は選べません")).toBeVisible();
+  await expect(picker.getByLabel("vrchat2.png を選ぶ")).toBeDisabled();
+  await expect(picker.getByText("公開の写真だけ選べます")).toBeVisible();
   await picker.getByLabel("real1.png を選ぶ").check();
-  await picker.getByLabel("vrchat2.png を選ぶ").check();
+  await picker.getByLabel("vrchat1.png を選ぶ").check();
   await picker.getByRole("button", { name: "2 枚を追加" }).click();
   await expect(picker).toBeHidden();
   await expect(toast(page)).toContainText("2 枚を追加しました。");
@@ -59,7 +61,7 @@ test("pick library photos as pictures, undo, take one off and put it back", asyn
   ).toHaveText("/mock/real1.png");
   await expect(
     images(page).nth(1).getByTestId("picture-photo-link"),
-  ).toHaveAttribute("href", "/media/4/");
+  ).toHaveAttribute("href", "/media/2/");
   // A photo's picture is taken off, never deleted.
   await expect(
     images(page).first().getByRole("button", { name: "画像 1 を削除" }),
@@ -90,6 +92,33 @@ test("pick library photos as pictures, undo, take one off and put it back", asyn
   await expect(third.getByLabel("real2.png を選ぶ")).toBeChecked();
   await third.getByRole("button", { name: "キャンセル" }).click();
   await expect(third).toBeHidden();
+});
+
+test("a picture whose photo is made unlisted says the public site does not show it", async ({
+  page,
+}) => {
+  await newCamera(page, "E2E Photo Unlisted");
+  const picker = await openPicker(page);
+  await picker.getByLabel("real1.png を選ぶ").check();
+  await picker.getByRole("button", { name: "1 枚を追加" }).click();
+  await expect(images(page)).toHaveCount(1);
+  await expect(images(page).getByTestId("picture-hidden")).toHaveCount(0);
+  const camera = page.url();
+  try {
+    await page.goto("/media/1/");
+    await page.getByRole("radio", { name: /Unlisted/ }).check();
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText(/^Saved at /)).toBeVisible();
+    await page.goto(camera);
+    await expect(images(page).getByTestId("picture-hidden")).toHaveText(
+      "写真が限定公開なので、公開サイトには出ません",
+    );
+  } finally {
+    await page.goto("/media/1/");
+    await page.getByRole("radio", { name: /Public/ }).check();
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText(/^Saved at /)).toBeVisible();
+  }
 });
 
 test("opens on the camera's own photos", async ({ page }) => {

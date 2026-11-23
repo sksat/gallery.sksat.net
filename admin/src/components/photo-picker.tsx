@@ -21,9 +21,10 @@ import { VisibilityBadge } from "./visibility-badge";
 // camera's pictures. It opens on the photos taken with the camera (the
 // page has them already: no request), and すべての写真 pages through the
 // library by folder (`loadPage`, a range of the path index). Only public
-// and unlisted photos can be picked: the public site shows a picture only
-// while its photo may be opened, so a private one would be a picture
-// nobody sees. Photos that are pictures already show as added.
+// photos can be picked: the public site shows a picture only while its
+// photo is public, since a camera page would otherwise show an unlisted
+// photo, which opens only by its own URL. Photos that are pictures
+// already show as added.
 
 type Props = {
   /** The camera's own photos, newest first. */
@@ -61,8 +62,7 @@ const folderOf = (typed: string) => {
   return t === "" ? "/" : `/${t}/`;
 };
 
-const pickable = (p: PickerPhoto) =>
-  p.visibility === "public" || p.visibility === "unlisted";
+const pickable = (p: PickerPhoto) => p.visibility === "public";
 
 export const PhotoPicker = component$<Props>(
   ({ cameraPhotos, added, imageBase, onAdd$, onClose$ }) => {
@@ -201,7 +201,7 @@ export const PhotoPicker = component$<Props>(
             </form>
           </div>
           {shown.some((p) => !pickable(p)) && (
-            <p class={["text-xs", muted]}>非公開の写真は選べません</p>
+            <p class={["text-xs", muted]}>公開の写真だけ選べます</p>
           )}
 
           <div class="-mx-1 min-h-40 flex-1 overflow-y-auto px-1">
