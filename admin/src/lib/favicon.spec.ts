@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   faviconResponse,
   fetchFavicon,
-  iconHrefOf,
+  iconHrefsOf,
   isAllowedUrl,
   MAX_ICON_BYTES,
   sniffImage,
@@ -78,25 +78,47 @@ describe("isAllowedUrl", () => {
   });
 });
 
-describe("iconHrefOf", () => {
+describe("iconHrefsOf", () => {
   const base = new URL("https://example.com/blog/");
+  const hrefs = (html: string) => iconHrefsOf(html, base).map((u) => u.href);
   it("prefers rel=icon, resolving it against the page", () => {
     expect(
-      iconHrefOf(
+      hrefs(
         `<link rel="apple-touch-icon" href="/apple.png"><link rel="shortcut icon" href='img/fav.png?v=1&amp;x=2'>`,
-        base,
-      )?.href,
-    ).toBe("https://example.com/blog/img/fav.png?v=1&x=2");
+      ),
+    ).toEqual([
+      "https://example.com/blog/img/fav.png?v=1&x=2",
+      "https://example.com/apple.png",
+    ]);
   });
   it("takes apple-touch-icon without an icon, unquoted hrefs too", () => {
+    expect(hrefs("<LINK REL=apple-touch-icon HREF=/a.png>")).toEqual([
+      "https://example.com/a.png",
+    ]);
+  });
+  it("leaves out links it may not fetch, keeping at most 3", () => {
     expect(
-      iconHrefOf("<LINK REL=apple-touch-icon HREF=/a.png>", base)?.href,
-    ).toBe("https://example.com/a.png");
+      hrefs(
+        [
+          "data:image/png;base64,AAAA",
+          "http://example.com/a.png",
+          "https://127.0.0.1/a.png",
+          "/1.png",
+          "/2.png",
+          "/3.png",
+          "/4.png",
+        ]
+          .map((h) => `<link rel="icon" href="${h}">`)
+          .join(""),
+      ),
+    ).toEqual([
+      "https://example.com/1.png",
+      "https://example.com/2.png",
+      "https://example.com/3.png",
+    ]);
   });
   it("finds nothing without an icon link", () => {
-    expect(iconHrefOf('<link rel="stylesheet" href="/a.css">', base)).toBe(
-      null,
-    );
+    expect(hrefs('<link rel="stylesheet" href="/a.css">')).toEqual([]);
   });
 });
 
@@ -146,6 +168,18 @@ describe("fetchFavicon", () => {
         "https://example.com/",
       ]);
     }
+  });
+
+  it("tries the next icon link when one fails", async () => {
+    const f = fakeFetch({
+      "https://example.com/": html(
+        '<link rel="icon" href="/gone.png"><link rel="icon" href="/ok.png">',
+      ),
+      "https://example.com/ok.png": new Response(PNG),
+    });
+    expect((await fetchFavicon("example.com", deps(f.fn)))?.type).toBe(
+      "image/png",
+    );
   });
 
   it("stops after 3 redirects", async () => {

@@ -57,12 +57,15 @@ export const sniffImage = (b: Uint8Array): string | null => {
   return null;
 };
 
+/** How many of a page's icon links are tried. */
+const MAX_ICON_LINKS = 3;
+
 /**
- * The first icon <link> of a page's HTML, resolved against `base`:
- * rel "icon", "shortcut icon" or "apple-touch-icon" (in that order of
- * preference), null when there is none or its href is not a URL.
+ * The icon <link>s of a page's HTML that may be fetched (isAllowedUrl),
+ * resolved against `base`, at most MAX_ICON_LINKS: rel "icon" or
+ * "shortcut icon" first, then "apple-touch-icon", each in page order.
  */
-export const iconHrefOf = (html: string, base: URL): URL | null => {
+export const iconHrefsOf = (html: string, base: URL): URL[] => {
   const found: { rank: number; href: string }[] = [];
   for (const [tag] of html.matchAll(/<link\b[^>]*>/gi)) {
     const rel = /\brel\s*=\s*(["']?)([^"'>]*)\1/i.exec(tag)?.[2];
@@ -78,14 +81,18 @@ export const iconHrefOf = (html: string, base: URL): URL | null => {
     if (rank >= 0) found.push({ rank, href: decodeEntities(href) });
   }
   found.sort((a, b) => a.rank - b.rank);
+  const out: URL[] = [];
   for (const { href } of found) {
+    let url: URL;
     try {
-      return new URL(href, base);
+      url = new URL(href, base);
     } catch {
-      // Not a URL: try the next.
+      continue; // Not a URL.
     }
+    if (isAllowedUrl(url)) out.push(url);
+    if (out.length === MAX_ICON_LINKS) break;
   }
-  return null;
+  return out;
 };
 
 const decodeEntities = (s: string) =>
@@ -269,8 +276,14 @@ export const fetchFavicon = async (
     const html = await readCapped(page.res, MAX_HTML_BYTES, true);
     if (!html) return null;
     // Relative hrefs resolve against the page after its redirects.
-    const href = iconHrefOf(new TextDecoder().decode(html), page.url);
-    return href ? await icon(href, deps, signal) : null;
+    for (const href of iconHrefsOf(
+      new TextDecoder().decode(html),
+      page.url,
+    )) {
+      const found = await icon(href, deps, signal);
+      if (found) return found;
+    }
+    return null;
   } catch (err) {
     // A timeout, a refused connection, a TLS error: no favicon.
     console.warn(`favicon ${host}:`, err instanceof Error ? err.message : err);

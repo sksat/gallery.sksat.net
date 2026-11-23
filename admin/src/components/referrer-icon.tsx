@@ -54,7 +54,6 @@ export const ReferrerIcon = ({ host }: { host: string }) => {
         width={16}
         height={16}
         alt=""
-        loading="lazy"
         decoding="async"
         class={[box, "rounded-sm"]}
         data-referrer-icon="favicon"

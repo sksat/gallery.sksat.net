@@ -100,8 +100,9 @@ const PRIVATE_SUFFIXES = [
  * character labels, at least two labels, a top-level label that is not
  * all digits (so no IPv4 address in any spelling, and IPv6 has colons),
  * no port or user, and nothing local or reserved (PRIVATE_SUFFIXES). It
- * says nothing of where the name resolves to: the fetch itself runs in
- * Cloudflare, which does not reach private networks.
+ * says nothing of where the name resolves to: that the fetch, made from
+ * Cloudflare's network, cannot reach a private one is the platform's
+ * doing, not something this checks.
  */
 export const isPublicHostname = (host: string): boolean => {
   if (host.length === 0 || host.length > 253) return false;
