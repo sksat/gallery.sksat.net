@@ -7,6 +7,8 @@ on:
       - "workers/image/**"
       # Bundled into the Worker (resized copies' keys and claims).
       - "shared/resized/**"
+      # Bundled into the Worker (the world picture's fetch).
+      - "shared/vrchat/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/deploy-image-worker.yaml"

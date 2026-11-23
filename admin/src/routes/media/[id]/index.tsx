@@ -14,6 +14,7 @@ import { CameraGlyph } from "~/components/camera-label";
 import { FileMetadata } from "~/components/file-metadata";
 import { MissingBindingError } from "~/components/missing-binding-error";
 import { PhotoAccess } from "~/components/photo-access";
+import { PhotoHover } from "~/components/photo-hover";
 import { StatePanel } from "~/components/state-panel";
 import { SubmitButton } from "~/components/submit-button";
 import { Toast, type ToastState } from "~/components/toast";
@@ -712,6 +713,8 @@ const MediaFields = component$<{
   onReset$: QRL<(field: "exif" | "world" | "location") => void>;
   tagFields: TagFieldDef[];
   inheritedTags: string[];
+  /** Thumbnails are on (the world card's picture). */
+  pictures: boolean;
 }>(
   ({
     row,
@@ -721,6 +724,7 @@ const MediaFields = component$<{
     onReset$,
     tagFields,
     inheritedTags,
+    pictures,
   }) => {
     const platforms = usePlatformList().value;
     // The saved row's platform: a missing one (a stale list) is kept.
@@ -779,6 +783,7 @@ const MediaFields = component$<{
             kind={platformOf(platforms, row.platform).kind}
             defaults={defaults}
             onReset$={onReset$}
+            pictures={pictures}
           />
         </fieldset>
 
@@ -1444,6 +1449,7 @@ export default component$(() => {
           onReset$={resetFromFile}
           tagFields={media.value.tagFields}
           inheritedTags={media.value.inheritedTags}
+          pictures={previewBase !== null}
         />
 
         {/* Phones: fixed to the bottom of the screen, so Save and stepping
@@ -1454,14 +1460,23 @@ export default component$(() => {
           class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-zinc-200 bg-white/95 pt-3 pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] shadow-[0_-4px_12px_rgb(0_0_0/0.06)] backdrop-blur sm:static sm:z-auto sm:gap-3 sm:bg-transparent sm:p-0 sm:pt-5 sm:shadow-none sm:backdrop-blur-none dark:border-zinc-800 dark:bg-zinc-900/95 sm:dark:bg-transparent"
         >
           {neighbors?.prev ? (
-            <Link
-              prefetch="js"
-              href={neighbors.prev}
-              rel="prev"
-              class={navButton}
+            // The photo it goes to, on hover (photo-hover.tsx).
+            <PhotoHover
+              file={neighbors.prevFile}
+              platform={null}
+              imageBase={previewBase}
+              testId="prev-preview"
+              class="inline-flex shrink-0"
             >
-              ‹ 前へ
-            </Link>
+              <Link
+                prefetch="js"
+                href={neighbors.prev}
+                rel="prev"
+                class={navButton}
+              >
+                ‹ 前へ
+              </Link>
+            </PhotoHover>
           ) : (
             // At the start of the list: a placeholder keeping the layout.
             <span aria-hidden="true" class={[navButton, "opacity-40"]}>
@@ -1488,14 +1503,22 @@ export default component$(() => {
             </span>
           )}
           {neighbors?.next ? (
-            <Link
-              prefetch="js"
-              href={neighbors.next}
-              rel="next"
-              class={[navButton, "sm:ml-auto"]}
+            <PhotoHover
+              file={neighbors.nextFile}
+              platform={null}
+              imageBase={previewBase}
+              testId="next-preview"
+              class="inline-flex shrink-0 sm:ml-auto"
             >
-              次へ ›
-            </Link>
+              <Link
+                prefetch="js"
+                href={neighbors.next}
+                rel="next"
+                class={navButton}
+              >
+                次へ ›
+              </Link>
+            </PhotoHover>
           ) : (
             <span
               aria-hidden="true"

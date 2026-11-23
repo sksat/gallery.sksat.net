@@ -200,6 +200,55 @@ export const cameraSummaries = (
   );
 };
 
+/** What a camera link's card shows (camera-link.tsx). */
+export type CameraPreview = {
+  name: string;
+  manufacturer: string | null;
+  kind: CameraKind | null;
+  /** Public photos taken or digitised with it, as the camera list counts. */
+  count: number;
+  /** Its first picture (a bucket path), if it has one. */
+  picture: string | null;
+  /** Its newest photos, newest first. */
+  recent: { id: string; file: string | null }[];
+};
+
+/** How many of a camera's newest photos its card shows. */
+export const PREVIEW_PHOTOS = 4;
+
+/**
+ * Every listed camera's card, by slug, from the lists the layout loaded
+ * (no request of its own): the camera list's numbers (cameraSummaries)
+ * and its newest photos, undated ones last.
+ */
+export const cameraPreviews = (
+  media: MediaIndex,
+  cameras: CameraJSON[] | null,
+): Record<string, CameraPreview> => {
+  const time = (m: MediaInfo) => m.timestamp?.getTime() ?? -Infinity;
+  const out: Record<string, CameraPreview> = {};
+  for (const { camera, count } of cameraSummaries(media, cameras)) {
+    const recent = media
+      .filter(
+        (m) =>
+          takenWith(m, camera.slug) ||
+          (m.digitizer != null && cameraSlug(m.digitizer) === camera.slug),
+      )
+      .sort((a, b) => time(b) - time(a))
+      .slice(0, PREVIEW_PHOTOS)
+      .map((m) => ({ id: m.id, file: m.file }));
+    out[camera.slug] = {
+      name: camera.name,
+      manufacturer: camera.manufacturer,
+      kind: camera.kind,
+      count,
+      picture: camera.images.at(0)?.file ?? null,
+      recent,
+    };
+  }
+  return out;
+};
+
 export const CAMERA_KIND_LABELS: Record<CameraKind, string> = {
   digital: "デジタルカメラ",
   film: "フィルムカメラ",

@@ -65,6 +65,8 @@ trap 'kill "$NOAUTH_PID" "$FAKE_B2_PID" "$FAKE_GRAPHQL_PID" 2>/dev/null || true'
 # tiles: the image Worker (IMAGES binding) is not running locally, and VRT
 # does not depend on it. E2E_TEST_ROUTES=1 enables /e2e/* pages (loopback
 # only), e.g. the photo preview with thumbnails Playwright serves itself.
+# VRCHAT_ORIGIN: world cards (/api/world/<id>) ask the fake bucket, which
+# has no world pages, never vrchat.com.
 pnpm exec wrangler pages dev ./dist \
   --persist-to "$PERSIST_DIR" \
   --inspector-port $((PORT + 4000)) \
@@ -79,6 +81,7 @@ pnpm exec wrangler pages dev ./dist \
   --binding "E2E_FAKE_B2_OBJECT_URL=http://127.0.0.1:${FAKE_B2_PORT}/__object" \
   --binding "E2E_FAKE_CAPTION_URL=http://127.0.0.1:${FAKE_B2_PORT}/__caption" \
   --binding CF_ANALYTICS_API_TOKEN=e2e-analytics-token \
+  --binding "VRCHAT_ORIGIN=http://127.0.0.1:${FAKE_B2_PORT}/__vrchat" \
   --binding "E2E_FAKE_GRAPHQL_URL=http://127.0.0.1:${FAKE_GRAPHQL_PORT}/" \
   --binding "E2E_FAKE_FAVICON_URL=http://127.0.0.1:${FAKE_GRAPHQL_PORT}/__favicon/" \
   --ip 127.0.0.1 --port "$PORT" &

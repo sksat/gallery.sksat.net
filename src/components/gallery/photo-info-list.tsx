@@ -1,5 +1,6 @@
 import { $, component$, Slot, sync$, type QRL } from "@builder.io/qwik";
 
+import { CameraLink } from "./camera-link";
 import { splitTaken, type ExposureSpec, type PhotoInfo } from "./photo-info";
 import type { TakenAt } from "./taken";
 import { WorldLink } from "./world-link";
@@ -287,9 +288,10 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
           {i.camera && (
             <dd>
               {i.camera.href ? (
-                <a href={i.camera.href} class={LINK}>
+                // With a card previewing the camera (camera-link.tsx).
+                <CameraLink href={i.camera.href} class={LINK}>
                   {i.camera.label}
-                </a>
+                </CameraLink>
               ) : (
                 i.camera.label
               )}
@@ -316,9 +318,9 @@ export const PhotoInfoList = component$<PhotoInfoListProps>((props) => {
         <Row icon="scan" label="スキャン機材" id="info-digitizer" row={row}>
           <dd>
             {i.digitizer.href ? (
-              <a href={i.digitizer.href} class={LINK}>
+              <CameraLink href={i.digitizer.href} class={LINK}>
                 {i.digitizer.label}
-              </a>
+              </CameraLink>
             ) : (
               i.digitizer.label
             )}
