@@ -85,14 +85,14 @@ export const StatTile = ({
   value: number;
   prev: number;
   range: AccessRange;
-  size?: "lg" | "md";
+  size?: "xl" | "lg" | "md";
 }) => (
   <div class="min-w-0">
-    <dt class={["text-xs", muted]}>{label}</dt>
+    <dt class={[size === "xl" ? "text-sm" : "text-xs", muted]}>{label}</dt>
     <dd
       class={[
-        "font-semibold tracking-tight",
-        size === "lg" ? "text-3xl" : "text-2xl",
+        "font-semibold tracking-tight tabular-nums",
+        size === "xl" ? "text-4xl" : size === "lg" ? "text-3xl" : "text-2xl",
       ]}
     >
       {formatCount(value)}

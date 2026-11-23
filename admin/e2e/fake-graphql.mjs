@@ -68,6 +68,9 @@ const access = (vars) => {
       g(5, 5, { requestPath: "/photo/zzzzzzzzzz/" }),
       // Fixture photo 5 (private now).
       g(4, 4, { requestPath: "/photo/aaaaaaaaa6/" }),
+      // Fixture photos 1 and 3, a few views each (one on its detail page).
+      g(3, 3, { requestPath: "/photo/aaaaaaaaa2/" }),
+      g(2, 2, { requestPath: "/photo/aaaaaaaaa4/detail/" }),
       // Old numeric URLs: one row together, 6.
       g(3, 3, { requestPath: "/photo/1" }),
       g(2, 2, { requestPath: "/photo/0" }),

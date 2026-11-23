@@ -45,10 +45,10 @@ test("dashboard: access summary", async ({ page }) => {
   await expect(card).toContainText("訪問140▼ −30% 前の 24 時間比");
   await expect(card.getByText("概数")).toBeVisible();
 
-  // The four most viewed photos (forms of a photo's URL added up); an
+  // The six most viewed photos (forms of a photo's URL added up); an
   // unknown photo keeps its place.
   const photos = card.getByTestId("photo-ranking").getByRole("listitem");
-  await expect(photos).toHaveCount(4);
+  await expect(photos).toHaveCount(6);
   await expect(photos.nth(0)).toContainText("50");
   await expect(photos.nth(0)).toContainText("vrchat1.png");
   await expect(photos.nth(0).getByRole("link")).toHaveAttribute(
@@ -71,6 +71,32 @@ test("dashboard: access summary", async ({ page }) => {
   await expect(card.getByTestId("chart-tooltip")).toContainText(
     /^\d+\/\d+ \(.\) \d+:00–\d+:00 \(集計中\)ページビュー/,
   );
+  await expect(card.getByText("日本時間 (JST)")).toBeVisible();
+
+  // The first five referrers (with their icons) and countries; the
+  // innermost block under each heading is its list.
+  const refs = card
+    .locator("div", { has: page.getByRole("heading", { name: "参照元" }) })
+    .last()
+    .getByRole("listitem");
+  await expect(refs).toHaveCount(5);
+  await expect(refs.first()).toHaveText("Direct / None100");
+  await expect(refs.first().locator("[data-referrer-icon]")).toHaveAttribute(
+    "data-referrer-icon",
+    "direct",
+  );
+  await expect(refs.nth(1).locator("[data-referrer-icon]")).toHaveAttribute(
+    "data-referrer-icon",
+    "x",
+  );
+  const countries = card
+    .locator("div", {
+      has: page.getByRole("heading", { name: "国", exact: true }),
+    })
+    .last()
+    .getByRole("listitem");
+  await expect(countries).toHaveCount(5);
+  await expect(countries.first()).toHaveText("日本150");
 
   await card.getByRole("link", { name: "詳しく見る →" }).click();
   await expect(page).toHaveURL(/\/analytics\/$/);
@@ -99,7 +125,7 @@ test("analytics page: ranges, photos, pages, referrers", async ({ page }) => {
   // Photos in their own ranking, then the other pages; the old numeric
   // URLs are one row at the end.
   const photos = page.getByTestId("photo-ranking").getByRole("listitem");
-  await expect(photos).toHaveCount(4);
+  await expect(photos).toHaveCount(6);
   await expect(photos.nth(3)).toContainText("vrchat3.png");
   const rows = page.getByTestId("page-ranking").getByRole("listitem");
   await expect(rows).toHaveText([
