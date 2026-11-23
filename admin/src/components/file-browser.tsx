@@ -241,7 +241,8 @@ const TickMark = ({ list }: { list?: boolean }) => (
     data-testid="tile-check"
     class={[
       "z-10 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg sm:size-8",
-      list ? "relative" : "absolute top-1 right-1",
+      // (A tile whose name is being edited gives the name its room.)
+      list ? "relative" : "absolute top-1 right-1 group-data-editing:hidden",
       // Shown on hover (pointer devices), when selected, while selecting,
       // and always on touch screens.
       "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-aria-selected:opacity-100 [[data-selecting]_&]:opacity-100",
@@ -1558,6 +1559,7 @@ export const FileBrowser = component$<Props>(
       // draggable: set per gesture (dragOnlyWithMouse).
       "data-sel-key": key,
       "data-href": hrefOf[key],
+      "data-editing": editing.value?.key === key ? "" : undefined,
     });
     const itemClass = [
       "group relative cursor-pointer outline-none select-none [-webkit-touch-callout:none]",
@@ -1887,7 +1889,7 @@ export const FileBrowser = component$<Props>(
                             ]
                           : [
                               card,
-                              "flex items-center gap-2 px-3 py-3 pr-12 text-sm transition-colors hover:border-sky-300 hover:bg-sky-50/60 aria-selected:ring-2 aria-selected:ring-sky-500 data-drop-over:bg-sky-50 sm:pr-9 dark:hover:border-sky-800 dark:hover:bg-sky-950/30",
+                              "flex items-center gap-2 px-3 py-3 pr-12 text-sm transition-colors hover:border-sky-300 hover:bg-sky-50/60 aria-selected:ring-2 aria-selected:ring-sky-500 data-drop-over:bg-sky-50 data-editing:pr-3 sm:pr-9 sm:data-editing:pr-3 dark:hover:border-sky-800 dark:hover:bg-sky-950/30",
                             ],
                       ]}
                     >
