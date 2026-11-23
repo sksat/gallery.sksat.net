@@ -180,6 +180,60 @@ describe("renameTag", () => {
     expect(snapshot(raw)).toEqual(before);
   });
 
+  it("moves the photos' choices (0021) with the name, and undoes it exactly", async () => {
+    const { raw, db } = setup();
+    // Photo 3 has 旅 only through camera 2, and hides it.
+    raw.exec(`
+      UPDATE media SET tag_visibility = '{"旅":"hidden"}' WHERE id IN (1, 3);
+      UPDATE media SET tag_visibility = '{"旅":"hidden","旅行":"shown"}' WHERE id = 2;
+      UPDATE media SET tag_visibility = '{"海":"hidden"}' WHERE id = 5;`);
+    const tv = () =>
+      Object.fromEntries(
+        (
+          raw
+            .prepare("SELECT id, tag_visibility AS tv FROM media ORDER BY id")
+            .all() as { id: number; tv: string | null }[]
+        ).map((r) => [r.id, r.tv]),
+      );
+    const before = { ...snapshot(raw), tv: tv() };
+
+    const renamed = ok(await renameTag(db, "旅", "たび", false));
+    expect(tv()).toEqual({
+      1: '{"たび":"hidden"}',
+      2: '{"たび":"hidden","旅行":"shown"}',
+      3: '{"たび":"hidden"}',
+      4: null,
+      5: '{"海":"hidden"}',
+    });
+    expect(renamed.photos.map((p) => p.id)).toEqual([1, 2, 3, 4]);
+    expect(await unrenameTag(db, renamed)).toEqual({ ok: true });
+    expect({ ...snapshot(raw), tv: tv() }).toEqual(before);
+
+    // Merged: hidden when the photo hid either.
+    const merged = ok(await renameTag(db, "旅", "旅行", true));
+    expect(tv()).toMatchObject({
+      1: '{"旅行":"hidden"}',
+      2: '{"旅行":"hidden"}',
+      3: '{"旅行":"hidden"}',
+    });
+    expect(await unrenameTag(db, JSON.parse(JSON.stringify(merged)))).toEqual({
+      ok: true,
+    });
+    expect({ ...snapshot(raw), tv: tv() }).toEqual(before);
+  });
+
+  it("keeps a choice changed after the rename when undoing", async () => {
+    const { raw, db } = setup();
+    const r = ok(await renameTag(db, "旅", "たび", false));
+    // Hidden after the rename: still hidden under the old name.
+    raw.exec(`UPDATE media SET tag_visibility = '{"たび":"hidden"}' WHERE id = 1`);
+    expect(await unrenameTag(db, r)).toEqual({ ok: true });
+    expect(
+      raw.prepare("SELECT tag_visibility AS tv FROM media WHERE id = 1").get(),
+    ).toEqual({ tv: '{"たび":"hidden","旅":"hidden"}' });
+    expect(tagsOf(raw)[1]).toEqual(["旅", "海"]);
+  });
+
   it("keeps photo edits made after the rename when undoing", async () => {
     const { raw, db } = setup();
     const r = ok(await renameTag(db, "旅", "たび", false));
@@ -264,6 +318,68 @@ describe("renameTag", () => {
     // Again: done.
     expect((await renameTag(racing, "旅", "たび", false)).ok).toBe(true);
     expect(tagsOf(raw)[1]).toEqual(["たび", "海", "夏"]);
+  });
+
+  it("writes nothing when a photo's choices changed between the read and the write", async () => {
+    const { raw, db } = setup();
+    let calls = 0;
+    const racing = {
+      prepare: db.prepare.bind(db),
+      batch: async (stmts: D1PreparedStatement[]) => {
+        if (calls++ === 1) {
+          raw.exec(
+            `UPDATE media SET tag_visibility = '{"旅":"hidden"}' WHERE id = 1`,
+          );
+        }
+        raw.exec("BEGIN");
+        try {
+          const out = await db.batch(stmts);
+          raw.exec("COMMIT");
+          return out;
+        } catch (err) {
+          raw.exec("ROLLBACK");
+          throw err;
+        }
+      },
+    } as unknown as D1Database;
+    expect(await renameTag(racing, "旅", "たび", false)).toMatchObject({
+      ok: false,
+      code: "conflict",
+    });
+    expect(tagsOf(raw)[1]).toEqual(["旅", "海"]);
+    // Again: the choice moves with the name.
+    expect((await renameTag(racing, "旅", "たび", false)).ok).toBe(true);
+    expect(
+      raw.prepare("SELECT tag_visibility AS tv FROM media WHERE id = 1").get(),
+    ).toEqual({ tv: '{"たび":"hidden"}' });
+  });
+
+  it("undo hides the old name on a photo that hid the new one through its camera", async () => {
+    const { raw, db } = setup();
+    // Photo 3 has 旅 only through camera 2, with no choice.
+    const r = ok(await renameTag(db, "旅", "たび", false));
+    raw.exec(
+      `UPDATE media SET tag_visibility = '{"たび":"hidden"}' WHERE id = 3`,
+    );
+    expect(await unrenameTag(db, r)).toEqual({ ok: true });
+    expect(
+      raw.prepare("SELECT tag_visibility AS tv FROM media WHERE id = 3").get(),
+    ).toEqual({ tv: '{"たび":"hidden","旅":"hidden"}' });
+    expect(cameraTags(raw)).toContainEqual({
+      camera_id: 2,
+      tag: "旅",
+      propagate: 1,
+      position: 1,
+    });
+  });
+
+  it("reads a choice that is not a string as hidden, as the API does", async () => {
+    const { raw, db } = setup();
+    raw.exec(`UPDATE media SET tag_visibility = '{"旅":1}' WHERE id = 1`);
+    ok(await renameTag(db, "旅", "たび", false));
+    expect(
+      raw.prepare("SELECT tag_visibility AS tv FROM media WHERE id = 1").get(),
+    ).toEqual({ tv: '{"たび":"hidden"}' });
   });
 
   it("keeps camera tag changes made after a merge when undoing", async () => {

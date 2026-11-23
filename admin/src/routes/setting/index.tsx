@@ -80,7 +80,6 @@ export const useSaveDefaults = routeAction$(
     digitized_at: z.string().max(20),
     embed_exif: z.enum(["on", "off"]),
     resize_maker: z.enum(["worker", "browser"]),
-    tags: z.string().max(20),
     exif: z.string().max(20),
     world: z.string().max(20),
     location: z.string().max(20),

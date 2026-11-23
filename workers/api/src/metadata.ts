@@ -5,6 +5,9 @@
 // JSON objects of field → level; a missing field falls through (photo →
 // site → BUILTIN_DEFAULTS), and a value that is not one of the field's
 // levels counts as "hidden", the same as the SQL in query.ts (levelSql).
+// A key that is no field (e.g. `tags`, a level until admin migration 0021
+// made tags public per photo and per tag, media.tag_visibility) is
+// ignored.
 //
 // The admin keeps a copy of the field and level lists for its forms
 // (admin/src/lib/metadata.ts; metadata.spec.ts checks they match).
@@ -16,8 +19,6 @@ export const METADATA_LEVELS = {
   taken_at: ["second", "minute", "date", "month", "year", "hidden"],
   /** model: the camera (with its page); manufacturer: the maker only. */
   camera: ["model", "manufacturer", "hidden"],
-  /** public: the tags marked public in the `tag` table. */
-  tags: ["public", "hidden"],
   // Reserved: no data yet, nothing is returned for them.
   location: ["exact", "city", "prefecture", "country", "hidden"],
   world: ["link", "name", "hidden"],
@@ -47,7 +48,6 @@ export const BUILTIN_DEFAULTS: MetadataLevels = {
   file_name: "hidden",
   taken_at: "second",
   camera: "model",
-  tags: "public",
   location: "hidden",
   world: "link",
   exif: "basic",

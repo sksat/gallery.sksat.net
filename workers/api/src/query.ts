@@ -24,8 +24,10 @@ import {
 } from "./metadata";
 import {
   effectiveTags,
+  parseTagVisibility,
   publicTagFields,
   rowToDef,
+  tagShown,
   type TagFieldDef,
 } from "../../../shared/tag-field/tag-field";
 import type {
@@ -65,6 +67,8 @@ export type MediaJoinRow = {
   tag_values?: string | null;
   /** Its own levels for them (JSON), or NULL. */
   tag_value_visibility?: string | null;
+  /** 0021: the public tags it hides ({tag: "hidden"} JSON), or NULL. */
+  tag_visibility?: string | null;
   /** Its camera (0011: the camera's tags it inherits); absent in old tests. */
   camera_id?: number | null;
   camera_slug: string | null;
@@ -103,6 +107,10 @@ export type CameraImageRow = {
 export type Context = {
   /** The `setting` row metadata_visibility (JSON), or null. */
   site: string | null;
+  /**
+   * The tags marked public in the `tag` table: the only ones ever shown,
+   * on every photo that does not hide them (media.tag_visibility, 0021).
+   */
   publicTags: ReadonlySet<string>;
   /**
    * The `setting` row embed_exif: whether served images carry the public
@@ -111,7 +119,7 @@ export type Context = {
   embedDefault: boolean;
   /** The fields of public tags (0010); none when left out. */
   tagFields?: readonly TagFieldDef[];
-  /** Tags each camera passes on to its photos (0011), by camera id. */
+  /** Public tags each camera passes on to its photos (0011), by camera id. */
   cameraTags?: ReadonlyMap<number, readonly string[]>;
   /** The admin's `platform` table (0014) by key. */
   platforms: ReadonlyMap<string, { name: string; kind: PlatformKind }>;
@@ -122,7 +130,7 @@ const MEDIA_SELECT = `
          m.camera_id,
          m.metadata_visibility, m.latitude, m.longitude,
          m.exif, m.world_id, m.world_name, m.embed_exif,
-         m.tag_values, m.tag_value_visibility,
+         m.tag_values, m.tag_value_visibility, m.tag_visibility,
          -- The original's size (0016); an edit shown instead (0013) may
          -- be cropped: unknown then, the gallery takes the image's own.
          CASE WHEN m.active_file_id IS NULL THEN m.width END AS width,
@@ -400,14 +408,13 @@ export const projectPhoto = (
   const path = row.path ?? row.file;
   const name = path.slice(path.lastIndexOf("/") + 1);
   const timestamp = truncateTimestamp(row.timestamp, levels.taken_at);
-  // Its own tags and those its camera passes on (0011), public ones only.
-  const tags =
-    levels.tags === "public"
-      ? effectiveTags(
-          parseTags(row.tags),
-          row.camera_id == null ? [] : ctx.cameraTags?.get(row.camera_id),
-        ).filter((t) => ctx.publicTags.has(t))
-      : [];
+  // Its own tags and those its camera passes on (0011), public ones only,
+  // and none the photo hides (0021).
+  const choices = parseTagVisibility(row.tag_visibility);
+  const tags = effectiveTags(
+    parseTags(row.tags),
+    row.camera_id == null ? [] : ctx.cameraTags?.get(row.camera_id),
+  ).filter((t) => tagShown(t, choices, ctx.publicTags));
   const platform = platformOf(ctx, row.platform);
   return {
     id: row.public_id,
@@ -462,11 +469,11 @@ export const projectPhoto = (
     // Not metadata to hide: anyone who sees the photo sees its size.
     ...sizeOf(row.width, row.height),
     tags,
-    // Fields of the tags it shows (so never of a private tag, nor when
-    // its tags are hidden), each at its level on this photo.
+    // Fields of the tags it shows (so never of a tag it hides), each at
+    // its level on this photo.
     tag_fields: publicTagFields(
       tags,
-      (ctx.tagFields ?? []).filter((d) => ctx.publicTags.has(d.tag)),
+      ctx.tagFields ?? [],
       row.tag_values,
       row.tag_value_visibility,
     ),

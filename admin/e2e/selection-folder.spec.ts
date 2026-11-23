@@ -65,7 +65,8 @@ test.describe("folders in the selection", () => {
 
     const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
     const chip = (name: string) =>
-      sheet.getByRole("checkbox", { name: new RegExp(`^${name}`) });
+      // The tag itself, not its 公開 switch (named 「…を公開」).
+      sheet.getByRole("checkbox", { name: new RegExp(`^${name}(?!を公開)`) });
     await info(page, "タグと撮影データ…");
     await expect(sheet.getByText("読み込み中…")).toHaveCount(0);
     await sheet.getByPlaceholder("タグを追加").fill("fsel-roll");

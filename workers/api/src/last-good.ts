@@ -62,8 +62,10 @@ export const LATEST_KEY = `${BASE}/latest`;
  * that entries built by the older code are never served again, outage or
  * not; an outage right after such a deploy answers 503 until the entries
  * are built again. 2: a photo is a camera picture only while it is public.
+ * 3: a photo's tags leave out the ones it hides (media.tag_visibility,
+ * admin 0021).
  */
-export const ANSWER_RULES = "2";
+export const ANSWER_RULES = "3";
 
 /** The cache key of an entry. */
 export const dataKey = (version: string, name: string): string =>

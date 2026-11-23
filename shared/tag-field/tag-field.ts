@@ -297,8 +297,8 @@ export type PublicTagField = {
 
 /**
  * The fields a photo shows publicly: for each tag in `shownTags` (the
- * photo's tags the public site shows, in their order: only public tags,
- * and none when its tags level hides them), that tag's fields in order
+ * photo's tags the public site shows, in their order: tagShown), that
+ * tag's fields in order
  * whose level on this photo is "shown" and which have a valid value.
  * `defs` may hold any fields; only those of `shownTags` count.
  */
@@ -340,6 +340,49 @@ export const effectiveTags = (
     (t, i, all) => !own.includes(t) && all.indexOf(t) === i,
   ),
 ];
+
+/**
+ * media.tag_visibility (admin migration 0021) read leniently: tag name →
+ * the photo's own choice for that tag. Only "hidden" means anything
+ * (tagShown); a value that is not "shown" or "hidden" is "hidden" (fail
+ * closed); a JSON null is no choice. Every
+ * key is an own property (a tag may be called "__proto__" or
+ * "constructor"), so read it with tagShown.
+ */
+export const parseTagVisibility = (
+  raw: string | null | undefined,
+): Record<string, TagFieldLevel> => {
+  const out: Record<string, TagFieldLevel> = {};
+  for (const [k, v] of Object.entries(parseObject(raw))) {
+    if (v === null) continue;
+    Object.defineProperty(out, k, {
+      value: isTagFieldLevel(v) ? v : "hidden",
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+};
+
+/** The photo's own choice for `tag`, if it has one. */
+export const ownTagChoice = (
+  overrides: Readonly<Record<string, TagFieldLevel>>,
+  tag: string,
+): TagFieldLevel | undefined =>
+  Object.hasOwn(overrides, tag) ? overrides[tag] : undefined;
+
+/**
+ * Whether the public site shows `tag` on a photo (0021): only a public
+ * tag (the `tag` table's public flag; a tag with no row is private), and
+ * only while the photo does not hide it. A photo can never show a private
+ * tag: a stored "shown" is no choice at all.
+ */
+export const tagShown = (
+  tag: string,
+  overrides: Readonly<Record<string, TagFieldLevel>>,
+  publicTags: { has(tag: string): boolean },
+): boolean => publicTags.has(tag) && ownTagChoice(overrides, tag) !== "hidden";
 
 /** The camera's tags that a photo has only through its camera. */
 export const inheritedOnly = (

@@ -56,7 +56,7 @@ How they connect: [docs/architecture.d2](docs/architecture.d2) (rendered as `doc
 
 ### Privacy invariants
 
-- Which metadata of a photo is public is decided in one place, `projectPhoto` (`workers/api/src/query.ts`, levels in `metadata.ts`; the admin has a copy checked by a test). Served images get EXIF built only from that projection; never pass an original's metadata through.
+- Which metadata of a photo is public is decided in one place, `projectPhoto` (`workers/api/src/query.ts`, levels in `metadata.ts`; the admin has a copy checked by a test). Served images get EXIF built only from that projection; never pass an original's metadata through. A tag goes out only while it is public (`tag.public`) and the photo does not hide it (`media.tag_visibility`; `tagShown`, `shared/tag-field/`): no photo can show a private tag. A tag's fields only go out with it.
 - Private photos, unfinished uploads and trashed photos never leave the API Worker or the public `/img/*` handler. Unlisted photos open only by their own URL and never join a list.
 - Private photos must never enter a shared cache: `AdminImage` (reachable only through the admin's `IMAGES` service binding, and it verifies the Access JWT itself) never uses `caches.default`, and its file fallback (`X-Image-Fallback: original`) exists only there.
 - The B2 bucket is private. Only the image Worker reads originals (read-only key); the admin only signs the browser's uploads and deletes objects.

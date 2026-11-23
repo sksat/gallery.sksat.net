@@ -29,10 +29,8 @@ test("a camera's tag goes to its photos, or stays on the camera", async ({
     // The photo has it, from its camera, apart from its own tags.
     await page.goto("/media/2/");
     await expect(inheritedChip(page)).toBeVisible();
-    await expect(inheritedChip(page).getByRole("link")).toHaveAttribute(
-      "href",
-      "/camera/1/",
-    );
+    // New, so private by default; public or not on the photo like its own.
+    await expect(inheritedChip(page)).toHaveAttribute("data-public", "false");
     await expect(page.locator('input[name="tags"]')).toHaveValue("VRChat");
 
     // Kept to the camera: the photo no longer has it; and back.

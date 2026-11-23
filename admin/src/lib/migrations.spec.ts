@@ -8,6 +8,11 @@ import { describe, expect, it } from "vitest";
 import { PUBLIC_ID_RE } from "./public-id";
 import { CAMERA_SLUG_RE } from "./validate";
 import { isScanner } from "./photo-meta";
+import {
+  effectiveTags,
+  parseTagVisibility,
+  tagShown,
+} from "@shared/tag-field/tag-field";
 
 const migration = (name: string) =>
   readFileSync(resolve(__dirname, "../../migrations", name), "utf8");
@@ -1715,5 +1720,181 @@ describe("0019_camera_image_media.sql", () => {
     expect(
       db.prepare("SELECT id FROM camera_image WHERE camera_id = 2").all(),
     ).toEqual([{ id: 5 }]);
+  });
+});
+
+describe("0021_tag_visibility.sql", () => {
+  const dir = resolve(__dirname, "../../migrations");
+  /** Every migration before 0021, then `rows`, then the rest. */
+  const migrate21 = (rows: string) => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    const names = readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    for (const f of names.filter((f) => f < "0021")) db.exec(migration(f));
+    db.exec(rows);
+    for (const f of names.filter((f) => f >= "0021")) db.exec(migration(f));
+    return db;
+  };
+  // film, VRChat and night are public, secret private, gone has no row.
+  // Camera 1 passes on film and keeps night to itself.
+  const ROWS = `
+    INSERT INTO camera (id, slug, name) VALUES (1, 'a', 'A');
+    INSERT INTO camera_tag (camera_id, tag, propagate, position) VALUES
+      (1, 'film', 1, 0), (1, 'night', 0, 1);
+    INSERT INTO tag (name, public) VALUES
+      ('film', 1), ('VRChat', 1), ('secret', 0), ('night', 1);
+    INSERT INTO media (id, file, platform, visibility, tags, camera_id, metadata_visibility) VALUES
+      -- Follows the site: nothing to choose.
+      (1, '/a.png', 'Real', 'public', '["VRChat"]', 1, NULL),
+      -- Its tags hidden: every tag it has, its camera's too.
+      (2, '/b.png', 'Real', 'public', '["VRChat","secret","gone"]', 1,
+       '{"tags":"hidden","camera":"hidden"}'),
+      -- Any value but public hid them.
+      (3, '/c.png', 'Real', 'public', '["VRChat"]', NULL, '{"tags":"nope"}'),
+      -- Public by its own level.
+      (4, '/d.png', 'Real', 'public', '["VRChat"]', NULL, '{"tags":"public"}'),
+      -- Hidden, but no tags at all.
+      (5, '/e.png', 'Real', 'public', '[]', NULL, '{"tags":"hidden"}'),
+      -- A JSON null follows the site.
+      (6, '/f.png', 'Real', 'public', '["VRChat"]', NULL, '{"tags":null}');`;
+
+  const rows = (db: DatabaseSync) =>
+    db
+      .prepare(
+        "SELECT id, metadata_visibility, tag_visibility FROM media ORDER BY id",
+      )
+      .all() as {
+      id: number;
+      metadata_visibility: string | null;
+      tag_visibility: string | null;
+    }[];
+
+  it("hides every tag of a photo whose tags level hid them, and drops the level", () => {
+    const db = migrate21(ROWS);
+    expect(rows(db)).toEqual([
+      { id: 1, metadata_visibility: null, tag_visibility: null },
+      {
+        id: 2,
+        metadata_visibility: '{"camera":"hidden"}',
+        tag_visibility: expect.any(String),
+      },
+      {
+        id: 3,
+        metadata_visibility: null,
+        tag_visibility: '{"VRChat":"hidden"}',
+      },
+      { id: 4, metadata_visibility: null, tag_visibility: null },
+      { id: 5, metadata_visibility: null, tag_visibility: null },
+      { id: 6, metadata_visibility: null, tag_visibility: null },
+    ]);
+    expect(JSON.parse(rows(db)[1].tag_visibility ?? "")).toEqual({
+      VRChat: "hidden",
+      secret: "hidden",
+      gone: "hidden",
+      film: "hidden",
+    });
+    const site = db
+      .prepare("SELECT value FROM setting WHERE key = 'metadata_visibility'")
+      .get() as { value: string };
+    expect(JSON.parse(site.value)).not.toHaveProperty("tags");
+    expect(JSON.parse(site.value)).toHaveProperty("camera", "model");
+  });
+
+  it("follows a site default that hid tags, for photos without their own", () => {
+    const db = migrate21(`${ROWS}
+      UPDATE setting SET value = json_set(value, '$.tags', 'hidden')
+      WHERE key = 'metadata_visibility';`);
+    const tv = Object.fromEntries(
+      rows(db).map((r) => [
+        r.id,
+        r.tag_visibility === null ? null : JSON.parse(r.tag_visibility),
+      ]),
+    );
+    expect(tv[1]).toEqual({ VRChat: "hidden", film: "hidden" });
+    // Its own public level won over the site.
+    expect(tv[4]).toBeNull();
+    expect(tv[6]).toEqual({ VRChat: "hidden" });
+  });
+
+  it("shows no tag that was hidden before, even once every tag is public", () => {
+    for (const site of ["public", "hidden"]) {
+      const db = migrate21(`${ROWS}
+        UPDATE setting SET value = json_set(value, '$.tags', '${site}')
+        WHERE key = 'metadata_visibility';`);
+      const pub = new Set(
+        (
+          db.prepare("SELECT name FROM tag WHERE public = 1").all() as {
+            name: string;
+          }[]
+        ).map((t) => t.name),
+      );
+      // What the public site showed before (the tags level, then public
+      // tags only).
+      const before: Record<number, string[]> = {
+        1: site === "public" ? ["VRChat", "film"] : [],
+        2: [],
+        3: [],
+        4: ["VRChat"],
+        5: [],
+        6: site === "public" ? ["VRChat"] : [],
+      };
+      const media = db
+        .prepare(
+          "SELECT id, tags, camera_id, tag_visibility FROM media ORDER BY id",
+        )
+        .all() as {
+        id: number;
+        tags: string;
+        camera_id: number | null;
+        tag_visibility: string | null;
+      }[];
+      for (const r of media) {
+        const all = effectiveTags(
+          JSON.parse(r.tags) as string[],
+          r.camera_id === 1 ? ["film"] : [],
+        );
+        const choices = parseTagVisibility(r.tag_visibility);
+        expect(
+          all.filter((t) => tagShown(t, choices, pub)),
+          `${site} ${r.id}`,
+        ).toEqual(before[r.id]);
+        if (before[r.id].length === 0) {
+          expect(
+            all.filter((t) => tagShown(t, choices, new Set(all))),
+            `${site} ${r.id}, every tag public`,
+          ).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it("removes the level from upload rules, keeping their order and the rest", () => {
+    const db = migrate21(`${ROWS}
+      INSERT INTO setting (key, value) VALUES ('upload_rules', json('[
+        {"id":"a","actions":{"metadata":{"tags":"hidden","camera":"hidden"}}},
+        {"id":"b","actions":{"tags":["x"]}},
+        {"id":"c","actions":{"metadata":{"tags":"public"}}}
+      ]'));`);
+    const v = db
+      .prepare("SELECT value FROM setting WHERE key = 'upload_rules'")
+      .get() as { value: string };
+    expect(JSON.parse(v.value)).toEqual([
+      { id: "a", actions: { metadata: { camera: "hidden" } } },
+      { id: "b", actions: { tags: ["x"] } },
+      { id: "c", actions: { metadata: {} } },
+    ]);
+  });
+
+  it("takes only a JSON object", () => {
+    const db = migrate21(ROWS);
+    db.exec(`UPDATE media SET tag_visibility = '{"a":"shown"}' WHERE id = 1`);
+    for (const bad of ["'nope'", `'["a"]'`, "'1'"]) {
+      expect(
+        () => db.exec(`UPDATE media SET tag_visibility = ${bad} WHERE id = 1`),
+        bad,
+      ).toThrow(/CHECK/);
+    }
   });
 });

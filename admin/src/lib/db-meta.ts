@@ -102,6 +102,21 @@ export const listTags = async (db: D1Database): Promise<TagRow[]> => {
   }));
 };
 
+/**
+ * The `tag` table's names and flags (a few rows): what a tag box offers,
+ * and which tags are public. A name with no row is private.
+ */
+export const listSiteTags = async (
+  db: D1Database,
+): Promise<{ name: string; public: boolean }[]> =>
+  (
+    (
+      await db
+        .prepare("SELECT name, public FROM tag ORDER BY name")
+        .all<{ name: string; public: number }>()
+    ).results ?? []
+  ).map((t) => ({ name: t.name, public: t.public === 1 }));
+
 /** Mark a tag public or private (creating its row if needed). */
 export const setTagPublic = async (
   db: D1Database,

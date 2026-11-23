@@ -155,7 +155,17 @@ export const useUnrenameTag = routeAction$(
         .array(z.object({ id: z.string().max(100), tags: tagList }))
         .max(1000),
       photos: z
-        .array(z.object({ id: z.number().int().positive(), tags: tagList }))
+        .array(
+          z.object({
+            id: z.number().int().positive(),
+            tags: tagList,
+            // Its choices per tag (0021): tag → "hidden".
+            tagVisibility: z
+              .record(z.string().max(200), z.string().max(10))
+              .nullable()
+              .optional(),
+          }),
+        )
         .max(100_000),
     }),
   }),

@@ -98,7 +98,7 @@ describe("pixel size", () => {
   it("is given for public and unlisted photos, whatever the levels", async () => {
     const { raw, db } = setup();
     raw.exec(`UPDATE media SET width = 3000, height = 4000,
-      metadata_visibility = '{"file_name":"hidden","taken_at":"hidden","camera":"hidden","exif":"hidden","tags":"hidden"}'`);
+      metadata_visibility = '{"file_name":"hidden","taken_at":"hidden","camera":"hidden","exif":"hidden"}'`);
     const listed = await listPublicMedia(db);
     expect(listed.map((m) => [m.width, m.height])).toEqual(
       listed.map(() => [3000, 4000]),
@@ -263,16 +263,95 @@ describe("site-wide defaults", () => {
     const { raw, db } = setup();
     run(
       raw,
-      `UPDATE setting SET value = json_set(value, '$.taken_at', 'date', '$.tags', 'hidden')
+      `UPDATE setting SET value = json_set(value, '$.taken_at', 'date', '$.camera', 'hidden')
        WHERE key = 'metadata_visibility';
-       UPDATE media SET metadata_visibility = '{"file_name":"path","tags":"public"}' WHERE id = 2;`,
+       UPDATE media SET metadata_visibility = '{"file_name":"path","camera":"model"}' WHERE id = 2;`,
     );
     const p1 = await getMedia(db, "aaaaaaaaa2");
     expect(p1).toMatchObject({
       timestamp: "2023-12-01T00:00:00Z",
       timestamp_precision: "date",
-      tags: [],
+      camera: null,
     });
+    expect((await getMedia(db, "aaaaaaaaa3"))?.camera?.slug).toBe(
+      "virtuallens2",
+    );
+  });
+
+  it("no longer have a tags level: an old one is ignored", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `UPDATE setting SET value = json_set(value, '$.tags', 'hidden')
+       WHERE key = 'metadata_visibility';
+       UPDATE media SET metadata_visibility = '{"file_name":"path","tags":"nope"}' WHERE id = 2;`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tags).toEqual(["film"]);
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
+  });
+});
+
+describe("tag visibility per photo (0021)", () => {
+  it("hides a public tag on the photos that hide it", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `UPDATE media SET tag_visibility = '{"VRChat":"hidden"}' WHERE id = 2`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual([]);
+    const listed = await listPublicMedia(db);
+    expect(listed.find((m) => m.id === "aaaaaaaaa3")?.tags).toEqual([]);
+    expect((await getPhotoForImage(db, "aaaaaaaaa3"))?.tags).toEqual([]);
+    // Other photos keep following the tag.
+    run(raw, `UPDATE media SET tags = '["VRChat"]' WHERE id = 6`);
+    expect((await getMedia(db, "aaaaaaaaa7"))?.tags).toEqual(["VRChat"]);
+  });
+
+  it("never shows a private tag, whatever the photo says", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `UPDATE media SET tag_visibility = '{"secret":"shown","VRChat":"shown"}' WHERE id = 2`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
+    const everything = JSON.stringify([
+      await listPublicMedia(db),
+      await getMedia(db, "aaaaaaaaa3"),
+      await getPhotoForImage(db, "aaaaaaaaa3"),
+      await getPathAccess(db, "/p2.png"),
+    ]);
+    expect(everything).not.toContain("secret");
+  });
+
+  it("follows the tag made private and public again", async () => {
+    const { raw, db } = setup();
+    run(
+      raw,
+      `UPDATE media SET tag_visibility = '{"film":"hidden"}' WHERE id = 6;
+       UPDATE media SET tags = '["film"]' WHERE id = 6;
+       UPDATE tag SET public = 0 WHERE name = 'film';`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tags).toEqual([]);
+    expect((await getMedia(db, "aaaaaaaaa7"))?.tags).toEqual([]);
+    run(raw, "UPDATE tag SET public = 1 WHERE name = 'film'");
+    // Back on the photos that do not hide it.
+    expect((await getMedia(db, "aaaaaaaaa2"))?.tags).toEqual(["film"]);
+    expect((await getMedia(db, "aaaaaaaaa7"))?.tags).toEqual([]);
+  });
+
+  it("reads anything but shown as hidden, and a null as no choice", async () => {
+    const { raw, db } = setup();
+    for (const v of ['"public"', "1", "true", '"SHOWN"', "[]"]) {
+      run(
+        raw,
+        `UPDATE media SET tag_visibility = '{"VRChat":${v}}' WHERE id = 2`,
+      );
+      expect((await getMedia(db, "aaaaaaaaa3"))?.tags, v).toEqual([]);
+    }
+    run(
+      raw,
+      `UPDATE media SET tag_visibility = '{"VRChat":null}' WHERE id = 2`,
+    );
     expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
   });
 });
@@ -438,9 +517,19 @@ describe("tags a camera passes on", () => {
     expect(everything).not.toContain("night");
     run(
       raw,
-      `UPDATE media SET metadata_visibility = '{"tags":"hidden"}' WHERE id = 2`,
+      `UPDATE media SET tag_visibility = '{"VRChat":"hidden","film":"hidden"}' WHERE id = 2`,
     );
     expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual([]);
+  });
+
+  it("lets a photo hide a passed-on tag too, never show a private one", async () => {
+    const { raw, db } = withCameraTags();
+    run(
+      raw,
+      `UPDATE media SET tag_visibility = '{"film":"hidden","secret":"shown","night":"shown"}' WHERE id = 2`,
+    );
+    // secret is private; night is kept to the camera.
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tags).toEqual(["VRChat"]);
   });
 
   it("follows the photo's camera and the camera's tags as they are now", async () => {
@@ -534,12 +623,24 @@ describe("tag fields", () => {
     expect(
       (await getMedia(db, "aaaaaaaaa2"))?.tag_fields.map((f) => f.label),
     ).toEqual(["銘柄", "ラボ"]);
-    // Tags hidden: their fields too.
+    // The tag hidden on the photo: its fields too.
     run(
       raw,
-      `UPDATE media SET metadata_visibility = '{"tags":"hidden"}' WHERE id = 1`,
+      `UPDATE media SET tag_visibility = '{"film":"hidden"}' WHERE id = 1`,
     );
     expect((await getMedia(db, "aaaaaaaaa2"))?.tag_fields).toEqual([]);
+  });
+
+  it("never shows a private tag's fields, whatever the photo says", async () => {
+    const { raw, db } = withFields();
+    run(
+      raw,
+      `UPDATE media SET tag_visibility = '{"secret":"shown"}' WHERE id = 2`,
+    );
+    expect((await getMedia(db, "aaaaaaaaa3"))?.tag_fields).toEqual([]);
+    expect(JSON.stringify(await listPublicMedia(db))).not.toContain(
+      "memo text",
+    );
   });
 
   it("hides every field once the tag is made private", async () => {
@@ -1011,9 +1112,41 @@ describe("projectPhoto", () => {
     });
   });
 
-  it("shows public tags only, or none", () => {
-    expect(at({}).tags).toEqual(["x"]);
-    expect(at({ tags: "hidden" }).tags).toEqual([]);
+  it("shows the public tags the photo does not hide, never a private one", () => {
+    const tagsWith = (tag_visibility: string | null) =>
+      projectPhoto({ ...row, tag_visibility }, ctx).tags;
+    expect(tagsWith(null)).toEqual(["x"]);
+    expect(tagsWith('{"x":"hidden"}')).toEqual([]);
+    expect(tagsWith('{"x":"shown","y":"shown"}')).toEqual(["x"]);
+    expect(tagsWith('{"x":"hidden","y":"shown"}')).toEqual([]);
+    // Not an object, or not JSON: no choices.
+    expect(tagsWith('["y"]')).toEqual(["x"]);
+    expect(tagsWith("nope")).toEqual(["x"]);
+    // The old tags level does nothing.
+    expect(at({ tags: "hidden" }).tags).toEqual(["x"]);
+  });
+
+  it("reads tags named like Object's own properties as plain names", () => {
+    const named = { ...row, tags: '["constructor", "__proto__", "x"]' };
+    const c = { ...ctx, publicTags: new Set(["constructor", "x"]) };
+    expect(projectPhoto(named, c).tags).toEqual(["constructor", "x"]);
+    expect(
+      projectPhoto(
+        { ...named, tag_visibility: '{"__proto__":"shown","x":"hidden"}' },
+        c,
+      ).tags,
+    ).toEqual(["constructor"]);
+    const all = { ...c, publicTags: new Set(["constructor", "__proto__", "x"]) };
+    expect(
+      projectPhoto({ ...named, tag_visibility: '{"__proto__":"hidden"}' }, all)
+        .tags,
+    ).toEqual(["constructor", "x"]);
+    expect(
+      projectPhoto(
+        { ...named, tag_visibility: '{"constructor":"hidden"}' },
+        c,
+      ).tags,
+    ).toEqual(["x"]);
   });
 
   it("treats an unknown level as hidden", () => {

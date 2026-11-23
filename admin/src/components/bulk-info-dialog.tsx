@@ -15,11 +15,15 @@ import {
   shared,
   tagChanges,
   tagCounts,
+  tagShownCount,
+  tagVisState,
   timeParts,
   validateInfoEdit,
+  visChanges,
   type InfoEdit,
   type InfoValues,
   type TagState,
+  type TagVisState,
 } from "~/lib/bulk-info";
 import { listInfo } from "~/lib/db-photo-bulk";
 import { MAX_BULK_IDS } from "~/lib/db";
@@ -38,13 +42,18 @@ import {
   muted,
 } from "./ui";
 import { LocationPicker } from "./location-picker";
+import { VisibilityIcon } from "./visibility-style";
+import { validateTagName } from "~/lib/tag-rename";
 
 // タグと撮影データ of the selected photos, every value at once. Tags: each
 // tag the photos have, checked when all have it and mixed when some do; a
 // click puts it on all, then off all (then back as it was), and a new one
 // can be typed (picked from the site's tags; a new tag starts private).
-// Values (the time taken, the world, the position, the shooting settings)
-// start at what the photos share, or empty with そのまま（写真ごと） when
+// Beside each, whether the site shows it on the photos that have it
+// (0021): 表示 / 非表示 for all of them; while they differ neither is
+// picked, nothing changes unless one is, and how many show it is said
+// (「3 枚中 2 枚で表示」); a private tag is never shown (非公開タグ). Values (the time taken, the world, the
+// position, the shooting settings) start at what the photos share, or empty with そのまま（写真ごと） when
 // they differ; × clears one. Only what was touched is applied, through the
 // same checks as the edit page. A sheet along the bottom on phones, a
 // centred dialog from sm up.
@@ -204,7 +213,13 @@ type TagRow = {
   count: number;
   initial: TagState;
   now: TagState;
+  /** The tag itself is public: only then can it be shown (0021). */
   public: boolean;
+  /** Public on the photos that have it (0021): as loaded, and now. */
+  visInitial: TagVisState;
+  visNow: TagVisState;
+  /** Of the photos that have it, how many show it (as loaded). */
+  shownCount: number;
 };
 
 export const BulkInfoDialog = component$<Props>(
@@ -215,6 +230,7 @@ export const BulkInfoDialog = component$<Props>(
     const tags = useStore<{ rows: TagRow[] }>({ rows: [] });
     const error = useSignal("");
     const draft = useSignal("");
+    const tagBox = useSignal<HTMLInputElement>();
 
     // Rendered only while open: open it as a modal, then read the photos'
     // values (MAX_BULK_IDS per request).
@@ -229,14 +245,22 @@ export const BulkInfoDialog = component$<Props>(
           photos.push(...r.photos);
           siteTags = r.tags;
         }
-        const pub = new Map(siteTags.map((t) => [t.name, t.public]));
-        tags.rows = tagCounts(photos).map((t) => ({
-          tag: t.tag,
-          count: t.count,
-          initial: t.state,
-          now: t.state,
-          public: pub.get(t.tag) ?? false,
-        }));
+        const pub = new Set(
+          siteTags.filter((t) => t.public).map((t) => t.name),
+        );
+        tags.rows = tagCounts(photos).map((t) => {
+          const vis = tagVisState(t.tag, photos, pub);
+          return {
+            tag: t.tag,
+            count: t.count,
+            initial: t.state,
+            now: t.state,
+            public: pub.has(t.tag),
+            visInitial: vis,
+            visNow: vis,
+            shownCount: tagShownCount(t.tag, photos, pub).shown,
+          };
+        });
         loaded.value = { photos, tags: siteTags };
       } catch {
         loaded.value = "error";
@@ -244,9 +268,14 @@ export const BulkInfoDialog = component$<Props>(
     });
 
     const addTag = $(() => {
-      const name = draft.value.trim();
-      if (!name) return;
+      // One at a time, with the same checks as everywhere; read from the
+      // box itself (what was typed just now may not be in `draft` yet).
+      const el = tagBox.value;
+      const v = validateTagName(el ? el.value : draft.value);
+      if (!v.ok) return;
+      const name = v.value;
       draft.value = "";
+      if (el) el.value = "";
       const row = tags.rows.find((r) => r.tag === name);
       if (row) {
         row.now = "all";
@@ -257,6 +286,7 @@ export const BulkInfoDialog = component$<Props>(
         loaded.value && loaded.value !== "error"
           ? loaded.value.tags.find((t) => t.name === name)
           : undefined;
+      const vis = site?.public ? "shown" : "hidden";
       tags.rows = [
         ...tags.rows,
         {
@@ -265,6 +295,9 @@ export const BulkInfoDialog = component$<Props>(
           initial: "none",
           now: "all",
           public: site?.public ?? false,
+          visInitial: vis,
+          visNow: vis,
+          shownCount: 0,
         },
       ];
     });
@@ -275,6 +308,8 @@ export const BulkInfoDialog = component$<Props>(
       const t = tagChanges(tags.rows);
       if (t.tagsAdd.length > 0) edit.tagsAdd = t.tagsAdd;
       if (t.tagsRemove.length > 0) edit.tagsRemove = t.tagsRemove;
+      const vis = visChanges(tags.rows);
+      if (Object.keys(vis).length > 0) edit.tagVisibility = vis;
 
       const date = touched(form, "date");
       const time = touched(form, "time");
@@ -334,6 +369,8 @@ export const BulkInfoDialog = component$<Props>(
     });
 
     const data = loaded.value && loaded.value !== "error" ? loaded.value : null;
+    const typedTag =
+      draft.value.trim() === "" ? null : validateTagName(draft.value);
     const photos = data?.photos ?? [];
     const n = photos.length;
     const str = (v: string | number | null | undefined) =>
@@ -399,7 +436,10 @@ export const BulkInfoDialog = component$<Props>(
                     タグ
                   </h3>
                   {tags.rows.length > 0 && (
-                    <ul class="flex flex-wrap gap-1.5" data-testid="bulk-tags">
+                    <ul
+                      class="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800"
+                      data-testid="bulk-tags"
+                    >
                       {tags.rows.map((row) => {
                         const shown =
                           row.now === "all"
@@ -407,8 +447,22 @@ export const BulkInfoDialog = component$<Props>(
                             : row.now === "none"
                               ? 0
                               : row.count;
+                        const off = row.now === "none";
+                        // The site's display: 表示 or 非表示. While the
+                        // photos differ neither is picked (nothing changes
+                        // for the tag) and the state is said beside it.
+                        const options: [TagVisState, string][] = [
+                          ["shown", "表示"],
+                          ["hidden", "非表示"],
+                        ];
                         return (
-                          <li key={row.tag}>
+                          <li
+                            key={row.tag}
+                            data-testid="bulk-tag"
+                            data-public={row.visNow}
+                            class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-2 py-1"
+                          >
+                            {/* On the photos or not. */}
                             <button
                               type="button"
                               role="checkbox"
@@ -422,24 +476,18 @@ export const BulkInfoDialog = component$<Props>(
                               data-changed={
                                 row.now !== row.initial ? "" : undefined
                               }
-                              data-public={row.public ? "true" : "false"}
                               onClick$={() => {
                                 row.now = nextTagState(row.now, row.initial);
                                 tags.rows = [...tags.rows];
                               }}
                               class={[
-                                "inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-sm ring-1 ring-inset sm:h-8",
-                                row.now === "none"
-                                  ? "text-zinc-500 line-through ring-zinc-300 dark:text-zinc-400 dark:ring-zinc-700"
-                                  : row.public
-                                    ? "bg-sky-50 text-sky-800 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
-                                    : "bg-zinc-100 text-zinc-700 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700",
-                                "data-changed:ring-2 data-changed:ring-sky-500",
+                                "inline-flex h-11 min-w-0 items-center gap-2 rounded-md px-1 text-sm sm:h-8",
+                                "data-changed:font-semibold data-changed:text-sky-800 dark:data-changed:text-sky-200",
                               ]}
                             >
                               <span
                                 aria-hidden="true"
-                                class="inline-flex h-4 w-4 items-center justify-center rounded border border-current text-[0.625rem] leading-none"
+                                class="inline-flex size-4 shrink-0 items-center justify-center rounded border border-current text-[0.625rem] leading-none"
                               >
                                 {row.now === "all"
                                   ? "✓"
@@ -447,17 +495,77 @@ export const BulkInfoDialog = component$<Props>(
                                     ? "−"
                                     : ""}
                               </span>
-                              {!row.public && (
-                                <span aria-hidden="true">🔒</span>
-                              )}
-                              {row.tag}
-                              <span class="sr-only">
-                                （{row.public ? "公開" : "非公開"}）
+                              <span class={["truncate", off && "line-through"]}>
+                                {row.tag}
                               </span>
                               <span class={["text-xs tabular-nums", muted]}>
                                 {shown}/{n}
                               </span>
                             </button>
+                            {/* Shown on the site or not (0021). */}
+                            {row.public ? (
+                              <div class="inline-flex shrink-0 items-center gap-2">
+                                {row.visNow === "mixed" && (
+                                  <span
+                                    data-testid="bulk-tag-mixed"
+                                    class={["text-xs tabular-nums", muted]}
+                                  >
+                                    {`${row.count} 枚中 ${row.shownCount} 枚で表示`}
+                                  </span>
+                                )}
+                                <div
+                                  role="radiogroup"
+                                  aria-label={`${row.tag}のサイトでの表示`}
+                                  class="inline-flex shrink-0 rounded-lg border border-zinc-300 p-0.5 dark:border-zinc-700"
+                                >
+                                  {options.map(([v, text]) => (
+                                    // Native radios: arrow keys move
+                                    // between them.
+                                    <label
+                                      key={v}
+                                      class={[
+                                        "inline-flex h-10 cursor-pointer items-center rounded-md px-2.5 text-xs has-focus-visible:outline-2 has-focus-visible:outline-sky-500 has-disabled:cursor-default has-disabled:opacity-40 sm:h-7",
+                                        row.visNow === v
+                                          ? v === "hidden"
+                                            ? "bg-zinc-700 text-white dark:bg-zinc-200 dark:text-zinc-900"
+                                            : v === "shown"
+                                              ? "bg-sky-600 text-white dark:bg-sky-500 dark:text-zinc-950"
+                                              : "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
+                                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                                      ]}
+                                    >
+                                      <input
+                                        type="radio"
+                                        name={`bulk-vis:${row.tag}`}
+                                        value={v}
+                                        checked={row.visNow === v}
+                                        disabled={off}
+                                        onChange$={() => {
+                                          row.visNow = v;
+                                          tags.rows = [...tags.rows];
+                                        }}
+                                        class="sr-only"
+                                      />
+                                      {text}
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <span
+                                data-testid="bulk-tag-private"
+                                class={[
+                                  "inline-flex shrink-0 items-center gap-1 text-xs",
+                                  muted,
+                                ]}
+                              >
+                                <VisibilityIcon
+                                  visibility="private"
+                                  class="size-3.5"
+                                />
+                                非公開タグ
+                              </span>
+                            )}
                           </li>
                         );
                       })}
@@ -469,15 +577,31 @@ export const BulkInfoDialog = component$<Props>(
                     </label>
                     <input
                       id="bulk-info-new-tag"
+                      ref={tagBox}
                       // (Not in Qwik's input types.)
                       {...{ list: "bulk-info-tag-options" }}
                       placeholder="タグを追加"
-                      bind:value={draft}
+                      value={draft.value}
                       maxLength={200}
                       autoComplete="off"
                       autoCapitalize="off"
                       spellcheck={false}
                       enterKeyHint="done"
+                      aria-invalid={
+                        typedTag && !typedTag.ok ? "true" : undefined
+                      }
+                      // (Not bind:value, which this handler would
+                      // replace.) A suggestion picked from the list is
+                      // added at once.
+                      onInput$={(e, el) => {
+                        draft.value = el.value;
+                        if (
+                          (e as InputEvent).inputType ===
+                          "insertReplacementText"
+                        ) {
+                          void addTag();
+                        }
+                      }}
                       onKeyDown$={[
                         sync$((e: KeyboardEvent) => {
                           if (e.key === "Enter" && !e.isComposing) {
@@ -502,11 +626,20 @@ export const BulkInfoDialog = component$<Props>(
                     <button
                       type="button"
                       onClick$={addTag}
+                      disabled={!typedTag?.ok}
                       class={[buttonSecondary, "shrink-0 whitespace-nowrap"]}
                     >
                       追加
                     </button>
                   </div>
+                  {typedTag && !typedTag.ok && (
+                    <p
+                      role="alert"
+                      class="text-xs text-red-700 dark:text-red-400"
+                    >
+                      {typedTag.error}
+                    </p>
+                  )}
                 </section>
 
                 <section aria-labelledby="bulk-info-taken" class="space-y-2">

@@ -65,8 +65,14 @@ describe("effectiveLevels", () => {
   });
 
   it("treats an unknown value as hidden, and bad JSON as nothing set", () => {
-    expect(effectiveLevels(null, '{"tags":"all"}').tags).toBe("hidden");
+    expect(effectiveLevels(null, '{"camera":"all"}').camera).toBe("hidden");
     expect(effectiveLevels("not json", "[1]")).toEqual(BUILTIN_DEFAULTS);
+  });
+
+  it("ignores a key that is no field, such as the old tags level", () => {
+    expect(
+      effectiveLevels('{"tags":"hidden"}', '{"tags":"public","nope":1}'),
+    ).toEqual(BUILTIN_DEFAULTS);
   });
 });
 

@@ -324,7 +324,13 @@ test("tags and shooting data for the selection, and undo", async ({
   await folderWith(page, "sel-info", ["a.png", "b.png"]);
   const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
   const chip = (name: string) =>
-    sheet.getByRole("checkbox", { name: new RegExp(`^${name}`) });
+    sheet.getByRole("checkbox", { name: new RegExp(`^${name}(?!を公開)`) });
+  const tagItem = (name: string) =>
+    sheet.getByTestId("bulk-tag").filter({
+      has: page.getByRole("checkbox", {
+        name: new RegExp(`^${name}(?!を公開)`),
+      }),
+    });
   const open = async () => {
     await info(page, "タグと撮影データ…");
     await expect(sheet.getByText("読み込み中…")).toHaveCount(0);
@@ -359,7 +365,12 @@ test("tags and shooting data for the selection, and undo", async ({
   await open();
   await expect(chip("roll-a")).toHaveAttribute("aria-checked", "mixed");
   await expect(chip("roll-a")).toContainText("1/2");
-  await expect(chip("roll-a")).toHaveAttribute("data-public", "false");
+  await expect(tagItem("roll-a")).toHaveAttribute("data-public", "hidden");
+  // A private tag: never shown on a photo, nothing to choose.
+  await expect(tagItem("roll-a").getByTestId("bulk-tag-private")).toHaveText(
+    "非公開タグ",
+  );
+  await expect(tagItem("roll-a").getByRole("radio")).toHaveCount(0);
   const iso = sheet.getByLabel("ISO", { exact: true });
   await expect(iso).toHaveValue("");
   await expect(iso).toHaveAttribute("placeholder", "そのまま（写真ごと）");
@@ -424,6 +435,99 @@ test("tags and shooting data for the selection, and undo", async ({
   await expect(page.getByTestId("manual-exif")).toBeVisible();
   expect(external).toEqual([]);
 });
+
+test("tags shown or hidden on the selected photos, and undo", async ({
+  page,
+}) => {
+  await folderWith(page, "sel-tag-public", ["a.png", "b.png"]);
+  const sheet = page.getByRole("dialog", { name: /タグと撮影データ/ });
+  /** The site's display of a tag: its 表示 / 非表示. */
+  const display = (name: string) =>
+    sheet.getByRole("radiogroup", { name: `${name}のサイトでの表示` });
+  const choice = (name: string, text: string) =>
+    display(name).getByRole("radio", { name: text, exact: true });
+  /** A click on the option's label (the radio itself is visually hidden). */
+  const pick = (name: string, text: string) =>
+    display(name).getByText(text, { exact: true }).click();
+  const open = async () => {
+    for (const name of ["a.png", "b.png"]) {
+      if ((await tile(page, name).getAttribute("aria-selected")) !== "true") {
+        await tick(page, name).click();
+      }
+    }
+    await expect(summary(page)).toContainText("2 件選択");
+    await info(page, "タグと撮影データ…");
+    await expect(sheet.getByText("読み込み中…")).toHaveCount(0);
+  };
+  const apply = async (text: string) => {
+    await sheet.getByRole("button", { name: "適用" }).click();
+    await expect(page.getByText(text)).toBeVisible();
+    await expect(sheet).toHaveCount(0);
+  };
+
+  // VRChat (a public tag) on both: shown on both.
+  await open();
+  await sheet.getByPlaceholder("タグを追加").fill("VRChat");
+  await sheet.getByPlaceholder("タグを追加").press("Enter");
+  await expect(choice("VRChat", "表示")).toBeChecked();
+  await apply("2 枚のタグと撮影データを変えました。");
+
+  // Hidden on these two.
+  await open();
+  await expect(display("VRChat").getByRole("radio")).toHaveCount(2);
+  await expect(sheet.getByTestId("bulk-tag-mixed")).toHaveCount(0);
+  await pick("VRChat", "非表示");
+  await expect(choice("VRChat", "非表示")).toBeChecked();
+  await apply("2 枚のタグと撮影データを変えました。");
+  await open();
+  await expect(choice("VRChat", "非表示")).toBeChecked();
+  await sheet.getByRole("button", { name: "やめる" }).click();
+
+  // On the edit page: hidden on this photo.
+  await page.keyboard.press("Escape");
+  await tile(page, "a.png").focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/media\/\d+\/\?back=/);
+  const eye = page.getByRole("switch", { name: "VRChatをサイトに表示" });
+  await expect(eye).toHaveAttribute("aria-checked", "false");
+  // a.png shown again there: then the two differ.
+  await eye.click();
+  await expect(eye).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/^Saved at /)).toBeVisible();
+  await page.goBack();
+  await expect(tile(page, "a.png")).toBeVisible();
+  await open();
+  // They differ: neither picked, and how many show it.
+  await expect(choice("VRChat", "表示")).not.toBeChecked();
+  await expect(choice("VRChat", "非表示")).not.toBeChecked();
+  await expect(sheet.getByTestId("bulk-tag-mixed")).toHaveText(
+    "2 枚中 1 枚で表示",
+  );
+  // Nothing picked: applying another change leaves it as it is.
+  await sheet.getByLabel("ISO", { exact: true }).fill("100");
+  await apply("2 枚のタグと撮影データを変えました。");
+  await open();
+  await expect(sheet.getByTestId("bulk-tag-mixed")).toHaveText(
+    "2 枚中 1 枚で表示",
+  );
+  // Picked: all of them.
+  await pick("VRChat", "表示");
+  await apply("1 枚のタグと撮影データを変えました。");
+
+  // Undo: b.png hidden again.
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(page.getByText("元に戻しました。")).toBeVisible();
+  await open();
+  await expect(sheet.getByTestId("bulk-tag-mixed")).toHaveText(
+    "2 枚中 1 枚で表示",
+  );
+  // A tag taken off: nothing to show or hide.
+  await sheet.getByRole("checkbox", { name: /^VRChat/ }).click();
+  await expect(choice("VRChat", "表示")).toBeDisabled();
+  await sheet.getByRole("button", { name: "やめる" }).click();
+});
+
 
 test("a reload that lacks a selected item for a while keeps it selected", async ({
   page,
