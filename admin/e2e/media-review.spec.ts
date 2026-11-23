@@ -343,26 +343,37 @@ test.describe("on a phone", () => {
     await page.getByRole("button", { name: "写真を全画面で表示" }).tap();
     await expect(position(page)).toHaveText("1 / 5");
 
-    const swipeLeft = () =>
-      viewer(page).evaluate((el) => {
-        const touch = (x: number) =>
-          new Touch({ identifier: 1, target: el, clientX: x, clientY: 400 });
-        el.dispatchEvent(
-          new TouchEvent("touchstart", {
-            bubbles: true,
-            touches: [touch(300)],
-            changedTouches: [touch(300)],
-          }),
-        );
-        el.dispatchEvent(
-          new TouchEvent("touchend", {
-            bubbles: true,
-            touches: [],
-            changedTouches: [touch(150)],
-          }),
-        );
-      });
-    await swipeLeft();
+    /** A swipe from x = `from` to x = `to`. */
+    const swipeFrom = (from: number, to: number) =>
+      viewer(page).evaluate(
+        (el, [from, to]) => {
+          const touch = (x: number) =>
+            new Touch({ identifier: 1, target: el, clientX: x, clientY: 400 });
+          el.dispatchEvent(
+            new TouchEvent("touchstart", {
+              bubbles: true,
+              touches: [touch(from)],
+              changedTouches: [touch(from)],
+            }),
+          );
+          el.dispatchEvent(
+            new TouchEvent("touchend", {
+              bubbles: true,
+              touches: [],
+              changedTouches: [touch(to)],
+            }),
+          );
+        },
+        [from, to],
+      );
+    // Its listeners come with a visible task.
+    await expect(viewer(page)).toHaveAttribute("data-swipe-ready", "");
+    await swipeFrom(300, 150);
+    await expect(position(page)).toHaveText("2 / 5");
+    // Still swipes on the photo stepped to: back, and on again.
+    await swipeFrom(150, 300);
+    await expect(position(page)).toHaveText("1 / 5");
+    await swipeFrom(300, 150);
     await expect(position(page)).toHaveText("2 / 5");
 
     // 非公開 / 限定公開 / 公開, large enough to tap.

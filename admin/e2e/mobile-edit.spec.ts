@@ -75,9 +75,7 @@ test("unsaved changes ask before leaving", async ({ page }) => {
   page.once("dialog", (d) => d.dismiss());
   await page.getByRole("link", { name: "次へ ›" }).tap();
   await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
-  await expect(page.getByLabel("タグを追加")).toHaveValue(
-    "not saved",
-  );
+  await expect(page.getByLabel("タグを追加")).toHaveValue("not saved");
 
   // OK: leave without saving.
   page.once("dialog", (d) => d.accept());
@@ -85,14 +83,19 @@ test("unsaved changes ask before leaving", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Edit #4" })).toBeVisible();
   await expect(page.getByTestId("dirty")).toHaveCount(0);
   await page.goto("/media/5/");
-  await expect(page.getByLabel("タグを追加")).not.toHaveValue(
-    "not saved",
-  );
+  await expect(page.getByLabel("タグを追加")).not.toHaveValue("not saved");
 });
 
-/** A horizontal (or vertical) swipe of `dx` px on `selector`. */
-const swipeOn = (page: Page, selector: string, dx: number, dy = 0) =>
-  page.locator(selector).evaluate(
+const photo = 'button[aria-label="写真を全画面で表示"]';
+
+/**
+ * A horizontal (or vertical) swipe of `dx` px on `selector`, once the
+ * photo's swipe listeners are in place (a visible task adds them), so a
+ * swipe that does nothing is not one sent too early.
+ */
+const swipeOn = async (page: Page, selector: string, dx: number, dy = 0) => {
+  await expect(page.locator(photo)).toHaveAttribute("data-swipe-ready", "");
+  await page.locator(selector).evaluate(
     (el, [dx, dy]) => {
       const r = el.getBoundingClientRect();
       const x = r.left + r.width / 2;
@@ -116,8 +119,7 @@ const swipeOn = (page: Page, selector: string, dx: number, dy = 0) =>
     },
     [dx, dy],
   );
-
-const photo = 'button[aria-label="写真を全画面で表示"]';
+};
 
 test("swipe the photo to step, like ←/→", async ({ page }) => {
   await page.goto("/media/?platform=VRChat");
@@ -147,9 +149,15 @@ test("swipe the photo to step, like ←/→", async ({ page }) => {
   await swipeOn(page, photo, -120);
   await page.waitForTimeout(300);
   await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
-  await expect(page.getByLabel("タグを追加")).toHaveValue(
-    "not saved",
-  );
+  await expect(page.getByLabel("タグを追加")).toHaveValue("not saved");
+});
+
+test("swipe on the page loaded as it is (a reload)", async ({ page }) => {
+  // Not from the list: nothing of the page's code is loaded before.
+  await page.goto("/media/5/?back=%2Fmedia%2F%3Fplatform%3DVRChat");
+  await expect(page.getByRole("heading", { name: "Edit #5" })).toBeVisible();
+  await swipeOn(page, photo, -120);
+  await expect(page.getByRole("heading", { name: "Edit #4" })).toBeVisible();
 });
 
 test("no swipe while a save is running", async ({ page }) => {
