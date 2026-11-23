@@ -1258,7 +1258,12 @@ export default component$(() => {
   const setUploadedVisibility = $((ids: number[], v: Visibility) =>
     bulk.submit({ ids: ids.map(String), visibility: v }),
   );
-  const newFolderOpen = useSignal(false);
+  /**
+   * The folder whose New folder form is open (null: none). Another folder
+   * (e.g. the one just created) shows it closed; a reload of the same
+   * folder's data (an upload's refresh) leaves it open with what was typed.
+   */
+  const newFolderIn = useSignal<string | null>(null);
   const nav = useNavigate();
   const loc = useLocation();
   // Back from an edit page (#m-<id>): bring that photo's row, card or tile
@@ -1358,9 +1363,17 @@ export default component$(() => {
     toast.value = { tone: "success", message: "元に戻しました。" };
   });
   useTask$(({ track }) => {
-    // Another folder (e.g. the one just created): the form starts closed.
-    track(() => data.value.kind === "ok" && data.value.files?.dir);
-    newFolderOpen.value = false;
+    // Another folder (e.g. the one just created), or no Files view (a
+    // filter that matches nothing hides it with the form): the form starts
+    // closed, also when coming back. The same folder's data again: left as
+    // it is.
+    const shown = track(() => {
+      const d = data.value;
+      if (d.kind !== "ok" || !d.files) return null;
+      const filtered = Boolean(d.platform || d.visibility || d.q || d.date);
+      return d.total === 0 && filtered ? null : d.files.dir;
+    });
+    if (newFolderIn.value !== shown) newFolderIn.value = null;
   });
   useTask$(({ track }) => {
     // Success redirects into the new folder; only failures land here.
@@ -1979,7 +1992,7 @@ export default component$(() => {
               onSelection$={onSelection}
             >
               <div q:slot="toolbar" class="max-sm:w-full">
-                {newFolderOpen.value ? (
+                {newFolderIn.value === dir ? (
                   <Form
                     action={newFolder}
                     aria-busy={newFolder.isRunning}
@@ -2015,7 +2028,7 @@ export default component$(() => {
                     </SubmitButton>
                     <button
                       type="button"
-                      onClick$={() => (newFolderOpen.value = false)}
+                      onClick$={() => (newFolderIn.value = null)}
                       class={buttonSecondary}
                     >
                       Cancel
@@ -2103,7 +2116,7 @@ export default component$(() => {
                     </Link>
                     <button
                       type="button"
-                      onClick$={() => (newFolderOpen.value = true)}
+                      onClick$={() => (newFolderIn.value = dir)}
                       class={[
                         buttonSecondary,
                         "min-w-fit whitespace-nowrap max-sm:flex-1",
