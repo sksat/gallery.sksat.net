@@ -624,6 +624,35 @@ test("a photo opened while the view reloads after an upload stays open", async (
   ).toHaveCount(0);
 });
 
+test("the New folder form stays open while the view reloads after an upload", async ({
+  page,
+}) => {
+  await newFolder(page, "/mock", "up-new-folder");
+  // The reload when the batch ends answers only once the form is open
+  // and has a name in it.
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  await page.route(/qaction=/, async (route) => {
+    await released;
+    await route.continue();
+  });
+  const reloaded = page.waitForResponse(/qaction=/);
+  await page
+    .getByTestId("upload-input")
+    .setInputFiles([png("a.png", "up-new-folder/a")]);
+  await expect(
+    page.getByTestId("upload-panel").getByRole("heading"),
+  ).toHaveText("1 件アップロードしました");
+  await page.getByRole("button", { name: "New folder" }).click();
+  await page.getByLabel("Folder name").fill("half");
+  release();
+  await (await reloaded).finished();
+  await expect(
+    page.getByRole("option", { name: "a.png", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Folder name")).toHaveValue("half");
+});
+
 /** A tiny synthetic image from src/lib/fixtures (Pillow, no real photo). */
 const fixture = (name: string, mimeType: string) => ({
   name,

@@ -72,6 +72,11 @@ export default defineConfig({
     stderr: "pipe",
   },
   expect: {
+    // Qwik loads a handler's code on the first interaction, from wrangler
+    // pages dev, whose static files once took 4.8 s on a CI runner (all
+    // the requests in that window answered at once): the default 5 s,
+    // counted from the click, was then too short for its result.
+    timeout: 10_000,
     toHaveScreenshot: {
       maxDiffPixelRatio: 0.01,
     },
