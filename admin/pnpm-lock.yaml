@@ -219,8 +219,8 @@ importers:
         specifier: 6.19.0
         version: 6.19.0
       simple-icons:
-        specifier: 16.38.0
-        version: 16.38.0
+        specifier: 16.38.1
+        version: 16.38.1
       tailwindcss:
         specifier: ^4.3.5
         version: 4.3.5
@@ -1786,8 +1786,8 @@ packages:
     resolution: {integrity: sha512-PcByqNyT/38F2kDNi006HAMRJaULuBzq/FOsw3qdZvX/GA9W/jamDaRskgHjubHiftXK5sIFxLNkvrXUwcof6Q==}
     engines: {node: '>= 0.4'}
 
-  simple-icons@16.38.0:
-    resolution: {integrity: sha512-B0Wws90eL0Fm65aH35CA8kM+7/Zzgsaytt0DndBx7VFm3+o9HurVIVRQZ1hvqqYYIyNJq7ycn3kQm2v2FhiWSQ==}
+  simple-icons@16.38.1:
+    resolution: {integrity: sha512-q4JnGp1cgeASp4jzEsmSh/7BD/e2y7aYO8XST+QBEvOJ5wzZ/9WRmKsI+QUwkfPUSiXC+sfh2+QetD38zl3N0g==}
     engines: {node: '>=0.12.18'}
 
   source-map-js@1.2.2:
@@ -3746,7 +3746,7 @@ snapshots:
 
   shell-quote@1.12.0: {}
 
-  simple-icons@16.38.0: {}
+  simple-icons@16.38.1: {}
 
   source-map-js@1.2.2: {}
 
